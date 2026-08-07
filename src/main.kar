@@ -1,0 +1,22 @@
+func main() {
+    print("=== Self-Hosted Karkain Compiler (Phase 3 Suite) ===")
+    let inputPath = "examples/array_test.kar"
+    let source = readFile(inputPath)
+    print("Reading target source file: " + inputPath)
+    print("Source Code Length: " + len(source))
+
+    print("Step 1: Tokenizing source code...")
+    let tokens = tokenize(source)
+    print("Token count: " + len(tokens))
+
+    print("Step 2: Parsing token stream into AST...")
+    let ast = parseTokens(tokens)
+    print("AST Root node: " + ast[0])
+
+    print("Step 3: Transpiling AST into C99 code...")
+    let cCode = generateC(ast)
+
+    let outputPath = "temp_runner.c"
+    writeFile(outputPath, cCode)
+    print("Compilation successful! Emitted C99 code saved to " + outputPath)
+}

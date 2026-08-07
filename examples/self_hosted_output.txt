@@ -1,0 +1,1 @@
+package main\n\nimport \"fmt\"\n\nfunc main() {\n\tx := int64(42)\n\tfmt.Println(x)\n}\n

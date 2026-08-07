@@ -1,0 +1,6 @@
+func main() {
+    print("--- Karkain Arithmetic Test ---")
+    print(100 - 45)
+    print(12 * 12)
+    print(50 / 2)
+}

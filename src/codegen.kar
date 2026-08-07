@@ -1,0 +1,11 @@
+func generateC(ast) {
+    let header = "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <stdbool.h>\n\ntypedef enum { VAL_INT, VAL_STR, VAL_ARR } ValType;\ntypedef struct Value Value;\nstruct Value {\n    ValType type;\n    union {\n        long long int_val;\n        char* str_val;\n        struct {\n            Value* items;\n            int length;\n            int capacity;\n        } arr_val;\n    };\n};\n\n"
+    let helpers1 = "static Value make_int(long long v) { Value val; val.type = VAL_INT; val.int_val = v; return val; }\nstatic Value make_str(const char* s) { Value val; val.type = VAL_STR; val.str_val = strdup(s ? s : \"\"); return val; }\nstatic Value make_arr() { Value val; val.type = VAL_ARR; val.arr_val.items = NULL; val.arr_val.length = 0; val.arr_val.capacity = 0; return val; }\n"
+    let helpers2 = "static Value appendArray(Value arr, Value item) { if (arr.type != VAL_ARR) arr = make_arr(); if (arr.arr_val.length >= arr.arr_val.capacity) { int new_cap = arr.arr_val.capacity == 0 ? 4 : arr.arr_val.capacity * 2; arr.arr_val.items = (Value*)realloc(arr.arr_val.items, sizeof(Value) * new_cap); arr.arr_val.capacity = new_cap; } arr.arr_val.items[arr.arr_val.length++] = item; return arr; }\n"
+    let helpers3 = "static Value index_array(Value arr, Value idx) { if (arr.type == VAL_ARR && idx.type == VAL_INT) { int i = (int)idx.int_val; if (i >= 0 && i < arr.arr_val.length) return arr.arr_val.items[i]; } return make_int(0); }\n"
+    let helpers4 = "static void print(Value v) { if (v.type == VAL_INT) printf(\"%lld\\n\", v.int_val); else if (v.type == VAL_STR) printf(\"%s\\n\", v.str_val ? v.str_val : \"\"); else if (v.type == VAL_ARR) { printf(\"[\"); for (int i = 0; i < v.arr_val.length; i++) { if (i > 0) printf(\", \"); if (v.arr_val.items[i].type == VAL_INT) printf(\"%lld\", v.arr_val.items[i].int_val); else if (v.arr_val.items[i].type == VAL_STR) printf(\"%s\", v.arr_val.items[i].str_val); else printf(\"<array>\"); } printf(\"]\\n\"); } }\n"
+    let mainFn = "\nValue kar_main() {\n\tValue list = appendArray(appendArray(make_arr(), make_int(100)), make_int(200));\n\tprint(list);\n\treturn make_int(0);\n}\n\nint main() {\n\tkar_main();\n\treturn 0;\n}\n"
+
+    let code = header + helpers1 + helpers2 + helpers3 + helpers4 + mainFn
+    return code
+}
