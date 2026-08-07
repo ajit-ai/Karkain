@@ -1,0 +1,22 @@
+func computeSum(a, b) {
+    let result = a + b
+    if (result > 50) {
+        print("Sum exceeds 50")
+    } else {
+        print("Sum within 50 limit")
+    }
+    return result
+}
+
+func main() {
+    print("=== Karkain Phase 4 Native C99 Execution Test ===")
+    let total = computeSum(30, 25)
+    print("Total computed sum:")
+    print(total)
+    
+    let arr = [10, 20, total]
+    print("Native array index lookup arr[2]:")
+    print(arr[2])
+    print("Native array length:")
+    print(len(arr))
+}
