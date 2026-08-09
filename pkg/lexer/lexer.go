@@ -13,6 +13,14 @@ const (
 	TokenReturn TokenType = "RETURN"
 	TokenIf     TokenType = "IF"
 	TokenElse   TokenType = "ELSE"
+	TokenTypeKw TokenType = "TYPE"
+	TokenStruct  TokenType = "STRUCT"
+	TokenDelete  TokenType = "DELETE"
+	TokenHasKey  TokenType = "HASKEY"
+	TokenImport  TokenType = "IMPORT"
+	TokenVar     TokenType = "VAR"
+	TokenMatrix  TokenType = "MATRIX"
+	TokenPrintln TokenType = "PRINTLN"
 
 	// Literals & Identifiers
 	TokenIdent  TokenType = "IDENT"
@@ -36,6 +44,8 @@ const (
 	TokenLBracket TokenType = "["
 	TokenRBracket TokenType = "]"
 	TokenComma    TokenType = ","
+	TokenColon    TokenType = ":"
+	TokenDot      TokenType = "."
 )
 
 type Token struct {
@@ -94,6 +104,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{Type: TokenRBracket, Literal: "]", Line: l.line}
 	case ',':
 		tok = Token{Type: TokenComma, Literal: ",", Line: l.line}
+	case ':':
+		tok = Token{Type: TokenColon, Literal: ":", Line: l.line}
 	case '=':
 		if l.peekChar() == '=' {
 			ch := l.ch
@@ -114,6 +126,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{Type: TokenStar, Literal: "*", Line: l.line}
 	case '/':
 		tok = Token{Type: TokenSlash, Literal: "/", Line: l.line}
+	case '.':
+		tok = Token{Type: TokenDot, Literal: ".", Line: l.line}
 	case '"':
 		tok.Type = TokenString
 		tok.Literal = l.readString()
@@ -137,13 +151,23 @@ func (l *Lexer) NextToken() Token {
 }
 
 func (l *Lexer) skipWhitespace() {
-	for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
-		if l.ch == '\n' {
-			l.line++
+	for {
+		if l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
+			if l.ch == '\n' {
+				l.line++
+			}
+			l.readChar()
+		} else if l.ch == '/' && l.peekChar() == '/' {
+			// Skip comment until end of line
+			for l.ch != '\n' && l.ch != 0 {
+				l.readChar()
+			}
+		} else {
+			break
 		}
-		l.readChar()
 	}
 }
+
 
 func (l *Lexer) readIdentifier() string {
 	pos := l.position
@@ -203,6 +227,22 @@ func lookupIdent(ident string) TokenType {
 		return TokenIf
 	case "else":
 		return TokenElse
+	case "type":
+		return TokenTypeKw
+	case "struct":
+		return TokenStruct
+	case "delete":
+		return TokenDelete
+	case "hasKey":
+		return TokenHasKey
+	case "import":
+		return TokenImport
+	case "var":
+		return TokenVar
+	case "matrix":
+		return TokenMatrix
+	case "println":
+		return TokenPrintln
 	default:
 		return TokenIdent
 	}

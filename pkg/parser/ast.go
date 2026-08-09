@@ -25,6 +25,16 @@ type ExprStmt struct {
 	Expression Node
 }
 
+type AssignStmt struct {
+	Name  string
+	Value Node
+}
+
+type DeleteStmt struct {
+	Map Node
+	Key Node
+}
+
 type IfStmt struct {
 	Condition   Node
 	Consequence []Node
@@ -70,4 +80,31 @@ type BinaryExpr struct {
 type CallExpr struct {
 	Function string
 	Args     []Node
+}
+
+type StructDecl struct {
+	Name   string
+	Fields []*StructField
+}
+
+type StructField struct {
+	Name string
+	Type string
+}
+
+type StructLiteral struct {
+	TypeName string
+	Fields   map[string]Node
+}
+
+type FieldAccess struct {
+	Left  Node
+	Field string
+}
+
+// FieldAssignStmt represents `expr.field = value` (struct field mutation).
+type FieldAssignStmt struct {
+	Object Node
+	Field  string
+	Value  Node
 }
