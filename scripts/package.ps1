@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 # Force-kill any running instances locking karkain.exe
 Stop-Process -Name "karkain" -Force -ErrorAction SilentlyContinue
 
-$Version = "v0.6.0"
+$Version = "v0.9.0"
 $DistDir = "dist"
 $StageDir = Join-Path $DistDir "karkain-$Version-windows-amd64"
 $ZipPath = Join-Path $DistDir "karkain-$Version-windows-amd64.zip"

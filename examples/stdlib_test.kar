@@ -1,0 +1,48 @@
+func main() {
+    print("=== Phase 10: Standard Library Modules Test ===")
+
+    // std/file
+    let testFile = "examples/stdlib_temp.txt"
+    let content = "   Hello Karkain Standard Library!   "
+    writeFile(testFile, content)
+    let readBack = readFile(testFile)
+
+    print("File read back:")
+    print(readBack)
+
+    // std/str
+    let trimmed = trim(readBack)
+    print("Trimmed:")
+    print(trimmed)
+
+    print("Contains 'Karkain':")
+    print(contains(trimmed, "Karkain"))
+
+    print("Contains 'Rust':")
+    print(contains(trimmed, "Rust"))
+
+    let parts = split(trimmed, " ")
+    print("Split parts length:")
+    print(len(parts))
+    print("Part 0:")
+    print(parts[0])
+    print("Part 1:")
+    print(parts[1])
+    print("Part 2:")
+    print(parts[2])
+    print("Part 3:")
+    print(parts[3])
+
+    // std/math
+    let num = 25
+    let negativeNum = -100
+
+    print("sqrt(25):")
+    print(sqrt(num))
+
+    print("abs(-100):")
+    print(abs(negativeNum))
+
+    print("pow(5, 3):")
+    print(pow(5, 3))
+}

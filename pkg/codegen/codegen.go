@@ -18,16 +18,28 @@ type Config struct {
 }
 
 type Generator struct {
-	cfg Config
+	cfg           Config
+	structRegistry map[string]*parser.StructDecl // name → decl
 }
 
 func New(cfg Config) *Generator {
-	return &Generator{cfg: cfg}
+	return &Generator{cfg: cfg, structRegistry: map[string]*parser.StructDecl{}}
 }
 
 func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
 	cCode := g.generateCHeader()
 
+	// First pass: collect all struct declarations and emit their C typedefs
+	var structDefs strings.Builder
+	for _, stmt := range prog.Statements {
+		if sd, ok := stmt.(*parser.StructDecl); ok {
+			g.structRegistry[sd.Name] = sd
+			structDefs.WriteString(g.genStructDecl(sd))
+		}
+	}
+	cCode += structDefs.String()
+
+	// Second pass: emit function definitions
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
 			cCode += g.genFuncDecl(fn)
@@ -106,6 +118,8 @@ func (g *Generator) generateCHeader() string {
 	return `#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+#include <ctype.h>
 
 typedef enum { TYPE_INT, TYPE_STRING, TYPE_ARRAY, TYPE_MAP } ValueType;
 
@@ -307,7 +321,106 @@ int is_truthy(Value* v) {
     return 0;
 }
 
+void map_delete(Value* m, Value* k) {
+    if (!m || m->type != TYPE_MAP) return;
+    for (int i = 0; i < m->mapVal.length; i++) {
+        if (values_equal(m->mapVal.keys[i], k)) {
+            for (int j = i; j < m->mapVal.length - 1; j++) {
+                m->mapVal.keys[j]   = m->mapVal.keys[j+1];
+                m->mapVal.values[j] = m->mapVal.values[j+1];
+            }
+            m->mapVal.length--;
+            return;
+        }
+    }
+}
+
+Value* map_has(Value* m, Value* k) {
+    if (!m || m->type != TYPE_MAP) return make_int(0);
+    for (int i = 0; i < m->mapVal.length; i++) {
+        if (values_equal(m->mapVal.keys[i], k)) return make_int(1);
+    }
+    return make_int(0);
+}
+
+Value* karkain_split(Value* s, Value* sep) {
+    Value* arr = make_array();
+    if (!s || s->type != TYPE_STRING || !sep || sep->type != TYPE_STRING) {
+        return arr;
+    }
+    char* src = strdup(s->strVal);
+    char* token = strtok(src, sep->strVal);
+    while (token != NULL) {
+        array_push(arr, make_string(token));
+        token = strtok(NULL, sep->strVal);
+    }
+    free(src);
+    return arr;
+}
+
+Value* karkain_contains(Value* s, Value* substr) {
+    if (!s || s->type != TYPE_STRING || !substr || substr->type != TYPE_STRING) {
+        return make_int(0);
+    }
+    return make_int(strstr(s->strVal, substr->strVal) != NULL);
+}
+
+Value* karkain_trim(Value* s) {
+    if (!s || s->type != TYPE_STRING) {
+        return make_string("");
+    }
+    char* start = s->strVal;
+    while (*start && isspace((unsigned char)*start)) {
+        start++;
+    }
+    char* end = start + strlen(start) - 1;
+    while (end > start && isspace((unsigned char)*end)) {
+        end--;
+    }
+    int len = (end >= start) ? (int)(end - start + 1) : 0;
+    char* res = (char*)malloc(len + 1);
+    memcpy(res, start, len);
+    res[len] = '\0';
+    Value* val = make_string(res);
+    free(res);
+    return val;
+}
+
+Value* karkain_sqrt(Value* x) {
+    if (!x || x->type != TYPE_INT) return make_int(0);
+    return make_int((long long)sqrt((double)x->intVal));
+}
+
+Value* karkain_pow(Value* x, Value* y) {
+    if (!x || x->type != TYPE_INT || !y || y->type != TYPE_INT) return make_int(0);
+    return make_int((long long)pow((double)x->intVal, (double)y->intVal));
+}
+
+Value* karkain_abs(Value* x) {
+    if (!x || x->type != TYPE_INT) return make_int(0);
+    return make_int(x->intVal < 0 ? -x->intVal : x->intVal);
+}
+
 `
+}
+
+// genStructDecl emits a C typedef struct for the given struct declaration.
+func (g *Generator) genStructDecl(sd *parser.StructDecl) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("typedef struct %s {\n", sd.Name))
+	for _, f := range sd.Fields {
+		switch f.Type {
+		case "int":
+			sb.WriteString(fmt.Sprintf("    long long %s;\n", f.Name))
+		case "string":
+			sb.WriteString(fmt.Sprintf("    char* %s;\n", f.Name))
+		default:
+			// Unknown / nested struct type — use a Value* pointer for flexibility
+			sb.WriteString(fmt.Sprintf("    Value* %s;\n", f.Name))
+		}
+	}
+	sb.WriteString(fmt.Sprintf("} %s;\n\n", sd.Name))
+	return sb.String()
 }
 
 func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
@@ -339,13 +452,23 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 func (g *Generator) genStatement(stmt parser.Node) string {
 	switch node := stmt.(type) {
 	case *parser.VarDeclStmt:
+		// Check if initialiser is a StructLiteral → emit typed pointer
+		if sl, ok := node.Value.(*parser.StructLiteral); ok {
+			return fmt.Sprintf("\t%s* %s = %s;\n", sl.TypeName, node.Name, g.genExpr(node.Value))
+		}
 		return fmt.Sprintf("\tValue* %s = %s;\n", node.Name, g.genExpr(node.Value))
+	case *parser.AssignStmt:
+		return fmt.Sprintf("\t%s = %s;\n", node.Name, g.genExpr(node.Value))
+	case *parser.FieldAssignStmt:
+		return fmt.Sprintf("\t%s->%s = %s;\n", g.genExpr(node.Object), node.Field, g.genStructFieldRHS(node.Field, node.Object, node.Value))
 	case *parser.ReturnStmt:
 		return fmt.Sprintf("\treturn %s;\n", g.genExpr(node.Value))
 	case *parser.PrintStmt:
-		return fmt.Sprintf("\tprint_value(%s);\n", g.genExpr(node.Value))
+		return g.genPrintStmt(node)
 	case *parser.ExprStmt:
 		return fmt.Sprintf("\t%s;\n", g.genExpr(node.Expression))
+	case *parser.DeleteStmt:
+		return fmt.Sprintf("\tmap_delete(%s, %s);\n", g.genExpr(node.Map), g.genExpr(node.Key))
 	case *parser.IfStmt:
 		res := fmt.Sprintf("\tif (is_truthy(%s)) {\n", g.genExpr(node.Condition))
 		for _, cStmt := range node.Consequence {
@@ -363,6 +486,65 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		return res
 	}
 	return ""
+}
+
+// genPrintStmt handles print — if the argument is a FieldAccess on a struct, emit the right printf.
+func (g *Generator) genPrintStmt(node *parser.PrintStmt) string {
+	if fa, ok := node.Value.(*parser.FieldAccess); ok {
+		if fieldType := g.lookupFieldType(fa); fieldType != "" {
+			switch fieldType {
+			case "int":
+				return fmt.Sprintf("\tprintf(\"%%lld\\n\", %s->%s); fflush(stdout);\n", g.genExpr(fa.Left), fa.Field)
+			case "string":
+				return fmt.Sprintf("\tprintf(\"%%s\\n\", %s->%s); fflush(stdout);\n", g.genExpr(fa.Left), fa.Field)
+			}
+		}
+	}
+	return fmt.Sprintf("\tprint_value(%s);\n", g.genExpr(node.Value))
+}
+
+// lookupFieldType resolves the declared C type of a struct field from the registry.
+func (g *Generator) lookupFieldType(fa *parser.FieldAccess) string {
+	var typeName string
+	switch obj := fa.Left.(type) {
+	case *parser.Identifier:
+		// We don't have a variable-to-type mapping, so scan the registry for this field name
+		_ = obj
+		for _, sd := range g.structRegistry {
+			for _, f := range sd.Fields {
+				if f.Name == fa.Field {
+					return f.Type
+				}
+			}
+		}
+	}
+	_ = typeName
+	return ""
+}
+
+// genStructFieldRHS generates the RHS for a field assignment, converting to the right C type.
+func (g *Generator) genStructFieldRHS(fieldName string, obj parser.Node, val parser.Node) string {
+	// Find the field type in the registry
+	for _, sd := range g.structRegistry {
+		for _, f := range sd.Fields {
+			if f.Name == fieldName {
+				switch f.Type {
+				case "int":
+					// If the value is an IntLiteral or expression returning Value*, unwrap it
+					if il, ok := val.(*parser.IntLiteral); ok {
+						return il.Value
+					}
+					return g.genExpr(val) + "->intVal"
+				case "string":
+					if sl, ok := val.(*parser.StringLiteral); ok {
+						return fmt.Sprintf("%q", sl.Value)
+					}
+					return g.genExpr(val) + "->strVal"
+				}
+			}
+		}
+	}
+	return g.genExpr(val)
 }
 
 func (g *Generator) genExpr(node parser.Node) string {
@@ -395,18 +577,85 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Function == "len" {
 			return fmt.Sprintf("karkain_len(%s)", g.genExpr(n.Args[0]))
 		}
+		if n.Function == "delete" {
+			return fmt.Sprintf("(map_delete(%s, %s), make_int(0))", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "hasKey" {
+			return fmt.Sprintf("map_has(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "push" {
+			return fmt.Sprintf("(array_push(%s, %s), make_int(0))", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
 		if n.Function == "readFile" {
 			return fmt.Sprintf("karkain_readFile(%s)", g.genExpr(n.Args[0]))
 		}
 		if n.Function == "writeFile" {
-			// CORRECT (Two separate calls to g.genExpr)
 			return fmt.Sprintf("karkain_writeFile(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "split" {
+			return fmt.Sprintf("karkain_split(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "contains" {
+			return fmt.Sprintf("karkain_contains(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "trim" {
+			return fmt.Sprintf("karkain_trim(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "sqrt" {
+			return fmt.Sprintf("karkain_sqrt(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "pow" {
+			return fmt.Sprintf("karkain_pow(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "abs" {
+			return fmt.Sprintf("karkain_abs(%s)", g.genExpr(n.Args[0]))
 		}
 		args := []string{}
 		for _, arg := range n.Args {
 			args = append(args, g.genExpr(arg))
 		}
 		return fmt.Sprintf("%s(%s)", n.Function, strings.Join(args, ", "))
+	case *parser.FieldAccess:
+		// Struct field read — detect the field type to emit the right accessor
+		if fieldType := g.lookupFieldType(n); fieldType != "" {
+			switch fieldType {
+			case "int":
+				return fmt.Sprintf("make_int(%s->%s)", g.genExpr(n.Left), n.Field)
+			case "string":
+				return fmt.Sprintf("make_string(%s->%s)", g.genExpr(n.Left), n.Field)
+			}
+		}
+		// Fallback: raw pointer field access
+		return fmt.Sprintf("%s->%s", g.genExpr(n.Left), n.Field)
+	case *parser.StructLiteral:
+		sd, ok := g.structRegistry[n.TypeName]
+		if !ok {
+			return "NULL"
+		}
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("((%s*)({ %s* _s = (%s*)calloc(1, sizeof(%s));", n.TypeName, n.TypeName, n.TypeName, n.TypeName))
+		for _, f := range sd.Fields {
+			if val, found := n.Fields[f.Name]; found {
+				switch f.Type {
+				case "int":
+					if il, ok2 := val.(*parser.IntLiteral); ok2 {
+						sb.WriteString(fmt.Sprintf(" _s->%s = %s;", f.Name, il.Value))
+					} else {
+						sb.WriteString(fmt.Sprintf(" _s->%s = %s->intVal;", f.Name, g.genExpr(val)))
+					}
+				case "string":
+					if sl, ok2 := val.(*parser.StringLiteral); ok2 {
+						sb.WriteString(fmt.Sprintf(" _s->%s = %q;", f.Name, sl.Value))
+					} else {
+						sb.WriteString(fmt.Sprintf(" _s->%s = %s->strVal;", f.Name, g.genExpr(val)))
+					}
+				default:
+					sb.WriteString(fmt.Sprintf(" _s->%s = %s;", f.Name, g.genExpr(val)))
+				}
+			}
+		}
+		sb.WriteString(" _s; }))")
+		return sb.String()
 	}
 	return "make_int(0)"
 }
