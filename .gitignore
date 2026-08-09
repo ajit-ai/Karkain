@@ -9,6 +9,8 @@ build/
 out/
 .next/
 .nuxt/
+.release/
+.scripts/
 
 # Environment variables and secrets (NEVER commit these)
 .env
