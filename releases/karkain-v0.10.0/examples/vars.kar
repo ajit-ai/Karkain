@@ -1,0 +1,6 @@
+func main() {
+    let score = 50
+    let bonus = 25
+    print("Total Score:")
+    print(score + bonus)
+}

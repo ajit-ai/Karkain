@@ -1,0 +1,74 @@
+{
+  "name": "Karkain",
+  "scopeName": "source.karkain",
+  "patterns": [
+    {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.karkain"
+    },
+    {
+      "match": "\\b(func|var|let|type|struct|import|alloc|free|matrix|addr|deref|if|else|return|print|int|float64|string|bool|true|false)\\b",
+      "name": "keyword.control.karkain"
+    },
+    {
+      "match": "\\b\\d+\\.\\d+\\b",
+      "name": "constant.numeric.float.karkain"
+    },
+    {
+      "match": "\\b\\d+\\b",
+      "name": "constant.numeric.integer.karkain"
+    },
+    {
+      "match": "\".*?\"",
+      "name": "string.quoted.double.karkain"
+    },
+    {
+      "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
+      "name": "entity.name.function.karkain"
+    },
+    {
+      "match": "\\+|\\-|\\*|\\/|=|==|!=|<|>|&&|\\|\\|",
+      "name": "keyword.operator.karkain"
+    },
+    {
+      "match": "\\(|\\)|\\{|\\}|\\[|\\]|,|\\.|:",
+      "name": "punctuation.bracket.karkain"
+    },
+    {
+      "match": "\\*\\w+",
+      "name": "storage.type.pointer.karkain"
+    },
+    {
+      "match": "matrix\\[\\d+,\\s*\\d+\\]",
+      "name": "storage.type.matrix.karkain"
+    }
+  ],
+  "repository": {
+    "patterns": [
+      {
+        "name": "function.definition",
+        "begin": "\\b(func)\\b",
+        "beginCaptures": ["keyword.control.karkain"],
+        "end": "\\{",
+        "patterns": [
+          {
+            "name": "function.name",
+            "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+          }
+        ]
+      },
+      {
+        "name": "variable.declaration",
+        "begin": "\\b(var|let)\\b",
+        "beginCaptures": ["keyword.control.karkain"],
+        "end": "=",
+        "patterns": [
+          {
+            "name": "variable.name",
+            "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+          }
+        ]
+      }
+    ]
+  }
+}

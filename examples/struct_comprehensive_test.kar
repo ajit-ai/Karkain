@@ -1,0 +1,51 @@
+// Comprehensive struct test
+type Person struct {
+    name string
+    age int
+}
+
+type Rectangle struct {
+    width int
+    height int
+}
+
+type Nested struct {
+    person Person
+    rect Rectangle
+}
+
+func main() {
+    print("=== Struct Declaration and Instantiation ===")
+    
+    // Test basic struct
+    let p = Person{name: "Alice", age: 30}
+    print("Person name:")
+    print(p.name)
+    print("Person age:")
+    print(p.age)
+    
+    // Test field assignment
+    print("\n=== Field Assignment ===")
+    p.name = "Bob"
+    p.age = 35
+    print("Updated name:")
+    print(p.name)
+    print("Updated age:")
+    print(p.age)
+    
+    // Test nested struct
+    print("\n=== Nested Struct ===")
+    let rect = Rectangle{width: 10, height: 20}
+    let nested = Nested{person: p, rect: rect}
+    
+    print("Nested person name:")
+    print(nested.person.name)
+    print("Nested rectangle width:")
+    print(nested.rect.width)
+    
+    // Test arithmetic with struct fields
+    print("\n=== Struct Field Arithmetic ===")
+    let area = nested.rect.width * nested.rect.height
+    print("Rectangle area:")
+    print(area)
+}

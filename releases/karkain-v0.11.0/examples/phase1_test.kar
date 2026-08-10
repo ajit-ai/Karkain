@@ -1,0 +1,13 @@
+func checkValue(x) {
+    if (x > 10) {
+        print("Above threshold")
+    } else {
+        print("Below or equal to threshold")
+    }
+    return 0
+}
+
+func main() {
+    let score = 15
+    checkValue(score)
+}

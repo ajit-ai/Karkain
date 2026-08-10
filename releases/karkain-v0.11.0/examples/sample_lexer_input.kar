@@ -1,0 +1,5 @@
+func main() {
+    let x = 42
+    var mat = matrix[2,2]float64
+    print(x)
+}
