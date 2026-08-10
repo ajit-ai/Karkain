@@ -1,0 +1,11 @@
+func main() {
+    var x int = 42
+    print(x)
+    var mat = matrix[2,2]float64
+    mat[0,0] = 1.0
+    mat[0,1] = 2.0
+    mat[1,0] = 3.0
+    mat[1,1] = 4.0
+    print(64)
+    print(100)
+}

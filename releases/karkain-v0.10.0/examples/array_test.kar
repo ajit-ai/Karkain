@@ -1,0 +1,17 @@
+func main() {
+    let sampleText = "Karkain Phase 2 Test Data"
+    writeFile("examples/test_output.txt", sampleText)
+    
+    let content = readFile("examples/test_output.txt")
+    let list = [100, 200, 300]
+    let updated_list = appendArray(list, content)
+    
+    print("Array elements:")
+    print(updated_list[0])
+    print(updated_list[1])
+    print(updated_list[2])
+    print(updated_list[3])
+    
+    print("Array length:")
+    print(len(updated_list))
+}

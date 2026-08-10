@@ -4,6 +4,7 @@ type Node interface{}
 
 type Program struct {
 	Statements []Node
+	CImports   []*CImportBlock // C import blocks for codegen
 }
 
 type FuncDecl struct {
@@ -13,8 +14,10 @@ type FuncDecl struct {
 }
 
 type VarDeclStmt struct {
-	Name  string
-	Value Node
+	Name     string
+	Value    Node
+	Type     string // Optional type information (e.g., "*int")
+	IsMatrix bool   // True if this is a matrix declaration
 }
 
 type ReturnStmt struct {
@@ -23,16 +26,6 @@ type ReturnStmt struct {
 
 type ExprStmt struct {
 	Expression Node
-}
-
-type AssignStmt struct {
-	Name  string
-	Value Node
-}
-
-type DeleteStmt struct {
-	Map Node
-	Key Node
 }
 
 type IfStmt struct {
@@ -50,6 +43,10 @@ type StringLiteral struct {
 }
 
 type IntLiteral struct {
+	Value string
+}
+
+type Float64Literal struct {
 	Value string
 }
 
@@ -80,31 +77,89 @@ type BinaryExpr struct {
 type CallExpr struct {
 	Function string
 	Args     []Node
+	IsCFunc  bool // True if this is a C function call (e.g., C.sqrt)
 }
 
-type StructDecl struct {
-	Name   string
-	Fields []*StructField
+// Phase 11: Native C Interop, Raw Pointers, and Continuous Matrix Memory Layouts
+
+type CImportBlock struct {
+	Content string // Raw C code between { }
 }
 
-type StructField struct {
-	Name string
-	Type string
+type PointerType struct {
+	BaseType string // e.g., "int", "float64"
 }
 
-type StructLiteral struct {
-	TypeName string
-	Fields   map[string]Node
+type AddressOf struct {
+	Operand Node
 }
 
-type FieldAccess struct {
+type Dereference struct {
+	Operand Node
+}
+
+type AllocExpr struct {
+	Type  string // e.g., "int", "float64"
+	Count Node   // Number of elements
+}
+
+type FreeExpr struct {
+	Ptr Node
+}
+
+type MatrixDecl struct {
+	Rows     Node
+	Cols     Node
+	DataType string // e.g., "float64", "int"
+}
+
+type MatrixIndexExpr struct {
+	Matrix Node
+	Row    Node
+	Col    Node
+}
+
+type DotExpr struct {
 	Left  Node
-	Field string
+	Right string // The field/method name
 }
 
-// FieldAssignStmt represents `expr.field = value` (struct field mutation).
-type FieldAssignStmt struct {
-	Object Node
-	Field  string
-	Value  Node
+// Phase 14: Quantum Computing AST Nodes
+
+type QRegDeclStmt struct {
+	Name   string
+	Qubits Node // Number of qubits
+}
+
+type GateApplyStmt struct {
+	Gate    string // "H", "X", "CNOT", etc.
+	Target  Node   // Target qubit(s)
+	Control Node   // Control qubit (for CNOT), nil for single-qubit gates
+	Params  []Node // Additional parameters (rotation angles, etc.)
+}
+
+type MeasureExpr struct {
+	Qubit Node // Qubit to measure
+}
+
+// Phase 16: Actor-based distributed concurrency AST nodes
+type ActorDeclStmt struct {
+	Name   string
+	Params []string
+	Body   []Node
+}
+
+type SpawnExpr struct {
+	ActorName string
+	Args      []Node
+}
+
+type ReceiveStmt struct {
+	Channel Node
+	VarName string
+}
+
+type SendExpr struct {
+	Channel Node
+	Message Node
 }
