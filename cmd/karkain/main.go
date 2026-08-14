@@ -366,6 +366,13 @@ func main() {
 		fmt.Printf("=== [Verbose] Parsed AST Statements count: %d ===\n", len(ast.Statements))
 	}
 
+	// Phase 17: Apply macro expansion before code generation
+	expandedAST := parser.ApplyMacroExpansion(ast)
+	if cfg.Verbose {
+		fmt.Printf("=== [Verbose] After Macro Expansion Statements count: %d ===\n", len(expandedAST.Statements))
+	}
+	ast = expandedAST
+
 	// Set execution mode flags on cfg
 	cfg.RunAfter = (command != "build")
 	if command == "build" {

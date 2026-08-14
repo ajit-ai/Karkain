@@ -36,6 +36,12 @@ const (
 	TokenChannel TokenType = "CHANNEL"
 	TokenSend    TokenType = "SEND"
 
+	// Metaprogramming Keywords (Phase 17)
+	TokenMacro    TokenType = "MACRO"
+	TokenQuote    TokenType = "QUOTE"
+	TokenUnquote  TokenType = "UNQUOTE"
+	TokenComptime TokenType = "COMPTIME"
+
 	// Literals & Identifiers
 	TokenIdent   TokenType = "IDENT"
 	TokenInt     TokenType = "INT"
@@ -60,6 +66,7 @@ const (
 	TokenRBracket TokenType = "]"
 	TokenComma    TokenType = ","
 	TokenDot      TokenType = "."
+	TokenAt       TokenType = "@"
 )
 
 type Token struct {
@@ -125,6 +132,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{Type: TokenComma, Literal: ",", Line: l.Line}
 	case '.':
 		tok = Token{Type: TokenDot, Literal: ".", Line: l.Line}
+	case '@':
+		tok = Token{Type: TokenAt, Literal: "@", Line: l.Line}
 	case '=':
 		if l.peekChar() == '=' {
 			ch := l.Ch
@@ -316,6 +325,14 @@ func lookupIdent(ident string) TokenType {
 		return TokenChannel
 	case "send":
 		return TokenSend
+	case "macro":
+		return TokenMacro
+	case "quote":
+		return TokenQuote
+	case "unquote":
+		return TokenUnquote
+	case "comptime":
+		return TokenComptime
 	default:
 		return TokenIdent
 	}
