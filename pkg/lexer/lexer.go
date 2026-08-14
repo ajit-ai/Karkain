@@ -67,7 +67,28 @@ const (
 	TokenComma    TokenType = ","
 	TokenDot      TokenType = "."
 	TokenAt       TokenType = "@"
+
+		// Add new token constants
+	TOKEN_MACRO    = "MACRO"
+	TOKEN_QUOTE    = "QUOTE"
+	TOKEN_UNQUOTE  = "UNQUOTE"
+	TOKEN_COMPTIME = "COMPTIME"
+	TOKEN_DERIVE   = "DERIVE"
+	TOKEN_TAG      = "TAG"
+
 )
+
+	// Register keywords in lexer map
+    var keywords = map[string]TokenType{
+    "macro":    TOKEN_MACRO,
+    "quote":    TOKEN_QUOTE,
+    "unquote":  TOKEN_UNQUOTE,
+    "comptime": TOKEN_COMPTIME,
+}
+
+
+
+
 
 type Token struct {
 	Type    TokenType

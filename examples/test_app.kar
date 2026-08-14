@@ -1,0 +1,6 @@
+func main() {
+    println("=== Karkain System Test ===")
+    var x int = 40
+    var y int = 2
+    println("Result: ", x + y)
+}
