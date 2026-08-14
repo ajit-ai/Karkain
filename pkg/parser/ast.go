@@ -163,3 +163,49 @@ type SendExpr struct {
 	Channel Node
 	Message Node
 }
+
+// Phase 17: Metaprogramming AST nodes
+
+type MacroDeclStmt struct {
+	Name       string
+	Params     []string
+	Body       []Node
+	IsHygienic bool // For hygiene tracking
+}
+
+type MacroExpandExpr struct {
+	MacroName string
+	Args      []Node
+}
+
+type QuoteExpr struct {
+	Expr Node // Quoted AST node
+}
+
+type UnquoteExpr struct {
+	Expr Node // Unquoted expression to be evaluated
+}
+
+type ComptimeStmt struct {
+	Body []Node // Code executed at compile time
+}
+
+type ComptimeExpr struct {
+	Expr Node // Expression evaluated at compile time
+}
+
+type ReflectTypeExpr struct {
+	TypeExpr Node // Type to reflect on
+}
+
+type DeriveExpr struct {
+	Trait  string // e.g., "JsonSerializable"
+	Target Node   // Target struct/type
+	Args   []Node // Additional arguments
+}
+
+type TagExpr struct {
+	Target   Node   // Target field/struct
+	TagName  string // Tag name
+	TagValue string // Tag value
+}

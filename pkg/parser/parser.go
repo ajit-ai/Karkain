@@ -42,6 +42,10 @@ func (p *Parser) ParseProgram() *Program {
 			if stmt := p.parseActor(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
+		} else if p.curToken.Type == lexer.TokenMacro {
+			if stmt := p.parseMacro(); stmt != nil {
+				prog.Statements = append(prog.Statements, stmt)
+			}
 		} else if p.curToken.Type == lexer.TokenImport {
 			if cImport := p.parseCImport(); cImport != nil {
 				prog.CImports = append(prog.CImports, cImport)
@@ -81,6 +85,10 @@ func (p *Parser) parseFunc() *FuncDecl {
 			fn.Body = append(fn.Body, p.parseGateApply())
 		} else if p.curToken.Type == lexer.TokenMeasure {
 			fn.Body = append(fn.Body, &ExprStmt{Expression: p.parseMeasure()})
+		} else if p.curToken.Type == lexer.TokenMacro {
+			fn.Body = append(fn.Body, p.parseMacro())
+		} else if p.curToken.Type == lexer.TokenComptime {
+			fn.Body = append(fn.Body, p.parseComptimeStmt())
 		} else if p.curToken.Type == lexer.TokenSpawn {
 			fn.Body = append(fn.Body, &ExprStmt{Expression: p.parseSpawn()})
 		} else if p.curToken.Type == lexer.TokenReceive {

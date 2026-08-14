@@ -61,3 +61,76 @@ type MatrixAccessExpr struct {
 }
 
 func (ma *MatrixAccessExpr) exprNode() {}
+
+// Phase 17: Metaprogramming AST nodes
+
+// MacroDeclStmt represents macro declaration
+type MacroDeclStmt struct {
+	Name       string
+	Params     []string
+	Body       []interface{}
+	IsHygienic bool
+}
+
+func (md *MacroDeclStmt) stmtNode() {}
+
+// MacroExpandExpr represents macro invocation/expansion
+type MacroExpandExpr struct {
+	MacroName string
+	Args      []interface{}
+}
+
+func (me *MacroExpandExpr) exprNode() {}
+
+// QuoteExpr represents quoted expression (AST as data)
+type QuoteExpr struct {
+	Expr interface{}
+}
+
+func (qe *QuoteExpr) exprNode() {}
+
+// UnquoteExpr represents unquoted expression (code splicing)
+type UnquoteExpr struct {
+	Expr interface{}
+}
+
+func (ue *UnquoteExpr) exprNode() {}
+
+// ComptimeStmt represents compile-time executed code
+type ComptimeStmt struct {
+	Body []interface{}
+}
+
+func (cs *ComptimeStmt) stmtNode() {}
+
+// ComptimeExpr represents compile-time evaluated expression
+type ComptimeExpr struct {
+	Expr interface{}
+}
+
+func (ce *ComptimeExpr) exprNode() {}
+
+// ReflectTypeExpr represents type reflection expression
+type ReflectTypeExpr struct {
+	TypeExpr interface{}
+}
+
+func (rt *ReflectTypeExpr) exprNode() {}
+
+// DeriveExpr represents trait derivation (e.g., @derive(JsonSerializable))
+type DeriveExpr struct {
+	Trait  string
+	Target interface{}
+	Args   []interface{}
+}
+
+func (de *DeriveExpr) exprNode() {}
+
+// TagExpr represents struct field tagging (e.g., @tag("json:name"))
+type TagExpr struct {
+	Target   interface{}
+	TagName  string
+	TagValue string
+}
+
+func (te *TagExpr) exprNode() {}
