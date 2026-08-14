@@ -186,9 +186,6 @@ type UnquoteExpr struct {
 	Expr Node // Unquoted expression to be evaluated
 }
 
-type ComptimeStmt struct {
-	Body []Node // Code executed at compile time
-}
 
 type ComptimeExpr struct {
 	Expr Node // Expression evaluated at compile time
@@ -208,4 +205,10 @@ type TagExpr struct {
 	Target   Node   // Target field/struct
 	TagName  string // Tag name
 	TagValue string // Tag value
+}
+
+
+// ComptimeStmt represents a compile-time evaluated statement: `comptime var x = ...`
+type ComptimeStmt struct {
+	Body []Node
 }
