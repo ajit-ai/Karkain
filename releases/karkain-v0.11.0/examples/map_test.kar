@@ -1,7 +1,0 @@
-func main() {
-    let config = {"lang": "Karkain", "version": 6}
-    print("Language Name:")
-    print(config["lang"])
-    print("Language Version:")
-    print(config["version"])
-}
