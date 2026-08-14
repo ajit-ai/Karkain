@@ -1,8 +1,0 @@
-// Phase 12: Self-Hosted Karkain Compiler Main Entry Point
-// This file demonstrates the self-hosting capability
-
-func main() {
-    print("Karkain Self-Hosted Compiler")
-    print("Bootstrap Stage 1")
-    print("Compiler main entry point loaded")
-}
