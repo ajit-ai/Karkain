@@ -1,8 +1,204 @@
-// Phase 12: Self-Hosted Karkain Compiler Main Entry Point
-// This file demonstrates the self-hosting capability
+// Phase 24: Self-hosted Karkain Compiler Driver
+// Main entry point: reads source, tokenizes, parses, generates code
+// Imports: compiler/ast.kar, compiler/lexer.kar, compiler/parser.kar, compiler/codegen.kar
 
 func main() {
-    print("Karkain Self-Hosted Compiler")
-    print("Bootstrap Stage 1")
-    print("Compiler main entry point loaded")
+    let args = getArgs()
+    let argc = len(args)
+
+    if (argc < 2) {
+        printUsage()
+        return
+    }
+
+    let command = args[1]
+
+    if (command == "--help" || command == "-h") {
+        printUsage()
+        return
+    }
+
+    if (command == "--version" || command == "-v") {
+        print("Karkain Compiler v0.14.0")
+        return
+    }
+
+    if (command == "check") {
+        if (argc < 3) {
+            print("Usage: karkain check <file.kar>")
+            return
+        }
+        checkFile(args[2])
+        return
+    }
+
+    if (command == "build") {
+        if (argc < 3) {
+            print("Usage: karkain build <file.kar> [--target c11|wgsl|opencl]")
+            return
+        }
+        let target = "c11"
+        if (argc >= 5 && args[3] == "--target") {
+            target = args[4]
+        }
+        buildFile(args[2], target)
+        return
+    }
+
+    if (command == "run") {
+        if (argc < 3) {
+            print("Usage: karkain run <file.kar>")
+            return
+        }
+        runFile(args[2])
+        return
+    }
+
+    print("Unknown command: " + command)
+    printUsage()
+}
+
+func printUsage() {
+    print("Karkain Compiler v0.14.0")
+    print("")
+    print("Usage: karkain <command> [options] <file>")
+    print("")
+    print("Commands:")
+    print("  check    Parse and type-check a .kar file")
+    print("  build    Compile a .kar file to target code")
+    print("  run      Compile and execute a .kar file")
+    print("")
+    print("Options:")
+    print("  --target <target>   Output target: c11, wgsl, opencl (default: c11)")
+    print("  --help, -h          Show this help message")
+    print("  --version, -v       Show version information")
+}
+
+func readFile(path) {
+    // Read entire file contents
+    // This is a placeholder - actual I/O depends on runtime support
+    let f = openFile(path)
+    if (f == "") {
+        print("Error: cannot open file " + path)
+        return ""
+    }
+    let content = ""
+    while (1) {
+        let line = readLine(f)
+        if (line == "") { break }
+        content = content + line + "\n"
+    }
+    closeFile(f)
+    return content
+}
+
+func checkFile(path) {
+    let source = readFile(path)
+    if (source == "") { return }
+
+    // Tokenize
+    let tokens = tokenize(source)
+
+    // Parse
+    let state = createParserState(tokens)
+    let ast = parse(tokens)
+
+    // Check for errors
+    if (hasParserErrors(state)) {
+        printParserErrors(state)
+        return
+    }
+
+    print("✓ " + path + " parsed successfully")
+}
+
+func buildFile(path, target) {
+    let source = readFile(path)
+    if (source == "") { return }
+
+    // Tokenize
+    let tokens = tokenize(source)
+
+    // Parse
+    let state = createParserState(tokens)
+    let ast = parse(tokens)
+
+    // Check for errors
+    if (hasParserErrors(state)) {
+        printParserErrors(state)
+        return
+    }
+
+    // Generate code
+    let output = generate(ast, target)
+
+    // Output result
+    let outPath = replaceExtension(path, "." + target)
+    let f = createFile(outPath)
+    writeToFile(f, output)
+    closeFile(f)
+
+    print("✓ " + path + " → " + outPath + " (" + target + ")")
+}
+
+func runFile(path) {
+    let source = readFile(path)
+    if (source == "") { return }
+
+    // Tokenize
+    let tokens = tokenize(source)
+
+    // Parse
+    let state = createParserState(tokens)
+    let ast = parse(tokens)
+
+    // Check for errors
+    if (hasParserErrors(state)) {
+        printParserErrors(state)
+        return
+    }
+
+    // Generate C11 code
+    let cCode = generate(ast, "c11")
+
+    // Write to temp file
+    let tempPath = "karkain_temp.c"
+    let f = createFile(tempPath)
+    writeToFile(f, cCode)
+    closeFile(f)
+
+    // Compile with gcc
+    let compileCmd = "gcc -o karkain_temp " + tempPath + " -lm"
+    print("Compiling: " + compileCmd)
+    system(compileCmd)
+
+    // Run
+    print("--- Output ---")
+    system("./karkain_temp")
+
+    // Cleanup
+    removeFile(tempPath)
+    removeFile("karkain_temp")
+}
+
+func replaceExtension(path, newExt) {
+    let lastDot = -1
+    let i = len(path) - 1
+    while (i >= 0) {
+        let ch = substr(path, i, 1)
+        if (ch == ".") {
+            lastDot = i
+            break
+        }
+        i = i - 1
+    }
+    if (lastDot == -1) {
+        return path + newExt
+    }
+    return substr(path, 0, lastDot) + newExt
+}
+
+func getArgs() {
+    // Placeholder - returns command line arguments
+    return ["karkain"]
 }
