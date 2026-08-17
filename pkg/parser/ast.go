@@ -152,14 +152,33 @@ type MeasureExpr struct {
 
 // Phase 16: Actor-based distributed concurrency AST nodes
 type ActorDeclStmt struct {
-	Name   string
-	Params []string
-	Body   []Node
+	Name     string
+	Params   []string
+	Body     []Node
+	State    []ActorStateField  // Phase 37: actor state fields
+	Handlers []ActorHandler     // Phase 37: message handlers
+}
+
+// ActorStateField represents a field in actor state
+type ActorStateField struct {
+	Name    string
+	Type    string
+	Default Node
+}
+
+// ActorHandler represents a receive handler in an actor
+type ActorHandler struct {
+	MessageType string   // message type name
+	ParamName   string   // parameter binding name
+	ParamType   string   // parameter type
+	Body        []Node
+	IsReply     bool     // whether this handler replies
 }
 
 type SpawnExpr struct {
 	ActorName string
 	Args      []Node
+	NodeAddr  string // Phase 37: optional remote node address
 }
 
 type ReceiveStmt struct {
@@ -168,8 +187,10 @@ type ReceiveStmt struct {
 }
 
 type SendExpr struct {
-	Channel Node
-	Message Node
+	Channel    Node
+	Message    Node
+	IsSync     bool // true = !? (request-reply), false = ! (async)
+	Timeout    Node // optional timeout for sync send
 }
 
 // Phase 17: Metaprogramming AST nodes
