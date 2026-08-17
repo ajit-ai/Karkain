@@ -148,7 +148,13 @@ func (g *WGSLGenerator) mapGlobalId(dimension int) string {
 }
 
 func (g *WGSLGenerator) mapWGSLType(kType string) string {
-	switch kType {
+	// Strip array prefix if present (e.g., []int -> int)
+	elemType := kType
+	if len(elemType) > 2 && elemType[:2] == "[]" {
+		elemType = elemType[2:]
+	}
+
+	switch elemType {
 	case "float", "float64":
 		return "f32"
 	case "int":

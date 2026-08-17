@@ -8,9 +8,10 @@ type Program struct {
 }
 
 type FuncDecl struct {
-	Name   string
-	Params []string
-	Body   []Node
+	Name          string
+	Params        []string
+	Body          []Node
+	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 }
 
 type VarDeclStmt struct {
@@ -229,12 +230,13 @@ type Parameter struct {
 // KernelDeclStmt represents a GPU compute kernel function declaration:
 // kernel vector_add(a: []float, b: []float, c: []float) { ... }
 type KernelDeclStmt struct {
-	Name       string
-	Params     []Parameter  // Fixed: changed ParamNode -> Parameter
-	Body       []Node
-	WorkGroupX int
-	WorkGroupY int
-	WorkGroupZ int
+	Name          string
+	Params        []Parameter
+	Body          []Node
+	WorkGroupX    int
+	WorkGroupY    int
+	WorkGroupZ    int
+	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 }
 
 // GlobalIdExpr represents GPU thread indexing: global_id(0)
@@ -252,8 +254,9 @@ type StructField struct {
 }
 
 type StructDeclStmt struct {
-	Name   string
-	Fields []StructField
+	Name          string
+	Fields        []StructField
+	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 }
 
 type StructLiteral struct {
@@ -278,4 +281,39 @@ type ForStmt struct {
 type UnaryExpr struct {
 	Operator string
 	Operand  Node
+}
+
+// Phase 26: Monomorphized Generics and Trait Constraints
+
+// GenericTypeParam represents a type parameter in a generic declaration, e.g., T: Numeric
+type GenericTypeParam struct {
+	Name       string   // Type parameter name, e.g., "T"
+	Constraints []string // Trait constraints, e.g., ["Numeric"]
+}
+
+// GenericInst represents a concrete type argument in a generic instantiation, e.g., Vector<int>
+type GenericInst struct {
+	TypeArgs []string // Concrete type arguments, e.g., ["int", "float"]
+}
+
+// TraitDeclStmt represents a trait declaration:
+// trait Numeric { fn add(self, other: T) -> T; fn zero() -> T; }
+type TraitDeclStmt struct {
+	Name   string
+	Methods []TraitMethod
+}
+
+// TraitMethod represents a method signature inside a trait
+type TraitMethod struct {
+	Name       string
+	Params     []Parameter
+	ReturnType string
+}
+
+// ImplDeclStmt represents an implementation of a trait for a concrete type:
+// impl Numeric for int { ... }
+type ImplDeclStmt struct {
+	TraitName string   // Name of the trait being implemented
+	ForType   string   // Concrete type implementing the trait
+	Methods   []FuncDecl // Implemented methods
 }
