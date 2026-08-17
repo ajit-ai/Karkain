@@ -437,3 +437,8 @@ type QubitAssignStmt struct {
 	Size int  // Number of qubits in the register
 	Init bool // true for alloc, false for alias
 }
+
+// StmtList is a group of statements, used by macro expansion
+type StmtList struct {
+	Statements []Node
+}
