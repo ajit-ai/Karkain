@@ -1,0 +1,740 @@
+// Karkain Standard Library - Math Module
+// Trigonometry, exponential, vector arithmetic, dynamic linear algebra
+
+import "libc" {
+    func fabs(x: float64) -> float64
+    func sqrt(x: float64) -> float64
+    func cbrt(x: float64) -> float64
+    func pow(x: float64, y: float64) -> float64
+    func exp(x: float64) -> float64
+    func exp2(x: float64) -> float64
+    func log(x: float64) -> float64
+    func log2(x: float64) -> float64
+    func log10(x: float64) -> float64
+    func sin(x: float64) -> float64
+    func cos(x: float64) -> float64
+    func tan(x: float64) -> float64
+    func asin(x: float64) -> float64
+    func acos(x: float64) -> float64
+    func atan(x: float64) -> float64
+    func atan2(y: float64, x: float64) -> float64
+    func sinh(x: float64) -> float64
+    func cosh(x: float64) -> float64
+    func tanh(x: float64) -> float64
+    func ceil(x: float64) -> float64
+    func floor(x: float64) -> float64
+    func round(x: float64) -> float64
+    func fmod(x: float64, y: float64) -> float64
+    func copysign(x: float64, y: float64) -> float64
+    func fdim(x: float64, y: float64) -> float64
+    func fmax(x: float64, y: float64) -> float64
+    func fmin(x: float64, y: float64) -> float64
+    func hypot(x: float64, y: float64) -> float64
+    func remainder(x: float64, y: float64) -> float64
+}
+
+// ============================================================
+// Constants
+// ============================================================
+
+const PI: float64 = 3.14159265358979323846
+const E: float64 = 2.71828182845904523536
+const LN2: float64 = 0.6931471805599453
+const LN10: float64 = 2.30258509299404568402
+const SQRT2: float64 = 1.41421356237309504880
+const SQRT3: float64 = 1.73205080756887729353
+const GOLDEN_RATIO: float64 = 1.61803398874989484820
+const DEG_TO_RAD: float64 = 0.017453292519943295
+const RAD_TO_DEG: float64 = 57.2957795130823208768
+const EPSILON: float64 = 0.00000000000000022204
+
+// ============================================================
+// Basic Math Operations
+// ============================================================
+
+func math_abs(x: float64) -> float64 {
+    return fabs(x)
+}
+
+func math_sqrt(x: float64) -> float64 {
+    return sqrt(x)
+}
+
+func math_cbrt(x: float64) -> float64 {
+    return cbrt(x)
+}
+
+func math_pow(base: float64, exp: float64) -> float64 {
+    return pow(base, exp)
+}
+
+func math_square(x: float64) -> float64 {
+    return x * x
+}
+
+func math_cube(x: float64) -> float64 {
+    return x * x * x
+}
+
+// Integer absolute value
+func math_abs_int(x: int) -> int {
+    if (x < 0) {
+        return -x
+    }
+    return x
+}
+
+// ============================================================
+// Rounding and Clamping
+// ============================================================
+
+func math_ceil(x: float64) -> float64 {
+    return ceil(x)
+}
+
+func math_floor(x: float64) -> float64 {
+    return floor(x)
+}
+
+func math_round(x: float64) -> float64 {
+    return round(x)
+}
+
+// Round to nearest integer (int type)
+func math_round_int(x: float64) -> int {
+    return int(round(x))
+}
+
+// Clamp a value between min and max
+func math_clamp(value: float64, min: float64, max: float64) -> float64 {
+    if (value < min) {
+        return min
+    }
+    if (value > max) {
+        return max
+    }
+    return value
+}
+
+// Clamp an integer value
+func math_clamp_int(value: int, min: int, max: int) -> int {
+    if (value < min) {
+        return min
+    }
+    if (value > max) {
+        return max
+    }
+    return value
+}
+
+// Linear interpolation between a and b by factor t (0..1)
+func math_lerp(a: float64, b: float64, t: float64) -> float64 {
+    return a + (b - a) * t
+}
+
+// Inverse linear interpolation: given value between a and b, return t
+func math_inverse_lerp(a: float64, b: float64, value: float64) -> float64 {
+    if (fabs(b - a) < EPSILON) {
+        return 0.0
+    }
+    return (value - a) / (b - a)
+}
+
+// Remap a value from one range to another
+func math_remap(value: float64, from_min: float64, from_max: float64, to_min: float64, to_max: float64) -> float64 {
+    let t: float64 = math_inverse_lerp(from_min, from_max, value)
+    return math_lerp(to_min, to_max, t)
+}
+
+// ============================================================
+// Min/Max
+// ============================================================
+
+func math_min(a: float64, b: float64) -> float64 {
+    return fmin(a, b)
+}
+
+func math_max(a: float64, b: float64) -> float64 {
+    return fmax(a, b)
+}
+
+func math_min_int(a: int, b: int) -> int {
+    if (a < b) { return a }
+    return b
+}
+
+func math_max_int(a: int, b: int) -> int {
+    if (a > b) { return a }
+    return b
+}
+
+// ============================================================
+// Exponential and Logarithmic
+// ============================================================
+
+func math_exp(x: float64) -> float64 {
+    return exp(x)
+}
+
+func math_exp2(x: float64) -> float64 {
+    return exp2(x)
+}
+
+func math_log(x: float64) -> float64 {
+    return log(x)
+}
+
+func math_log2(x: float64) -> float64 {
+    return log2(x)
+}
+
+func math_log10(x: float64) -> float64 {
+    return log10(x)
+}
+
+// Logarithm with arbitrary base
+func math_log_base(base: float64, x: float64) -> float64 {
+    return log(x) / log(base)
+}
+
+// ============================================================
+// Trigonometry (radians)
+// ============================================================
+
+func math_sin(x: float64) -> float64 {
+    return sin(x)
+}
+
+func math_cos(x: float64) -> float64 {
+    return cos(x)
+}
+
+func math_tan(x: float64) -> float64 {
+    return tan(x)
+}
+
+func math_asin(x: float64) -> float64 {
+    return asin(x)
+}
+
+func math_acos(x: float64) -> float64 {
+    return acos(x)
+}
+
+func math_atan(x: float64) -> float64 {
+    return atan(x)
+}
+
+func math_atan2(y: float64, x: float64) -> float64 {
+    return atan2(y, x)
+}
+
+// ============================================================
+// Trigonometry (degrees)
+// ============================================================
+
+func math_sin_deg(degrees: float64) -> float64 {
+    return sin(degrees * DEG_TO_RAD)
+}
+
+func math_cos_deg(degrees: float64) -> float64 {
+    return cos(degrees * DEG_TO_RAD)
+}
+
+func math_tan_deg(degrees: float64) -> float64 {
+    return tan(degrees * DEG_TO_RAD)
+}
+
+func math_asin_deg(x: float64) -> float64 {
+    return asin(x) * RAD_TO_DEG
+}
+
+func math_acos_deg(x: float64) -> float64 {
+    return acos(x) * RAD_TO_DEG
+}
+
+func math_atan_deg(x: float64) -> float64 {
+    return atan(x) * RAD_TO_DEG
+}
+
+// ============================================================
+// Hyperbolic
+// ============================================================
+
+func math_sinh(x: float64) -> float64 {
+    return sinh(x)
+}
+
+func math_cosh(x: float64) -> float64 {
+    return cosh(x)
+}
+
+func math_tanh(x: float64) -> float64 {
+    return tanh(x)
+}
+
+// ============================================================
+// Modular Arithmetic
+// ============================================================
+
+func math_fmod(x: float64, y: float64) -> float64 {
+    return fmod(x, y)
+}
+
+// Integer modulo (always positive result)
+func math_mod(a: int, b: int) -> int {
+    let result: int = a % b
+    if (result < 0) {
+        result = result + b
+    }
+    return result
+}
+
+// Integer division
+func math_div(a: int, b: int) -> int {
+    return a / b
+}
+
+// Greatest common divisor (Euclidean algorithm)
+func math_gcd(a: int, b: int) -> int {
+    a = math_abs_int(a)
+    b = math_abs_int(b)
+    while (b != 0) {
+        let temp: int = b
+        b = math_mod(a, b)
+        a = temp
+    }
+    return a
+}
+
+// Least common multiple
+func math_lcm(a: int, b: int) -> int {
+    if (a == 0 || b == 0) {
+        return 0
+    }
+    return math_abs_int(a) / math_gcd(a, b) * math_abs_int(b)
+}
+
+// ============================================================
+// Distance and Hypot
+// ============================================================
+
+func math_hypot(x: float64, y: float64) -> float64 {
+    return hypot(x, y)
+}
+
+// Euclidean distance between two 2D points
+func math_distance_2d(x1: float64, y1: float64, x2: float64, y2: float64) -> float64 {
+    let dx: float64 = x2 - x1
+    let dy: float64 = y2 - y1
+    return sqrt(dx * dx + dy * dy)
+}
+
+// Euclidean distance between two 3D points
+func math_distance_3d(x1: float64, y1: float64, z1: float64, x2: float64, y2: float64, z2: float64) -> float64 {
+    let dx: float64 = x2 - x1
+    let dy: float64 = y2 - y1
+    let dz: float64 = z2 - z1
+    return sqrt(dx * dx + dy * dy + dz * dz)
+}
+
+// ============================================================
+// Vector Arithmetic (2D)
+// ============================================================
+
+// vec2 type: [x, y]
+func vec2(x: float64, y: float64) -> float64[] {
+    return [x, y]
+}
+
+func vec2_add(a: float64[], b: float64[]) -> float64[] {
+    return [a[0] + b[0], a[1] + b[1]]
+}
+
+func vec2_sub(a: float64[], b: float64[]) -> float64[] {
+    return [a[0] - b[0], a[1] - b[1]]
+}
+
+func vec2_scale(v: float64[], s: float64) -> float64[] {
+    return [v[0] * s, v[1] * s]
+}
+
+func vec2_dot(a: float64[], b: float64[]) -> float64 {
+    return a[0] * b[0] + a[1] * b[1]
+}
+
+func vec2_length(v: float64[]) -> float64 {
+    return sqrt(v[0] * v[0] + v[1] * v[1])
+}
+
+func vec2_length_squared(v: float64[]) -> float64 {
+    return v[0] * v[0] + v[1] * v[1]
+}
+
+func vec2_normalize(v: float64[]) -> float64[] {
+    let len: float64 = vec2_length(v)
+    if (len < EPSILON) {
+        return [0.0, 0.0]
+    }
+    return [v[0] / len, v[1] / len]
+}
+
+func vec2_distance(a: float64[], b: float64[]) -> float64 {
+    let dx: float64 = b[0] - a[0]
+    let dy: float64 = b[1] - a[1]
+    return sqrt(dx * dx + dy * dy)
+}
+
+func vec2_cross(a: float64[], b: float64[]) -> float64 {
+    return a[0] * b[1] - a[1] * b[0]
+}
+
+func vec2_lerp(a: float64[], b: float64[], t: float64) -> float64[] {
+    return [
+        math_lerp(a[0], b[0], t),
+        math_lerp(a[1], b[1], t)
+    ]
+}
+
+func vec2_negate(v: float64[]) -> float64[] {
+    return [-v[0], -v[1]]
+}
+
+func vec2_eq(a: float64[], b: float64[]) -> bool {
+    return fabs(a[0] - b[0]) < EPSILON && fabs(a[1] - b[1]) < EPSILON
+}
+
+// ============================================================
+// Vector Arithmetic (3D)
+// ============================================================
+
+func vec3(x: float64, y: float64, z: float64) -> float64[] {
+    return [x, y, z]
+}
+
+func vec3_add(a: float64[], b: float64[]) -> float64[] {
+    return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+func vec3_sub(a: float64[], b: float64[]) -> float64[] {
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+func vec3_scale(v: float64[], s: float64) -> float64[] {
+    return [v[0] * s, v[1] * s, v[2] * s]
+}
+
+func vec3_dot(a: float64[], b: float64[]) -> float64 {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+func vec3_cross(a: float64[], b: float64[]) -> float64[] {
+    return [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0]
+    ]
+}
+
+func vec3_length(v: float64[]) -> float64 {
+    return sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+}
+
+func vec3_length_squared(v: float64[]) -> float64 {
+    return v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+}
+
+func vec3_normalize(v: float64[]) -> float64[] {
+    let len: float64 = vec3_length(v)
+    if (len < EPSILON) {
+        return [0.0, 0.0, 0.0]
+    }
+    return [v[0] / len, v[1] / len, v[2] / len]
+}
+
+func vec3_distance(a: float64[], b: float64[]) -> float64 {
+    let dx: float64 = b[0] - a[0]
+    let dy: float64 = b[1] - a[1]
+    let dz: float64 = b[2] - a[2]
+    return sqrt(dx * dx + dy * dy + dz * dz)
+}
+
+func vec3_lerp(a: float64[], b: float64[], t: float64) -> float64[] {
+    return [
+        math_lerp(a[0], b[0], t),
+        math_lerp(a[1], b[1], t),
+        math_lerp(a[2], b[2], t)
+    ]
+}
+
+func vec3_negate(v: float64[]) -> float64[] {
+    return [-v[0], -v[1], -v[2]]
+}
+
+func vec3_eq(a: float64[], b: float64[]) -> bool {
+    return fabs(a[0] - b[0]) < EPSILON && fabs(a[1] - b[1]) < EPSILON && fabs(a[2] - b[2]) < EPSILON
+}
+
+// ============================================================
+// Vector Arithmetic (4D)
+// ============================================================
+
+func vec4(x: float64, y: float64, z: float64, w: float64) -> float64[] {
+    return [x, y, z, w]
+}
+
+func vec4_add(a: float64[], b: float64[]) -> float64[] {
+    return [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]]
+}
+
+func vec4_sub(a: float64[], b: float64[]) -> float64[] {
+    return [a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]]
+}
+
+func vec4_scale(v: float64[], s: float64) -> float64[] {
+    return [v[0] * s, v[1] * s, v[2] * s, v[3] * s]
+}
+
+func vec4_dot(a: float64[], b: float64[]) -> float64 {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]
+}
+
+func vec4_length(v: float64[]) -> float64 {
+    return sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3])
+}
+
+func vec4_normalize(v: float64[]) -> float64[] {
+    let len: float64 = vec4_length(v)
+    if (len < EPSILON) {
+        return [0.0, 0.0, 0.0, 0.0]
+    }
+    return [v[0] / len, v[1] / len, v[2] / len, v[3] / len]
+}
+
+// ============================================================
+// Matrix Operations (Dynamic NxN)
+// ============================================================
+
+// Create an identity matrix of size n
+func mat_identity(n: int) -> float64[] {
+    let result: float64[] = allocate(n * n * 8)
+    let i: int = 0
+    while (i < n) {
+        let j: int = 0
+        while (j < n) {
+            if (i == j) {
+                result[i * n + j] = 1.0
+            } else {
+                result[i * n + j] = 0.0
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return result
+}
+
+// Create a zero matrix of size n
+func mat_zero(n: int) -> float64[] {
+    let result: float64[] = allocate(n * n * 8)
+    let i: int = 0
+    while (i < n * n) {
+        result[i] = 0.0
+        i = i + 1
+    }
+    return result
+}
+
+// Matrix multiplication: C = A * B (n x n)
+func mat_mul(a: float64[], b: float64[], n: int) -> float64[] {
+    let c: float64[] = mat_zero(n)
+    let i: int = 0
+    while (i < n) {
+        let j: int = 0
+        while (j < n) {
+            let sum: float64 = 0.0
+            let k: int = 0
+            while (k < n) {
+                sum = sum + a[i * n + k] * b[k * n + j]
+                k = k + 1
+            }
+            c[i * n + j] = sum
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return c
+}
+
+// Matrix-vector multiplication: y = A * x
+func mat_vec_mul(a: float64[], x: float64[], n: int) -> float64[] {
+    let y: float64[] = allocate(n * 8)
+    let i: int = 0
+    while (i < n) {
+        let sum: float64 = 0.0
+        let j: int = 0
+        while (j < n) {
+            sum = sum + a[i * n + j] * x[j]
+            j = j + 1
+        }
+        y[i] = sum
+        i = i + 1
+    }
+    return y
+}
+
+// Matrix transpose
+func mat_transpose(a: float64[], n: int) -> float64[] {
+    let result: float64[] = mat_zero(n)
+    let i: int = 0
+    while (i < n) {
+        let j: int = 0
+        while (j < n) {
+            result[j * n + i] = a[i * n + j]
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return result
+}
+
+// Matrix scalar multiplication
+func mat_scale(a: float64[], n: int, s: float64) -> float64[] {
+    let result: float64[] = allocate(n * n * 8)
+    let i: int = 0
+    while (i < n * n) {
+        result[i] = a[i] * s
+        i = i + 1
+    }
+    return result
+}
+
+// Matrix addition
+func mat_add(a: float64[], b: float64[], n: int) -> float64[] {
+    let result: float64[] = allocate(n * n * 8)
+    let i: int = 0
+    while (i < n * n) {
+        result[i] = a[i] + b[i]
+        i = i + 1
+    }
+    return result
+}
+
+// Matrix subtraction
+func mat_sub(a: float64[], b: float64[], n: int) -> float64[] {
+    let result: float64[] = allocate(n * n * 8)
+    let i: int = 0
+    while (i < n * n) {
+        result[i] = a[i] - b[i]
+        i = i + 1
+    }
+    return result
+}
+
+// Get element at (row, col)
+func mat_get(a: float64[], n: int, row: int, col: int) -> float64 {
+    return a[row * n + col]
+}
+
+// Set element at (row, col)
+func mat_set(a: float64[], n: int, row: int, col: int, value: float64) {
+    a[row * n + col] = value
+}
+
+// ============================================================
+// Statistical Functions
+// ============================================================
+
+// Compute mean of an array
+func math_mean(data: float64[]) -> float64 {
+    let n: int = len(data)
+    if (n == 0) {
+        return 0.0
+    }
+    let sum: float64 = 0.0
+    let i: int = 0
+    while (i < n) {
+        sum = sum + data[i]
+        i = i + 1
+    }
+    return sum / float64(n)
+}
+
+// Compute variance of an array
+func math_variance(data: float64[]) -> float64 {
+    let n: int = len(data)
+    if (n == 0) {
+        return 0.0
+    }
+    let mean: float64 = math_mean(data)
+    let sum_sq: float64 = 0.0
+    let i: int = 0
+    while (i < n) {
+        let diff: float64 = data[i] - mean
+        sum_sq = sum_sq + diff * diff
+        i = i + 1
+    }
+    return sum_sq / float64(n)
+}
+
+// Compute standard deviation
+func math_stddev(data: float64[]) -> float64 {
+    return sqrt(math_variance(data))
+}
+
+// Find minimum value in array
+func math_min_array(data: float64[]) -> float64 {
+    let n: int = len(data)
+    if (n == 0) {
+        return 0.0
+    }
+    let min_val: float64 = data[0]
+    let i: int = 1
+    while (i < n) {
+        if (data[i] < min_val) {
+            min_val = data[i]
+        }
+        i = i + 1
+    }
+    return min_val
+}
+
+// Find maximum value in array
+func math_max_array(data: float64[]) -> float64 {
+    let n: int = len(data)
+    if (n == 0) {
+        return 0.0
+    }
+    let max_val: float64 = data[0]
+    let i: int = 1
+    while (i < n) {
+        if (data[i] > max_val) {
+            max_val = data[i]
+        }
+        i = i + 1
+    }
+    return max_val
+}
+
+// Compute sum of array elements
+func math_sum(data: float64[]) -> float64 {
+    let sum: float64 = 0.0
+    let i: int = 0
+    while (i < len(data)) {
+        sum = sum + data[i]
+        i = i + 1
+    }
+    return sum
+}
+
+// Dot product of two arrays
+func math_dot(a: float64[], b: float64[]) -> float64 {
+    let n: int = len(a)
+    let sum: float64 = 0.0
+    let i: int = 0
+    while (i < n) {
+        sum = sum + a[i] * b[i]
+        i = i + 1
+    }
+    return sum
+}

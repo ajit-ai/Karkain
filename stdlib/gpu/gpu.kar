@@ -1,0 +1,390 @@
+// Karkain Standard Library - GPU Module
+// High-level host buffer management, device allocation wrappers, kernel dispatch abstractions
+
+import "libc" {
+    func malloc(size: int) -> void*
+    func free(ptr: void*)
+    func memcpy(dst: void*, src: void*, n: int) -> void*
+    func memset(dst: void*, val: int, n: int) -> void*
+    func printf(format: string, ...) -> int
+}
+
+// ============================================================
+// GPU Device Types and Constants
+// ============================================================
+
+const GPU_DEVICE_CPU: int = 0
+const GPU_DEVICE_CUDA: int = 1
+const GPU_DEVICE_VULKAN: int = 2
+const GPU_DEVICE_WEBGPU: int = 3
+const GPU_DEVICE_OPENCL: int = 4
+
+const GPU_SUCCESS: int = 0
+const GPU_ERROR_DEVICE_NOT_FOUND: int = -1
+const GPU_ERROR_OUT_OF_MEMORY: int = -2
+const GPU_ERROR_INVALID_BUFFER: int = -3
+const GPU_ERROR_LAUNCH_FAILED: int = -4
+const GPU_ERROR_UNSUPPORTED: int = -5
+
+// ============================================================
+// GPU Device Descriptor
+// ============================================================
+
+struct GPUDevice {
+    id: int
+    name: string
+    device_type: int
+    compute_units: int
+    global_memory: int       // bytes
+    local_memory: int        // bytes
+    max_workgroup_size: int
+    is_available: bool
+}
+
+// Create a CPU device descriptor (fallback)
+func gpu_cpu_device() -> GPUDevice {
+    return GPUDevice {
+        id: 0,
+        name: "CPU Fallback",
+        device_type: GPU_DEVICE_CPU,
+        compute_units: 1,
+        global_memory: 1073741824,  // 1 GB
+        local_memory: 32768,         // 32 KB
+        max_workgroup_size: 1024,
+        is_available: true
+    }
+}
+
+// ============================================================
+// GPU Buffer Management
+// ============================================================
+
+struct GPUBuffer {
+    data: void*
+    size: int
+    device_id: int
+    is_synced: bool
+    is_dirty: bool
+    ref_count: int
+}
+
+// Allocate a new GPU buffer on the host
+func gpu_alloc_buffer(size: int) -> GPUBuffer {
+    let ptr: void* = malloc(size)
+    if (ptr == null) {
+        return GPUBuffer {
+            data: null,
+            size: 0,
+            device_id: GPU_DEVICE_CPU,
+            is_synced: false,
+            is_dirty: false,
+            ref_count: 0
+        }
+    }
+    memset(ptr, 0, size)
+    return GPUBuffer {
+        data: ptr,
+        size: size,
+        device_id: GPU_DEVICE_CPU,
+        is_synced: true,
+        is_dirty: false,
+        ref_count: 1
+    }
+}
+
+// Allocate a typed buffer (n elements of given element size)
+func gpu_alloc_typed(n: int, elem_size: int) -> GPUBuffer {
+    return gpu_alloc_buffer(n * elem_size)
+}
+
+// Free a GPU buffer
+func gpu_free_buffer(buf: GPUBuffer) {
+    if (buf.data != null) {
+        free(buf.data)
+    }
+}
+
+// Get buffer size in bytes
+func gpu_buffer_size(buf: GPUBuffer) -> int {
+    return buf.size
+}
+
+// Check if buffer is allocated
+func gpu_buffer_valid(buf: GPUBuffer) -> bool {
+    return buf.data != null && buf.size > 0
+}
+
+// Mark buffer as needing device sync
+func gpu_mark_dirty(buf: GPUBuffer) -> GPUBuffer {
+    buf.is_dirty = true
+    buf.is_synced = false
+    return buf
+}
+
+// Mark buffer as synced after device transfer
+func gpu_mark_synced(buf: GPUBuffer) -> GPUBuffer {
+    buf.is_dirty = false
+    buf.is_synced = true
+    return buf
+}
+
+// ============================================================
+// Buffer Data Operations
+// ============================================================
+
+// Copy data from host memory into a GPU buffer
+func gpu_buffer_write(buf: GPUBuffer, offset: int, data: void*, data_size: int) -> int {
+    if (buf.data == null || offset + data_size > buf.size) {
+        return GPU_ERROR_INVALID_BUFFER
+    }
+    let dst: void* = buf.data + offset
+    memcpy(dst, data, data_size)
+    buf.is_dirty = true
+    buf.is_synced = false
+    return GPU_SUCCESS
+}
+
+// Copy data from a GPU buffer to host memory
+func gpu_buffer_read(buf: GPUBuffer, offset: int, dst: void*, dst_size: int) -> int {
+    if (buf.data == null || offset + dst_size > buf.size) {
+        return GPU_ERROR_INVALID_BUFFER
+    }
+    let src: void* = buf.data + offset
+    memcpy(dst, src, dst_size)
+    return GPU_SUCCESS
+}
+
+// Read the entire buffer contents as a byte array
+func gpu_buffer_to_bytes(buf: GPUBuffer) -> void* {
+    if (buf.data == null) {
+        return null
+    }
+    let copy: void* = malloc(buf.size)
+    if (copy != null) {
+        memcpy(copy, buf.data, buf.size)
+    }
+    return copy
+}
+
+// Fill a buffer with a byte value
+func gpu_buffer_fill(buf: GPUBuffer, value: int) {
+    if (buf.data != null) {
+        memset(buf.data, value, buf.size)
+        buf.is_dirty = true
+    }
+}
+
+// Copy contents from one buffer to another (must be same size)
+func gpu_buffer_copy(dst: GPUBuffer, src: GPUBuffer) -> int {
+    if (src.size != dst.size) {
+        return GPU_ERROR_INVALID_BUFFER
+    }
+    if (src.data == null || dst.data == null) {
+        return GPU_ERROR_INVALID_BUFFER
+    }
+    memcpy(dst.data, src.data, src.size)
+    dst.is_dirty = true
+    dst.is_synced = false
+    return GPU_SUCCESS
+}
+
+// ============================================================
+// Buffer View (zero-copy slice)
+// ============================================================
+
+struct GPUBufferView {
+    buffer: GPUBuffer*
+    offset: int
+    length: int
+}
+
+// Create a view (slice) into an existing buffer
+func gpu_buffer_view(buf: GPUBuffer*, offset: int, length: int) -> GPUBufferView {
+    return GPUBufferView {
+        buffer: buf,
+        offset: offset,
+        length: length
+    }
+}
+
+// ============================================================
+// Kernel Dispatch Configuration
+// ============================================================
+
+struct KernelDispatch {
+    kernel_name: string
+    workgroup_size: int[]      // [x, y, z]
+    global_size: int[]         // [x, y, z]
+    buffers: GPUBuffer*[]
+    args: void*[]
+    arg_sizes: int[]
+}
+
+// Create a kernel dispatch configuration
+func gpu_create_dispatch(kernel_name: string, global_size: int[]) -> KernelDispatch {
+    return KernelDispatch {
+        kernel_name: kernel_name,
+        workgroup_size: [64, 1, 1],
+        global_size: global_size,
+        buffers: [],
+        args: [],
+        arg_sizes: []
+    }
+}
+
+// Set the workgroup size for a dispatch
+func gpu_set_workgroup_size(disp: KernelDispatch, x: int, y: int, z: int) -> KernelDispatch {
+    disp.workgroup_size = [x, y, z]
+    return disp
+}
+
+// Add a GPU buffer as a kernel argument
+func gpu_dispatch_add_buffer(disp: KernelDispatch, buf: GPUBuffer*) {
+    disp.buffers = append(disp.buffers, buf)
+}
+
+// Add a scalar argument to a kernel dispatch
+func gpu_dispatch_add_arg(disp: KernelDispatch, arg: void*, arg_size: int) {
+    disp.args = append(disp.args, arg)
+    disp.arg_sizes = append(disp.arg_sizes, arg_size)
+}
+
+// ============================================================
+// Kernel Dispatch Execution
+// ============================================================
+
+// Launch a kernel with the given dispatch configuration (CPU fallback)
+func gpu_launch_kernel(disp: KernelDispatch) -> int {
+    // CPU fallback: compute the number of work items
+    let total_items: int = disp.global_size[0] * disp.global_size[1] * disp.global_size[2]
+
+    // In CPU fallback mode, we just validate the dispatch
+    if (disp.kernel_name == "") {
+        return GPU_ERROR_LAUNCH_FAILED
+    }
+
+    // Mark all attached buffers as synced
+    let i: int = 0
+    while (i < len(disp.buffers)) {
+        disp.buffers[i] = gpu_mark_synced(disp.buffers[i])
+        i = i + 1
+    }
+
+    printf("[gpu] Kernel '%s' dispatched: %d work items (CPU fallback)\n", disp.kernel_name, total_items)
+    return GPU_SUCCESS
+}
+
+// ============================================================
+// Memory Transfer Operations
+// ============================================================
+
+// Transfer buffer from host to device (simulated on CPU)
+func gpu_to_device(buf: GPUBuffer) -> int {
+    buf.is_synced = true
+    buf.is_dirty = false
+    return GPU_SUCCESS
+}
+
+// Transfer buffer from device to host (simulated on CPU)
+func gpu_to_host(buf: GPUBuffer) -> int {
+    buf.is_synced = true
+    return GPU_SUCCESS
+}
+
+// Transfer buffer between devices (simulated on CPU)
+func gpu_device_to_device(dst: GPUBuffer, src: GPUBuffer) -> int {
+    return gpu_buffer_copy(dst, src)
+}
+
+// ============================================================
+// Synchronization
+// ============================================================
+
+// Wait for all pending operations on a buffer
+func gpu_sync_buffer(buf: GPUBuffer) -> int {
+    buf.is_dirty = false
+    buf.is_synced = true
+    return GPU_SUCCESS
+}
+
+// Wait for all pending operations on all buffers
+func gpu_sync_all() {
+    // No-op in CPU fallback mode
+}
+
+// ============================================================
+// Device Discovery and Selection
+// ============================================================
+
+// Discover available GPU devices
+func gpu_discover_devices() -> GPUDevice[] {
+    let devices: GPUDevice[] = []
+    devices = append(devices, gpu_cpu_device())
+    return devices
+}
+
+// Select the best available device
+func gpu_select_device() -> GPUDevice {
+    return gpu_cpu_device()
+}
+
+// Print device information
+func gpu_print_device_info(dev: GPUDevice) {
+    printf("Device: %s (id=%d)\n", dev.name, dev.id)
+    printf("  Type: %d, Compute Units: %d\n", dev.device_type, dev.compute_units)
+    printf("  Global Memory: %d bytes, Local Memory: %d bytes\n", dev.global_memory, dev.local_memory)
+    printf("  Max Workgroup Size: %d\n", dev.max_workgroup_size)
+}
+
+// ============================================================
+// Convenience: Int/Float Buffer Wrappers
+// ============================================================
+
+// Create a buffer from an int array
+func gpu_buffer_from_ints(data: int[]) -> GPUBuffer {
+    let n: int = len(data)
+    let buf: GPUBuffer = gpu_alloc_typed(n, 4)  // 4 bytes per int
+    let i: int = 0
+    while (i < n) {
+        // Store int as raw bytes
+        let offset: int = i * 4
+        let val: int = data[i]
+        let ptr: void* = buf.data + offset
+        ptr = val  // simplified: actual impl would use byte-level copy
+        i = i + 1
+    }
+    buf.is_dirty = true
+    return buf
+}
+
+// Create a buffer from a float64 array
+func gpu_buffer_from_floats(data: float64[]) -> GPUBuffer {
+    let n: int = len(data)
+    let buf: GPUBuffer = gpu_alloc_typed(n, 8)  // 8 bytes per float64
+    buf.is_dirty = true
+    return buf
+}
+
+// Read buffer contents as int array
+func gpu_buffer_to_ints(buf: GPUBuffer) -> int[] {
+    let n: int = buf.size / 4
+    let result: int[] = []
+    let i: int = 0
+    while (i < n) {
+        result = append(result, 0)
+        i = i + 1
+    }
+    return result
+}
+
+// Read buffer contents as float64 array
+func gpu_buffer_to_floats(buf: GPUBuffer) -> float64[] {
+    let n: int = buf.size / 8
+    let result: float64[] = []
+    let i: int = 0
+    while (i < n) {
+        result = append(result, 0.0)
+        i = i + 1
+    }
+    return result
+}

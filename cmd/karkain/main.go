@@ -4,17 +4,16 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"karkain/pkg/cli"
 	"karkain/pkg/codegen"
-	"karkain/pkg/lexer"
-	"karkain/pkg/parser"
+	kpkg "karkain/pkg/pm"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 )
 
-const versionString = "Karkain Compiler v0.13.0 (%s/%s, C99 Backend)\n"
+const versionString = "Karkain Compiler v0.14.0 (%s/%s, CLI Dispatcher)\n"
 
 func printVersion() {
 	fmt.Printf(versionString, runtime.GOOS, runtime.GOARCH)
@@ -27,9 +26,16 @@ Usage:
   karkain [command] [options] <file.kar>
 
 Commands:
-  run <file.kar>      Compile and immediately run a .kar script (default)
-  build <file.kar>    Compile a .kar script into a native standalone executable
-  lsp                 Start Language Server Protocol server for IDE integration
+  run <file.kar>       Compile and immediately run a .kar script (default)
+  build <file.kar>     Compile a .kar script into a native standalone executable
+  check <file.kar>     Validate syntax and semantics without producing output
+  test <path>          Discover and run *_test.kar files
+  lsp                  Start Language Server Protocol server for IDE integration
+
+Package Management:
+  init <name>          Initialize a new Karkain project with standard structure
+  add <dep> [version]  Add a dependency to the project manifest (karkain.toml)
+  fetch                Download and cache all project dependencies
 
 Options:
   -o <path>           Specify custom output binary file path (used with build)
@@ -43,6 +49,11 @@ Options:
 Examples:
   karkain run examples/array_test.kar
   karkain build examples/compiler_test.kar -o bin/app.exe
+  karkain check examples/phase1_test.kar
+  karkain test examples/
+  karkain init my_project
+  karkain add stdlib 0.14.0
+  karkain fetch
   karkain examples/phase1_test.kar --verbose
   karkain lsp`)
 }
@@ -67,11 +78,6 @@ type LSPError struct {
 	Message string `json:"message"`
 }
 
-type InitializeParams struct {
-	RootURI      string `json:"rootUri"`
-	Capabilities any    `json:"capabilities"`
-}
-
 type InitializeResult struct {
 	Capabilities ServerCapabilities `json:"capabilities"`
 	ServerInfo   ServerInfo         `json:"serverInfo"`
@@ -93,35 +99,6 @@ type ServerInfo struct {
 	Version string `json:"version"`
 }
 
-type TextDocumentItem struct {
-	URI        string `json:"uri"`
-	LanguageID string `json:"languageId"`
-	Version    int    `json:"version"`
-	Text       string `json:"text"`
-}
-
-type DidOpenParams struct {
-	TextDocument TextDocumentItem `json:"textDocument"`
-}
-
-type DidSaveParams struct {
-	TextDocument TextDocumentItem `json:"textDocument"`
-}
-
-type Position struct {
-	Line      int `json:"line"`
-	Character int `json:"character"`
-}
-
-type TextDocumentPositionParams struct {
-	TextDocument TextDocumentIdentifier `json:"textDocument"`
-	Position     Position               `json:"position"`
-}
-
-type TextDocumentIdentifier struct {
-	URI string `json:"uri"`
-}
-
 type HoverResult struct {
 	Contents string `json:"contents"`
 }
@@ -134,6 +111,103 @@ type DefinitionResult struct {
 type Range struct {
 	Start Position `json:"start"`
 	End   Position `json:"end"`
+}
+
+type Position struct {
+	Line      int `json:"line"`
+	Character int `json:"character"`
+}
+
+// handlePackageCommand handles init, add, and fetch commands.
+func handlePackageCommand(command, targetFile string, extraArgs []string) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("Error getting current directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	switch command {
+	case "init":
+		projectName := targetFile
+		if projectName == "" {
+			fmt.Println("Error: init command requires a project name")
+			fmt.Println("Usage: karkain init <project_name>")
+			os.Exit(1)
+		}
+
+		projectDir := filepath.Join(cwd, projectName)
+		result, err := kpkg.InitProject(projectDir, projectName)
+		if err != nil {
+			fmt.Printf("Error creating project: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Project '%s' created successfully!\n", projectName)
+		fmt.Printf("  Directory: %s\n", result.ProjectDir)
+		fmt.Printf("  Manifest:  %s\n", result.Manifest)
+		fmt.Println("\nNext steps:")
+		fmt.Printf("  cd %s\n", projectName)
+		fmt.Println("  karkain run src/main.kar")
+
+	case "add":
+		depName := targetFile
+		if depName == "" {
+			fmt.Println("Error: add command requires a dependency name")
+			fmt.Println("Usage: karkain add <dependency> [version]")
+			os.Exit(1)
+		}
+
+		version := "*"
+		if len(extraArgs) > 0 {
+			version = extraArgs[0]
+		}
+
+		// Try to find project root
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			fmt.Println("Make sure you are inside a Karkain project directory (with karkain.toml)")
+			os.Exit(1)
+		}
+
+		err = kpkg.AddDependency(projectDir, depName, version, "registry", "")
+		if err != nil {
+			fmt.Printf("Error adding dependency: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Added dependency '%s' version %s\n", depName, version)
+
+	case "fetch":
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			fmt.Println("Make sure you are inside a Karkain project directory (with karkain.toml)")
+			os.Exit(1)
+		}
+
+		fmt.Println("Fetching dependencies...")
+		err = kpkg.FetchAll(projectDir)
+		if err != nil {
+			fmt.Printf("Error fetching dependencies: %v\n", err)
+			os.Exit(1)
+		}
+
+		deps, err := kpkg.ListDependencies(projectDir)
+		if err != nil {
+			fmt.Printf("Error listing dependencies: %v\n", err)
+			os.Exit(1)
+		}
+
+		if len(deps) == 0 {
+			fmt.Println("No dependencies to fetch")
+		} else {
+			fmt.Printf("Fetched %d dependency(ies):\n", len(deps))
+			for _, d := range deps {
+				fmt.Printf("  - %s\n", d)
+			}
+		}
+	}
 }
 
 func handleLSP() {
@@ -155,17 +229,30 @@ func handleLSP() {
 
 		switch request.Method {
 		case "initialize":
-			response.Result = handleInitialize(request.Params)
-		case "textDocument/didOpen":
-			handleDidOpen(request.Params)
-			response.Result = nil
-		case "textDocument/didSave":
-			handleDidSave(request.Params)
-			response.Result = nil
+			response.Result = InitializeResult{
+				Capabilities: ServerCapabilities{
+					TextDocumentSync: TextDocumentSync{
+						OpenClose: true,
+						Change:    1,
+					},
+					HoverProvider:      true,
+					DefinitionProvider: true,
+				},
+				ServerInfo: ServerInfo{
+					Name:    "karkain-lsp",
+					Version: "0.1.0",
+				},
+			}
 		case "textDocument/hover":
-			response.Result = handleHover(request.Params)
+			response.Result = HoverResult{Contents: "Karkain Language Hover Info"}
 		case "textDocument/definition":
-			response.Result = handleDefinition(request.Params)
+			response.Result = DefinitionResult{
+				URI: "file:///path/to/definition",
+				Range: Range{
+					Start: Position{Line: 0, Character: 0},
+					End:   Position{Line: 0, Character: 10},
+				},
+			}
 		default:
 			response.Error = &LSPError{
 				Code:    -32601,
@@ -175,50 +262,6 @@ func handleLSP() {
 
 		responseJSON, _ := json.Marshal(response)
 		fmt.Println(string(responseJSON))
-	}
-}
-
-func handleInitialize(params interface{}) interface{} {
-	return InitializeResult{
-		Capabilities: ServerCapabilities{
-			TextDocumentSync: TextDocumentSync{
-				OpenClose: true,
-				Change:    1,
-			},
-			HoverProvider:      true,
-			DefinitionProvider: true,
-		},
-		ServerInfo: ServerInfo{
-			Name:    "karkain-lsp",
-			Version: "0.1.0",
-		},
-	}
-}
-
-func handleDidOpen(params interface{}) {
-	// Parse the text document and perform syntax checking
-	fmt.Println("LSP: Document opened - performing syntax check")
-}
-
-func handleDidSave(params interface{}) {
-	fmt.Println("LSP: Document saved - performing diagnostics")
-}
-
-func handleHover(params interface{}) interface{} {
-	// Return type information and documentation
-	return HoverResult{
-		Contents: "Karkain Language Hover Info",
-	}
-}
-
-func handleDefinition(params interface{}) interface{} {
-	// Return go-to-definition information
-	return DefinitionResult{
-		URI: "file:///path/to/definition",
-		Range: Range{
-			Start: Position{Line: 0, Character: 0},
-			End:   Position{Line: 0, Character: 10},
-		},
 	}
 }
 
@@ -232,12 +275,15 @@ func main() {
 
 	command := ""
 	targetFile := ""
+	outputPath := ""
 	cfg := codegen.NewConfig()
+	verbose := false
+	extraArgs := []string{} // extra positional args (e.g., dep name, version)
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 
-		// Handle flags with equals sign (e.g., --target=wasm32-wasi)
+		// Handle flags with equals sign
 		if strings.Contains(arg, "=") && strings.HasPrefix(arg, "--") {
 			parts := strings.SplitN(arg, "=", 2)
 			flagName := parts[0]
@@ -258,7 +304,7 @@ func main() {
 			printHelp()
 			os.Exit(0)
 		case "--verbose":
-			cfg.Verbose = true
+			verbose = true
 		case "-c", "--compile-only":
 			cfg.CompileOnly = true
 		case "-g", "--debug":
@@ -273,13 +319,13 @@ func main() {
 			}
 		case "-o":
 			if i+1 < len(args) {
-				cfg.OutputPath = args[i+1]
+				outputPath = args[i+1]
 				i++
 			} else {
 				fmt.Println("Error: -o flag requires an output file path")
 				os.Exit(1)
 			}
-		case "build", "run", "lsp":
+		case "build", "run", "check", "test", "lsp", "init", "add", "fetch":
 			command = arg
 		default:
 			if strings.HasPrefix(arg, "-") {
@@ -289,6 +335,8 @@ func main() {
 			}
 			if targetFile == "" {
 				targetFile = arg
+			} else {
+				extraArgs = append(extraArgs, arg)
 			}
 		}
 	}
@@ -299,14 +347,32 @@ func main() {
 		return
 	}
 
+	// Handle package management commands
+	if command == "init" || command == "add" || command == "fetch" {
+		handlePackageCommand(command, targetFile, extraArgs)
+		return
+	}
+
+	// Handle test command - path may be a directory
+	if command == "test" {
+		testPath := targetFile
+		if testPath == "" {
+			testPath = "."
+		}
+		result := cli.TestCommand(testPath, cfg, verbose)
+		fmt.Print(result.Message)
+		os.Exit(result.ExitCode)
+	}
+
+	// All other commands require a .kar file
 	if targetFile == "" {
 		fmt.Println("Error: No input .kar file specified")
 		printHelp()
 		os.Exit(1)
 	}
 
-	if filepath.Ext(targetFile) != ".kar" {
-		fmt.Println("Error: Input file must be a .kar file")
+	if err := cli.ValidateKarFile(targetFile); err != nil {
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
@@ -314,84 +380,22 @@ func main() {
 		command = "run"
 	}
 
-	dir := filepath.Dir(targetFile)
-	entries, err := os.ReadDir(dir)
-	var fullContent strings.Builder
-
-	funcMainRegex := regexp.MustCompile(`(?m)^\s*func\s+main\s*\(`)
-
-	if err == nil && len(entries) > 1 {
-		// Read sibling helper .kar files first if they don't define their own top-level func main()
-		for _, entry := range entries {
-			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".kar" && entry.Name() != filepath.Base(targetFile) {
-				data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
-				if err == nil {
-					fileStr := string(data)
-					if !funcMainRegex.MatchString(fileStr) {
-						fullContent.WriteString(fileStr)
-						fullContent.WriteString("\n\n")
-					}
-				}
-			}
-		}
-	}
-
-	content, err := os.ReadFile(targetFile)
-	if err != nil {
-		fmt.Printf("Error reading file: %v\n", err)
+	var result cli.CommandResult
+	switch command {
+	case "run":
+		result = cli.RunCommand(targetFile, cfg, verbose)
+	case "build":
+		result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
+	case "check":
+		result = cli.CheckCommand(targetFile, verbose)
+	default:
+		fmt.Printf("Error: Unknown command '%s'\n", command)
+		printHelp()
 		os.Exit(1)
 	}
-	fullContent.WriteString(string(content))
 
-	sourceText := fullContent.String()
-	l := lexer.New(sourceText)
-
-	if cfg.Verbose {
-		fmt.Println("=== [Verbose] Lexer Token Stream ===")
-		lexerForLogs := lexer.New(sourceText)
-		for {
-			tok := lexerForLogs.NextToken()
-			fmt.Printf("Line %d | Type: %-10s | Literal: %q\n", tok.Line, tok.Type, tok.Literal)
-			if tok.Type == lexer.TokenEOF {
-				break
-			}
-		}
-		fmt.Println("====================================")
+	if result.Message != "" {
+		fmt.Println(result.Message)
 	}
-
-	p := parser.New(l)
-	ast := p.ParseProgram()
-
-	if cfg.Verbose {
-		fmt.Printf("=== [Verbose] Parsed AST Statements count: %d ===\n", len(ast.Statements))
-	}
-
-	// Phase 17: Apply macro expansion before code generation
-	expandedAST := parser.ApplyMacroExpansion(ast)
-	if cfg.Verbose {
-		fmt.Printf("=== [Verbose] After Macro Expansion Statements count: %d ===\n", len(expandedAST.Statements))
-	}
-	ast = expandedAST
-
-	// Set execution mode flags on cfg
-	cfg.RunAfter = (command != "build")
-	if command == "build" {
-		cfg.CompileOnly = true
-	}
-
-	// Instantiate generator with config
-	cg := codegen.New(cfg)
-
-	if command == "build" {
-		if err := cg.GenerateAndCompile(ast, targetFile); err != nil {
-			fmt.Printf("Build Error: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Println("Build successful.")
-	} else {
-		if err := cg.GenerateAndCompile(ast, targetFile); err != nil {
-			fmt.Printf("Execution Error: %v\n", err)
-			os.Exit(1)
-		}
-	}
+	os.Exit(result.ExitCode)
 }

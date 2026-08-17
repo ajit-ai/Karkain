@@ -1,0 +1,515 @@
+// Karkain Standard Library - Async/Actor Module
+// Actor mailbox management, async channel primitives, worker pool scheduling
+
+import "libc" {
+    func malloc(size: int) -> void*
+    func free(ptr: void*)
+    func printf(format: string, ...) -> int
+    func usleep(usec: int) -> int
+}
+
+// ============================================================
+// Channel Types and Constants
+// ============================================================
+
+const CHANNEL_BUFFERED: int = 0
+const CHANNEL_UNBUFFERED: int = 1
+
+const ACTOR_RUNNING: int = 0
+const ACTOR_STOPPED: int = 1
+const ACTOR_ERROR: int = 2
+
+const MSG_DEFAULT: int = 0
+const MSG_POISON: int = -1
+const MSG_SYSTEM: int = -2
+
+// ============================================================
+// Message Type
+// ============================================================
+
+struct Message {
+    msg_type: int
+    payload: void*
+    payload_size: int
+    sender_id: int
+    timestamp: int
+}
+
+// Create a message with type and payload
+func msg_create(msg_type: int, payload: void*, payload_size: int) -> Message {
+    return Message {
+        msg_type: msg_type,
+        payload: payload,
+        payload_size: payload_size,
+        sender_id: 0,
+        timestamp: 0
+    }
+}
+
+// Create a poison pill message (stops the actor)
+func msg_poison() -> Message {
+    return Message {
+        msg_type: MSG_POISON,
+        payload: null,
+        payload_size: 0,
+        sender_id: 0,
+        timestamp: 0
+    }
+}
+
+// Create a simple integer message
+func msg_int(value: int) -> Message {
+    return Message {
+        msg_type: MSG_DEFAULT,
+        payload: value,  // store int directly as payload pointer
+        payload_size: 4,
+        sender_id: 0,
+        timestamp: 0
+    }
+}
+
+// ============================================================
+// Channel (Actor Communication Pipe)
+// ============================================================
+
+struct Channel {
+    buffer: Message[]
+    capacity: int
+    channel_type: int     // CHANNEL_BUFFERED or CHANNEL_UNBUFFERED
+    is_closed: bool
+    sender_count: int
+    receiver_count: int
+}
+
+// Create a buffered channel with given capacity
+func channel_create_buffered(capacity: int) -> Channel {
+    return Channel {
+        buffer: [],
+        capacity: capacity,
+        channel_type: CHANNEL_BUFFERED,
+        is_closed: false,
+        sender_count: 0,
+        receiver_count: 0
+    }
+}
+
+// Create an unbuffered (rendezvous) channel
+func channel_create_unbuffered() -> Channel {
+    return Channel {
+        buffer: [],
+        capacity: 0,
+        channel_type: CHANNEL_UNBUFFERED,
+        is_closed: false,
+        sender_count: 0,
+        receiver_count: 0
+    }
+}
+
+// Send a message on a channel (non-blocking for buffered channels)
+func channel_send(ch: Channel, msg: Message) -> bool {
+    if (ch.is_closed) {
+        return false
+    }
+
+    // Poison message closes the channel
+    if (msg.msg_type == MSG_POISON) {
+        ch.is_closed = true
+        return true
+    }
+
+    if (ch.channel_type == CHANNEL_BUFFERED) {
+        if (len(ch.buffer) < ch.capacity) {
+            ch.buffer = append(ch.buffer, msg)
+            return true
+        }
+        // Buffer full - drop message
+        return false
+    } else {
+        // Unbuffered: message goes directly to receiver
+        ch.buffer = append(ch.buffer, msg)
+        return true
+    }
+}
+
+// Receive a message from a channel (non-blocking)
+func channel_receive(ch: Channel) -> (Message, bool) {
+    if (len(ch.buffer) > 0) {
+        let msg: Message = ch.buffer[0]
+        // Shift buffer
+        let new_buf: Message[] = []
+        let i: int = 1
+        while (i < len(ch.buffer)) {
+            new_buf = append(new_buf, ch.buffer[i])
+            i = i + 1
+        }
+        ch.buffer = new_buf
+        return (msg, true)
+    }
+    if (ch.is_closed) {
+        return (msg_poison(), false)
+    }
+    return (Message{}, false)
+}
+
+// Check if channel has messages waiting
+func channel_has_messages(ch: Channel) -> bool {
+    return len(ch.buffer) > 0
+}
+
+// Get number of messages in buffer
+func channel_len(ch: Channel) -> int {
+    return len(ch.buffer)
+}
+
+// Close a channel
+func channel_close(ch: Channel) {
+    ch.is_closed = true
+}
+
+// Check if channel is closed and empty
+func channel_is_done(ch: Channel) -> bool {
+    return ch.is_closed && len(ch.buffer) == 0
+}
+
+// ============================================================
+// Mailbox (Per-Actor Message Queue)
+// ============================================================
+
+struct Mailbox {
+    messages: Message[]
+    max_size: int
+    priority_inbox: Message[]  // high-priority messages processed first
+}
+
+// Create a mailbox with given max size
+func mailbox_create(max_size: int) -> Mailbox {
+    return Mailbox {
+        messages: [],
+        max_size: max_size,
+        priority_inbox: []
+    }
+}
+
+// Send a message to a mailbox
+func mailbox_send(mb: Mailbox, msg: Message) -> bool {
+    // Priority messages go to priority queue
+    if (msg.msg_type == MSG_SYSTEM) {
+        if (len(mb.priority_inbox) < mb.max_size) {
+            mb.priority_inbox = append(mb.priority_inbox, msg)
+            return true
+        }
+        return false
+    }
+
+    if (len(mb.messages) < mb.max_size) {
+        mb.messages = append(mb.messages, msg)
+        return true
+    }
+    return false
+}
+
+// Receive next message (priority messages first)
+func mailbox_receive(mb: Mailbox) -> (Message, bool) {
+    // Check priority inbox first
+    if (len(mb.priority_inbox) > 0) {
+        let msg: Message = mb.priority_inbox[0]
+        let new_buf: Message[] = []
+        let i: int = 1
+        while (i < len(mb.priority_inbox)) {
+            new_buf = append(new_buf, mb.priority_inbox[i])
+            i = i + 1
+        }
+        mb.priority_inbox = new_buf
+        return (msg, true)
+    }
+
+    // Then normal messages
+    if (len(mb.messages) > 0) {
+        let msg: Message = mb.messages[0]
+        let new_buf: Message[] = []
+        let i: int = 1
+        while (i < len(mb.messages)) {
+            new_buf = append(new_buf, mb.messages[i])
+            i = i + 1
+        }
+        mb.messages = new_buf
+        return (msg, true)
+    }
+
+    return (Message{}, false)
+}
+
+// Check if mailbox is empty
+func mailbox_is_empty(mb: Mailbox) -> bool {
+    return len(mb.messages) == 0 && len(mb.priority_inbox) == 0
+}
+
+// Get total message count
+func mailbox_count(mb: Mailbox) -> int {
+    return len(mb.messages) + len(mb.priority_inbox)
+}
+
+// Clear all messages from mailbox
+func mailbox_clear(mb: Mailbox) {
+    mb.messages = []
+    mb.priority_inbox = []
+}
+
+// ============================================================
+// Actor
+// ============================================================
+
+struct Actor {
+    id: int
+    name: string
+    state: int          // ACTOR_RUNNING, ACTOR_STOPPED, ACTOR_ERROR
+    mailbox: Mailbox
+    handler: func(Message) -> Message
+}
+
+// Create a new actor with a message handler function
+func actor_create(id: int, name: string, handler: func(Message) -> Message) -> Actor {
+    return Actor {
+        id: id,
+        name: name,
+        state: ACTOR_RUNNING,
+        mailbox: mailbox_create(256),
+        handler: handler
+    }
+}
+
+// Send a message to an actor
+func actor_send(actor: Actor, msg: Message) -> bool {
+    if (actor.state != ACTOR_RUNNING) {
+        return false
+    }
+    msg.sender_id = actor.id
+    return mailbox_send(actor.mailbox, msg)
+}
+
+// Process next message in actor's mailbox
+func actor_process_next(actor: Actor) -> bool {
+    if (actor.state != ACTOR_RUNNING) {
+        return false
+    }
+
+    let (msg, ok) = mailbox_receive(actor.mailbox)
+    if (!ok) {
+        return false
+    }
+
+    // Check for poison pill
+    if (msg.msg_type == MSG_POISON) {
+        actor.state = ACTOR_STOPPED
+        return false
+    }
+
+    // Invoke handler
+    if (actor.handler != null) {
+        let response: Message = actor.handler(msg)
+        // If handler returns poison, stop actor
+        if (response.msg_type == MSG_POISON) {
+            actor.state = ACTOR_STOPPED
+        }
+    }
+
+    return true
+}
+
+// Stop an actor
+func actor_stop(actor: Actor) {
+    actor.state = ACTOR_STOPPED
+    mailbox_clear(actor.mailbox)
+}
+
+// Check if actor is running
+func actor_is_running(actor: Actor) -> bool {
+    return actor.state == ACTOR_RUNNING
+}
+
+// ============================================================
+// Worker Pool
+// ============================================================
+
+struct WorkerPool {
+    workers: Actor[]
+    next_id: int
+    task_channel: Channel
+    result_channel: Channel
+    is_shutdown: bool
+}
+
+// Create a worker pool with N workers
+func pool_create(size: int) -> WorkerPool {
+    let pool: WorkerPool = WorkerPool {
+        workers: [],
+        next_id: 0,
+        task_channel: channel_create_buffered(size * 16),
+        result_channel: channel_create_buffered(size * 16),
+        is_shutdown: false
+    }
+
+    let i: int = 0
+    while (i < size) {
+        let worker: Actor = actor_create(i, "worker_" + i, null)
+        pool.workers = append(pool.workers, worker)
+        i = i + 1
+    }
+
+    return pool
+}
+
+// Submit a task to the worker pool
+func pool_submit(pool: WorkerPool, task: Message) -> bool {
+    if (pool.is_shutdown) {
+        return false
+    }
+    return channel_send(pool.task_channel, task)
+}
+
+// Get a result from the worker pool
+func pool_receive_result(pool: WorkerPool) -> (Message, bool) {
+    return channel_receive(pool.result_channel)
+}
+
+// Shutdown the worker pool
+func pool_shutdown(pool: WorkerPool) {
+    pool.is_shutdown = true
+
+    // Send poison pills to all workers
+    let i: int = 0
+    while (i < len(pool.workers)) {
+        channel_send(pool.task_channel, msg_poison())
+        actor_stop(pool.workers[i])
+        i = i + 1
+    }
+}
+
+// Get the number of workers
+func pool_size(pool: WorkerPool) -> int {
+    return len(pool.workers)
+}
+
+// Check if pool is shutdown
+func pool_is_shutdown(pool: WorkerPool) -> bool {
+    return pool.is_shutdown
+}
+
+// ============================================================
+// Select (Multiplexed Channel Waiting)
+// ============================================================
+
+struct SelectCase {
+    channel: Channel
+    case_type: int   // 0 = receive, 1 = send
+    msg: Message
+}
+
+// Create a receive case for select
+func select_recv(ch: Channel) -> SelectCase {
+    return SelectCase {
+        channel: ch,
+        case_type: 0,
+        msg: Message{}
+    }
+}
+
+// Create a send case for select
+func select_send(ch: Channel, msg: Message) -> SelectCase {
+    return SelectCase {
+        channel: ch,
+        case_type: 1,
+        msg: msg
+    }
+}
+
+// Execute a select over multiple cases (returns first ready case index, or -1)
+func select_execute(cases: SelectCase[]) -> int {
+    let i: int = 0
+    while (i < len(cases)) {
+        if (cases[i].case_type == 0) {
+            // Receive case
+            if (channel_has_messages(cases[i].channel)) {
+                return i
+            }
+        } else {
+            // Send case - check if buffer has room
+            let ch: Channel = cases[i].channel
+            if (!ch.is_closed && len(ch.buffer) < ch.capacity) {
+                return i
+            }
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// ============================================================
+// Async/Await Helpers
+// ============================================================
+
+// Promise-like wrapper: wraps a function result in a message channel
+struct AsyncResult {
+    result_channel: Channel
+    is_complete: bool
+}
+
+// Create an async result (starts incomplete)
+func async_create() -> AsyncResult {
+    return AsyncResult {
+        result_channel: channel_create_buffered(1),
+        is_complete: false
+    }
+}
+
+// Complete an async result with a value
+func async_complete(ar: AsyncResult, msg: Message) {
+    channel_send(ar.result_channel, msg)
+    ar.is_complete = true
+}
+
+// Await the async result (busy-wait with yield)
+func async_await(ar: AsyncResult) -> Message {
+    loop {
+        let (msg, ok) = channel_receive(ar.result_channel)
+        if (ok) {
+            return msg
+        }
+        // Yield to prevent busy-spinning
+        usleep(100)
+    }
+}
+
+// Check if async result is ready without blocking
+func async_is_ready(ar: AsyncResult) -> bool {
+    return channel_has_messages(ar.result_channel)
+}
+
+// ============================================================
+// Utility: Fan-Out / Fan-In Patterns
+// ============================================================
+
+// Fan-out: distribute work items across a worker pool
+func fan_out(pool: WorkerPool, items: Message[]) {
+    let i: int = 0
+    while (i < len(items)) {
+        pool_submit(pool, items[i])
+        i = i + 1
+    }
+}
+
+// Fan-in: collect results from a channel into an array
+func fan_in(result_ch: Channel, expected: int) -> Message[] {
+    let results: Message[] = []
+    let received: int = 0
+    while (received < expected) {
+        let (msg, ok) = channel_receive(result_ch)
+        if (ok) {
+            results = append(results, msg)
+            received = received + 1
+        } else {
+            usleep(100)
+        }
+    }
+    return results
+}

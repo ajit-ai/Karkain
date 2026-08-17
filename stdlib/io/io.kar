@@ -1,0 +1,343 @@
+// Karkain Standard Library - I/O Module
+// Standard input/output routines, formatted printing, file read/write streams
+
+import "libc" {
+    func printf(format: string, ...) -> int
+    func fprintf(stream: FILE*, format: string, ...) -> int
+    func sprintf(buffer: string, format: string, ...) -> int
+    func fopen(filename: string, mode: string) -> FILE*
+    func fclose(stream: FILE*) -> int
+    func fgets(buffer: string, max: int, stream: FILE*) -> string
+    func fputs(str: string, stream: FILE*) -> int
+    func fread(buffer: void*, size: int, count: int, stream: FILE*) -> int
+    func fwrite(data: void*, size: int, count: int, stream: FILE*) -> int
+    func feof(stream: FILE*) -> int
+    func ferror(stream: FILE*) -> int
+    func rewind(stream: FILE*)
+    func fseek(stream: FILE*, offset: int, origin: int) -> int
+    func ftell(stream: FILE*) -> int
+    func fflush(stream: FILE*) -> int
+    func remove(filename: string) -> int
+    func rename(old: string, new: string) -> int
+    func getchar() -> int
+    func putchar(ch: int) -> int
+    func puts(str: string) -> int
+    func access(filename: string, mode: int) -> int
+}
+
+// Standard output streams
+const stdout: FILE*
+const stderr: FILE*
+
+// File origin constants for fseek
+const SEEK_SET: int = 0
+const SEEK_CUR: int = 1
+const SEEK_END: int = 2
+
+// Access mode constants
+const F_OK: int = 0
+const R_OK: int = 2
+const W_OK: int = 4
+const X_OK: int = 6
+
+// ============================================================
+// Formatted Printing
+// ============================================================
+
+// Print a formatted string to stdout
+func io_printf(format: string, ...) -> int {
+    return printf(format)
+}
+
+// Print a formatted string to stderr
+func io_eprintf(format: string, ...) -> int {
+    return fprintf(stderr, format)
+}
+
+// Print a string followed by a newline
+func io_println(message: string) {
+    puts(message)
+    putchar(10) // newline
+}
+
+// Print an integer followed by a newline
+func io_println_int(value: int) {
+    printf("%d\n", value)
+}
+
+// Print a float followed by a newline
+func io_println_float(value: float64) {
+    printf("%f\n", value)
+}
+
+// Print a boolean as true/false followed by a newline
+func io_println_bool(value: bool) {
+    if (value) {
+        puts("true")
+    } else {
+        puts("false")
+    }
+    putchar(10)
+}
+
+// Print without trailing newline
+func io_print(message: string) {
+    puts(message)
+}
+
+// ============================================================
+// String Formatting
+// ============================================================
+
+// Format an integer to a string
+func io_format_int(value: int) -> string {
+    let buf: string = allocate(32)
+    sprintf(buf, "%d", value)
+    return buf
+}
+
+// Format a float to a string
+func io_format_float(value: float64, precision: int) -> string {
+    let buf: string = allocate(64)
+    let fmt: string = allocate(8)
+    sprintf(fmt, "%%.%df", precision)
+    sprintf(buf, fmt, value)
+    free(fmt)
+    return buf
+}
+
+// Format a boolean to a string
+func io_format_bool(value: bool) -> string {
+    if (value) {
+        return "true"
+    }
+    return "false"
+}
+
+// ============================================================
+// File Read Operations
+// ============================================================
+
+// Open a file for reading
+func io_open_read(filename: string) -> FILE* {
+    return fopen(filename, "r")
+}
+
+// Open a file for writing (creates or truncates)
+func io_open_write(filename: string) -> FILE* {
+    return fopen(filename, "w")
+}
+
+// Open a file for appending
+func io_open_append(filename: string) -> FILE* {
+    return fopen(filename, "a")
+}
+
+// Open a file for read/write
+func io_open_readwrite(filename: string) -> FILE* {
+    return fopen(filename, "r+")
+}
+
+// Close a file handle
+func io_close(file: FILE*) -> int {
+    return fclose(file)
+}
+
+// Read the entire contents of a file into a string
+func io_read_all(filename: string) -> string {
+    let file: FILE* = fopen(filename, "r")
+    if (file == null) {
+        return ""
+    }
+
+    // Get file size
+    fseek(file, 0, SEEK_END)
+    let size: int = ftell(file)
+    rewind(file)
+
+    // Allocate buffer and read
+    let buffer: string = allocate(size + 1)
+    fread(buffer, 1, size, file)
+    buffer[size] = 0  // null-terminate
+    fclose(file)
+
+    return buffer
+}
+
+// Read a single line from a file (without trailing newline)
+func io_read_line(file: FILE*) -> string {
+    let buffer: string = allocate(4096)
+    let result: string = fgets(buffer, 4096, file)
+    if (result == null) {
+        free(buffer)
+        return ""
+    }
+
+    // Strip trailing newline
+    let len: int = strlen(buffer)
+    if (len > 0 && buffer[len - 1] == 10) {  // '\n'
+        buffer[len - 1] = 0
+        len = len - 1
+    }
+    if (len > 0 && buffer[len - 1] == 13) {  // '\r'
+        buffer[len - 1] = 0
+    }
+
+    return buffer
+}
+
+// Read all lines from a file into an array of strings
+func io_read_lines(filename: string) -> string[] {
+    let file: FILE* = fopen(filename, "r")
+    if (file == null) {
+        return []
+    }
+
+    let lines: string[] = []
+    loop {
+        let line: string = io_read_line(file)
+        if (line == "" && feof(file) != 0) {
+            break
+        }
+        lines = append(lines, line)
+    }
+    fclose(file)
+    return lines
+}
+
+// Check if a character has been read (EOF detection)
+func io_is_eof(file: FILE*) -> bool {
+    return feof(file) != 0
+}
+
+// ============================================================
+// File Write Operations
+// ============================================================
+
+// Write a string to a file
+func io_write(file: FILE*, data: string) -> int {
+    return fputs(data, file)
+}
+
+// Write a string followed by a newline
+func io_writeln(file: FILE*, data: string) -> int {
+    let result: int = fputs(data, file)
+    fputs("\n", file)
+    return result
+}
+
+// Write formatted output to a file
+func io_writef(file: FILE*, format: string, ...) -> int {
+    return fprintf(file, format)
+}
+
+// Write raw bytes to a file
+func io_write_bytes(file: FILE*, data: void*, size: int) -> int {
+    return fwrite(data, 1, size, file)
+}
+
+// Flush output buffer
+func io_flush(file: FILE*) -> int {
+    return fflush(file)
+}
+
+// ============================================================
+// File Utilities
+// ============================================================
+
+// Check if a file exists
+func io_file_exists(filename: string) -> bool {
+    return access(filename, F_OK) == 0
+}
+
+// Check if a file is readable
+func io_is_readable(filename: string) -> bool {
+    return access(filename, R_OK) == 0
+}
+
+// Check if a file is writable
+func io_is_writable(filename: string) -> bool {
+    return access(filename, W_OK) == 0
+}
+
+// Delete a file
+func io_delete(filename: string) -> bool {
+    return remove(filename) == 0
+}
+
+// Rename a file
+func io_rename(old_name: string, new_name: string) -> bool {
+    return rename(old_name, new_name) == 0
+}
+
+// Get file size in bytes (-1 on error)
+func io_file_size(filename: string) -> int {
+    let file: FILE* = fopen(filename, "r")
+    if (file == null) {
+        return -1
+    }
+    fseek(file, 0, SEEK_END)
+    let size: int = ftell(file)
+    fclose(file)
+    return size
+}
+
+// ============================================================
+// Standard Input
+// ============================================================
+
+// Read a single character from stdin
+func io_getchar() -> int {
+    return getchar()
+}
+
+// Read a line from stdin
+func io_read_stdin() -> string {
+    let buffer: string = allocate(4096)
+    let result: string = fgets(buffer, 4096, stdin)
+    if (result == null) {
+        free(buffer)
+        return ""
+    }
+
+    // Strip trailing newline
+    let len: int = strlen(buffer)
+    if (len > 0 && buffer[len - 1] == 10) {
+        buffer[len - 1] = 0
+        len = len - 1
+    }
+    if (len > 0 && buffer[len - 1] == 13) {
+        buffer[len - 1] = 0
+    }
+
+    return buffer
+}
+
+// ============================================================
+// Byte-level I/O
+// ============================================================
+
+// Read exactly n bytes from a file
+func io_read_bytes(file: FILE*, count: int) -> void* {
+    let buffer: void* = allocate(count)
+    let read: int = fread(buffer, 1, count, file)
+    if (read < count) {
+        // Partial read - could realloc, but for now return what we got
+    }
+    return buffer
+}
+
+// Get current file position
+func io_tell(file: FILE*) -> int {
+    return ftell(file)
+}
+
+// Seek to a position in a file
+func io_seek(file: FILE*, offset: int, origin: int) -> bool {
+    return fseek(file, offset, origin) == 0
+}
+
+// Rewind file to beginning
+func io_rewind(file: FILE*) {
+    rewind(file)
+}
