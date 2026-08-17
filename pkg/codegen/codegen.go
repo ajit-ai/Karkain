@@ -359,7 +359,7 @@ typedef struct {
 #define HAS_AVX2 0
 #endif
 
-typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP } ValueType;
+typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL } ValueType;
 
 typedef struct Value {
     ValueType type;
@@ -504,6 +504,8 @@ void print_value(Value* v) {
     if (!v) return;
     if (v->type == TYPE_INT) {
         printf("%lld\n", v->intVal);
+    } else if (v->type == TYPE_BOOL) {
+        printf("%s\n", v->intVal ? "true" : "false");
     } else if (v->type == TYPE_FLOAT64) {
         printf("%g\n", v->floatVal);
     } else if (v->type == TYPE_STRING) {
@@ -680,6 +682,69 @@ Value* karkain_appendArray(Value* arr, Value* elem) {
     if (!arr || arr->type != TYPE_ARRAY) return make_array();
     array_push(arr, elem);
     return arr;
+}
+
+// Phase 19: Boolean support
+Value* make_bool(int v) {
+    Value* val = (Value*)malloc(sizeof(Value));
+    val->type = TYPE_BOOL;
+    val->intVal = v ? 1 : 0;
+    return val;
+}
+
+// Phase 19: Map hasKey and delete
+Value* karkain_hasKey(Value* m, Value* k) {
+    if (!m || m->type != TYPE_MAP) return make_int(0);
+    for (int i = 0; i < m->mapVal.length; i++) {
+        if (values_equal(m->mapVal.keys[i], k)) {
+            return make_int(1);
+        }
+    }
+    return make_int(0);
+}
+
+Value* karkain_delete(Value* m, Value* k) {
+    if (!m || m->type != TYPE_MAP) return m;
+    for (int i = 0; i < m->mapVal.length; i++) {
+        if (values_equal(m->mapVal.keys[i], k)) {
+            for (int j = i; j < m->mapVal.length - 1; j++) {
+                m->mapVal.keys[j] = m->mapVal.keys[j + 1];
+                m->mapVal.values[j] = m->mapVal.values[j + 1];
+            }
+            m->mapVal.length--;
+            return m;
+        }
+    }
+    return m;
+}
+
+// Phase 19: Modulo operator
+Value* karkain_mod(Value* a, Value* b) {
+    if (!a || !b) return make_int(0);
+    if (a->type == TYPE_INT && b->type == TYPE_INT) {
+        if (b->intVal == 0) return make_int(0);
+        return make_int(a->intVal % b->intVal);
+    }
+    if (a->type == TYPE_FLOAT64 || b->type == TYPE_FLOAT64) {
+        double l = (a->type == TYPE_FLOAT64) ? a->floatVal : (double)a->intVal;
+        double r = (b->type == TYPE_FLOAT64) ? b->floatVal : (double)b->intVal;
+        if (r == 0.0) return make_float(0.0);
+        return make_float(fmod(l, r));
+    }
+    return make_int(0);
+}
+
+// Phase 19: Negate unary operator
+Value* karkain_negate(Value* v) {
+    if (!v) return make_int(0);
+    if (v->type == TYPE_INT) return make_int(-v->intVal);
+    if (v->type == TYPE_FLOAT64) return make_float(-v->floatVal);
+    return make_int(0);
+}
+
+// Phase 19: Logical NOT operator
+Value* karkain_not(Value* v) {
+    return make_int(is_truthy(v) ? 0 : 1);
 }
 `
 }
@@ -861,6 +926,10 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		return g.genKernelDecl(node)
 	case *parser.BarrierStmt:
 		return "\tbarrier(CLK_LOCAL_MEM_FENCE);\n"
+	case *parser.StructDeclStmt:
+		return g.genStructDecl(node)
+	case *parser.ForStmt:
+		return g.genForStmt(node)
 	}
 	return ""
 }
@@ -873,6 +942,11 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return fmt.Sprintf("make_int(%s)", n.Value)
 	case *parser.Float64Literal:
 		return fmt.Sprintf("make_float(%s)", n.Value)
+	case *parser.BoolLiteral:
+		if n.Value {
+			return "make_int(1)"
+		}
+		return "make_int(0)"
 	case *parser.Identifier:
 		return n.Name
 	case *parser.ArrayLiteral:
@@ -905,6 +979,15 @@ func (g *Generator) genExpr(node parser.Node) string {
 			}
 
 			return fmt.Sprintf("%s = %s", left, right)
+		}
+		if n.Operator == "%" {
+			return fmt.Sprintf("karkain_mod(%s, %s)", g.genExpr(n.Left), g.genExpr(n.Right))
+		}
+		if n.Operator == "&&" {
+			return fmt.Sprintf("make_int(is_truthy(%s) && is_truthy(%s))", g.genExpr(n.Left), g.genExpr(n.Right))
+		}
+		if n.Operator == "||" {
+			return fmt.Sprintf("make_int(is_truthy(%s) || is_truthy(%s))", g.genExpr(n.Left), g.genExpr(n.Right))
 		}
 		return fmt.Sprintf("binary_op(%s, %q, %s)", g.genExpr(n.Left), n.Operator, g.genExpr(n.Right))
 	case *parser.CallExpr:
@@ -959,6 +1042,15 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "appendArray" {
 			return fmt.Sprintf("karkain_appendArray(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "hasKey" {
+			return fmt.Sprintf("karkain_hasKey(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "delete" {
+			return fmt.Sprintf("karkain_delete(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "mod" {
+			return fmt.Sprintf("karkain_mod(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		if n.Function == "spawn" {
 			// Phase 16: Generate spawn expression
@@ -1038,6 +1130,17 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return fmt.Sprintf("// %s <- %s (send placeholder)", channelExpr, messageExpr)
 	case *parser.GlobalIdExpr:
 		return fmt.Sprintf("get_global_id(%d)", n.Dimension)
+	case *parser.UnaryExpr:
+		operand := g.genExpr(n.Operand)
+		if n.Operator == "-" {
+			return fmt.Sprintf("karkain_negate(%s)", operand)
+		}
+		if n.Operator == "!" {
+			return fmt.Sprintf("karkain_not(%s)", operand)
+		}
+		return operand
+	case *parser.StructLiteral:
+		return g.genStructLiteral(n)
 	}
 	return "make_int(0)"
 }
@@ -1167,6 +1270,8 @@ func (g *Generator) mapKarkainTypeToC(karkainType string) string {
 		return "double"
 	case "string":
 		return "char*"
+	case "bool":
+		return "int"
 	default:
 		// Handle pointer types
 		if strings.HasPrefix(karkainType, "*") {
@@ -1192,6 +1297,58 @@ func (g *Generator) mapLiteralToC(node parser.Node) string {
 	default:
 		return g.genExpr(node)
 	}
+}
+
+// Phase 19: Generate C struct declaration from Karkain struct type
+func (g *Generator) genStructDecl(node *parser.StructDeclStmt) string {
+	out := fmt.Sprintf("typedef struct {\n")
+	for _, field := range node.Fields {
+		cType := g.mapKarkainTypeToC(field.Type)
+		out += fmt.Sprintf("    %s %s;\n", cType, field.Name)
+	}
+	out += fmt.Sprintf("} %s;\n\n", node.Name)
+	return out
+}
+
+// Phase 19: Generate C for loop from Karkain for statement
+func (g *Generator) genForStmt(node *parser.ForStmt) string {
+	out := "\tfor ("
+	if node.Init != nil {
+		out += g.genStatement(node.Init)
+		// Strip trailing newline from init statement
+		out = strings.TrimRight(out, "\n")
+	}
+	out += "; "
+	if node.Condition != nil {
+		out += fmt.Sprintf("is_truthy(%s)", g.genExpr(node.Condition))
+	}
+	out += "; "
+	if node.Post != nil {
+		postExpr := g.genExpr(node.Post)
+		// For expression statements like i = i + 1, strip the trailing semicolon
+		out += postExpr
+	}
+	out += ") {\n"
+	for _, bodyStmt := range node.Body {
+		out += "\t\t" + g.genStatement(bodyStmt)
+	}
+	out += "\t}\n"
+	return out
+}
+
+// Phase 19: Generate C struct literal initialization
+func (g *Generator) genStructLiteral(node *parser.StructLiteral) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("({%s _s; ", node.TypeName))
+	for _, field := range node.Fields {
+		if binExpr, ok := field.(*parser.BinaryExpr); ok {
+			if ident, ok := binExpr.Left.(*parser.Identifier); ok {
+				sb.WriteString(fmt.Sprintf("_s.%s = %s; ", ident.Name, g.genExpr(binExpr.Right)))
+			}
+		}
+	}
+	sb.WriteString(fmt.Sprintf("_s; })"))
+	return sb.String()
 }
 
 // Phase 14: Get the quantum register name
