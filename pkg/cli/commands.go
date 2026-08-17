@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-const versionString = "Karkain Compiler v0.17.0 (%s/%s, Actor System & Network Mesh)"
+const versionString = "Karkain Compiler v0.18.0 (%s/%s, Coroutine & Green Thread Scheduler)"
 
 // CommandResult holds the outcome of a CLI command
 type CommandResult struct {
