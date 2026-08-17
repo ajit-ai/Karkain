@@ -42,6 +42,9 @@ const (
 	TokenUnquote  TokenType = "UNQUOTE"
 	TokenComptime TokenType = "COMPTIME"
 
+	// Loop Keywords
+	TokenWhile TokenType = "WHILE"
+
 	// Literals & Identifiers
 	TokenIdent   TokenType = "IDENT"
 	TokenInt     TokenType = "INT"
@@ -49,14 +52,17 @@ const (
 	TokenString  TokenType = "STRING"
 
 	// Operators & Delimiters
-	TokenAssign      TokenType = "="
-	TokenEqual       TokenType = "=="
-	TokenLessThan    TokenType = "<"
-	TokenGreaterThan TokenType = ">"
-	TokenPlus        TokenType = "+"
-	TokenMinus       TokenType = "-"
-	TokenStar        TokenType = "*"
-	TokenSlash       TokenType = "/"
+	TokenAssign       TokenType = "="
+	TokenEqual        TokenType = "=="
+	TokenNotEqual     TokenType = "!="
+	TokenLessThan     TokenType = "<"
+	TokenLessEqual    TokenType = "<="
+	TokenGreaterThan  TokenType = ">"
+	TokenGreaterEqual TokenType = ">="
+	TokenPlus         TokenType = "+"
+	TokenMinus        TokenType = "-"
+	TokenStar         TokenType = "*"
+	TokenSlash        TokenType = "/"
 
 	TokenLParen   TokenType = "("
 	TokenRParen   TokenType = ")"
@@ -68,22 +74,22 @@ const (
 	TokenDot      TokenType = "."
 	TokenAt       TokenType = "@"
 
-		// Add new token constants
-	TOKEN_MACRO    = "MACRO"
-	TOKEN_QUOTE    = "QUOTE"
-	TOKEN_UNQUOTE  = "UNQUOTE"
-	TOKEN_COMPTIME = "COMPTIME"
-	TOKEN_DERIVE   = "DERIVE"
-	TOKEN_TAG      = "TAG"
+	TOKEN_DERIVE   TokenType = "DERIVE"
+	TOKEN_TAG      TokenType = "TAG"
 
+	TokenKernel   TokenType = "KERNEL"
+	TokenDevice   TokenType = "DEVICE"
+	TokenGlobalID TokenType = "GLOBAL_ID"
+	TokenBarrier  TokenType = "BARRIER"
+	TokenColon    TokenType = "COLON"
 )
 
-	// Register keywords in lexer map
-    var keywords = map[string]TokenType{
-    "macro":    TOKEN_MACRO,
-    "quote":    TOKEN_QUOTE,
-    "unquote":  TOKEN_UNQUOTE,
-    "comptime": TOKEN_COMPTIME,
+var keywords = map[string]TokenType{
+	"macro":    TokenMacro,
+	"quote":    TokenQuote,
+	"unquote":  TokenUnquote,
+	"comptime": TokenComptime,
+	"while":    TokenWhile,
 }
 
 
@@ -149,6 +155,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{Type: TokenLBracket, Literal: "[", Line: l.Line}
 	case ']':
 		tok = Token{Type: TokenRBracket, Literal: "]", Line: l.Line}
+	case ':':
+		tok = Token{Type: TokenColon, Literal: ":", Line: l.Line}
 	case ',':
 		tok = Token{Type: TokenComma, Literal: ",", Line: l.Line}
 	case '.':
@@ -163,16 +171,34 @@ func (l *Lexer) NextToken() Token {
 		} else {
 			tok = Token{Type: TokenAssign, Literal: "=", Line: l.Line}
 		}
+	case '!':
+		if l.peekChar() == '=' {
+			ch := l.Ch
+			l.readChar()
+			tok = Token{Type: TokenNotEqual, Literal: string(ch) + string(l.Ch), Line: l.Line}
+		} else {
+			tok = Token{Type: TokenIllegal, Literal: "!", Line: l.Line}
+		}
 	case '<':
 		if l.peekChar() == '-' {
 			ch := l.Ch
 			l.readChar()
 			tok = Token{Type: TokenSend, Literal: string(ch) + string(l.Ch), Line: l.Line}
+		} else if l.peekChar() == '=' {
+			ch := l.Ch
+			l.readChar()
+			tok = Token{Type: TokenLessEqual, Literal: string(ch) + string(l.Ch), Line: l.Line}
 		} else {
 			tok = Token{Type: TokenLessThan, Literal: "<", Line: l.Line}
 		}
 	case '>':
-		tok = Token{Type: TokenGreaterThan, Literal: ">", Line: l.Line}
+		if l.peekChar() == '=' {
+			ch := l.Ch
+			l.readChar()
+			tok = Token{Type: TokenGreaterEqual, Literal: string(ch) + string(l.Ch), Line: l.Line}
+		} else {
+			tok = Token{Type: TokenGreaterThan, Literal: ">", Line: l.Line}
+		}
 	case '+':
 		tok = Token{Type: TokenPlus, Literal: "+", Line: l.Line}
 	case '-':
@@ -354,6 +380,16 @@ func lookupIdent(ident string) TokenType {
 		return TokenUnquote
 	case "comptime":
 		return TokenComptime
+	case "while":
+		return TokenWhile
+	case "kernel":
+		return TokenKernel
+	case "device":
+		return TokenDevice
+	case "global_id":
+		return TokenGlobalID
+	case "barrier":
+		return TokenBarrier
 	default:
 		return TokenIdent
 	}

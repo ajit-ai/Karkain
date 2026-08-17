@@ -46,7 +46,11 @@ func (p *Parser) ParseProgram() *Program {
 			if stmt := p.parseMacro(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
-		} else if p.curToken.Type == lexer.TokenImport {
+		} else if p.curToken.Type == lexer.TokenKernel {
+		if stmt := p.parseKernel(); stmt != nil {
+			prog.Statements = append(prog.Statements, stmt)
+		}
+	} else if p.curToken.Type == lexer.TokenImport {
 			if cImport := p.parseCImport(); cImport != nil {
 				prog.CImports = append(prog.CImports, cImport)
 			}
@@ -63,78 +67,24 @@ func (p *Parser) parseFunc() *FuncDecl {
 
 	p.nextToken() // consume fn name
 	p.nextToken() // consume '('
-	p.nextToken() // consume ')'
-	p.nextToken() // consume '{'
 
-	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
-		if p.curToken.Type == lexer.TokenLet || p.curToken.Type == lexer.TokenVar {
-			fn.Body = append(fn.Body, p.parseVarDecl())
-		} else if p.curToken.Type == lexer.TokenPrint {
-			fn.Body = append(fn.Body, p.parsePrint())
-		} else if p.curToken.Type == lexer.TokenMatrix {
-			fn.Body = append(fn.Body, p.parseMatrixDecl())
-		} else if p.curToken.Type == lexer.TokenAlloc {
-			fn.Body = append(fn.Body, p.parseAlloc())
-		} else if p.curToken.Type == lexer.TokenFree {
-			fn.Body = append(fn.Body, p.parseFree())
-		} else if p.curToken.Type == lexer.TokenAddr {
-			fn.Body = append(fn.Body, p.parseAddrOf())
-		} else if p.curToken.Type == lexer.TokenQReg {
-			fn.Body = append(fn.Body, p.parseQRegDecl())
-		} else if p.curToken.Type == lexer.TokenGate {
-			fn.Body = append(fn.Body, p.parseGateApply())
-		} else if p.curToken.Type == lexer.TokenMeasure {
-			fn.Body = append(fn.Body, &ExprStmt{Expression: p.parseMeasure()})
-		} else if p.curToken.Type == lexer.TokenMacro {
-			fn.Body = append(fn.Body, p.parseMacro())
-		} else if p.curToken.Type == lexer.TokenComptime {
-			fn.Body = append(fn.Body, p.parseComptimeStmt())
-		} else if p.curToken.Type == lexer.TokenSpawn {
-			fn.Body = append(fn.Body, &ExprStmt{Expression: p.parseSpawn()})
-		} else if p.curToken.Type == lexer.TokenReceive {
-			fn.Body = append(fn.Body, p.parseReceive())
-		} else if p.curToken.Type == lexer.TokenIdent {
-			// Check for assignment to matrix index or variable
-			ident := p.curToken.Literal
-			p.nextToken()
-
-			// Check for matrix index assignment
-			if p.curToken.Type == lexer.TokenLBracket {
-				p.nextToken() // consume '['
-				row := p.parseExpr()
+	// Parse parameters
+	for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+		if p.curToken.Type == lexer.TokenIdent {
+			paramName := p.curToken.Literal
+			fn.Params = append(fn.Params, paramName)
+			p.nextToken() // consume param name
+			if p.curToken.Type == lexer.TokenComma {
 				p.nextToken() // consume ','
-				col := p.parseExpr()
-				p.nextToken() // consume ']'
-
-				// Expect '='
-				if p.curToken.Type == lexer.TokenAssign {
-					p.nextToken() // consume '='
-					val := p.parseExpr()
-
-					// Create assignment statement
-					assignExpr := &BinaryExpr{
-						Left: &MatrixIndexExpr{
-							Matrix: &Identifier{Name: ident},
-							Row:    row,
-							Col:    col,
-						},
-						Operator: "=",
-						Right:    val,
-					}
-					fn.Body = append(fn.Body, &ExprStmt{Expression: assignExpr})
-				}
-			} else {
-				// Simple variable assignment
-				if p.curToken.Type == lexer.TokenAssign {
-					p.nextToken() // consume '='
-					val := p.parseExpr()
-					fn.Body = append(fn.Body, &VarDeclStmt{Name: ident, Value: val})
-				}
 			}
 		} else {
 			p.nextToken()
 		}
 	}
+	p.nextToken() // consume ')'
+	p.nextToken() // consume '{'
+
+	fn.Body = p.parseBlock()
 	p.nextToken() // consume '}'
 	return fn
 }
@@ -189,83 +139,417 @@ func (p *Parser) parsePrint() *PrintStmt {
 	return &PrintStmt{Value: val}
 }
 
-func (p *Parser) parseExpr() Node {
-	left := p.parsePrimary()
+func (p *Parser) parseBlock() []Node {
+	stmts := []Node{}
+	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
+		stmt := p.parseStatement()
+		if stmt != nil {
+			stmts = append(stmts, stmt)
+		}
+	}
+	return stmts
+}
 
-	// Handle dot expression (e.g., C.sqrt)
-	if p.peekToken.Type == lexer.TokenDot {
-		if ident, ok := left.(*Identifier); ok {
-			p.nextToken() // consume '.'
-			rightIdent := p.curToken.Literal
-			p.nextToken() // consume right identifier
+func (p *Parser) parseStatement() Node {
+	switch p.curToken.Type {
+	case lexer.TokenLet, lexer.TokenVar:
+		return p.parseVarDecl()
+	case lexer.TokenPrint:
+		return p.parsePrint()
+	case lexer.TokenReturn:
+		return p.parseReturn()
+	case lexer.TokenIf:
+		return p.parseIf()
+	case lexer.TokenWhile:
+		return p.parseWhile()
+	case lexer.TokenMatrix:
+		return p.parseMatrixDecl()
+	case lexer.TokenAlloc:
+		return &ExprStmt{Expression: p.parseAlloc()}
+	case lexer.TokenFree:
+		return &ExprStmt{Expression: p.parseFree()}
+	case lexer.TokenAddr:
+		return &ExprStmt{Expression: p.parseAddrOf()}
+	case lexer.TokenQReg:
+		return p.parseQRegDecl()
+	case lexer.TokenGate:
+		return p.parseGateApply()
+	case lexer.TokenMeasure:
+		return &ExprStmt{Expression: p.parseMeasure()}
+	case lexer.TokenMacro:
+		return p.parseMacro()
+	case lexer.TokenComptime:
+		return p.parseComptimeStmt()
+	case lexer.TokenSpawn:
+		return &ExprStmt{Expression: p.parseSpawn()}
+	case lexer.TokenReceive:
+		return p.parseReceive()
+	case lexer.TokenBarrier:
+		return p.parseBarrierStmt()
+	case lexer.TokenIdent:
+		return p.parseIdentStatement()
+	case lexer.TokenImport:
+		// Skip import blocks inside functions (they're handled at top level)
+		cImport := p.parseCImport()
+		if cImport != nil {
+			return &ExprStmt{Expression: &StringLiteral{Value: cImport.Content}}
+		}
+		return nil
+	default:
+		p.nextToken()
+		return nil
+	}
+}
 
-			// Check if this is a function call
-			if p.curToken.Type == lexer.TokenLParen {
-				p.nextToken() // consume '('
-				args := []Node{}
-				for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
-					args = append(args, p.parseExpr())
-					if p.curToken.Type == lexer.TokenComma {
-						p.nextToken()
-					}
-				}
-				p.nextToken() // consume ')'
+func (p *Parser) parseReturn() *ReturnStmt {
+	p.nextToken() // consume 'return'
+	val := p.parseExpr()
+	return &ReturnStmt{Value: val}
+}
 
-				return &CallExpr{
-					Function: ident.Name + "." + rightIdent,
-					Args:     args,
-					IsCFunc:  ident.Name == "C",
-				}
-			}
+func (p *Parser) parseWhile() *WhileStmt {
+	p.nextToken() // consume 'while'
+	p.nextToken() // consume '('
+	condition := p.parseExpr()
+	p.nextToken() // consume ')'
+	p.nextToken() // consume '{'
+	body := p.parseBlock()
+	p.nextToken() // consume '}'
+	return &WhileStmt{Condition: condition, Body: body}
+}
 
-			return &DotExpr{Left: left, Right: rightIdent}
+func (p *Parser) parseIf() *IfStmt {
+	p.nextToken() // consume 'if'
+	p.nextToken() // consume '('
+	condition := p.parseExpr()
+	p.nextToken() // consume ')'
+	p.nextToken() // consume '{'
+	consequence := p.parseBlock()
+	p.nextToken() // consume '}'
+
+	var alternative []Node
+	if p.curToken.Type == lexer.TokenElse {
+		p.nextToken() // consume 'else'
+		if p.curToken.Type == lexer.TokenIf {
+			// else if -> wrap in a single-statement alternative
+			elseIf := p.parseIf()
+			alternative = []Node{elseIf}
+		} else {
+			p.nextToken() // consume '{'
+			alternative = p.parseBlock()
+			p.nextToken() // consume '}'
 		}
 	}
 
-	// Handle matrix indexing [row, col]
-	if p.peekToken.Type == lexer.TokenLBracket {
+	return &IfStmt{
+		Condition:   condition,
+		Consequence: consequence,
+		Alternative: alternative,
+	}
+}
+
+func (p *Parser) parseIdentStatement() Node {
+	ident := p.curToken.Literal
+	p.nextToken() // consume identifier
+
+	// Check for matrix index assignment
+	if p.curToken.Type == lexer.TokenLBracket {
 		p.nextToken() // consume '['
 		row := p.parseExpr()
 		p.nextToken() // consume ','
 		col := p.parseExpr()
 		p.nextToken() // consume ']'
-		return &MatrixIndexExpr{Matrix: left, Row: row, Col: col}
+
+		if p.curToken.Type == lexer.TokenAssign {
+			p.nextToken() // consume '='
+			val := p.parseExpr()
+			assignExpr := &BinaryExpr{
+				Left: &MatrixIndexExpr{
+					Matrix: &Identifier{Name: ident},
+					Row:    row,
+					Col:    col,
+				},
+				Operator: "=",
+				Right:    val,
+			}
+			return &ExprStmt{Expression: assignExpr}
+		}
 	}
 
-	// Handle binary operators
-	if p.peekToken.Type == lexer.TokenPlus || p.peekToken.Type == lexer.TokenMinus ||
-		p.peekToken.Type == lexer.TokenStar || p.peekToken.Type == lexer.TokenSlash {
-		p.nextToken()
-		op := p.curToken.Literal
-		p.nextToken()
+	// Simple variable assignment (reassignment, not declaration)
+	if p.curToken.Type == lexer.TokenAssign {
+		p.nextToken() // consume '='
+		val := p.parseExpr()
+		assignExpr := &BinaryExpr{
+			Left:     &Identifier{Name: ident},
+			Operator: "=",
+			Right:    val,
+		}
+		return &ExprStmt{Expression: assignExpr}
+	}
+
+	// Otherwise it's an expression statement
+	// We already consumed the ident, so we need to reconstruct
+	// Handle function calls and other expressions starting with ident
+	left := &Identifier{Name: ident}
+
+	// Check for function call
+	if p.curToken.Type == lexer.TokenLParen {
+		p.nextToken() // consume '('
+		args := []Node{}
+		for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+			args = append(args, p.parseExpr())
+			if p.curToken.Type == lexer.TokenComma {
+				p.nextToken()
+			}
+		}
+		p.nextToken() // consume ')'
+		return &ExprStmt{Expression: &CallExpr{Function: ident, Args: args}}
+	}
+
+	// Check for dot expression
+	if p.curToken.Type == lexer.TokenDot {
+		p.nextToken() // consume '.'
+		rightIdent := p.curToken.Literal
+		p.nextToken() // consume right identifier
+		if p.curToken.Type == lexer.TokenLParen {
+			p.nextToken() // consume '('
+			args := []Node{}
+			for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+				args = append(args, p.parseExpr())
+				if p.curToken.Type == lexer.TokenComma {
+					p.nextToken()
+				}
+			}
+			p.nextToken() // consume ')'
+			return &ExprStmt{Expression: &CallExpr{
+				Function: ident + "." + rightIdent,
+				Args:     args,
+				IsCFunc:  ident == "C",
+			}}
+		}
+		return &ExprStmt{Expression: &DotExpr{Left: left, Right: rightIdent}}
+	}
+
+	// Check for binary operator (assignment via expression)
+	if p.curToken.Type == lexer.TokenPlus || p.curToken.Type == lexer.TokenMinus ||
+		p.curToken.Type == lexer.TokenStar || p.curToken.Type == lexer.TokenSlash ||
+		p.curToken.Type == lexer.TokenEqual || p.curToken.Type == lexer.TokenNotEqual ||
+		p.curToken.Type == lexer.TokenLessThan || p.curToken.Type == lexer.TokenGreaterThan ||
+		p.curToken.Type == lexer.TokenLessEqual || p.curToken.Type == lexer.TokenGreaterEqual {
+		return &ExprStmt{Expression: p.parseBinaryExpr(left, 0)}
+	}
+
+	return &ExprStmt{Expression: left}
+}
+
+func (p *Parser) parseExpr() Node {
+	return p.parseBinaryExpr(nil, 0)
+}
+
+func precedence(op string) int {
+	switch op {
+	case "==", "!=", "<", ">", "<=", ">=":
+		return 1
+	case "+", "-":
+		return 2
+	case "*", "/":
+		return 3
+	default:
+		return 0
+	}
+}
+
+func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
+	if left == nil {
+		left = p.parseUnary()
+	}
+
+	for {
+		op := ""
+		switch p.curToken.Type {
+		case lexer.TokenPlus:
+			op = "+"
+		case lexer.TokenMinus:
+			op = "-"
+		case lexer.TokenStar:
+			op = "*"
+		case lexer.TokenSlash:
+			op = "/"
+		case lexer.TokenEqual:
+			op = "=="
+		case lexer.TokenNotEqual:
+			op = "!="
+		case lexer.TokenLessThan:
+			op = "<"
+		case lexer.TokenGreaterThan:
+			op = ">"
+		case lexer.TokenLessEqual:
+			op = "<="
+		case lexer.TokenGreaterEqual:
+			op = ">="
+		}
+
+		if op == "" || precedence(op) < minPrec {
+			break
+		}
+
+		p.nextToken() // consume operator
+		right := p.parseBinaryExpr(nil, precedence(op)+1)
+		left = &BinaryExpr{Left: left, Operator: op, Right: right}
+	}
+
+	// Handle assignment: ident = expr (only at precedence 0)
+	if p.curToken.Type == lexer.TokenAssign && left != nil {
+		p.nextToken() // consume '='
 		right := p.parseExpr()
-		return &BinaryExpr{Left: left, Operator: op, Right: right}
+		return &BinaryExpr{Left: left, Operator: "=", Right: right}
+	}
+
+	// Handle index expression [index] or matrix index [row, col]
+	if p.curToken.Type == lexer.TokenLBracket {
+		p.nextToken() // consume '['
+		first := p.parseExpr()
+		if p.curToken.Type == lexer.TokenComma {
+			// Matrix index: [row, col]
+			p.nextToken() // consume ','
+			col := p.parseExpr()
+			p.nextToken() // consume ']'
+			left = &MatrixIndexExpr{Matrix: left, Row: first, Col: col}
+		} else {
+			// Array/map index: [index]
+			p.nextToken() // consume ']'
+			left = &IndexExpr{Left: left, Index: first}
+		}
 	}
 
 	return left
 }
 
-func (p *Parser) parsePrimary() Node {
+func (p *Parser) parseUnary() Node {
+	return p.parsePrimaryExpr()
+}
+
+func (p *Parser) parsePrimaryExpr() Node {
 	switch p.curToken.Type {
 	case lexer.TokenString:
-		return &StringLiteral{Value: p.curToken.Literal}
+		val := p.curToken.Literal
+		p.nextToken()
+		return &StringLiteral{Value: val}
 	case lexer.TokenInt:
-		return &IntLiteral{Value: p.curToken.Literal}
+		val := p.curToken.Literal
+		p.nextToken()
+		return &IntLiteral{Value: val}
 	case lexer.TokenFloat64:
-		return &Float64Literal{Value: p.curToken.Literal}
+		val := p.curToken.Literal
+		p.nextToken()
+		return &Float64Literal{Value: val}
 	case lexer.TokenIdent:
-		ident := &Identifier{Name: p.curToken.Literal}
-
-		// Check for dot expression (e.g., C.sqrt)
-		if p.peekToken.Type == lexer.TokenStar {
-			// This could be a pointer type in variable declaration
-			// Handle in parseVarDecl instead
-			return ident
-		}
-
-		return ident
+		return p.parseIdentExpr()
+	case lexer.TokenLParen:
+		p.nextToken() // consume '('
+		expr := p.parseExpr()
+		p.nextToken() // consume ')'
+		return expr
+	case lexer.TokenLBracket:
+		return p.parseArrayLiteral()
+	case lexer.TokenLBrace:
+		return p.parseMapLiteral()
+	case lexer.TokenGlobalID:
+		return p.parseGlobalIDExpr()
 	}
 	return nil
+}
+
+func (p *Parser) parseArrayLiteral() *ArrayLiteral {
+	p.nextToken() // consume '['
+	elements := []Node{}
+	if p.curToken.Type != lexer.TokenRBracket {
+		elements = append(elements, p.parseExpr())
+		for p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+			elements = append(elements, p.parseExpr())
+		}
+	}
+	p.nextToken() // consume ']'
+	return &ArrayLiteral{Elements: elements}
+}
+
+func (p *Parser) parseMapLiteral() *MapLiteral {
+	p.nextToken() // consume '{'
+	keys := []Node{}
+	values := []Node{}
+	if p.curToken.Type != lexer.TokenRBrace {
+		key := p.parseExpr()
+		p.nextToken() // consume ':'
+		val := p.parseExpr()
+		keys = append(keys, key)
+		values = append(values, val)
+		for p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+			key = p.parseExpr()
+			p.nextToken() // consume ':'
+			val = p.parseExpr()
+			keys = append(keys, key)
+			values = append(values, val)
+		}
+	}
+	p.nextToken() // consume '}'
+	return &MapLiteral{Keys: keys, Values: values}
+}
+
+func (p *Parser) parseIdentExpr() Node {
+	ident := p.curToken.Literal
+	p.nextToken() // consume identifier
+
+	// Check for dot expression (e.g., C.sqrt, matrix.method)
+	if p.curToken.Type == lexer.TokenDot {
+		p.nextToken() // consume '.'
+		rightIdent := p.curToken.Literal
+		p.nextToken() // consume right identifier
+
+		// Check if this is a function call
+		if p.curToken.Type == lexer.TokenLParen {
+			p.nextToken() // consume '('
+			args := []Node{}
+			for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+				args = append(args, p.parseExpr())
+				if p.curToken.Type == lexer.TokenComma {
+					p.nextToken()
+				}
+			}
+			p.nextToken() // consume ')'
+
+			return &CallExpr{
+				Function: ident + "." + rightIdent,
+				Args:     args,
+				IsCFunc:  ident == "C",
+			}
+		}
+
+		return &DotExpr{Left: &Identifier{Name: ident}, Right: rightIdent}
+	}
+
+	// Check for function call
+	if p.curToken.Type == lexer.TokenLParen {
+		p.nextToken() // consume '('
+		args := []Node{}
+		for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+			args = append(args, p.parseExpr())
+			if p.curToken.Type == lexer.TokenComma {
+				p.nextToken()
+			}
+		}
+		p.nextToken() // consume ')'
+
+		return &CallExpr{
+			Function: ident,
+			Args:     args,
+			IsCFunc:  false,
+		}
+	}
+
+	return &Identifier{Name: ident}
 }
 
 // Phase 11: Native C Interop parsing
@@ -336,7 +620,7 @@ func (p *Parser) parseAddrOf() *AddressOf {
 
 func (p *Parser) parseDeref() *Dereference {
 	p.nextToken() // consume '*'
-	operand := p.parsePrimary()
+	operand := p.parsePrimaryExpr()
 	return &Dereference{Operand: operand}
 }
 
@@ -380,6 +664,7 @@ func (p *Parser) parseGateApply() *GateApplyStmt {
 	p.nextToken() // consume '('
 
 	target := p.parseExpr()
+	p.nextToken() // advance past primary expression
 
 	var control Node = nil
 	var params []Node = nil
@@ -389,12 +674,14 @@ func (p *Parser) parseGateApply() *GateApplyStmt {
 		p.nextToken() // consume ','
 		control = target
 		target = p.parseExpr()
+		p.nextToken() // advance past primary expression
 	}
 
 	// Check for parameters (rotation gates)
 	if p.curToken.Type == lexer.TokenComma {
 		p.nextToken() // consume ','
 		params = []Node{p.parseExpr()}
+		p.nextToken() // advance past primary expression
 	}
 
 	p.nextToken() // consume ')'
@@ -452,21 +739,7 @@ func (p *Parser) parseActor() *ActorDeclStmt {
 	p.nextToken() // consume ')'
 	p.nextToken() // consume '{'
 
-	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
-		if p.curToken.Type == lexer.TokenLet || p.curToken.Type == lexer.TokenVar {
-			actor.Body = append(actor.Body, p.parseVarDecl())
-		} else if p.curToken.Type == lexer.TokenPrint {
-			actor.Body = append(actor.Body, p.parsePrint())
-		} else if p.curToken.Type == lexer.TokenReceive {
-			actor.Body = append(actor.Body, p.parseReceive())
-		} else if p.curToken.Type == lexer.TokenSpawn {
-			actor.Body = append(actor.Body, &ExprStmt{Expression: p.parseSpawn()})
-		} else if p.curToken.Type == lexer.TokenIdent {
-			actor.Body = append(actor.Body, &ExprStmt{Expression: p.parseExpr()})
-		} else {
-			p.nextToken()
-		}
-	}
+	actor.Body = p.parseBlock()
 
 	p.nextToken() // consume '}'
 	return actor
@@ -540,7 +813,7 @@ func (p *Parser) parseMatrixDeclInternal() *MatrixDecl {
 
 // Phase 11: Matrix indexing parsing
 func (p *Parser) parseMatrixIndex() *MatrixIndexExpr {
-	matrix := p.parsePrimary()
+	matrix := p.parsePrimaryExpr()
 
 	p.nextToken() // consume '['
 	row := p.parseExpr()
@@ -553,4 +826,69 @@ func (p *Parser) parseMatrixIndex() *MatrixIndexExpr {
 		Row:    row,
 		Col:    col,
 	}
+}
+
+// Phase 18: GPU kernel parsing
+func (p *Parser) parseKernel() *KernelDeclStmt {
+	p.nextToken() // consume 'kernel'
+	kernel := &KernelDeclStmt{Name: p.curToken.Literal, Body: []Node{}}
+	p.nextToken() // consume kernel name
+	p.nextToken() // consume '('
+
+	// Parse typed parameters: name: type
+	for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+		if p.curToken.Type == lexer.TokenIdent {
+			paramName := p.curToken.Literal
+			p.nextToken() // consume param name
+			if p.curToken.Type == lexer.TokenColon {
+				p.nextToken() // consume ':'
+			}
+			paramType := p.curToken.Literal
+			p.nextToken() // consume type
+			kernel.Params = append(kernel.Params, Parameter{Name: paramName, Type: paramType})
+			if p.curToken.Type == lexer.TokenComma {
+				p.nextToken() // consume ','
+			}
+		} else {
+			p.nextToken()
+		}
+	}
+	p.nextToken() // consume ')'
+	p.nextToken() // consume '{'
+
+	kernel.Body = p.parseBlock()
+	p.nextToken() // consume '}'
+	return kernel
+}
+
+// Phase 18: barrier() statement parsing
+func (p *Parser) parseBarrierStmt() *BarrierStmt {
+	p.nextToken() // consume 'barrier'
+	if p.curToken.Type == lexer.TokenLParen {
+		p.nextToken() // consume '('
+		if p.curToken.Type == lexer.TokenRParen {
+			p.nextToken() // consume ')'
+		}
+	}
+	return &BarrierStmt{}
+}
+
+// Phase 18: global_id(dim) expression parsing
+func (p *Parser) parseGlobalIDExpr() *GlobalIdExpr {
+	p.nextToken() // consume 'global_id'
+	p.nextToken() // consume '('
+	dim := 0
+	if p.curToken.Type == lexer.TokenInt {
+		dim = 0
+		for _, ch := range p.curToken.Literal {
+			if ch >= '0' && ch <= '9' {
+				dim = dim*10 + int(ch-'0')
+			}
+		}
+		p.nextToken() // consume dimension literal
+	}
+	if p.curToken.Type == lexer.TokenRParen {
+		p.nextToken() // consume ')'
+	}
+	return &GlobalIdExpr{Dimension: dim}
 }
