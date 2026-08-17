@@ -34,6 +34,11 @@ type IfStmt struct {
 	Alternative []Node
 }
 
+type WhileStmt struct {
+	Condition Node
+	Body      []Node
+}
+
 type PrintStmt struct {
 	Value Node
 }
@@ -211,4 +216,66 @@ type TagExpr struct {
 // ComptimeStmt represents a compile-time evaluated statement: `comptime var x = ...`
 type ComptimeStmt struct {
 	Body []Node
+}
+
+
+
+// Parameter represents a typed parameter by value (safe, no pointers)
+type Parameter struct {
+	Name string
+	Type string
+}
+
+// KernelDeclStmt represents a GPU compute kernel function declaration:
+// kernel vector_add(a: []float, b: []float, c: []float) { ... }
+type KernelDeclStmt struct {
+	Name       string
+	Params     []Parameter  // Fixed: changed ParamNode -> Parameter
+	Body       []Node
+	WorkGroupX int
+	WorkGroupY int
+	WorkGroupZ int
+}
+
+// GlobalIdExpr represents GPU thread indexing: global_id(0)
+type GlobalIdExpr struct {
+	Dimension int // 0 = X, 1 = Y, 2 = Z
+}
+
+// BarrierStmt represents thread block synchronization: barrier()
+type BarrierStmt struct{}
+
+// Phase 19: Struct type declarations
+type StructField struct {
+	Name string
+	Type string
+}
+
+type StructDeclStmt struct {
+	Name   string
+	Fields []StructField
+}
+
+type StructLiteral struct {
+	TypeName string
+	Fields   []Node   // BinaryExpr nodes: field = value
+}
+
+// Phase 19: Boolean literals
+type BoolLiteral struct {
+	Value bool
+}
+
+// Phase 19: For loops
+type ForStmt struct {
+	Init      Node
+	Condition Node
+	Post      Node
+	Body      []Node
+}
+
+// Phase 19: Unary expressions (-x, !x)
+type UnaryExpr struct {
+	Operator string
+	Operand  Node
 }

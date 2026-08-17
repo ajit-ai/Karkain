@@ -322,7 +322,7 @@ func (p *Parser) parseComptimeStmt() *ComptimeStmt {
 
 // parseExprExtended extends expression parsing to handle macro constructs
 func (p *Parser) parseExprExtended() Node {
-	left := p.parsePrimary()
+	left := p.parsePrimaryExpr()
 
 	// Handle @derive and @tag
 	if p.curToken.Type == lexer.TokenAt {

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"karkain/pkg/lexer"
 	"strings"
 )
@@ -16,14 +17,19 @@ type Parser struct {
 	l         *lexer.Lexer
 	curToken  lexer.Token
 	peekToken lexer.Token
-	input     string // Store input for C import parsing
+	input     string   // Store input for C import parsing
+	Errors    []string // Phase 19: Parser error tracking
 }
 
 func New(l *lexer.Lexer) *Parser {
-	p := &Parser{l: l, input: l.GetInput()}
+	p := &Parser{l: l, input: l.GetInput(), Errors: []string{}}
 	p.nextToken()
 	p.nextToken()
 	return p
+}
+
+func (p *Parser) addError(msg string) {
+	p.Errors = append(p.Errors, fmt.Sprintf("line %d: %s", p.curToken.Line, msg))
 }
 
 func (p *Parser) nextToken() {
@@ -50,11 +56,16 @@ func (p *Parser) ParseProgram() *Program {
 		if stmt := p.parseKernel(); stmt != nil {
 			prog.Statements = append(prog.Statements, stmt)
 		}
+	} else if p.curToken.Type == lexer.TokenTypeDef {
+		if stmt := p.parseStructDecl(); stmt != nil {
+			prog.Statements = append(prog.Statements, stmt)
+		}
 	} else if p.curToken.Type == lexer.TokenImport {
 			if cImport := p.parseCImport(); cImport != nil {
 				prog.CImports = append(prog.CImports, cImport)
 			}
 		} else {
+			p.addError(fmt.Sprintf("unexpected token '%s' at top level", p.curToken.Literal))
 			p.nextToken()
 		}
 	}
@@ -105,12 +116,11 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 			p.nextToken() // consume base type
 		}
 	} else if p.curToken.Type == lexer.TokenIdent {
-		// Could be a type annotation like `int` or `float64`
-		potentialType := p.curToken.Literal
-		if potentialType == "int" || potentialType == "float64" || potentialType == "string" {
-			typeName = potentialType
-			p.nextToken() // consume type
-		}
+		typeName = p.curToken.Literal
+		p.nextToken() // consume type name
+	} else if p.curToken.Type == lexer.TokenBool {
+		typeName = p.curToken.Literal
+		p.nextToken() // consume bool type
 	}
 
 	p.nextToken() // consume '='
@@ -162,6 +172,8 @@ func (p *Parser) parseStatement() Node {
 		return p.parseIf()
 	case lexer.TokenWhile:
 		return p.parseWhile()
+	case lexer.TokenFor:
+		return p.parseFor()
 	case lexer.TokenMatrix:
 		return p.parseMatrixDecl()
 	case lexer.TokenAlloc:
@@ -196,6 +208,7 @@ func (p *Parser) parseStatement() Node {
 		}
 		return nil
 	default:
+		p.addError(fmt.Sprintf("unexpected token '%s' (%s)", p.curToken.Literal, p.curToken.Type))
 		p.nextToken()
 		return nil
 	}
@@ -216,6 +229,45 @@ func (p *Parser) parseWhile() *WhileStmt {
 	body := p.parseBlock()
 	p.nextToken() // consume '}'
 	return &WhileStmt{Condition: condition, Body: body}
+}
+
+// Phase 19: for (init; cond; post) { body }
+func (p *Parser) parseFor() *ForStmt {
+	p.nextToken() // consume 'for'
+	p.nextToken() // consume '('
+
+	// Parse init (can be empty)
+	var init Node
+	if p.curToken.Type != lexer.TokenSemicolon {
+		init = p.parseStatement()
+	}
+	// Consume ';' after init
+	if p.curToken.Type == lexer.TokenSemicolon {
+		p.nextToken()
+	}
+
+	// Parse condition
+	condition := p.parseExpr()
+	// Consume ';' after condition
+	if p.curToken.Type == lexer.TokenSemicolon {
+		p.nextToken()
+	}
+
+	// Parse post (can be empty)
+	var post Node
+	if p.curToken.Type != lexer.TokenRParen {
+		post = p.parseExpr()
+	}
+	if p.curToken.Type == lexer.TokenRParen {
+		p.nextToken() // consume ')'
+	}
+	if p.curToken.Type == lexer.TokenLBrace {
+		p.nextToken() // consume '{'
+	}
+	body := p.parseBlock()
+	p.nextToken() // consume '}'
+
+	return &ForStmt{Init: init, Condition: condition, Post: post, Body: body}
 }
 
 func (p *Parser) parseIf() *IfStmt {
@@ -334,10 +386,19 @@ func (p *Parser) parseIdentStatement() Node {
 	// Check for binary operator (assignment via expression)
 	if p.curToken.Type == lexer.TokenPlus || p.curToken.Type == lexer.TokenMinus ||
 		p.curToken.Type == lexer.TokenStar || p.curToken.Type == lexer.TokenSlash ||
-		p.curToken.Type == lexer.TokenEqual || p.curToken.Type == lexer.TokenNotEqual ||
+		p.curToken.Type == lexer.TokenPercent || p.curToken.Type == lexer.TokenEqual ||
+		p.curToken.Type == lexer.TokenNotEqual ||
 		p.curToken.Type == lexer.TokenLessThan || p.curToken.Type == lexer.TokenGreaterThan ||
-		p.curToken.Type == lexer.TokenLessEqual || p.curToken.Type == lexer.TokenGreaterEqual {
+		p.curToken.Type == lexer.TokenLessEqual || p.curToken.Type == lexer.TokenGreaterEqual ||
+		p.curToken.Type == lexer.TokenAnd || p.curToken.Type == lexer.TokenOr {
 		return &ExprStmt{Expression: p.parseBinaryExpr(left, 0)}
+	}
+
+	// Phase 19: Handle send operator: channel <- message
+	if p.curToken.Type == lexer.TokenSend {
+		p.nextToken() // consume '<-'
+		message := p.parseExpr()
+		return &ExprStmt{Expression: &SendExpr{Channel: left, Message: message}}
 	}
 
 	return &ExprStmt{Expression: left}
@@ -349,14 +410,18 @@ func (p *Parser) parseExpr() Node {
 
 func precedence(op string) int {
 	switch op {
-	case "==", "!=", "<", ">", "<=", ">=":
-		return 1
-	case "+", "-":
-		return 2
-	case "*", "/":
-		return 3
-	default:
+	case "||":
 		return 0
+	case "&&":
+		return 1
+	case "==", "!=", "<", ">", "<=", ">=":
+		return 2
+	case "+", "-":
+		return 3
+	case "*", "/", "%":
+		return 4
+	default:
+		return -1
 	}
 }
 
@@ -376,6 +441,8 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 			op = "*"
 		case lexer.TokenSlash:
 			op = "/"
+		case lexer.TokenPercent:
+			op = "%"
 		case lexer.TokenEqual:
 			op = "=="
 		case lexer.TokenNotEqual:
@@ -388,6 +455,10 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 			op = "<="
 		case lexer.TokenGreaterEqual:
 			op = ">="
+		case lexer.TokenAnd:
+			op = "&&"
+		case lexer.TokenOr:
+			op = "||"
 		}
 
 		if op == "" || precedence(op) < minPrec {
@@ -423,10 +494,49 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 		}
 	}
 
+	// Phase 19: Handle @derive(Trait) and @tag(name, value) as postfix operators
+	if p.curToken.Type == lexer.TokenAt {
+		p.nextToken() // consume '@'
+		ident := p.curToken.Literal
+		p.nextToken() // consume identifier
+		if ident == "derive" && p.curToken.Type == lexer.TokenLParen {
+			p.nextToken() // consume '('
+			trait := p.curToken.Literal
+			p.nextToken() // consume trait name
+			p.nextToken() // consume ')'
+			left = &DeriveExpr{Trait: trait, Target: left}
+		} else if ident == "tag" && p.curToken.Type == lexer.TokenLParen {
+			p.nextToken() // consume '('
+			tagName := p.curToken.Literal
+			p.nextToken() // consume tag name
+			p.nextToken() // consume ','
+			tagValue := p.curToken.Literal
+			p.nextToken() // consume tag value
+			p.nextToken() // consume ')'
+			left = &TagExpr{Target: left, TagName: tagName, TagValue: tagValue}
+		}
+	}
+
 	return left
 }
 
 func (p *Parser) parseUnary() Node {
+	// Phase 19: Handle unary negation (-x), logical NOT (!x), and dereference (*ptr)
+	if p.curToken.Type == lexer.TokenMinus {
+		p.nextToken() // consume '-'
+		operand := p.parseUnary()
+		return &UnaryExpr{Operator: "-", Operand: operand}
+	}
+	if p.curToken.Type == lexer.TokenNot {
+		p.nextToken() // consume '!'
+		operand := p.parseUnary()
+		return &UnaryExpr{Operator: "!", Operand: operand}
+	}
+	if p.curToken.Type == lexer.TokenStar {
+		p.nextToken() // consume '*'
+		operand := p.parseUnary()
+		return &Dereference{Operand: operand}
+	}
 	return p.parsePrimaryExpr()
 }
 
@@ -457,6 +567,24 @@ func (p *Parser) parsePrimaryExpr() Node {
 		return p.parseMapLiteral()
 	case lexer.TokenGlobalID:
 		return p.parseGlobalIDExpr()
+	case lexer.TokenTrue:
+		p.nextToken()
+		return &BoolLiteral{Value: true}
+	case lexer.TokenFalse:
+		p.nextToken()
+		return &BoolLiteral{Value: false}
+	case lexer.TokenQuote:
+		p.nextToken() // consume 'quote'
+		p.nextToken() // consume '('
+		expr := p.parseExpr()
+		p.nextToken() // consume ')'
+		return &QuoteExpr{Expr: expr}
+	case lexer.TokenUnquote:
+		p.nextToken() // consume 'unquote'
+		p.nextToken() // consume '('
+		expr := p.parseExpr()
+		p.nextToken() // consume ')'
+		return &UnquoteExpr{Expr: expr}
 	}
 	return nil
 }
@@ -549,7 +677,68 @@ func (p *Parser) parseIdentExpr() Node {
 		}
 	}
 
+	// Phase 19: Check for struct literal: TypeName{field: val, ...}
+	if p.curToken.Type == lexer.TokenLBrace {
+		return p.parseStructLiteral(ident)
+	}
+
 	return &Identifier{Name: ident}
+}
+
+// Phase 19: Struct literal parsing: Name{field: val, ...}
+func (p *Parser) parseStructLiteral(typeName string) *StructLiteral {
+	p.nextToken() // consume '{'
+	fields := []Node{}
+	if p.curToken.Type != lexer.TokenRBrace {
+		// Parse field: value pairs
+		fieldName := p.curToken.Literal
+		p.nextToken() // consume field name
+		p.nextToken() // consume ':'
+		val := p.parseExpr()
+		fields = append(fields, &BinaryExpr{
+			Left:     &Identifier{Name: fieldName},
+			Operator: "=",
+			Right:    val,
+		})
+		for p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+			fieldName = p.curToken.Literal
+			p.nextToken() // consume field name
+			p.nextToken() // consume ':'
+			val = p.parseExpr()
+			fields = append(fields, &BinaryExpr{
+				Left:     &Identifier{Name: fieldName},
+				Operator: "=",
+				Right:    val,
+			})
+		}
+	}
+	p.nextToken() // consume '}'
+	return &StructLiteral{TypeName: typeName, Fields: fields}
+}
+
+// Phase 19: Struct declaration parsing: type Name struct { field type, ... }
+func (p *Parser) parseStructDecl() *StructDeclStmt {
+	p.nextToken() // consume 'type'
+	name := p.curToken.Literal
+	p.nextToken() // consume struct name
+	p.nextToken() // consume 'struct'
+	p.nextToken() // consume '{'
+
+	fields := []StructField{}
+	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
+		fieldName := p.curToken.Literal
+		p.nextToken() // consume field name
+		fieldType := p.curToken.Literal
+		p.nextToken() // consume field type
+		fields = append(fields, StructField{Name: fieldName, Type: fieldType})
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+		}
+	}
+	p.nextToken() // consume '}'
+
+	return &StructDeclStmt{Name: name, Fields: fields}
 }
 
 // Phase 11: Native C Interop parsing

@@ -44,6 +44,14 @@ const (
 
 	// Loop Keywords
 	TokenWhile TokenType = "WHILE"
+	TokenFor   TokenType = "FOR"
+
+	// Type Keywords
+	TokenStruct   TokenType = "STRUCT"
+	TokenTypeDef  TokenType = "TYPE"
+	TokenBool     TokenType = "BOOL"
+	TokenTrue     TokenType = "TRUE"
+	TokenFalse    TokenType = "FALSE"
 
 	// Literals & Identifiers
 	TokenIdent   TokenType = "IDENT"
@@ -63,6 +71,10 @@ const (
 	TokenMinus        TokenType = "-"
 	TokenStar         TokenType = "*"
 	TokenSlash        TokenType = "/"
+	TokenPercent      TokenType = "%"
+	TokenAnd          TokenType = "&&"
+	TokenOr           TokenType = "||"
+	TokenNot          TokenType = "!"
 
 	TokenLParen   TokenType = "("
 	TokenRParen   TokenType = ")"
@@ -73,6 +85,7 @@ const (
 	TokenComma    TokenType = ","
 	TokenDot      TokenType = "."
 	TokenAt       TokenType = "@"
+	TokenSemicolon TokenType = ";"
 
 	TOKEN_DERIVE   TokenType = "DERIVE"
 	TOKEN_TAG      TokenType = "TAG"
@@ -159,6 +172,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{Type: TokenColon, Literal: ":", Line: l.Line}
 	case ',':
 		tok = Token{Type: TokenComma, Literal: ",", Line: l.Line}
+	case ';':
+		tok = Token{Type: TokenSemicolon, Literal: ";", Line: l.Line}
 	case '.':
 		tok = Token{Type: TokenDot, Literal: ".", Line: l.Line}
 	case '@':
@@ -177,7 +192,21 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 			tok = Token{Type: TokenNotEqual, Literal: string(ch) + string(l.Ch), Line: l.Line}
 		} else {
-			tok = Token{Type: TokenIllegal, Literal: "!", Line: l.Line}
+			tok = Token{Type: TokenNot, Literal: "!", Line: l.Line}
+		}
+	case '&':
+		if l.peekChar() == '&' {
+			l.readChar()
+			tok = Token{Type: TokenAnd, Literal: "&&", Line: l.Line}
+		} else {
+			tok = Token{Type: TokenIllegal, Literal: "&", Line: l.Line}
+		}
+	case '|':
+		if l.peekChar() == '|' {
+			l.readChar()
+			tok = Token{Type: TokenOr, Literal: "||", Line: l.Line}
+		} else {
+			tok = Token{Type: TokenIllegal, Literal: "|", Line: l.Line}
 		}
 	case '<':
 		if l.peekChar() == '-' {
@@ -207,6 +236,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{Type: TokenStar, Literal: "*", Line: l.Line}
 	case '/':
 		tok = Token{Type: TokenSlash, Literal: "/", Line: l.Line}
+	case '%':
+		tok = Token{Type: TokenPercent, Literal: "%", Line: l.Line}
 	case '"':
 		tok.Type = TokenString
 		tok.Literal = l.readString()
@@ -382,6 +413,18 @@ func lookupIdent(ident string) TokenType {
 		return TokenComptime
 	case "while":
 		return TokenWhile
+	case "for":
+		return TokenFor
+	case "type":
+		return TokenTypeDef
+	case "struct":
+		return TokenStruct
+	case "bool":
+		return TokenBool
+	case "true":
+		return TokenTrue
+	case "false":
+		return TokenFalse
 	case "kernel":
 		return TokenKernel
 	case "device":
