@@ -463,3 +463,78 @@ type QubitAssignStmt struct {
 type StmtList struct {
 	Statements []Node
 }
+
+// ============================================================
+// Phase 38: Coroutine/Async Runtime & Green Thread Scheduler
+// ============================================================
+
+// CoroutineDecl represents a coroutine declaration:
+// co name(params) { body }
+type CoroutineDecl struct {
+	Name          string
+	Params        []Parameter
+	Body          []Node
+	IsAsync       bool   // async coroutine
+	RetType       string // return type
+	GenericParams []GenericTypeParam
+}
+
+// AsyncExpr represents an async expression block: async { ... }
+type AsyncExpr struct {
+	Body []Node
+}
+
+// AwaitExpr represents an await expression: await(expr)
+type AwaitExpr struct {
+	Operand Node
+	Timeout Node // optional timeout
+}
+
+// YieldExpr represents a yield expression: yield(value)
+type YieldExpr struct {
+	Value Node
+}
+
+// ChSendExpr represents a channel send: ch <- value
+type ChSendExpr struct {
+	Channel Node
+	Value   Node
+}
+
+// ChRecvExpr represents a channel receive: <-ch
+type ChRecvExpr struct {
+	Channel Node
+}
+
+// ChDeclExpr represents a channel declaration: chan<T>(buffer_size)
+type ChDeclExpr struct {
+	ElementType string
+	BufferSize  Node // nil for unbuffered
+}
+
+// SelectStmt represents a select multiplexer:
+// select { case v <- ch1: ... case v = <-ch2: ... default: ... }
+type SelectStmt struct {
+	Cases   []SelectCase
+	Default []Node
+}
+
+// SelectCase represents one branch of a select statement
+type SelectCase struct {
+	Channel Node    // the channel expression
+	Dir     string  // "send" or "recv"
+	VarName string  // variable binding for recv
+	Value   Node    // value for send
+	Body    []Node  // case body
+}
+
+// GreenSpawnExpr spawns a green thread: gospawn(fn(args...))
+type GreenSpawnExpr struct {
+	Function string
+	Args     []Node
+}
+
+// AwaitAllExpr awaits multiple futures: await_all(f1, f2, ...)
+type AwaitAllExpr struct {
+	Futures []Node
+}
