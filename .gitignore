@@ -1,44 +1,40 @@
-# ==========================================
-# Karkain Build & Binary Outputs
-# ==========================================
-bin/
+# Binary Executables & Outputs
+/bin/
 *.exe
+*.exe.stackdump
 *.dll
 *.so
 *.dylib
-*.a
-*.o
-*.obj
+*.out
 
-# ==========================================
-# Target Emitter & Temp Transpilation Artifacts
-# ==========================================
-*.wasm
-*.gen.c
-*.tmp
-temp/
-build/
-
-# ==========================================
-# Release Packages & Distribution Archives
-# ==========================================
-releases/
+# Distribution & Release Artifacts
+/dist/
 *.zip
 *.tar.gz
+*.sha256
 
-# ==========================================
-# Go Toolchain & Dependency Cache
-# ==========================================
-vendor/
+# Karkain Package Manager & Caches
+.karkain/
+/cache/
+
+# Generated Shaders & Intermediate Code
+*.spv
+*.wgsl
+*.cl
+*.kar.map
+
+# Temporary & Test Directories
+/my_project/
+/my_test_app/
+/demo_app/
+*.tmp
+
+# Go Build & Dependency Caches
+/vendor/
 *.test
-*.prof
 
-# ==========================================
-# IDE / OS Specific Files
-# ==========================================
+# IDE & Editor Directories
+.vscode/
 .idea/
-.vscode/*
-!.vscode/extensions.json
-!.vscode/tasks.json
-.DS_Store
-Thumbs.db
+*.swp
+*~
