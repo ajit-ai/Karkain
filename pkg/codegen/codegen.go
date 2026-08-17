@@ -63,6 +63,13 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		}
 	}
 
+	// Phase 18: Generate GPU kernel declarations and host launchers
+	for _, stmt := range prog.Statements {
+		if kernel, ok := stmt.(*parser.KernelDeclStmt); ok {
+			cCode += g.genKernelDecl(kernel)
+		}
+	}
+
 	if g.cfg.Verbose {
 		fmt.Println("=== [3] GENERATED C99 SOURCE CODE ===")
 		fmt.Println(cCode)
@@ -352,12 +359,13 @@ typedef struct {
 #define HAS_AVX2 0
 #endif
 
-typedef enum { TYPE_INT, TYPE_STRING, TYPE_ARRAY, TYPE_MAP } ValueType;
+typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP } ValueType;
 
 typedef struct Value {
     ValueType type;
     union {
         long long intVal;
+        double floatVal;
         char* strVal;
         struct {
             struct Value** items;
@@ -375,6 +383,13 @@ Value* make_int(long long v) {
     Value* val = (Value*)malloc(sizeof(Value));
     val->type = TYPE_INT;
     val->intVal = v;
+    return val;
+}
+
+Value* make_float(double v) {
+    Value* val = (Value*)malloc(sizeof(Value));
+    val->type = TYPE_FLOAT64;
+    val->floatVal = v;
     return val;
 }
 
@@ -489,6 +504,8 @@ void print_value(Value* v) {
     if (!v) return;
     if (v->type == TYPE_INT) {
         printf("%lld\n", v->intVal);
+    } else if (v->type == TYPE_FLOAT64) {
+        printf("%g\n", v->floatVal);
     } else if (v->type == TYPE_STRING) {
         printf("%s\n", v->strVal);
     } else if (v->type == TYPE_ARRAY) {
@@ -518,6 +535,32 @@ void print_value(Value* v) {
 
 Value* binary_op(Value* left, const char* op, Value* right) {
     if (!left || !right) return make_int(0);
+    // String concatenation
+    if (strcmp(op, "+") == 0 && left->type == TYPE_STRING && right->type == TYPE_STRING) {
+        size_t len = strlen(left->strVal) + strlen(right->strVal);
+        char* buf = (char*)malloc(len + 1);
+        strcpy(buf, left->strVal);
+        strcat(buf, right->strVal);
+        Value* result = make_string(buf);
+        free(buf);
+        return result;
+    }
+    // Float64 arithmetic
+    if (left->type == TYPE_FLOAT64 || right->type == TYPE_FLOAT64) {
+        double l = (left->type == TYPE_FLOAT64) ? left->floatVal : (double)left->intVal;
+        double r = (right->type == TYPE_FLOAT64) ? right->floatVal : (double)right->intVal;
+        if (strcmp(op, "+") == 0) return make_float(l + r);
+        if (strcmp(op, "-") == 0) return make_float(l - r);
+        if (strcmp(op, "*") == 0) return make_float(l * r);
+        if (strcmp(op, "/") == 0) return make_float(r != 0.0 ? l / r : 0.0);
+        if (strcmp(op, ">") == 0) return make_int(l > r);
+        if (strcmp(op, "<") == 0) return make_int(l < r);
+        if (strcmp(op, ">=") == 0) return make_int(l >= r);
+        if (strcmp(op, "<=") == 0) return make_int(l <= r);
+        if (strcmp(op, "==") == 0) return make_int(l == r);
+        if (strcmp(op, "!=") == 0) return make_int(l != r);
+    }
+    // Int arithmetic
     if (strcmp(op, "+") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
         return make_int(left->intVal + right->intVal);
     }
@@ -536,6 +579,16 @@ Value* binary_op(Value* left, const char* op, Value* right) {
     if (strcmp(op, "<") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
         return make_int(left->intVal < right->intVal);
     }
+    if (strcmp(op, ">=") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
+        return make_int(left->intVal >= right->intVal);
+    }
+    if (strcmp(op, "<=") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
+        return make_int(left->intVal <= right->intVal);
+    }
+    if (strcmp(op, "!=") == 0) {
+        if (left->type == TYPE_INT && right->type == TYPE_INT) return make_int(left->intVal != right->intVal);
+        if (left->type == TYPE_STRING && right->type == TYPE_STRING) return make_int(strcmp(left->strVal, right->strVal) != 0);
+    }
     if (strcmp(op, "==") == 0) {
         if (left->type == TYPE_INT && right->type == TYPE_INT) return make_int(left->intVal == right->intVal);
         if (left->type == TYPE_STRING && right->type == TYPE_STRING) return make_int(strcmp(left->strVal, right->strVal) == 0);
@@ -546,6 +599,7 @@ Value* binary_op(Value* left, const char* op, Value* right) {
 int is_truthy(Value* v) {
     if (!v) return 0;
     if (v->type == TYPE_INT) return v->intVal != 0;
+    if (v->type == TYPE_FLOAT64) return v->floatVal != 0.0;
     if (v->type == TYPE_STRING) return strlen(v->strVal) > 0;
     if (v->type == TYPE_ARRAY) return v->arrVal.length > 0;
     if (v->type == TYPE_MAP) return v->mapVal.length > 0;
@@ -559,6 +613,73 @@ void* karkain_alloc(size_t count, size_t size) {
 
 void karkain_free(void* ptr) {
     free(ptr);
+}
+
+// Phase 10: String standard library functions
+Value* karkain_trim(Value* str) {
+    if (!str || str->type != TYPE_STRING) return make_string("");
+    char* s = str->strVal;
+    char* start = s;
+    char* end = s + strlen(s) - 1;
+    while (start <= end && (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r')) start++;
+    while (end >= start && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) end--;
+    size_t len = (end >= start) ? (end - start + 1) : 0;
+    char* buf = (char*)malloc(len + 1);
+    if (len > 0) memcpy(buf, start, len);
+    buf[len] = '\0';
+    Value* res = make_string(buf);
+    free(buf);
+    return res;
+}
+
+Value* karkain_contains(Value* haystack, Value* needle) {
+    if (!haystack || !needle || haystack->type != TYPE_STRING || needle->type != TYPE_STRING) return make_int(0);
+    return make_int(strstr(haystack->strVal, needle->strVal) != NULL);
+}
+
+Value* karkain_split(Value* str, Value* delim) {
+    if (!str || !delim || str->type != TYPE_STRING || delim->type != TYPE_STRING) return make_array();
+    Value* arr = make_array();
+    char* s = strdup(str->strVal);
+    char* d = delim->strVal;
+    char* token = strtok(s, d);
+    while (token != NULL) {
+        array_push(arr, make_string(token));
+        token = strtok(NULL, d);
+    }
+    free(s);
+    return arr;
+}
+
+// Phase 10: Math standard library functions
+Value* karkain_sqrt(Value* v) {
+    if (!v || v->type != TYPE_INT) return make_int(0);
+    return make_int((long long)sqrt((double)v->intVal));
+}
+
+Value* karkain_abs(Value* v) {
+    if (!v || v->type != TYPE_INT) return make_int(0);
+    return make_int(v->intVal >= 0 ? v->intVal : -v->intVal);
+}
+
+Value* karkain_pow(Value* base, Value* exp) {
+    if (!base || !exp || base->type != TYPE_INT || exp->type != TYPE_INT) return make_int(0);
+    long long result = 1;
+    long long b = base->intVal;
+    long long e = exp->intVal;
+    while (e > 0) {
+        if (e & 1) result *= b;
+        b *= b;
+        e >>= 1;
+    }
+    return make_int(result);
+}
+
+// Phase 10: Array append function
+Value* karkain_appendArray(Value* arr, Value* elem) {
+    if (!arr || arr->type != TYPE_ARRAY) return make_array();
+    array_push(arr, elem);
+    return arr;
 }
 `
 }
@@ -629,11 +750,6 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 				return fmt.Sprintf("\tprintf(\"%%f\\n\", %s[(%s * %s + %s)]);\n", matrixExpr, rowC, colsVar, colC)
 			}
 		}
-		// Check if the value is an identifier that might be an unboxed type
-		if ident, ok := node.Value.(*parser.Identifier); ok {
-			// For now, we'll check if it's a simple identifier and print it as an int
-			return fmt.Sprintf("\tprintf(\"%%lld\\n\", %s);\n", ident.Name)
-		}
 		// Check if the value is a CallExpr with C function result
 		if callExpr, ok := node.Value.(*parser.CallExpr); ok {
 			if callExpr.IsCFunc {
@@ -651,13 +767,34 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		}
 		res += "\t}"
 		if len(node.Alternative) > 0 {
-			res += " else {\n"
-			for _, aStmt := range node.Alternative {
-				res += "\t" + g.genStatement(aStmt)
+			if len(node.Alternative) == 1 {
+				if elseIf, ok := node.Alternative[0].(*parser.IfStmt); ok {
+					// else if -> else if(...)
+					elseIfStr := g.genStatement(elseIf)
+					res += " else " + strings.TrimPrefix(elseIfStr, "\t")
+				} else {
+					res += " else {\n"
+					for _, aStmt := range node.Alternative {
+						res += "\t" + g.genStatement(aStmt)
+					}
+					res += "\t}"
+				}
+			} else {
+				res += " else {\n"
+				for _, aStmt := range node.Alternative {
+					res += "\t" + g.genStatement(aStmt)
+				}
+				res += "\t}"
 			}
-			res += "\t}"
 		}
 		res += "\n"
+		return res
+	case *parser.WhileStmt:
+		res := fmt.Sprintf("\twhile (is_truthy(%s)) {\n", g.genExpr(node.Condition))
+		for _, bodyStmt := range node.Body {
+			res += "\t" + g.genStatement(bodyStmt)
+		}
+		res += "\t}\n"
 		return res
 	case *parser.AllocExpr:
 		countExpr := g.mapLiteralToC(node.Count)
@@ -674,15 +811,27 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 	case *parser.GateApplyStmt:
 		// Phase 14: Generate gate application calls
 		qrName := g.getQuantumRegisterName()
-		targetExpr := g.mapLiteralToC(node.Target)
 
 		switch node.Gate {
 		case "H":
+			targetExpr := g.mapLiteralToC(node.Target)
 			return fmt.Sprintf("\tgate_h(&%s, %s);\n", qrName, targetExpr)
 		case "X":
+			targetExpr := g.mapLiteralToC(node.Target)
 			return fmt.Sprintf("\tgate_x(&%s, %s);\n", qrName, targetExpr)
 		case "CNOT":
-			controlExpr := g.mapLiteralToC(node.Control)
+			controlExpr := ""
+			if controlLit, ok := node.Control.(*parser.IntLiteral); ok {
+				controlExpr = controlLit.Value
+			} else {
+				controlExpr = g.mapLiteralToC(node.Control)
+			}
+			targetExpr := ""
+			if targetLit, ok := node.Target.(*parser.IntLiteral); ok {
+				targetExpr = targetLit.Value
+			} else {
+				targetExpr = g.mapLiteralToC(node.Target)
+			}
 			return fmt.Sprintf("\tgate_cnot(&%s, %s, %s);\n", qrName, controlExpr, targetExpr)
 		default:
 			return fmt.Sprintf("\t// Unknown gate: %s\n", node.Gate)
@@ -691,7 +840,12 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		// Phase 14: Generate measure call in statement context
 		// For statement context, we generate the call without storing
 		qrName := g.getQuantumRegisterName()
-		targetExpr := g.mapLiteralToC(node.Qubit)
+		targetExpr := ""
+		if intLit, ok := node.Qubit.(*parser.IntLiteral); ok {
+			targetExpr = intLit.Value
+		} else {
+			targetExpr = g.mapLiteralToC(node.Qubit)
+		}
 		return fmt.Sprintf("\tmeasure(&%s, %s);\n", qrName, targetExpr)
 	case *parser.ActorDeclStmt:
 		// Phase 16: Generate actor declaration
@@ -703,6 +857,10 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 			return fmt.Sprintf("\t// receive(%s) -> %s (placeholder)\n", channelExpr, node.VarName)
 		}
 		return fmt.Sprintf("\t// receive(%s) (placeholder)\n", channelExpr)
+	case *parser.KernelDeclStmt:
+		return g.genKernelDecl(node)
+	case *parser.BarrierStmt:
+		return "\tbarrier(CLK_LOCAL_MEM_FENCE);\n"
 	}
 	return ""
 }
@@ -714,7 +872,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 	case *parser.IntLiteral:
 		return fmt.Sprintf("make_int(%s)", n.Value)
 	case *parser.Float64Literal:
-		return fmt.Sprintf("make_int((long long)%s)", n.Value) // For now, treat as int
+		return fmt.Sprintf("make_float(%s)", n.Value)
 	case *parser.Identifier:
 		return n.Name
 	case *parser.ArrayLiteral:
@@ -781,6 +939,27 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Function == "http.get" {
 			return fmt.Sprintf("http_get(%s)", g.genExpr(n.Args[0]))
 		}
+		if n.Function == "trim" {
+			return fmt.Sprintf("karkain_trim(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "contains" {
+			return fmt.Sprintf("karkain_contains(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "split" {
+			return fmt.Sprintf("karkain_split(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "sqrt" {
+			return fmt.Sprintf("karkain_sqrt(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "abs" {
+			return fmt.Sprintf("karkain_abs(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "pow" {
+			return fmt.Sprintf("karkain_pow(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "appendArray" {
+			return fmt.Sprintf("karkain_appendArray(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
 		if n.Function == "spawn" {
 			// Phase 16: Generate spawn expression
 			actorName := n.Function
@@ -841,7 +1020,13 @@ func (g *Generator) genExpr(node parser.Node) string {
 	case *parser.MeasureExpr:
 		// Phase 14: Generate measure expression
 		qrName := g.getQuantumRegisterName()
-		targetExpr := g.mapLiteralToC(n.Qubit)
+		// Extract raw int value for C function
+		targetExpr := ""
+		if intLit, ok := n.Qubit.(*parser.IntLiteral); ok {
+			targetExpr = intLit.Value
+		} else {
+			targetExpr = g.mapLiteralToC(n.Qubit)
+		}
 		return fmt.Sprintf("measure(&%s, %s)", qrName, targetExpr)
 	case *parser.SpawnExpr:
 		// Phase 16: Generate spawn expression
@@ -851,6 +1036,8 @@ func (g *Generator) genExpr(node parser.Node) string {
 		channelExpr := g.genExpr(n.Channel)
 		messageExpr := g.genExpr(n.Message)
 		return fmt.Sprintf("// %s <- %s (send placeholder)", channelExpr, messageExpr)
+	case *parser.GlobalIdExpr:
+		return fmt.Sprintf("get_global_id(%d)", n.Dimension)
 	}
 	return "make_int(0)"
 }
@@ -954,7 +1141,7 @@ func (g *Generator) genMatrixDecl(stmt *parser.VarDeclStmt) string {
 	// Matrix declaration: %s (%s) - 64-byte aligned for SIMD
 	%s* %s;
 #ifdef _WIN32
-	%s = (%s*)_aligned_malloc(64, %s * %s * sizeof(%s));
+	%s = (%s*)_aligned_malloc(%s * %s * sizeof(%s), 64);
 #else
 	%s = (%s*)aligned_alloc(64, %s * %s * sizeof(%s));
 #endif
@@ -1010,6 +1197,27 @@ func (g *Generator) mapLiteralToC(node parser.Node) string {
 // Phase 14: Get the quantum register name
 func (g *Generator) getQuantumRegisterName() string {
 	return "qr"
+}
+
+// Phase 18: Generate GPU kernel declaration and host launcher
+func (g *Generator) genKernelDecl(kernel *parser.KernelDeclStmt) string {
+	gen := NewGPUGenerator()
+	openclSrc, err := gen.GenerateOpenCL(kernel)
+	if err != nil {
+		return fmt.Sprintf("\t// GPU kernel generation error: %s\n", err.Error())
+	}
+
+	escaped := strings.ReplaceAll(openclSrc, "\\", "\\\\")
+	escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+	escaped = strings.ReplaceAll(escaped, "\n", "\\n\"\n\"")
+
+	result := fmt.Sprintf("\n// Phase 18: GPU kernel '%s' - OpenCL source\n", kernel.Name)
+	result += fmt.Sprintf("static const char* %s_opencl_source =\n", kernel.Name)
+	result += fmt.Sprintf("\"%s\";\n\n", escaped)
+
+	result += GenerateHostLauncher(kernel)
+
+	return result
 }
 
 // Phase 14: Generate AVX2 matrix multiplication kernel
