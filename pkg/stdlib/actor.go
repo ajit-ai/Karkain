@@ -19,6 +19,7 @@ func Send(actorID int, message string) {
 func Receive() string {
 	// Placeholder for receiving messages from actor mailbox
 	// This will be connected to the runtime mpmc_receive function
+	return ""
 }
 
 // Stop stops an actor
