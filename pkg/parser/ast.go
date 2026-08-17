@@ -384,3 +384,56 @@ type TensorIndexExpr struct {
 type TensorShapeOfExpr struct {
 	Operand Node
 }
+
+// Phase 28: Quantum Circuit Primitives, QIR & OpenQASM Backend
+
+// QubitType represents a native qubit type: Qubit or Qubit[N] for register
+type QubitType struct {
+	Size int // 0 for single qubit, N for Qubit[N] register
+}
+
+// BitType represents a native classical bit type: Bit or Bit[N]
+type BitType struct {
+	Size int // 0 for single bit, N for Bit[N] register
+}
+
+// CircuitDecl represents a quantum circuit declaration block:
+// circuit BellPair(q: Qubit[2]) -> Bit[2] { ... }
+type CircuitDecl struct {
+	Name       string
+	Params     []CircuitParam
+	ReturnType *BitType
+	Body       []Node
+}
+
+// CircuitParam represents a parameter in a circuit signature
+type CircuitParam struct {
+	Name string
+	Type *QubitType
+}
+
+// QPUOpExpr represents a built-in quantum gate operation:
+// qpu.h(q[0]), qpu.cx(q[0], q[1]), qpu.rx(theta, q[0])
+type QPUOpExpr struct {
+	Op    string // "h", "x", "y", "z", "rx", "ry", "rz", "cx", "cz", "swap", "measure", "reset"
+	Args  []Node // Target qubits, control qubits, rotation angles
+	Angle Node   // Rotation angle for parameterized gates (rx, ry, rz)
+}
+
+// CircuitReturnStmt represents a return statement inside a circuit block
+type CircuitReturnStmt struct {
+	Value Node
+}
+
+// QubitIndexExpr represents indexed qubit access: q[0], q[1]
+type QubitIndexExpr struct {
+	Qubit Node
+	Index Node
+}
+
+// QubitAssignStmt represents qubit assignment: q = alloc qubit[2]
+type QubitAssignStmt struct {
+	Name string
+	Size int  // Number of qubits in the register
+	Init bool // true for alloc, false for alias
+}
