@@ -1,5 +1,7 @@
 package parser
 
+import "fmt"
+
 type Node interface{}
 
 type Program struct {
@@ -316,4 +318,69 @@ type ImplDeclStmt struct {
 	TraitName string   // Name of the trait being implemented
 	ForType   string   // Concrete type implementing the trait
 	Methods   []FuncDecl // Implemented methods
+}
+
+// Phase 27: Hardware-Native Tensor Types & Autograd Engine
+
+// TensorType represents a parametric tensor type: Tensor<f32, [32, 3, 224, 224]>
+type TensorType struct {
+	ElementType string   // Element scalar type: "f32", "f16", "i32"
+	Shape       []int    // Dimension sizes: [32, 3, 224, 224]
+	ShapeParams []string // Named shape params: ["B", "C", "H", "W"] for dynamic dims
+}
+
+func (tt *TensorType) String() string {
+	dims := ""
+	for i, s := range tt.Shape {
+		if i > 0 {
+			dims += ", "
+		}
+		dims += fmt.Sprintf("%d", s)
+	}
+	for _, p := range tt.ShapeParams {
+		if len(dims) > 0 {
+			dims += ", "
+		}
+		dims += p
+	}
+	return fmt.Sprintf("Tensor<%s, [%s]>", tt.ElementType, dims)
+}
+
+// TensorStmt represents a tensor computation block:
+// tensor ForwardPass(x: Tensor<f32, [32, 128]>) -> Tensor<f32, [32, 64]> { ... }
+type TensorStmt struct {
+	Name       string
+	Params     []TensorParam
+	ReturnType *TensorType
+	Body       []Node
+}
+
+// TensorParam represents a parameter in a tensor function signature
+type TensorParam struct {
+	Name string
+	Type *TensorType
+}
+
+// TensorOpExpr represents a built-in tensor operation call:
+// ops.matmul(x, w), ops.relu(mat), ops.softmax(x), ops.conv2d(x, k), ops.transpose(x)
+type TensorOpExpr struct {
+	Op     string // "matmul", "relu", "softmax", "conv2d", "transpose"
+	Args   []Node // Operands (Identifiers or other expressions)
+	Attrs  map[string]Node // Named attributes (e.g., dim: 1 for transpose, stride: 2 for conv2d)
+}
+
+// TensorReturnStmt represents a return statement inside a tensor block
+type TensorReturnStmt struct {
+	Value Node
+}
+
+// TensorIndexExpr represents element access: t[i, j, k]
+type TensorIndexExpr struct {
+	Source Node
+	Indices []Node
+}
+
+// TensorShapeOfExpr represents querying tensor shape: shape_of(x)
+type TensorShapeOfExpr struct {
+	Operand Node
 }
