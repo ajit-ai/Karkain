@@ -1,0 +1,407 @@
+// Phase 40: Semantic Analysis Module for Self-hosted Karkain Compiler
+// Provides basic type checking, symbol indexing, and function arity validation
+// Resilient: never rejects valid code, just collects warnings
+
+// ============================================================
+// Symbol Table Implementation
+// ============================================================
+
+func createSymbolTable() {
+    let table = []
+    // Parallel arrays acting as a map
+    // names[i]   = symbol name (string)
+    // kinds[i]   = "func", "var", "let", "kernel", "struct", "param"
+    // counts[i]  = param count (int, for functions/kernels)
+    table = appendArray(table, [])  // 0: names
+    table = appendArray(table, [])  // 1: kinds
+    table = appendArray(table, [])  // 2: param counts
+    return table
+}
+
+func symNames(table) { return table[0] }
+func symKinds(table) { return table[1] }
+func symCounts(table) { return table[2] }
+
+func addSymbol(table, name, kind, count) {
+    table[0] = appendArray(symNames(table), name)
+    table[1] = appendArray(symKinds(table), kind)
+    table[2] = appendArray(symCounts(table), count)
+}
+
+func lookupSymbol(table, name) {
+    let names = symNames(table)
+    let kinds = symKinds(table)
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] == name) {
+            return kinds[i]
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func lookupParamCount(table, name) {
+    let names = symNames(table)
+    let counts = symCounts(table)
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] == name) {
+            return counts[i]
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+func symbolCount(table) {
+    return len(symNames(table))
+}
+
+// ============================================================
+// Warning Collection
+// ============================================================
+
+func createWarningList() {
+    let warnings = []
+    warnings = appendArray(warnings, [])  // 0: messages
+    return warnings
+}
+
+func addWarning(warnings, msg) {
+    warnings[0] = appendArray(warnings[0], msg)
+}
+
+func warningCount(warnings) {
+    return len(warnings[0])
+}
+
+func printWarnings(warnings) {
+    let msgs = warnings[0]
+    let i = 0
+    while (i < len(msgs)) {
+        print("SEMA WARNING: " + msgs[i])
+        i = i + 1
+    }
+}
+
+// ============================================================
+// Built-in function check (runtime builtins not declared in AST)
+// ============================================================
+
+func isBuiltinFunc(name) {
+    if (name == "print") { return 1 }
+    if (name == "len") { return 1 }
+    if (name == "str") { return 1 }
+    if (name == "int") { return 1 }
+    if (name == "substr") { return 1 }
+    if (name == "appendArray") { return 1 }
+    if (name == "openFile") { return 1 }
+    if (name == "readLine") { return 1 }
+    if (name == "closeFile") { return 1 }
+    if (name == "createFile") { return 1 }
+    if (name == "writeToFile") { return 1 }
+    if (name == "removeFile") { return 1 }
+    if (name == "readFile") { return 1 }
+    if (name == "writeFile") { return 1 }
+    if (name == "getArgs") { return 1 }
+    if (name == "system") { return 1 }
+    if (name == "makeMap") { return 1 }
+    if (name == "mapSet") { return 1 }
+    if (name == "mapGet") { return 1 }
+    if (name == "mapHas") { return 1 }
+    if (name == "karkain_len") { return 1 }
+    if (name == "trim") { return 1 }
+    if (name == "contains") { return 1 }
+    if (name == "split") { return 1 }
+    if (name == "sqrt") { return 1 }
+    if (name == "abs") { return 1 }
+    if (name == "pow") { return 1 }
+    if (name == "fileExists") { return 1 }
+    return 0
+}
+
+func builtinArity(name) {
+    // -1 means variadic (any number of args)
+    if (name == "print") { return 1 }
+    if (name == "len") { return 1 }
+    if (name == "str") { return 1 }
+    if (name == "int") { return 1 }
+    if (name == "substr") { return 3 }
+    if (name == "appendArray") { return 2 }
+    if (name == "openFile") { return 1 }
+    if (name == "readLine") { return 1 }
+    if (name == "closeFile") { return 1 }
+    if (name == "createFile") { return 1 }
+    if (name == "writeToFile") { return 2 }
+    if (name == "removeFile") { return 1 }
+    if (name == "readFile") { return 1 }
+    if (name == "writeFile") { return 2 }
+    if (name == "getArgs") { return 0 }
+    if (name == "system") { return 1 }
+    if (name == "makeMap") { return 0 }
+    if (name == "mapSet") { return 3 }
+    if (name == "mapGet") { return 2 }
+    if (name == "mapHas") { return 2 }
+    if (name == "karkain_len") { return 1 }
+    if (name == "trim") { return 1 }
+    if (name == "contains") { return 2 }
+    if (name == "split") { return 2 }
+    if (name == "sqrt") { return 1 }
+    if (name == "abs") { return 1 }
+    if (name == "pow") { return 2 }
+    if (name == "fileExists") { return 1 }
+    return -1
+}
+
+// ============================================================
+// AST Node Walking
+// ============================================================
+
+func analyzeStatements(stmts, table, warnings) {
+    let i = 0
+    while (i < len(stmts)) {
+        analyzeNode(stmts[i], table, warnings)
+        i = i + 1
+    }
+}
+
+func analyzeNode(node, table, warnings) {
+    let nt = getNodeType(node)
+
+    if (nt == "FuncDecl") { analyzeFuncDecl(node, table, warnings) }
+    if (nt == "KernelDecl") { analyzeKernelDecl(node, table, warnings) }
+    if (nt == "VarDecl") { analyzeVarDecl(node, table, warnings) }
+    if (nt == "LetDecl") { analyzeLetDecl(node, table, warnings) }
+    if (nt == "StructDecl") { analyzeStructDecl(node, table, warnings) }
+    if (nt == "If") { analyzeIf(node, table, warnings) }
+    if (nt == "While") { analyzeWhile(node, table, warnings) }
+    if (nt == "For") { analyzeFor(node, table, warnings) }
+    if (nt == "Print") { analyzePrint(node, table, warnings) }
+    if (nt == "Return") { analyzeReturn(node, table, warnings) }
+    if (nt == "ExprStmt") { analyzeExprStmt(node, table, warnings) }
+    if (nt == "Barrier") { }
+}
+
+// ============================================================
+// Declaration Analysis
+// ============================================================
+
+func analyzeFuncDecl(node, table, warnings) {
+    let name = funcName(node)
+    let params = funcParams(node)
+    let body = funcBody(node)
+    let paramCount = len(params)
+
+    addSymbol(table, name, "func", paramCount)
+
+    // Add parameters to symbol table
+    let i = 0
+    while (i < len(params)) {
+        addSymbol(table, params[i][1], "param", 0)
+        i = i + 1
+    }
+
+    // Analyze body statements
+    analyzeStatements(body, table, warnings)
+}
+
+func analyzeKernelDecl(node, table, warnings) {
+    let name = kernelName(node)
+    let params = kernelParams(node)
+    let body = kernelBody(node)
+    let paramCount = len(params)
+
+    addSymbol(table, name, "kernel", paramCount)
+
+    // Add parameters to symbol table
+    let i = 0
+    while (i < len(params)) {
+        addSymbol(table, params[i][1], "param", 0)
+        i = i + 1
+    }
+
+    // Analyze body statements
+    analyzeStatements(body, table, warnings)
+}
+
+func analyzeVarDecl(node, table, warnings) {
+    let name = varDeclName(node)
+    let value = varDeclValue(node)
+
+    addSymbol(table, name, "var", 0)
+    analyzeExpr(value, table, warnings)
+}
+
+func analyzeLetDecl(node, table, warnings) {
+    let name = letDeclName(node)
+    let value = letDeclValue(node)
+
+    addSymbol(table, name, "let", 0)
+    analyzeExpr(value, table, warnings)
+}
+
+func analyzeStructDecl(node, table, warnings) {
+    let name = structName(node)
+    addSymbol(table, name, "struct", 0)
+}
+
+// ============================================================
+// Expression Analysis
+// ============================================================
+
+func analyzeExpr(node, table, warnings) {
+    let nt = getNodeType(node)
+
+    if (nt == "Call") { analyzeCall(node, table, warnings) }
+    if (nt == "BinaryExpr") { analyzeBinaryExpr(node, table, warnings) }
+    if (nt == "UnaryExpr") { analyzeUnaryExpr(node, table, warnings) }
+    if (nt == "Ident") { analyzeIdent(node, table, warnings) }
+    if (nt == "Index") { analyzeIndexExpr(node, table, warnings) }
+    if (nt == "Member") { analyzeMemberExpr(node, table, warnings) }
+    if (nt == "ArrayLiteral") { analyzeArrayLiteral(node, table, warnings) }
+    if (nt == "MapLiteral") { analyzeMapLiteral(node, table, warnings) }
+    if (nt == "IntLiteral") { }
+    if (nt == "FloatLiteral") { }
+    if (nt == "StringLiteral") { }
+    if (nt == "BoolLiteral") { }
+}
+
+func analyzeCall(node, table, warnings) {
+    let name = callFunc(node)
+    let args = callArgs(node)
+    let argCount = len(args)
+
+    // Analyze all arguments first
+    let i = 0
+    while (i < len(args)) {
+        analyzeExpr(args[i], table, warnings)
+        i = i + 1
+    }
+
+    // Check if it is a built-in function
+    if (isBuiltinFunc(name) == 1) {
+        let expected = builtinArity(name)
+        if (expected >= 0 && expected != argCount) {
+            addWarning(warnings, "Built-in '" + name + "' expected " + str(expected) + " arguments but got " + str(argCount))
+        }
+        return
+    }
+
+    // Check if the function is declared
+    let kind = lookupSymbol(table, name)
+    if (kind == "") {
+        addWarning(warnings, "Call to undeclared function '" + name + "'")
+        return
+    }
+
+    // Check arity for declared functions
+    let expectedParams = lookupParamCount(table, name)
+    if (expectedParams >= 0 && expectedParams != argCount) {
+        addWarning(warnings, "Function '" + name + "' expected " + str(expectedParams) + " arguments but got " + str(argCount))
+    }
+}
+
+func analyzeIdent(node, table, warnings) {
+    let name = identName(node)
+
+    // Boolean literals are valid identifiers
+    if (name == "true") { return }
+    if (name == "false") { return }
+
+    let kind = lookupSymbol(table, name)
+    if (kind == "") {
+        addWarning(warnings, "Undeclared identifier '" + name + "'")
+    }
+}
+
+func analyzeBinaryExpr(node, table, warnings) {
+    analyzeExpr(binaryLeft(node), table, warnings)
+    analyzeExpr(binaryRight(node), table, warnings)
+}
+
+func analyzeUnaryExpr(node, table, warnings) {
+    analyzeExpr(unaryOperand(node), table, warnings)
+}
+
+func analyzeIndexExpr(node, table, warnings) {
+    analyzeExpr(indexLeft(node), table, warnings)
+    analyzeExpr(indexExpr(node), table, warnings)
+}
+
+func analyzeMemberExpr(node, table, warnings) {
+    analyzeExpr(memberObject(node), table, warnings)
+}
+
+func analyzeArrayLiteral(node, table, warnings) {
+    let elems = arrayElements(node)
+    let i = 0
+    while (i < len(elems)) {
+        analyzeExpr(elems[i], table, warnings)
+        i = i + 1
+    }
+}
+
+func analyzeMapLiteral(node, table, warnings) {
+    let keys = mapKeys(node)
+    let values = mapValues(node)
+    let i = 0
+    while (i < len(keys)) {
+        analyzeExpr(keys[i], table, warnings)
+        analyzeExpr(values[i], table, warnings)
+        i = i + 1
+    }
+}
+
+// ============================================================
+// Statement Analysis
+// ============================================================
+
+func analyzeIf(node, table, warnings) {
+    analyzeExpr(ifCondition(node), table, warnings)
+    analyzeStatements(ifThen(node), table, warnings)
+    analyzeStatements(ifElse(node), table, warnings)
+}
+
+func analyzeWhile(node, table, warnings) {
+    analyzeExpr(whileCondition(node), table, warnings)
+    analyzeStatements(whileBody(node), table, warnings)
+}
+
+func analyzeFor(node, table, warnings) {
+    analyzeNode(forInit(node), table, warnings)
+    analyzeExpr(forCondition(node), table, warnings)
+    analyzeExpr(forPost(node), table, warnings)
+    analyzeStatements(forBody(node), table, warnings)
+}
+
+func analyzePrint(node, table, warnings) {
+    analyzeExpr(printExpr(node), table, warnings)
+}
+
+func analyzeReturn(node, table, warnings) {
+    analyzeExpr(returnExpr(node), table, warnings)
+}
+
+func analyzeExprStmt(node, table, warnings) {
+    analyzeExpr(exprStmtExpr(node), table, warnings)
+}
+
+// ============================================================
+// Main Entry Point
+// ============================================================
+
+func analyze(ast) {
+    let table = createSymbolTable()
+    let warnings = createWarningList()
+
+    let stmts = programStatements(ast)
+    analyzeStatements(stmts, table, warnings)
+
+    // Print any warnings
+    if (warningCount(warnings) > 0) {
+        printWarnings(warnings)
+    }
+
+    return table
+}

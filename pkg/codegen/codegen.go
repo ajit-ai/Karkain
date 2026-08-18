@@ -56,6 +56,23 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		}
 	}
 
+	// Phase 40: Generate forward declarations for all functions
+	// This enables cross-file references when multiple .kar files are concatenated
+	for _, stmt := range prog.Statements {
+		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			params := []string{}
+			for _, p := range fn.Params {
+				params = append(params, "Value* "+p)
+			}
+			retType := "Value*"
+			if fn.Name == "main" {
+				retType = "int"
+			}
+			cCode += fmt.Sprintf("%s %s(%s);\n", retType, fn.Name, strings.Join(params, ", "))
+		}
+	}
+	cCode += "\n"
+
 	// Generate all function declarations
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
