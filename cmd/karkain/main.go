@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-const versionString = "Karkain Compiler v0.18.0 (%s/%s, Coroutine & Green Thread Scheduler)\n"
+const versionString = "Karkain Compiler v0.19.0 (%s/%s, LSP Engine & IDE Tooling)\n"
 
 func printVersion() {
 	fmt.Printf(versionString, runtime.GOOS, runtime.GOARCH)
