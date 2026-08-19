@@ -653,18 +653,16 @@ int main();
 
 int main() {
 	quantum_init();
-	Value* sampleText = make_string("Karkain Phase 2 Test Data");
-	karkain_writeFile(make_string("examples/test_output.txt"), sampleText);
-	Value* content = karkain_readFile(make_string("examples/test_output.txt"));
-	Value* list = ({ Value* _arr = make_array(); array_push(_arr, make_int(100)); array_push(_arr, make_int(200)); array_push(_arr, make_int(300)); _arr; });
-	Value* updated_list = karkain_appendArray(list, content);
-	print_value(make_string("Array elements:"));
-	print_value(array_get(updated_list, make_int(0)));
-	print_value(array_get(updated_list, make_int(1)));
-	print_value(array_get(updated_list, make_int(2)));
-	print_value(array_get(updated_list, make_int(3)));
-	print_value(make_string("Array length:"));
-	print_value(karkain_len(updated_list));
+	Value* p = ({Person _s; _s.name = make_string("Alice"); _s.age = make_int(30); _s; });
+	print_value(make_string("=== Phase 9: Struct Test ==="));
+	print_value(make_string("Initial values:"));
+	print_value(p.name);
+	print_value(p.age);
+	p.name;
+	p.age;
+	print_value(make_string("Modified values:"));
+	print_value(p.name);
+	print_value(p.age);
 	return 0;
 }
 

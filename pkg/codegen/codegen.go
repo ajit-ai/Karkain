@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"context"
 	"fmt"
 	"karkain/pkg/parser"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -124,9 +126,17 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		fmt.Printf("=== [4] C COMPILER INVOCATION ===\n%s %s\n", compiler, strings.Join(flags, " "))
 	}
 
-	compileCmd := exec.Command(compiler, flags...)
+	// Set a 10-second timeout for the compilation process
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	compileCmd := exec.CommandContext(ctx, compiler, flags...)
 	compileCmd.Stdout = os.Stdout
 	compileCmd.Stderr = os.Stderr
+	if runtime.GOOS == "windows" {
+		// On Windows, use cmd.exe to handle shell escaping
+		compileCmd = exec.CommandContext(ctx, "cmd", append([]string{"/C", compiler}, flags...)...)
+	}
 	if err := compileCmd.Run(); err != nil {
 		return fmt.Errorf("C compilation failed: %w", err)
 	}
@@ -1186,9 +1196,9 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 
 	// Check if CC environment variable is set
 	if cc := os.Getenv("CC"); cc != "" {
-		flags := []string{cFile, "-o", exeFile, "-std=c99"}
+		flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0"}
 		if runtime.GOOS == "windows" {
-			flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c99"}
+			flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c99", "-O0"}
 		}
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
@@ -1199,7 +1209,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 	// Check for gcc first
 	if runtime.GOOS == "windows" {
 		if _, err := exec.LookPath("gcc"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c99"}
+			flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c99", "-O0"}
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
 			}
@@ -1207,7 +1217,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 		}
 	} else {
 		if _, err := exec.LookPath("gcc"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-std=c99"}
+			flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0"}
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
 			}
@@ -1216,7 +1226,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 	}
 	// Check for clang
 	if _, err := exec.LookPath("clang"); err == nil {
-		flags := []string{cFile, "-o", exeFile, "-std=c99"}
+		flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0"}
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
 		}
@@ -1225,7 +1235,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 	// Check for MSVC cl.exe
 	if runtime.GOOS == "windows" {
 		if _, err := exec.LookPath("cl"); err == nil {
-			flags := []string{cFile, "/Fe:" + exeFile, "/nologo"}
+			flags := []string{cFile, "/Fe:" + exeFile, "/nologo", "/O0"}
 			if g.cfg.Debug {
 				flags = append(flags, "/Zi")
 			}

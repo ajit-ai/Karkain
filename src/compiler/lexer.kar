@@ -136,6 +136,7 @@ func advanceChar(state) {
 
 func lookupKeyword(ident) {
     if (ident == "func") { return TK_FUNC() }
+    if (ident == "fn") { return TK_FUNC() }
     if (ident == "var") { return TK_VAR() }
     if (ident == "let") { return TK_LET() }
     if (ident == "return") { return TK_RETURN() }
