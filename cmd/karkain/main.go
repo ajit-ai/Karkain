@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-const versionString = "Karkain Compiler v0.19.0 (%s/%s, LSP Engine & IDE Tooling)\n"
+const versionString = "Karkain Compiler v1.0.0 (%s/%s, LSP Engine & IDE Tooling)\n"
 
 func printVersion() {
 	fmt.Printf(versionString, runtime.GOOS, runtime.GOARCH)
@@ -28,6 +28,7 @@ Usage:
 Commands:
   run <file.kar>       Compile and immediately run a .kar script (default)
   build <file.kar>     Compile a .kar script into a native standalone executable
+  transpile <file.kar> Transpile a .kar script to C or other backends (e.g., --target c99)
   check <file.kar>     Validate syntax and semantics without producing output
   test <path>          Discover and run *_test.kar files
   lsp                  Start Language Server Protocol server for IDE integration
@@ -49,6 +50,7 @@ Options:
 Examples:
   karkain run examples/array_test.kar
   karkain build examples/compiler_test.kar -o bin/app.exe
+  karkain transpile examples/compiler_test.kar --target c99
   karkain check examples/phase1_test.kar
   karkain test examples/
   karkain init my_project
@@ -325,7 +327,7 @@ func main() {
 				fmt.Println("Error: -o flag requires an output file path")
 				os.Exit(1)
 			}
-		case "build", "run", "check", "test", "lsp", "init", "add", "fetch":
+		case "build", "run", "check", "transpile", "test", "lsp", "init", "add", "fetch":
 			command = arg
 		default:
 			if strings.HasPrefix(arg, "-") {
@@ -385,6 +387,9 @@ func main() {
 	case "run":
 		result = cli.RunCommand(targetFile, cfg, verbose)
 	case "build":
+		result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
+	case "transpile":
+		// Transpile is equivalent to build with --target flag
 		result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
 	case "check":
 		result = cli.CheckCommand(targetFile, verbose)

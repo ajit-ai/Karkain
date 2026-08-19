@@ -47,11 +47,11 @@ const (
 	TokenFor   TokenType = "FOR"
 
 	// Type Keywords
-	TokenStruct   TokenType = "STRUCT"
-	TokenTypeDef  TokenType = "TYPE"
-	TokenBool     TokenType = "BOOL"
-	TokenTrue     TokenType = "TRUE"
-	TokenFalse    TokenType = "FALSE"
+	TokenStruct  TokenType = "STRUCT"
+	TokenTypeDef TokenType = "TYPE"
+	TokenBool    TokenType = "BOOL"
+	TokenTrue    TokenType = "TRUE"
+	TokenFalse   TokenType = "FALSE"
 
 	// Literals & Identifiers
 	TokenIdent   TokenType = "IDENT"
@@ -76,19 +76,19 @@ const (
 	TokenOr           TokenType = "||"
 	TokenNot          TokenType = "!"
 
-	TokenLParen   TokenType = "("
-	TokenRParen   TokenType = ")"
-	TokenLBrace   TokenType = "{"
-	TokenRBrace   TokenType = "}"
-	TokenLBracket TokenType = "["
-	TokenRBracket TokenType = "]"
-	TokenComma    TokenType = ","
-	TokenDot      TokenType = "."
-	TokenAt       TokenType = "@"
+	TokenLParen    TokenType = "("
+	TokenRParen    TokenType = ")"
+	TokenLBrace    TokenType = "{"
+	TokenRBrace    TokenType = "}"
+	TokenLBracket  TokenType = "["
+	TokenRBracket  TokenType = "]"
+	TokenComma     TokenType = ","
+	TokenDot       TokenType = "."
+	TokenAt        TokenType = "@"
 	TokenSemicolon TokenType = ";"
 
-	TOKEN_DERIVE   TokenType = "DERIVE"
-	TOKEN_TAG      TokenType = "TAG"
+	TOKEN_DERIVE TokenType = "DERIVE"
+	TOKEN_TAG    TokenType = "TAG"
 
 	TokenKernel   TokenType = "KERNEL"
 	TokenDevice   TokenType = "DEVICE"
@@ -104,10 +104,6 @@ var keywords = map[string]TokenType{
 	"comptime": TokenComptime,
 	"while":    TokenWhile,
 }
-
-
-
-
 
 type Token struct {
 	Type    TokenType

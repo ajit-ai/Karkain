@@ -1,4 +1,4 @@
-# Karkain Programming Language (v0.14.0)
+# Karkain Programming Language (v1.0.0)
 
 Karkain is a statically typed, high-performance programming language designed for heterogeneous CPU/GPU computing, native actor concurrency, and Direct-to-Shader compilation.
 
@@ -18,9 +18,9 @@ Download the latest pre-compiled binary for your target platform from the `relea
 
 | OS / Target | Archive File |
 | :--- | :--- |
-| **Windows (amd64)** | `karkain-v0.14.0-windows-amd64.zip` |
-| **Linux (amd64)** | `karkain-v0.14.0-linux-amd64.tar.gz` |
-| **macOS (arm64)** | `karkain-v0.14.0-darwin-arm64.tar.gz` |
+| **Windows (amd64)** | `karkain-v1.0.0-windows-amd64.zip` |
+| **Linux (amd64)** | `karkain-v1.0.0-linux-amd64.tar.gz` |
+| **macOS (arm64)** | `karkain-v1.0.0-darwin-arm64.tar.gz` |
 
 ---
 

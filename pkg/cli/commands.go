@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-const versionString = "Karkain Compiler v0.19.0 (%s/%s, LSP Engine & IDE Tooling)"
+const versionString = "Karkain Compiler v1.0.0 (%s/%s, LSP Engine & IDE Tooling)"
 
 // CommandResult holds the outcome of a CLI command
 type CommandResult struct {
@@ -203,14 +203,40 @@ func ValidateKarFile(path string) error {
 	if path == "" {
 		return fmt.Errorf("No input .kar file specified")
 	}
-	if filepath.Ext(path) != ".kar" {
-		return fmt.Errorf("Input file must be a .kar file")
+
+	// Check if the path is a known subcommand (e.g., "transpile", "build", "run")
+	subcommands := []string{"transpile", "build", "run", "check", "test", "lsp", "init", "add", "fetch"}
+	for _, cmd := range subcommands {
+		if path == cmd {
+			return fmt.Errorf("Input file must be a .kar file: %s", path)
+		}
+	}
+
+	// Clean the path to handle Windows backslashes and relative paths
+	cleanPath := filepath.Clean(path)
+
+	// Check if the path is a directory
+	info, err := os.Stat(cleanPath)
+	if err == nil && info.IsDir() {
+		// If it's a directory, assume main.kar inside it
+		cleanPath = filepath.Join(cleanPath, "main.kar")
+	}
+
+	if strings.ToLower(filepath.Ext(cleanPath)) != ".kar" {
+		return fmt.Errorf("Input file must be a .kar file: %s", path)
 	}
 	return nil
 }
 
 func loadSourceWithSiblings(targetFile string) (string, error) {
-	dir := filepath.Dir(targetFile)
+	// Handle directories by appending main.kar
+	cleanPath := filepath.Clean(targetFile)
+	info, err := os.Stat(cleanPath)
+	if err == nil && info.IsDir() {
+		cleanPath = filepath.Join(cleanPath, "main.kar")
+	}
+
+	dir := filepath.Dir(cleanPath)
 	entries, err := os.ReadDir(dir)
 	var fullContent strings.Builder
 
@@ -218,7 +244,7 @@ func loadSourceWithSiblings(targetFile string) (string, error) {
 
 	if err == nil && len(entries) > 1 {
 		for _, entry := range entries {
-			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".kar" && entry.Name() != filepath.Base(targetFile) {
+			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".kar" && entry.Name() != filepath.Base(cleanPath) {
 				data, readErr := os.ReadFile(filepath.Join(dir, entry.Name()))
 				if readErr == nil {
 					fileStr := string(data)
@@ -231,7 +257,7 @@ func loadSourceWithSiblings(targetFile string) (string, error) {
 		}
 	}
 
-	content, err := os.ReadFile(targetFile)
+	content, err := os.ReadFile(cleanPath)
 	if err != nil {
 		return "", err
 	}
@@ -339,6 +365,11 @@ func findTestFiles(dir string) ([]string, error) {
 }
 
 func runSingleTestFile(testFile string, cfg codegen.Config, verbose bool) CommandResult {
+	// Validate the test file path
+	if err := ValidateKarFile(testFile); err != nil {
+		return CommandResult{ExitCode: 1, Message: err.Error()}
+	}
+
 	content, err := os.ReadFile(testFile)
 	if err != nil {
 		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error reading file: %v", err)}

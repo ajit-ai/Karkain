@@ -649,22 +649,23 @@ void matrix_mul_scalar(double* A, double* B, double* C, int64_t rowsA, int64_t c
         }
     }
 }
+Value* checkValue(Value* x);
 int main();
+
+Value* checkValue(Value* x) {
+	if (is_truthy(binary_op(x, ">", make_int(10)))) {
+		print_value(make_string("Above threshold"));
+	} else {
+		print_value(make_string("Below or equal to threshold"));
+	}
+	return make_int(0);
+	return make_int(0);
+}
 
 int main() {
 	quantum_init();
-	Value* sampleText = make_string("Karkain Phase 2 Test Data");
-	karkain_writeFile(make_string("examples/test_output.txt"), sampleText);
-	Value* content = karkain_readFile(make_string("examples/test_output.txt"));
-	Value* list = ({ Value* _arr = make_array(); array_push(_arr, make_int(100)); array_push(_arr, make_int(200)); array_push(_arr, make_int(300)); _arr; });
-	Value* updated_list = karkain_appendArray(list, content);
-	print_value(make_string("Array elements:"));
-	print_value(array_get(updated_list, make_int(0)));
-	print_value(array_get(updated_list, make_int(1)));
-	print_value(array_get(updated_list, make_int(2)));
-	print_value(array_get(updated_list, make_int(3)));
-	print_value(make_string("Array length:"));
-	print_value(karkain_len(updated_list));
+	Value* score = make_int(15);
+	checkValue(score);
 	return 0;
 }
 

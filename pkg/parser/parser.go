@@ -53,19 +53,23 @@ func (p *Parser) ParseProgram() *Program {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenKernel {
-		if stmt := p.parseKernel(); stmt != nil {
-			prog.Statements = append(prog.Statements, stmt)
-		}
-	} else if p.curToken.Type == lexer.TokenTypeDef {
-		if stmt := p.parseStructDecl(); stmt != nil {
-			prog.Statements = append(prog.Statements, stmt)
-		}
-	} else if p.curToken.Type == lexer.TokenImport {
+			if stmt := p.parseKernel(); stmt != nil {
+				prog.Statements = append(prog.Statements, stmt)
+			}
+		} else if p.curToken.Type == lexer.TokenTypeDef {
+			if stmt := p.parseStructDecl(); stmt != nil {
+				prog.Statements = append(prog.Statements, stmt)
+			}
+		} else if p.curToken.Type == lexer.TokenImport {
 			if cImport := p.parseCImport(); cImport != nil {
 				prog.CImports = append(prog.CImports, cImport)
 			}
 		} else {
 			p.addError(fmt.Sprintf("unexpected token '%s' at top level", p.curToken.Literal))
+			p.nextToken()
+		}
+		// Ensure progress even on errors
+		if len(prog.Statements) == 0 && len(prog.CImports) == 0 {
 			p.nextToken()
 		}
 	}
@@ -155,6 +159,10 @@ func (p *Parser) parseBlock() []Node {
 		stmt := p.parseStatement()
 		if stmt != nil {
 			stmts = append(stmts, stmt)
+		}
+		// Ensure progress even on errors
+		if len(stmts) == 0 {
+			p.nextToken()
 		}
 	}
 	return stmts

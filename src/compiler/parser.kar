@@ -318,6 +318,10 @@ func parseBlock(state) {
 
     while (peekTokenKind(state) != TK_RBRACE() && peekTokenKind(state) != TK_EOF()) {
         stmts = appendArray(stmts, parseStatement(state))
+        // Ensure progress even on errors
+        if (len(stmts) == 0) {
+            advanceToken(state)
+        }
     }
 
     expectToken(state, TK_RBRACE())

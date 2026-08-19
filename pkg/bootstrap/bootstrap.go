@@ -5,6 +5,7 @@
 package bootstrap
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -48,7 +49,9 @@ func fileHash(path string) (string, int64, error) {
 }
 
 func runCmd(dir, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -56,7 +59,9 @@ func runCmd(dir, name string, args ...string) error {
 }
 
 func runCmdOutput(dir, name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	return cmd.CombinedOutput()
 }
@@ -120,6 +125,10 @@ func RunStage1(projectRoot string) (*StageResult, error) {
 	fmt.Printf("[Stage 1] Transpiling %s -> C\n", karSource)
 	output, err := runCmdOutput(projectRoot, stage1GoBinary, "build", karSource, "--target", "c99")
 	if err != nil {
+		// Log detailed failure reason
+		if len(output) > 0 {
+			fmt.Printf("[Stage 1] Transpilation failed with output:\n%s\n", string(output))
+		}
 		return nil, fmt.Errorf("karkain transpile failed: %v: %s", err, string(output))
 	}
 

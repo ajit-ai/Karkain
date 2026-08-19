@@ -217,12 +217,13 @@ typedef struct {
 #define HAS_AVX2 0
 #endif
 
-typedef enum { TYPE_INT, TYPE_STRING, TYPE_ARRAY, TYPE_MAP } ValueType;
+typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL } ValueType;
 
 typedef struct Value {
     ValueType type;
     union {
         long long intVal;
+        double floatVal;
         char* strVal;
         struct {
             struct Value** items;
@@ -240,6 +241,13 @@ Value* make_int(long long v) {
     Value* val = (Value*)malloc(sizeof(Value));
     val->type = TYPE_INT;
     val->intVal = v;
+    return val;
+}
+
+Value* make_float(double v) {
+    Value* val = (Value*)malloc(sizeof(Value));
+    val->type = TYPE_FLOAT64;
+    val->floatVal = v;
     return val;
 }
 
@@ -354,6 +362,10 @@ void print_value(Value* v) {
     if (!v) return;
     if (v->type == TYPE_INT) {
         printf("%lld\n", v->intVal);
+    } else if (v->type == TYPE_BOOL) {
+        printf("%s\n", v->intVal ? "true" : "false");
+    } else if (v->type == TYPE_FLOAT64) {
+        printf("%g\n", v->floatVal);
     } else if (v->type == TYPE_STRING) {
         printf("%s\n", v->strVal);
     } else if (v->type == TYPE_ARRAY) {
@@ -383,6 +395,32 @@ void print_value(Value* v) {
 
 Value* binary_op(Value* left, const char* op, Value* right) {
     if (!left || !right) return make_int(0);
+    // String concatenation
+    if (strcmp(op, "+") == 0 && left->type == TYPE_STRING && right->type == TYPE_STRING) {
+        size_t len = strlen(left->strVal) + strlen(right->strVal);
+        char* buf = (char*)malloc(len + 1);
+        strcpy(buf, left->strVal);
+        strcat(buf, right->strVal);
+        Value* result = make_string(buf);
+        free(buf);
+        return result;
+    }
+    // Float64 arithmetic
+    if (left->type == TYPE_FLOAT64 || right->type == TYPE_FLOAT64) {
+        double l = (left->type == TYPE_FLOAT64) ? left->floatVal : (double)left->intVal;
+        double r = (right->type == TYPE_FLOAT64) ? right->floatVal : (double)right->intVal;
+        if (strcmp(op, "+") == 0) return make_float(l + r);
+        if (strcmp(op, "-") == 0) return make_float(l - r);
+        if (strcmp(op, "*") == 0) return make_float(l * r);
+        if (strcmp(op, "/") == 0) return make_float(r != 0.0 ? l / r : 0.0);
+        if (strcmp(op, ">") == 0) return make_int(l > r);
+        if (strcmp(op, "<") == 0) return make_int(l < r);
+        if (strcmp(op, ">=") == 0) return make_int(l >= r);
+        if (strcmp(op, "<=") == 0) return make_int(l <= r);
+        if (strcmp(op, "==") == 0) return make_int(l == r);
+        if (strcmp(op, "!=") == 0) return make_int(l != r);
+    }
+    // Int arithmetic
     if (strcmp(op, "+") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
         return make_int(left->intVal + right->intVal);
     }
@@ -401,6 +439,16 @@ Value* binary_op(Value* left, const char* op, Value* right) {
     if (strcmp(op, "<") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
         return make_int(left->intVal < right->intVal);
     }
+    if (strcmp(op, ">=") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
+        return make_int(left->intVal >= right->intVal);
+    }
+    if (strcmp(op, "<=") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
+        return make_int(left->intVal <= right->intVal);
+    }
+    if (strcmp(op, "!=") == 0) {
+        if (left->type == TYPE_INT && right->type == TYPE_INT) return make_int(left->intVal != right->intVal);
+        if (left->type == TYPE_STRING && right->type == TYPE_STRING) return make_int(strcmp(left->strVal, right->strVal) != 0);
+    }
     if (strcmp(op, "==") == 0) {
         if (left->type == TYPE_INT && right->type == TYPE_INT) return make_int(left->intVal == right->intVal);
         if (left->type == TYPE_STRING && right->type == TYPE_STRING) return make_int(strcmp(left->strVal, right->strVal) == 0);
@@ -411,6 +459,7 @@ Value* binary_op(Value* left, const char* op, Value* right) {
 int is_truthy(Value* v) {
     if (!v) return 0;
     if (v->type == TYPE_INT) return v->intVal != 0;
+    if (v->type == TYPE_FLOAT64) return v->floatVal != 0.0;
     if (v->type == TYPE_STRING) return strlen(v->strVal) > 0;
     if (v->type == TYPE_ARRAY) return v->arrVal.length > 0;
     if (v->type == TYPE_MAP) return v->mapVal.length > 0;
@@ -424,6 +473,136 @@ void* karkain_alloc(size_t count, size_t size) {
 
 void karkain_free(void* ptr) {
     free(ptr);
+}
+
+// Phase 10: String standard library functions
+Value* karkain_trim(Value* str) {
+    if (!str || str->type != TYPE_STRING) return make_string("");
+    char* s = str->strVal;
+    char* start = s;
+    char* end = s + strlen(s) - 1;
+    while (start <= end && (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r')) start++;
+    while (end >= start && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) end--;
+    size_t len = (end >= start) ? (end - start + 1) : 0;
+    char* buf = (char*)malloc(len + 1);
+    if (len > 0) memcpy(buf, start, len);
+    buf[len] = '\0';
+    Value* res = make_string(buf);
+    free(buf);
+    return res;
+}
+
+Value* karkain_contains(Value* haystack, Value* needle) {
+    if (!haystack || !needle || haystack->type != TYPE_STRING || needle->type != TYPE_STRING) return make_int(0);
+    return make_int(strstr(haystack->strVal, needle->strVal) != NULL);
+}
+
+Value* karkain_split(Value* str, Value* delim) {
+    if (!str || !delim || str->type != TYPE_STRING || delim->type != TYPE_STRING) return make_array();
+    Value* arr = make_array();
+    char* s = strdup(str->strVal);
+    char* d = delim->strVal;
+    char* token = strtok(s, d);
+    while (token != NULL) {
+        array_push(arr, make_string(token));
+        token = strtok(NULL, d);
+    }
+    free(s);
+    return arr;
+}
+
+// Phase 10: Math standard library functions
+Value* karkain_sqrt(Value* v) {
+    if (!v || v->type != TYPE_INT) return make_int(0);
+    return make_int((long long)sqrt((double)v->intVal));
+}
+
+Value* karkain_abs(Value* v) {
+    if (!v || v->type != TYPE_INT) return make_int(0);
+    return make_int(v->intVal >= 0 ? v->intVal : -v->intVal);
+}
+
+Value* karkain_pow(Value* base, Value* exp) {
+    if (!base || !exp || base->type != TYPE_INT || exp->type != TYPE_INT) return make_int(0);
+    long long result = 1;
+    long long b = base->intVal;
+    long long e = exp->intVal;
+    while (e > 0) {
+        if (e & 1) result *= b;
+        b *= b;
+        e >>= 1;
+    }
+    return make_int(result);
+}
+
+// Phase 10: Array append function
+Value* karkain_appendArray(Value* arr, Value* elem) {
+    if (!arr || arr->type != TYPE_ARRAY) return make_array();
+    array_push(arr, elem);
+    return arr;
+}
+
+// Phase 19: Boolean support
+Value* make_bool(int v) {
+    Value* val = (Value*)malloc(sizeof(Value));
+    val->type = TYPE_BOOL;
+    val->intVal = v ? 1 : 0;
+    return val;
+}
+
+// Phase 19: Map hasKey and delete
+Value* karkain_hasKey(Value* m, Value* k) {
+    if (!m || m->type != TYPE_MAP) return make_int(0);
+    for (int i = 0; i < m->mapVal.length; i++) {
+        if (values_equal(m->mapVal.keys[i], k)) {
+            return make_int(1);
+        }
+    }
+    return make_int(0);
+}
+
+Value* karkain_delete(Value* m, Value* k) {
+    if (!m || m->type != TYPE_MAP) return m;
+    for (int i = 0; i < m->mapVal.length; i++) {
+        if (values_equal(m->mapVal.keys[i], k)) {
+            for (int j = i; j < m->mapVal.length - 1; j++) {
+                m->mapVal.keys[j] = m->mapVal.keys[j + 1];
+                m->mapVal.values[j] = m->mapVal.values[j + 1];
+            }
+            m->mapVal.length--;
+            return m;
+        }
+    }
+    return m;
+}
+
+// Phase 19: Modulo operator
+Value* karkain_mod(Value* a, Value* b) {
+    if (!a || !b) return make_int(0);
+    if (a->type == TYPE_INT && b->type == TYPE_INT) {
+        if (b->intVal == 0) return make_int(0);
+        return make_int(a->intVal % b->intVal);
+    }
+    if (a->type == TYPE_FLOAT64 || b->type == TYPE_FLOAT64) {
+        double l = (a->type == TYPE_FLOAT64) ? a->floatVal : (double)a->intVal;
+        double r = (b->type == TYPE_FLOAT64) ? b->floatVal : (double)b->intVal;
+        if (r == 0.0) return make_float(0.0);
+        return make_float(fmod(l, r));
+    }
+    return make_int(0);
+}
+
+// Phase 19: Negate unary operator
+Value* karkain_negate(Value* v) {
+    if (!v) return make_int(0);
+    if (v->type == TYPE_INT) return make_int(-v->intVal);
+    if (v->type == TYPE_FLOAT64) return make_float(-v->floatVal);
+    return make_int(0);
+}
+
+// Phase 19: Logical NOT operator
+Value* karkain_not(Value* v) {
+    return make_int(is_truthy(v) ? 0 : 1);
 }
 
 // AVX2 matrix multiplication kernel (256-bit FMA)
@@ -470,6 +649,8 @@ void matrix_mul_scalar(double* A, double* B, double* C, int64_t rowsA, int64_t c
         }
     }
 }
+int main();
+
 int main() {
 	quantum_init();
 	Value* score = make_int(50);
