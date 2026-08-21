@@ -123,6 +123,66 @@ type MoveExpr struct {
 	Operand Node
 }
 
+// Phase 42: Option<T>, Result<T,E>, match, SIMD, packed structs, linear types
+
+// OptionSomeExpr represents Some(value) — an option with a value
+type OptionSomeExpr struct {
+	Value Node
+}
+
+// OptionNoneExpr represents None — an empty option
+type OptionNoneExpr struct{}
+
+// ResultOkExpr represents Ok(value) — a successful result
+type ResultOkExpr struct {
+	Value Node
+}
+
+// ResultErrExpr represents Err(error) — a failed result
+type ResultErrExpr struct {
+	Error Node
+}
+
+// MatchExpr represents pattern matching:
+// match value { pattern => expr, ... }
+type MatchExpr struct {
+	Value   Node
+	Arms    []MatchArm
+}
+
+// MatchArm represents one arm of a match expression: pattern => expr
+type MatchArm struct {
+	Pattern MatchPattern
+	Body    Node
+}
+
+// MatchPattern represents a pattern in match arms
+type MatchPattern struct {
+	Type       string // "Some", "None", "Ok", "Err", "literal", "wildcard"
+	Value      Node   // For literal patterns (42, "hello", true)
+	Binding    string // For variable bindings (e.g., x in Some(x))
+}
+
+// SIMDBuiltinExpr represents SIMD intrinsics: @simd_add(a, b), @simd_mul(a, b)
+type SIMDBuiltinExpr struct {
+	Op   string // "add", "mul", "sub", "div", "min", "max", "sqrt"
+	Args []Node
+}
+
+// LinearTypeDecl marks a type as linear (must be used exactly once):
+// linear type FileHandle { fd: int }
+type LinearTypeDecl struct {
+	Name   string
+	Fields []StructField
+}
+
+// PackedStructDecl marks a struct as packed (no padding):
+// packed struct Point { x: float32, y: float32 }
+type PackedStructDecl struct {
+	Name   string
+	Fields []StructField
+}
+
 // Phase 11: Native C Interop, Raw Pointers, and Continuous Matrix Memory Layouts
 
 type CImportBlock struct {

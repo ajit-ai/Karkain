@@ -706,3 +706,220 @@ func TestParserRawAccessWrite(t *testing.T) {
 		t.Error("expected non-nil Value for write @raw")
 	}
 }
+
+func TestLexer_FatArrow(t *testing.T) {
+	l := lexer.New("=>")
+	tok := l.NextToken()
+	if tok.Type != lexer.TokenFatArrow {
+		t.Errorf("expected TokenFatArrow, got %s", tok.Type)
+	}
+}
+
+func TestLexer_Phase42Keywords(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected lexer.TokenType
+	}{
+		{"Some", lexer.TokenSome},
+		{"None", lexer.TokenNone},
+		{"Ok", lexer.TokenOk},
+		{"Err", lexer.TokenErr},
+		{"match", lexer.TokenMatch},
+		{"linear", lexer.TokenLinear},
+		{"packed", lexer.TokenPacked},
+	}
+	for _, tt := range tests {
+		l := lexer.New(tt.input)
+		tok := l.NextToken()
+		if tok.Type != tt.expected {
+			t.Errorf("input %q: expected %s, got %s", tt.input, tt.expected, tok.Type)
+		}
+	}
+}
+
+func TestParserOptionSomeExpr(t *testing.T) {
+	input := `func main() { let x = Some(42) }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	stmt := fn.Body[0].(*parser.VarDeclStmt)
+	some, ok := stmt.Value.(*parser.OptionSomeExpr)
+	if !ok {
+		t.Fatalf("expected OptionSomeExpr, got %T", stmt.Value)
+	}
+	lit, ok := some.Value.(*parser.IntLiteral)
+	if !ok {
+		t.Fatalf("expected IntLiteral, got %T", some.Value)
+	}
+	if lit.Value != "42" {
+		t.Errorf("expected 42, got %s", lit.Value)
+	}
+}
+
+func TestParserOptionNoneExpr(t *testing.T) {
+	input := `func main() { let x = None }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	stmt := fn.Body[0].(*parser.VarDeclStmt)
+	_, ok := stmt.Value.(*parser.OptionNoneExpr)
+	if !ok {
+		t.Fatalf("expected OptionNoneExpr, got %T", stmt.Value)
+	}
+}
+
+func TestParserResultOkExpr(t *testing.T) {
+	input := `func main() { let r = Ok("hello") }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	stmt := fn.Body[0].(*parser.VarDeclStmt)
+	okExpr, ok := stmt.Value.(*parser.ResultOkExpr)
+	if !ok {
+		t.Fatalf("expected ResultOkExpr, got %T", stmt.Value)
+	}
+	strLit, ok := okExpr.Value.(*parser.StringLiteral)
+	if !ok {
+		t.Fatalf("expected StringLiteral, got %T", okExpr.Value)
+	}
+	if strLit.Value != "hello" {
+		t.Errorf("expected hello, got %s", strLit.Value)
+	}
+}
+
+func TestParserResultErrExpr(t *testing.T) {
+	input := `func main() { let e = Err("fail") }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	stmt := fn.Body[0].(*parser.VarDeclStmt)
+	errExpr, ok := stmt.Value.(*parser.ResultErrExpr)
+	if !ok {
+		t.Fatalf("expected ResultErrExpr, got %T", stmt.Value)
+	}
+	strLit, ok := errExpr.Error.(*parser.StringLiteral)
+	if !ok {
+		t.Fatalf("expected StringLiteral, got %T", errExpr.Error)
+	}
+	if strLit.Value != "fail" {
+		t.Errorf("expected fail, got %s", strLit.Value)
+	}
+}
+
+func TestParserMatchExpr(t *testing.T) {
+	input := `func main() { let x = 5; let v = match x { 5 => 10, _ => 0 } }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	stmt := fn.Body[1].(*parser.VarDeclStmt)
+	match, ok := stmt.Value.(*parser.MatchExpr)
+	if !ok {
+		t.Fatalf("expected MatchExpr, got %T", stmt.Value)
+	}
+	if len(match.Arms) != 2 {
+		t.Fatalf("expected 2 arms, got %d", len(match.Arms))
+	}
+	if match.Arms[0].Pattern.Type != "literal" {
+		t.Errorf("expected literal pattern, got %s", match.Arms[0].Pattern.Type)
+	}
+	if match.Arms[1].Pattern.Type != "wildcard" {
+		t.Errorf("expected wildcard pattern, got %s", match.Arms[1].Pattern.Type)
+	}
+}
+
+func TestParserMatchWithBinding(t *testing.T) {
+	input := `func main() { let v = match 42 { x => x } }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	stmt := fn.Body[0].(*parser.VarDeclStmt)
+	match, ok := stmt.Value.(*parser.MatchExpr)
+	if !ok {
+		t.Fatalf("expected MatchExpr, got %T", stmt.Value)
+	}
+	if len(match.Arms) != 1 {
+		t.Fatalf("expected 1 arm, got %d", len(match.Arms))
+	}
+	if match.Arms[0].Pattern.Type != "binding" {
+		t.Errorf("expected binding pattern, got %s", match.Arms[0].Pattern.Type)
+	}
+	if match.Arms[0].Pattern.Binding != "x" {
+		t.Errorf("expected binding 'x', got '%s'", match.Arms[0].Pattern.Binding)
+	}
+}
+
+func TestParserSIMDBuiltin(t *testing.T) {
+	input := `func main() { let r = @simd_add(1, 2) }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	stmt := fn.Body[0].(*parser.VarDeclStmt)
+	simd, ok := stmt.Value.(*parser.SIMDBuiltinExpr)
+	if !ok {
+		t.Fatalf("expected SIMDBuiltinExpr, got %T", stmt.Value)
+	}
+	if simd.Op != "add" {
+		t.Errorf("expected add, got %s", simd.Op)
+	}
+	if len(simd.Args) != 2 {
+		t.Errorf("expected 2 args, got %d", len(simd.Args))
+	}
+}
+
+func TestGenMatchExpr(t *testing.T) {
+	g := New(Config{})
+	matchNode := &parser.MatchExpr{
+		Value: &parser.Identifier{Name: "x"},
+		Arms: []parser.MatchArm{
+			{
+				Pattern: parser.MatchPattern{Type: "literal", Value: &parser.IntLiteral{Value: "5"}},
+				Body:    &parser.IntLiteral{Value: "10"},
+			},
+			{
+				Pattern: parser.MatchPattern{Type: "wildcard"},
+				Body:    &parser.IntLiteral{Value: "0"},
+			},
+		},
+	}
+	cCode := g.genExpr(matchNode)
+
+	if !strings.Contains(cCode, "_match_val") {
+		t.Error("expected _match_val in generated C")
+	}
+	if !strings.Contains(cCode, "_match_result") {
+		t.Error("expected _match_result in generated C")
+	}
+	if !strings.Contains(cCode, "is_truthy") {
+		t.Error("expected is_truthy comparison in generated C")
+	}
+}
+
+func TestGenOptionSomeNone(t *testing.T) {
+	g := New(Config{})
+	someExpr := &parser.OptionSomeExpr{Value: &parser.IntLiteral{Value: "42"}}
+	noneExpr := &parser.OptionNoneExpr{}
+
+	someResult := g.genExpr(someExpr)
+	noneResult := g.genExpr(noneExpr)
+
+	if someResult != "make_int(42)" {
+		t.Errorf("expected make_int(42), got %s", someResult)
+	}
+	if noneResult != "make_int(0)" {
+		t.Errorf("expected make_int(0), got %s", noneResult)
+	}
+}
