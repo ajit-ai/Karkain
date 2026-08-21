@@ -585,8 +585,26 @@ void print_value(Value* v) {
         mpz_out_str(stdout, 10, v->bigIntVal);
         printf("\n");
     } else if (v->type == TYPE_BIGFLOAT) {
-        mpf_out_str(stdout, 10, 0, v->bigFloatVal);
-        printf("\n");
+        mp_exp_t exp;
+        char* str = mpf_get_str(NULL, &exp, 10, 0, v->bigFloatVal);
+        int len = strlen(str);
+        if (exp <= 0) {
+            printf("0.");
+            for (int i = 0; i < -exp; i++) printf("0");
+            printf("%s\n", str);
+        } else if (exp >= len) {
+            printf("%s", str);
+            for (int i = len; i < exp; i++) printf("0");
+            printf("\n");
+        } else {
+            for (int i = 0; i < exp; i++) printf("%c", str[i]);
+            printf(".");
+            for (int i = exp; i < len; i++) printf("%c", str[i]);
+            printf("\n");
+        }
+        void (*freefunc)(void *, size_t);
+        mp_get_memory_functions(NULL, NULL, &freefunc);
+        freefunc(str, len + 1);
     } else if (v->type == TYPE_ARRAY) {
         printf("[");
         for (int i = 0; i < v->arrVal.length; i++) {

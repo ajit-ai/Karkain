@@ -49,7 +49,7 @@ func fileHash(path string) (string, int64, error) {
 }
 
 func runCmd(dir, name string, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
@@ -59,7 +59,7 @@ func runCmd(dir, name string, args ...string) error {
 }
 
 func runCmdOutput(dir, name string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir

@@ -507,3 +507,104 @@ func TestGenHasKeyAndDelete(t *testing.T) {
 		t.Errorf("expected karkain_delete, got %s", deleteResult)
 	}
 }
+
+func TestParserBigIntLiteral(t *testing.T) {
+	input := `func main() { let x = 42n }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd := fn.Body[0].(*parser.VarDeclStmt)
+	bigInt, ok := vd.Value.(*parser.BigIntLiteral)
+	if !ok {
+		t.Fatalf("expected BigIntLiteral, got %T", vd.Value)
+	}
+	if bigInt.Value != "42n" {
+		t.Errorf("expected '42n', got %q", bigInt.Value)
+	}
+}
+
+func TestParserBigFloatLiteral(t *testing.T) {
+	input := `func main() { let pi = 3.14b }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd := fn.Body[0].(*parser.VarDeclStmt)
+	bigFloat, ok := vd.Value.(*parser.BigFloatLiteral)
+	if !ok {
+		t.Fatalf("expected BigFloatLiteral, got %T", vd.Value)
+	}
+	if bigFloat.Value != "3.14b" {
+		t.Errorf("expected '3.14b', got %q", bigFloat.Value)
+	}
+}
+
+func TestParserBigIntArithmetic(t *testing.T) {
+	input := `func main() { let result = 999999999999999999999999999999n + 1n }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd := fn.Body[0].(*parser.VarDeclStmt)
+	bin, ok := vd.Value.(*parser.BinaryExpr)
+	if !ok {
+		t.Fatalf("expected BinaryExpr, got %T", vd.Value)
+	}
+	if bin.Operator != "+" {
+		t.Errorf("expected +, got %s", bin.Operator)
+	}
+	left, ok := bin.Left.(*parser.BigIntLiteral)
+	if !ok {
+		t.Fatalf("expected BigIntLiteral on left, got %T", bin.Left)
+	}
+	if left.Value != "999999999999999999999999999999n" {
+		t.Errorf("unexpected left value: %q", left.Value)
+	}
+	right, ok := bin.Right.(*parser.BigIntLiteral)
+	if !ok {
+		t.Fatalf("expected BigIntLiteral on right, got %T", bin.Right)
+	}
+	if right.Value != "1n" {
+		t.Errorf("unexpected right value: %q", right.Value)
+	}
+}
+
+func TestParserBigIntLargeNumber(t *testing.T) {
+	input := `func main() { let x = 100000000000000000000000000000000000000000000000000000n }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd := fn.Body[0].(*parser.VarDeclStmt)
+	bigInt, ok := vd.Value.(*parser.BigIntLiteral)
+	if !ok {
+		t.Fatalf("expected BigIntLiteral, got %T", vd.Value)
+	}
+	if bigInt.Value != "100000000000000000000000000000000000000000000000000000n" {
+		t.Errorf("unexpected value: %q", bigInt.Value)
+	}
+}
+
+func TestParserMixedBigIntAndInt(t *testing.T) {
+	input := `func main() { let x = 42n + 100 }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd := fn.Body[0].(*parser.VarDeclStmt)
+	bin, ok := vd.Value.(*parser.BinaryExpr)
+	if !ok {
+		t.Fatalf("expected BinaryExpr, got %T", vd.Value)
+	}
+	_, leftOk := bin.Left.(*parser.BigIntLiteral)
+	_, rightOk := bin.Right.(*parser.IntLiteral)
+	if !leftOk || !rightOk {
+		t.Errorf("expected BigIntLiteral + IntLiteral, got %T + %T", bin.Left, bin.Right)
+	}
+}
