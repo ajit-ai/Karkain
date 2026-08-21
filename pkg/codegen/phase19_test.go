@@ -608,3 +608,101 @@ func TestParserMixedBigIntAndInt(t *testing.T) {
 		t.Errorf("expected BigIntLiteral + IntLiteral, got %T + %T", bin.Left, bin.Right)
 	}
 }
+
+func TestParserBorrowExpr(t *testing.T) {
+	input := `func main() { let x = 42; let r &int = &x }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd := fn.Body[1].(*parser.VarDeclStmt)
+	if vd.Type != "&int" {
+		t.Errorf("expected type '&int', got %q", vd.Type)
+	}
+	borrow, ok := vd.Value.(*parser.BorrowExpr)
+	if !ok {
+		t.Fatalf("expected BorrowExpr, got %T", vd.Value)
+	}
+	if borrow.Mutable {
+		t.Error("expected immutable borrow")
+	}
+}
+
+func TestParserMutableBorrowExpr(t *testing.T) {
+	input := `func main() { let x = 42; let r &mut int = &mut x }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd := fn.Body[1].(*parser.VarDeclStmt)
+	if vd.Type != "&mut int" {
+		t.Errorf("expected type '&mut int', got %q", vd.Type)
+	}
+	borrow, ok := vd.Value.(*parser.BorrowExpr)
+	if !ok {
+		t.Fatalf("expected BorrowExpr, got %T", vd.Value)
+	}
+	if !borrow.Mutable {
+		t.Error("expected mutable borrow")
+	}
+}
+
+func TestParserMoveExpr(t *testing.T) {
+	input := `func main() { let a = 10; let b = move(a) }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd := fn.Body[1].(*parser.VarDeclStmt)
+	moveExpr, ok := vd.Value.(*parser.MoveExpr)
+	if !ok {
+		t.Fatalf("expected MoveExpr, got %T", vd.Value)
+	}
+	ident, ok := moveExpr.Operand.(*parser.Identifier)
+	if !ok {
+		t.Fatalf("expected Identifier in move, got %T", moveExpr.Operand)
+	}
+	if ident.Name != "a" {
+		t.Errorf("expected 'a', got %q", ident.Name)
+	}
+}
+
+func TestParserRawAccessRead(t *testing.T) {
+	input := `func main() { let val = @raw(4096) }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd := fn.Body[0].(*parser.VarDeclStmt)
+	raw, ok := vd.Value.(*parser.RawAccessExpr)
+	if !ok {
+		t.Fatalf("expected RawAccessExpr, got %T", vd.Value)
+	}
+	if raw.Value != nil {
+		t.Error("expected nil Value for read-only @raw")
+	}
+}
+
+func TestParserRawAccessWrite(t *testing.T) {
+	input := `func main() { @raw(4096, 42) }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	exprStmt, ok := fn.Body[0].(*parser.ExprStmt)
+	if !ok {
+		t.Fatalf("expected ExprStmt, got %T", fn.Body[0])
+	}
+	raw, ok := exprStmt.Expression.(*parser.RawAccessExpr)
+	if !ok {
+		t.Fatalf("expected RawAccessExpr, got %T", exprStmt.Expression)
+	}
+	if raw.Value == nil {
+		t.Error("expected non-nil Value for write @raw")
+	}
+}
