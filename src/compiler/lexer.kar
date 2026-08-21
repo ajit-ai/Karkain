@@ -233,7 +233,7 @@ func scanString(state) {
     let startCol = lexerCol(state)
     advanceChar(state) // skip opening quote
 
-    let result = ""
+    let resultStart = lexerPos(state)
     while (1) {
         let ch = peekChar(state)
         if (ch == "" || ch == "\n") { break }
@@ -241,6 +241,22 @@ func scanString(state) {
             advanceChar(state) // skip closing quote
             break
         }
+        if (ch == "\\") {
+            advanceChar(state) // skip backslash
+            advanceChar(state) // skip escaped character
+            continue
+        }
+        advanceChar(state)
+    }
+
+    let resultLen = lexerPos(state) - resultStart
+    // Scan the content again to build the unescaped result
+    let savePos = lexerPos(state)
+    setLexerPos(state, resultStart)
+    let result = ""
+    while (1) {
+        let ch = peekChar(state)
+        if (ch == "\"") { break }
         if (ch == "\\") {
             advanceChar(state) // skip backslash
             let escaped = advanceChar(state)
@@ -253,8 +269,9 @@ func scanString(state) {
         result = result + ch
         advanceChar(state)
     }
+    setLexerPos(state, savePos)
 
-    return createToken(TK_STRING_LIT(), result, createLocation(startLine, startCol, startPos))
+    return createToken(TK_STRING_LIT(), resultStart, resultLen, createLocation(startLine, startCol, startPos))
 }
 
 func scanNumber(state) {
@@ -262,11 +279,10 @@ func scanNumber(state) {
     let startLine = lexerLine(state)
     let startCol = lexerCol(state)
 
-    let numStr = ""
     let isFloat = 0
 
     while (isDigit(peekChar(state)) == 1) {
-        numStr = numStr + advanceChar(state)
+        advanceChar(state)
     }
 
     // Check for decimal point
@@ -274,17 +290,19 @@ func scanNumber(state) {
         let nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
         if (isDigit(nextCh) == 1) {
             isFloat = 1
-            numStr = numStr + advanceChar(state) // skip .
+            advanceChar(state) // skip .
             while (isDigit(peekChar(state)) == 1) {
-                numStr = numStr + advanceChar(state)
+                advanceChar(state)
             }
         }
     }
 
+    let tokenLen = lexerPos(state) - startPos
+
     if (isFloat == 1) {
-        return createToken(TK_FLOAT_LIT(), numStr, createLocation(startLine, startCol, startPos))
+        return createToken(TK_FLOAT_LIT(), startPos, tokenLen, createLocation(startLine, startCol, startPos))
     }
-    return createToken(TK_INT_LIT(), numStr, createLocation(startLine, startCol, startPos))
+    return createToken(TK_INT_LIT(), startPos, tokenLen, createLocation(startLine, startCol, startPos))
 }
 
 func scanIdentOrKeyword(state) {
@@ -292,20 +310,22 @@ func scanIdentOrKeyword(state) {
     let startLine = lexerLine(state)
     let startCol = lexerCol(state)
 
-    let ident = ""
     while (isLetter(peekChar(state)) == 1 || isDigit(peekChar(state)) == 1) {
-        ident = ident + advanceChar(state)
+        advanceChar(state)
     }
 
+    let tokenLen = lexerPos(state) - startPos
+    // We still need the string for keyword lookup, but we derive it from the source
+    let ident = substr(lexerSource(state), startPos, tokenLen)
     let kind = lookupKeyword(ident)
-    return createToken(kind, ident, createLocation(startLine, startCol, startPos))
+    return createToken(kind, startPos, tokenLen, createLocation(startLine, startCol, startPos))
 }
 
 func scanToken(state) {
     skipWhitespaceAndComments(state)
 
     let ch = peekChar(state)
-    if (ch == "") { return createToken(TK_EOF(), "", createLocation(lexerLine(state), lexerCol(state), lexerPos(state))) }
+    if (ch == "") { return createToken(TK_EOF(), lexerPos(state), 0, createLocation(lexerLine(state), lexerCol(state), lexerPos(state))) }
 
     let startPos = lexerPos(state)
     let startLine = lexerLine(state)
@@ -323,79 +343,79 @@ func scanToken(state) {
     // Operators and delimiters
     advanceChar(state)
 
-    if (ch == "+") { return createToken(TK_PLUS(), "+", createLocation(startLine, startCol, startPos)) }
+    if (ch == "+") { return createToken(TK_PLUS(), startPos, 1, createLocation(startLine, startCol, startPos)) }
     if (ch == "-") {
         // Check for arrow ->
         if (peekChar(state) == ">") {
             advanceChar(state)
-            return createToken(TK_ARROW(), "->", createLocation(startLine, startCol, startPos))
+            return createToken(TK_ARROW(), startPos, 2, createLocation(startLine, startCol, startPos))
         }
-        return createToken(TK_MINUS(), "-", createLocation(startLine, startCol, startPos))
+        return createToken(TK_MINUS(), startPos, 1, createLocation(startLine, startCol, startPos))
     }
-    if (ch == "*") { return createToken(TK_STAR(), "*", createLocation(startLine, startCol, startPos)) }
-    if (ch == "/") { return createToken(TK_SLASH(), "/", createLocation(startLine, startCol, startPos)) }
-    if (ch == "%") { return createToken(TK_PERCENT(), "%", createLocation(startLine, startCol, startPos)) }
-    if (ch == "(") { return createToken(TK_LPAREN(), "(", createLocation(startLine, startCol, startPos)) }
-    if (ch == ")") { return createToken(TK_RPAREN(), ")", createLocation(startLine, startCol, startPos)) }
-    if (ch == "{") { return createToken(TK_LBRACE(), "{", createLocation(startLine, startCol, startPos)) }
-    if (ch == "}") { return createToken(TK_RBRACE(), "}", createLocation(startLine, startCol, startPos)) }
-    if (ch == "[") { return createToken(TK_LBRACKET(), "[", createLocation(startLine, startCol, startPos)) }
-    if (ch == "]") { return createToken(TK_RBRACKET(), "]", createLocation(startLine, startCol, startPos)) }
-    if (ch == ",") { return createToken(TK_COMMA(), ",", createLocation(startLine, startCol, startPos)) }
-    if (ch == ".") { return createToken(TK_DOT(), ".", createLocation(startLine, startCol, startPos)) }
-    if (ch == ":") { return createToken(TK_COLON(), ":", createLocation(startLine, startCol, startPos)) }
-    if (ch == ";") { return createToken(TK_SEMICOLON(), ";", createLocation(startLine, startCol, startPos)) }
-    if (ch == "#") { return createToken(TK_HASH(), "#", createLocation(startLine, startCol, startPos)) }
+    if (ch == "*") { return createToken(TK_STAR(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == "/") { return createToken(TK_SLASH(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == "%") { return createToken(TK_PERCENT(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == "(") { return createToken(TK_LPAREN(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == ")") { return createToken(TK_RPAREN(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == "{") { return createToken(TK_LBRACE(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == "}") { return createToken(TK_RBRACE(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == "[") { return createToken(TK_LBRACKET(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == "]") { return createToken(TK_RBRACKET(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == ",") { return createToken(TK_COMMA(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == ".") { return createToken(TK_DOT(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == ":") { return createToken(TK_COLON(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == ";") { return createToken(TK_SEMICOLON(), startPos, 1, createLocation(startLine, startCol, startPos)) }
+    if (ch == "#") { return createToken(TK_HASH(), startPos, 1, createLocation(startLine, startCol, startPos)) }
 
     // Two-character operators
     if (ch == "=") {
         if (peekChar(state) == "=") {
             advanceChar(state)
-            return createToken(TK_EQ(), "==", createLocation(startLine, startCol, startPos))
+            return createToken(TK_EQ(), startPos, 2, createLocation(startLine, startCol, startPos))
         }
-        return createToken(TK_ASSIGN(), "=", createLocation(startLine, startCol, startPos))
+        return createToken(TK_ASSIGN(), startPos, 1, createLocation(startLine, startCol, startPos))
     }
 
     if (ch == "!") {
         if (peekChar(state) == "=") {
             advanceChar(state)
-            return createToken(TK_NEQ(), "!=", createLocation(startLine, startCol, startPos))
+            return createToken(TK_NEQ(), startPos, 2, createLocation(startLine, startCol, startPos))
         }
-        return createToken(TK_NOT(), "!", createLocation(startLine, startCol, startPos))
+        return createToken(TK_NOT(), startPos, 1, createLocation(startLine, startCol, startPos))
     }
 
     if (ch == "<") {
         if (peekChar(state) == "=") {
             advanceChar(state)
-            return createToken(TK_LTE(), "<=", createLocation(startLine, startCol, startPos))
+            return createToken(TK_LTE(), startPos, 2, createLocation(startLine, startCol, startPos))
         }
-        return createToken(TK_LT(), "<", createLocation(startLine, startCol, startPos))
+        return createToken(TK_LT(), startPos, 1, createLocation(startLine, startCol, startPos))
     }
 
     if (ch == ">") {
         if (peekChar(state) == "=") {
             advanceChar(state)
-            return createToken(TK_GTE(), ">=", createLocation(startLine, startCol, startPos))
+            return createToken(TK_GTE(), startPos, 2, createLocation(startLine, startCol, startPos))
         }
-        return createToken(TK_GT(), ">", createLocation(startLine, startCol, startPos))
+        return createToken(TK_GT(), startPos, 1, createLocation(startLine, startCol, startPos))
     }
 
     if (ch == "&") {
         if (peekChar(state) == "&") {
             advanceChar(state)
-            return createToken(TK_AND(), "&&", createLocation(startLine, startCol, startPos))
+            return createToken(TK_AND(), startPos, 2, createLocation(startLine, startCol, startPos))
         }
     }
 
     if (ch == "|") {
         if (peekChar(state) == "|") {
             advanceChar(state)
-            return createToken(TK_OR(), "||", createLocation(startLine, startCol, startPos))
+            return createToken(TK_OR(), startPos, 2, createLocation(startLine, startCol, startPos))
         }
     }
 
     // Unknown character - return as-is
-    return createToken(TK_EOF(), ch, createLocation(startLine, startCol, startPos))
+    return createToken(TK_EOF(), startPos, 1, createLocation(startLine, startCol, startPos))
 }
 
 // ============================================================
@@ -491,12 +511,12 @@ func tokenKindName(kind) {
     return "UNKNOWN"
 }
 
-func printTokens(tokens) {
+func printTokens(tokens, source) {
     let i = 0
     while (i < len(tokens)) {
         let tok = tokens[i]
         let loc = tokenLoc(tok)
-        print("L" + str(locLine(loc)) + ":" + str(locCol(loc)) + " " + tokenKindName(tokenKind(tok)) + " " + tokenLiteral(tok))
+        print("L" + str(locLine(loc)) + ":" + str(locCol(loc)) + " " + tokenKindName(tokenKind(tok)) + " " + tokenLiteral(tok, source))
         i = i + 1
     }
 }

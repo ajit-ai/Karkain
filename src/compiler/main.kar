@@ -115,9 +115,9 @@ func checkFile(path) {
     // Tokenize
     let tokens = tokenize(source)
 
-    // Parse
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    // Parse (pass source for zero-copy token literal access)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -135,9 +135,9 @@ func buildFile(path, target) {
     // Tokenize
     let tokens = tokenize(source)
 
-    // Parse
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    // Parse (pass source for zero-copy token literal access)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -164,9 +164,9 @@ func runFile(path) {
     // Tokenize
     let tokens = tokenize(source)
 
-    // Parse
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    // Parse (pass source for zero-copy token literal access)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -231,8 +231,8 @@ func runTests(testPath) {
         return
     }
     let tokens = tokenize(source)
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
     if (hasParserErrors(state)) {
         printParserErrors(state)
         return

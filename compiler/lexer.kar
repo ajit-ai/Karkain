@@ -490,12 +490,12 @@ func tokenKindName(kind) {
     return "UNKNOWN"
 }
 
-func printTokens(tokens) {
+func printTokens(tokens, source) {
     let i = 0
     while (i < len(tokens)) {
         let tok = tokens[i]
         let loc = tokenLoc(tok)
-        print("L" + str(locLine(loc)) + ":" + str(locCol(loc)) + " " + tokenKindName(tokenKind(tok)) + " " + tokenLiteral(tok))
+        print("L" + str(locLine(loc)) + ":" + str(locCol(loc)) + " " + tokenKindName(tokenKind(tok)) + " " + tokenLiteral(tok, source))
         i = i + 1
     }
 }

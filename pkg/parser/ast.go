@@ -58,6 +58,14 @@ type Float64Literal struct {
 	Value string
 }
 
+type BigIntLiteral struct {
+	Value string
+}
+
+type BigFloatLiteral struct {
+	Value string
+}
+
 type Identifier struct {
 	Name string
 }

@@ -17,12 +17,13 @@ type Parser struct {
 	l         *lexer.Lexer
 	curToken  lexer.Token
 	peekToken lexer.Token
-	input     string   // Store input for C import parsing
+	src       string   // Source text for zero-copy token literal access
+	arena     *Arena   // Arena allocator for AST nodes — batch allocation
 	Errors    []string // Phase 19: Parser error tracking
 }
 
 func New(l *lexer.Lexer) *Parser {
-	p := &Parser{l: l, input: l.GetInput(), Errors: []string{}}
+	p := &Parser{l: l, src: l.GetInput(), arena: NewArena(), Errors: []string{}}
 	p.nextToken()
 	p.nextToken()
 	return p
@@ -38,7 +39,7 @@ func (p *Parser) nextToken() {
 }
 
 func (p *Parser) ParseProgram() *Program {
-	prog := &Program{Statements: []Node{}, CImports: []*CImportBlock{}}
+	prog := p.arena.AllocProgram([]Node{}, []*CImportBlock{})
 	for p.curToken.Type != lexer.TokenEOF {
 		if p.curToken.Type == lexer.TokenFunc {
 			if stmt := p.parseFunc(); stmt != nil {
@@ -65,7 +66,7 @@ func (p *Parser) ParseProgram() *Program {
 				prog.CImports = append(prog.CImports, cImport)
 			}
 		} else {
-			p.addError(fmt.Sprintf("unexpected token '%s' at top level", p.curToken.Literal))
+			p.addError(fmt.Sprintf("unexpected token '%s' at top level", p.curToken.Literal(p.src)))
 			p.nextToken()
 		}
 		// Ensure progress even on errors
@@ -78,7 +79,8 @@ func (p *Parser) ParseProgram() *Program {
 
 func (p *Parser) parseFunc() *FuncDecl {
 	p.nextToken() // consume 'func'
-	fn := &FuncDecl{Name: p.curToken.Literal, Body: []Node{}}
+	fn := p.arena.AllocFuncDecl(p.curToken.Literal(p.src), nil, nil, nil)
+	fn.Params = []string{}
 
 	p.nextToken() // consume fn name
 	p.nextToken() // consume '('
@@ -86,7 +88,7 @@ func (p *Parser) parseFunc() *FuncDecl {
 	// Parse parameters
 	for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
 		if p.curToken.Type == lexer.TokenIdent {
-			paramName := p.curToken.Literal
+			paramName := p.curToken.Literal(p.src)
 			fn.Params = append(fn.Params, paramName)
 			p.nextToken() // consume param name
 			if p.curToken.Type == lexer.TokenComma {
@@ -106,7 +108,7 @@ func (p *Parser) parseFunc() *FuncDecl {
 
 func (p *Parser) parseVarDecl() *VarDeclStmt {
 	p.nextToken() // consume 'let' or 'var'
-	name := p.curToken.Literal
+	name := p.curToken.Literal(p.src)
 
 	p.nextToken() // consume identifier
 
@@ -116,15 +118,21 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 		typeName = "*" // Pointer type
 		p.nextToken()  // consume '*'
 		if p.curToken.Type == lexer.TokenIdent {
-			typeName += p.curToken.Literal
+			typeName += p.curToken.Literal(p.src)
 			p.nextToken() // consume base type
 		}
 	} else if p.curToken.Type == lexer.TokenIdent {
-		typeName = p.curToken.Literal
+		typeName = p.curToken.Literal(p.src)
 		p.nextToken() // consume type name
 	} else if p.curToken.Type == lexer.TokenBool {
-		typeName = p.curToken.Literal
+		typeName = p.curToken.Literal(p.src)
 		p.nextToken() // consume bool type
+	} else if p.curToken.Type == lexer.TokenBigInt {
+		typeName = "bigint"
+		p.nextToken() // consume bigint type
+	} else if p.curToken.Type == lexer.TokenBigFloat {
+		typeName = "bigfloat"
+		p.nextToken() // consume bigfloat type
 	}
 
 	p.nextToken() // consume '='
@@ -216,7 +224,7 @@ func (p *Parser) parseStatement() Node {
 		}
 		return nil
 	default:
-		p.addError(fmt.Sprintf("unexpected token '%s' (%s)", p.curToken.Literal, p.curToken.Type))
+		p.addError(fmt.Sprintf("unexpected token '%s' (%s)", p.curToken.Literal(p.src), p.curToken.Type))
 		p.nextToken()
 		return nil
 	}
@@ -309,7 +317,7 @@ func (p *Parser) parseIf() *IfStmt {
 }
 
 func (p *Parser) parseIdentStatement() Node {
-	ident := p.curToken.Literal
+	ident := p.curToken.Literal(p.src)
 	p.nextToken() // consume identifier
 
 	// Check for matrix index assignment
@@ -370,7 +378,7 @@ func (p *Parser) parseIdentStatement() Node {
 	// Check for dot expression
 	if p.curToken.Type == lexer.TokenDot {
 		p.nextToken() // consume '.'
-		rightIdent := p.curToken.Literal
+		rightIdent := p.curToken.Literal(p.src)
 		p.nextToken() // consume right identifier
 		if p.curToken.Type == lexer.TokenLParen {
 			p.nextToken() // consume '('
@@ -475,14 +483,14 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 
 		p.nextToken() // consume operator
 		right := p.parseBinaryExpr(nil, precedence(op)+1)
-		left = &BinaryExpr{Left: left, Operator: op, Right: right}
+		left = p.arena.AllocBinaryExpr(left, op, right)
 	}
 
 	// Handle assignment: ident = expr (only at precedence 0)
 	if p.curToken.Type == lexer.TokenAssign && left != nil {
 		p.nextToken() // consume '='
 		right := p.parseExpr()
-		return &BinaryExpr{Left: left, Operator: "=", Right: right}
+		return p.arena.AllocBinaryExpr(left, "=", right)
 	}
 
 	// Handle index expression [index] or matrix index [row, col]
@@ -494,31 +502,31 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 			p.nextToken() // consume ','
 			col := p.parseExpr()
 			p.nextToken() // consume ']'
-			left = &MatrixIndexExpr{Matrix: left, Row: first, Col: col}
+			left = p.arena.AllocMatrixIndexExpr(left, first, col)
 		} else {
 			// Array/map index: [index]
 			p.nextToken() // consume ']'
-			left = &IndexExpr{Left: left, Index: first}
+			left = p.arena.AllocIndexExpr(left, first)
 		}
 	}
 
 	// Phase 19: Handle @derive(Trait) and @tag(name, value) as postfix operators
 	if p.curToken.Type == lexer.TokenAt {
 		p.nextToken() // consume '@'
-		ident := p.curToken.Literal
+		ident := p.curToken.Literal(p.src)
 		p.nextToken() // consume identifier
 		if ident == "derive" && p.curToken.Type == lexer.TokenLParen {
 			p.nextToken() // consume '('
-			trait := p.curToken.Literal
+			trait := p.curToken.Literal(p.src)
 			p.nextToken() // consume trait name
 			p.nextToken() // consume ')'
 			left = &DeriveExpr{Trait: trait, Target: left}
 		} else if ident == "tag" && p.curToken.Type == lexer.TokenLParen {
 			p.nextToken() // consume '('
-			tagName := p.curToken.Literal
+			tagName := p.curToken.Literal(p.src)
 			p.nextToken() // consume tag name
 			p.nextToken() // consume ','
-			tagValue := p.curToken.Literal
+			tagValue := p.curToken.Literal(p.src)
 			p.nextToken() // consume tag value
 			p.nextToken() // consume ')'
 			left = &TagExpr{Target: left, TagName: tagName, TagValue: tagValue}
@@ -533,12 +541,12 @@ func (p *Parser) parseUnary() Node {
 	if p.curToken.Type == lexer.TokenMinus {
 		p.nextToken() // consume '-'
 		operand := p.parseUnary()
-		return &UnaryExpr{Operator: "-", Operand: operand}
+		return p.arena.AllocUnaryExpr("-", operand)
 	}
 	if p.curToken.Type == lexer.TokenNot {
 		p.nextToken() // consume '!'
 		operand := p.parseUnary()
-		return &UnaryExpr{Operator: "!", Operand: operand}
+		return p.arena.AllocUnaryExpr("!", operand)
 	}
 	if p.curToken.Type == lexer.TokenStar {
 		p.nextToken() // consume '*'
@@ -551,17 +559,25 @@ func (p *Parser) parseUnary() Node {
 func (p *Parser) parsePrimaryExpr() Node {
 	switch p.curToken.Type {
 	case lexer.TokenString:
-		val := p.curToken.Literal
+		val := p.curToken.Literal(p.src)
 		p.nextToken()
-		return &StringLiteral{Value: val}
+		return p.arena.AllocStringLiteral(val)
 	case lexer.TokenInt:
-		val := p.curToken.Literal
+		val := p.curToken.Literal(p.src)
 		p.nextToken()
-		return &IntLiteral{Value: val}
+		return p.arena.AllocIntLiteral(val)
 	case lexer.TokenFloat64:
-		val := p.curToken.Literal
+		val := p.curToken.Literal(p.src)
 		p.nextToken()
-		return &Float64Literal{Value: val}
+		return p.arena.AllocFloat64Literal(val)
+	case lexer.TokenBigInt:
+		val := p.curToken.Literal(p.src)
+		p.nextToken()
+		return p.arena.AllocBigIntLiteral(val)
+	case lexer.TokenBigFloat:
+		val := p.curToken.Literal(p.src)
+		p.nextToken()
+		return p.arena.AllocBigFloatLiteral(val)
 	case lexer.TokenIdent:
 		return p.parseIdentExpr()
 	case lexer.TokenLParen:
@@ -577,10 +593,10 @@ func (p *Parser) parsePrimaryExpr() Node {
 		return p.parseGlobalIDExpr()
 	case lexer.TokenTrue:
 		p.nextToken()
-		return &BoolLiteral{Value: true}
+		return p.arena.AllocBoolLiteral(true)
 	case lexer.TokenFalse:
 		p.nextToken()
-		return &BoolLiteral{Value: false}
+		return p.arena.AllocBoolLiteral(false)
 	case lexer.TokenQuote:
 		p.nextToken() // consume 'quote'
 		p.nextToken() // consume '('
@@ -635,13 +651,13 @@ func (p *Parser) parseMapLiteral() *MapLiteral {
 }
 
 func (p *Parser) parseIdentExpr() Node {
-	ident := p.curToken.Literal
+	ident := p.curToken.Literal(p.src)
 	p.nextToken() // consume identifier
 
 	// Check for dot expression (e.g., C.sqrt, matrix.method)
 	if p.curToken.Type == lexer.TokenDot {
 		p.nextToken() // consume '.'
-		rightIdent := p.curToken.Literal
+		rightIdent := p.curToken.Literal(p.src)
 		p.nextToken() // consume right identifier
 
 		// Check if this is a function call
@@ -663,7 +679,7 @@ func (p *Parser) parseIdentExpr() Node {
 			}
 		}
 
-		return &DotExpr{Left: &Identifier{Name: ident}, Right: rightIdent}
+		return &DotExpr{Left: p.arena.AllocIdentifier(ident), Right: rightIdent}
 	}
 
 	// Check for function call
@@ -678,11 +694,7 @@ func (p *Parser) parseIdentExpr() Node {
 		}
 		p.nextToken() // consume ')'
 
-		return &CallExpr{
-			Function: ident,
-			Args:     args,
-			IsCFunc:  false,
-		}
+		return p.arena.AllocCallExpr(ident, args, false)
 	}
 
 	// Phase 19: Check for struct literal: TypeName{field: val, ...}
@@ -690,7 +702,7 @@ func (p *Parser) parseIdentExpr() Node {
 		return p.parseStructLiteral(ident)
 	}
 
-	return &Identifier{Name: ident}
+	return p.arena.AllocIdentifier(ident)
 }
 
 // Phase 19: Struct literal parsing: Name{field: val, ...}
@@ -699,7 +711,7 @@ func (p *Parser) parseStructLiteral(typeName string) *StructLiteral {
 	fields := []Node{}
 	if p.curToken.Type != lexer.TokenRBrace {
 		// Parse field: value pairs
-		fieldName := p.curToken.Literal
+		fieldName := p.curToken.Literal(p.src)
 		p.nextToken() // consume field name
 		p.nextToken() // consume ':'
 		val := p.parseExpr()
@@ -710,7 +722,7 @@ func (p *Parser) parseStructLiteral(typeName string) *StructLiteral {
 		})
 		for p.curToken.Type == lexer.TokenComma {
 			p.nextToken() // consume ','
-			fieldName = p.curToken.Literal
+			fieldName = p.curToken.Literal(p.src)
 			p.nextToken() // consume field name
 			p.nextToken() // consume ':'
 			val = p.parseExpr()
@@ -728,16 +740,16 @@ func (p *Parser) parseStructLiteral(typeName string) *StructLiteral {
 // Phase 19: Struct declaration parsing: type Name struct { field type, ... }
 func (p *Parser) parseStructDecl() *StructDeclStmt {
 	p.nextToken() // consume 'type'
-	name := p.curToken.Literal
+	name := p.curToken.Literal(p.src)
 	p.nextToken() // consume struct name
 	p.nextToken() // consume 'struct'
 	p.nextToken() // consume '{'
 
 	fields := []StructField{}
 	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
-		fieldName := p.curToken.Literal
+		fieldName := p.curToken.Literal(p.src)
 		p.nextToken() // consume field name
-		fieldType := p.curToken.Literal
+		fieldType := p.curToken.Literal(p.src)
 		p.nextToken() // consume field type
 		fields = append(fields, StructField{Name: fieldName, Type: fieldType})
 		if p.curToken.Type == lexer.TokenComma {
@@ -754,7 +766,7 @@ func (p *Parser) parseCImport() *CImportBlock {
 	p.nextToken() // consume 'import'
 
 	// Expect string literal "C"
-	if p.curToken.Type != lexer.TokenString || p.curToken.Literal != "C" {
+	if p.curToken.Type != lexer.TokenString || p.curToken.Literal(p.src) != "C" {
 		return nil
 	}
 	p.nextToken() // consume "C"
@@ -826,7 +838,7 @@ func (p *Parser) parseAlloc() *AllocExpr {
 	p.nextToken() // consume '('
 
 	// Type parameter
-	typeName := p.curToken.Literal
+	typeName := p.curToken.Literal(p.src)
 	p.nextToken() // consume type
 	p.nextToken() // consume ','
 
@@ -847,7 +859,7 @@ func (p *Parser) parseFree() *FreeExpr {
 // Phase 14: Quantum computing parsing
 func (p *Parser) parseQRegDecl() *QRegDeclStmt {
 	p.nextToken() // consume 'qreg'
-	name := p.curToken.Literal
+	name := p.curToken.Literal(p.src)
 	p.nextToken() // consume name
 	p.nextToken() // consume '='
 	qubits := p.parseExpr()
@@ -856,7 +868,7 @@ func (p *Parser) parseQRegDecl() *QRegDeclStmt {
 
 func (p *Parser) parseGateApply() *GateApplyStmt {
 	p.nextToken() // consume 'gate'
-	gateName := p.curToken.Literal
+	gateName := p.curToken.Literal(p.src)
 	p.nextToken() // consume gate name
 	p.nextToken() // consume '('
 
@@ -910,11 +922,11 @@ func (p *Parser) parseMatrixDecl() *VarDeclStmt {
 	cols := p.parseExpr()
 	p.nextToken() // consume ']'
 
-	dataType := p.curToken.Literal // e.g., "float64"
+	dataType := p.curToken.Literal(p.src) // e.g., "float64"
 	p.nextToken()                  // consume type
 
 	// Variable name should come next
-	name := p.curToken.Literal
+	name := p.curToken.Literal(p.src)
 	p.nextToken() // consume variable name
 
 	matrixDecl := &MatrixDecl{
@@ -929,7 +941,7 @@ func (p *Parser) parseMatrixDecl() *VarDeclStmt {
 // Phase 16: Actor parsing functions
 func (p *Parser) parseActor() *ActorDeclStmt {
 	p.nextToken() // consume 'actor'
-	actor := &ActorDeclStmt{Name: p.curToken.Literal, Body: []Node{}}
+	actor := &ActorDeclStmt{Name: p.curToken.Literal(p.src), Body: []Node{}}
 
 	p.nextToken() // consume actor name
 	p.nextToken() // consume '('
@@ -945,7 +957,7 @@ func (p *Parser) parseActor() *ActorDeclStmt {
 func (p *Parser) parseSpawn() *SpawnExpr {
 	p.nextToken() // consume 'spawn'
 	p.nextToken() // consume '('
-	actorName := p.curToken.Literal
+	actorName := p.curToken.Literal(p.src)
 	p.nextToken() // consume actor name
 	p.nextToken() // consume ')'
 
@@ -972,7 +984,7 @@ func (p *Parser) parseReceive() *ReceiveStmt {
 
 	varName := ""
 	if p.curToken.Type == lexer.TokenIdent {
-		varName = p.curToken.Literal
+		varName = p.curToken.Literal(p.src)
 		p.nextToken() // consume variable name
 	}
 
@@ -998,7 +1010,7 @@ func (p *Parser) parseMatrixDeclInternal() *MatrixDecl {
 	cols := p.parseExpr()
 	p.nextToken() // consume ']'
 
-	dataType := p.curToken.Literal // e.g., "float64"
+	dataType := p.curToken.Literal(p.src) // e.g., "float64"
 	p.nextToken()                  // consume type
 
 	return &MatrixDecl{
@@ -1028,19 +1040,19 @@ func (p *Parser) parseMatrixIndex() *MatrixIndexExpr {
 // Phase 18: GPU kernel parsing
 func (p *Parser) parseKernel() *KernelDeclStmt {
 	p.nextToken() // consume 'kernel'
-	kernel := &KernelDeclStmt{Name: p.curToken.Literal, Body: []Node{}}
+	kernel := &KernelDeclStmt{Name: p.curToken.Literal(p.src), Body: []Node{}}
 	p.nextToken() // consume kernel name
 	p.nextToken() // consume '('
 
 	// Parse typed parameters: name: type
 	for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
 		if p.curToken.Type == lexer.TokenIdent {
-			paramName := p.curToken.Literal
+			paramName := p.curToken.Literal(p.src)
 			p.nextToken() // consume param name
 			if p.curToken.Type == lexer.TokenColon {
 				p.nextToken() // consume ':'
 			}
-			paramType := p.curToken.Literal
+			paramType := p.curToken.Literal(p.src)
 			p.nextToken() // consume type
 			kernel.Params = append(kernel.Params, Parameter{Name: paramName, Type: paramType})
 			if p.curToken.Type == lexer.TokenComma {
@@ -1077,7 +1089,7 @@ func (p *Parser) parseGlobalIDExpr() *GlobalIdExpr {
 	dim := 0
 	if p.curToken.Type == lexer.TokenInt {
 		dim = 0
-		for _, ch := range p.curToken.Literal {
+		for _, ch := range p.curToken.Literal(p.src) {
 			if ch >= '0' && ch <= '9' {
 				dim = dim*10 + int(ch-'0')
 			}

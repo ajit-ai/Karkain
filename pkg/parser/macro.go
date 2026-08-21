@@ -250,7 +250,7 @@ func (me *MacroExpander) expandTag(expr *TagExpr) Node {
 // AddMacroToParser adds macro parsing support to the parser
 func (p *Parser) parseMacro() *MacroDeclStmt {
 	p.nextToken() // consume 'macro'
-	name := p.curToken.Literal
+	name := p.curToken.Literal(p.src)
 	p.nextToken() // consume macro name
 
 	// Parse parameters
@@ -259,7 +259,7 @@ func (p *Parser) parseMacro() *MacroDeclStmt {
 		p.nextToken() // consume '('
 		for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
 			if p.curToken.Type == lexer.TokenIdent {
-				params = append(params, p.curToken.Literal)
+				params = append(params, p.curToken.Literal(p.src))
 				p.nextToken()
 			}
 			if p.curToken.Type == lexer.TokenComma {
@@ -327,12 +327,12 @@ func (p *Parser) parseExprExtended() Node {
 	// Handle @derive and @tag
 	if p.curToken.Type == lexer.TokenAt {
 		p.nextToken() // consume '@'
-		ident := p.curToken.Literal
+		ident := p.curToken.Literal(p.src)
 		p.nextToken() // consume identifier
 
 		if ident == "derive" {
 			p.nextToken() // consume '('
-			trait := p.curToken.Literal
+			trait := p.curToken.Literal(p.src)
 			p.nextToken() // consume trait name
 			p.nextToken() // consume ')'
 			return &DeriveExpr{
@@ -341,10 +341,10 @@ func (p *Parser) parseExprExtended() Node {
 			}
 		} else if ident == "tag" {
 			p.nextToken() // consume '('
-			tagName := p.curToken.Literal
+			tagName := p.curToken.Literal(p.src)
 			p.nextToken() // consume tag name
 			p.nextToken() // consume ','
-			tagValue := p.curToken.Literal
+			tagValue := p.curToken.Literal(p.src)
 			p.nextToken() // consume tag value
 			p.nextToken() // consume ')'
 			return &TagExpr{
@@ -376,7 +376,7 @@ func (p *Parser) parseExprExtended() Node {
 	if ident, ok := left.(*Identifier); ok && ident.Name == "reflect" {
 		if p.curToken.Type == lexer.TokenDot {
 			p.nextToken() // consume '.'
-			method := p.curToken.Literal
+			method := p.curToken.Literal(p.src)
 			p.nextToken() // consume method name
 			if method == "typeof" {
 				p.nextToken() // consume '('

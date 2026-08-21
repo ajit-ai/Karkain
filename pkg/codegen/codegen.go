@@ -117,6 +117,11 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	// 	defer os.Remove(tmpCFile)
 	// }
 
+	// CompileOnly: write C source and return (used by bootstrap to get C output)
+	if g.cfg.CompileOnly {
+		return nil
+	}
+
 	compiler, flags := g.detectCompiler(tmpCFile, exeFile)
 	if compiler == "" {
 		return fmt.Errorf("no supported C compiler found (GCC, Clang, or MSVC cl.exe required)")
@@ -174,6 +179,7 @@ func (g *Generator) generateCHeader() string {
 #include <stdalign.h>
 #include <math.h>
 #include <time.h>
+#include <gmp.h>
 
 // Phase 15: WASI compatibility and HTTP Runtime (cross-platform socket abstraction)
 #ifdef __wasi__
@@ -386,7 +392,7 @@ typedef struct {
 #define HAS_AVX2 0
 #endif
 
-typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL } ValueType;
+typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL, TYPE_BIGINT, TYPE_BIGFLOAT } ValueType;
 
 typedef struct Value {
     ValueType type;
@@ -394,6 +400,8 @@ typedef struct Value {
         long long intVal;
         double floatVal;
         char* strVal;
+        mpz_t bigIntVal;
+        mpf_t bigFloatVal;
         struct {
             struct Value** items;
             int length;
@@ -417,6 +425,38 @@ Value* make_float(double v) {
     Value* val = (Value*)malloc(sizeof(Value));
     val->type = TYPE_FLOAT64;
     val->floatVal = v;
+    return val;
+}
+
+Value* make_bigint(const char* s) {
+    Value* val = (Value*)malloc(sizeof(Value));
+    val->type = TYPE_BIGINT;
+    mpz_init(val->bigIntVal);
+    mpz_set_str(val->bigIntVal, s, 10);
+    return val;
+}
+
+Value* make_bigint_from_long(long long v) {
+    Value* val = (Value*)malloc(sizeof(Value));
+    val->type = TYPE_BIGINT;
+    mpz_init(val->bigIntVal);
+    mpz_set_si(val->bigIntVal, v);
+    return val;
+}
+
+Value* make_bigfloat(const char* s) {
+    Value* val = (Value*)malloc(sizeof(Value));
+    val->type = TYPE_BIGFLOAT;
+    mpf_init(val->bigFloatVal);
+    mpf_set_str(val->bigFloatVal, s, 10);
+    return val;
+}
+
+Value* make_bigfloat_from_double(double v) {
+    Value* val = (Value*)malloc(sizeof(Value));
+    val->type = TYPE_BIGFLOAT;
+    mpf_init(val->bigFloatVal);
+    mpf_set_d(val->bigFloatVal, v);
     return val;
 }
 
@@ -537,6 +577,12 @@ void print_value(Value* v) {
         printf("%g\n", v->floatVal);
     } else if (v->type == TYPE_STRING) {
         printf("%s\n", v->strVal);
+    } else if (v->type == TYPE_BIGINT) {
+        mpz_out_str(stdout, 10, v->bigIntVal);
+        printf("\n");
+    } else if (v->type == TYPE_BIGFLOAT) {
+        mpf_out_str(stdout, 10, 0, v->bigFloatVal);
+        printf("\n");
     } else if (v->type == TYPE_ARRAY) {
         printf("[");
         for (int i = 0; i < v->arrVal.length; i++) {
@@ -589,6 +635,57 @@ Value* binary_op(Value* left, const char* op, Value* right) {
         if (strcmp(op, "==") == 0) return make_int(l == r);
         if (strcmp(op, "!=") == 0) return make_int(l != r);
     }
+    // BigFloat arithmetic (promotes int/bigint to bigfloat)
+    if (left->type == TYPE_BIGFLOAT || right->type == TYPE_BIGFLOAT) {
+        mpf_t l, r;
+        mpf_init(l); mpf_init(r);
+        if (left->type == TYPE_BIGFLOAT) mpf_set(l, left->bigFloatVal);
+        else if (left->type == TYPE_BIGINT) mpf_set_z(l, left->bigIntVal);
+        else if (left->type == TYPE_INT) mpf_set_si(l, left->intVal);
+        else mpf_set_d(l, left->floatVal);
+        if (right->type == TYPE_BIGFLOAT) mpf_set(r, right->bigFloatVal);
+        else if (right->type == TYPE_BIGINT) mpf_set_z(r, right->bigIntVal);
+        else if (right->type == TYPE_INT) mpf_set_si(r, right->intVal);
+        else mpf_set_d(r, right->floatVal);
+        Value* result;
+        if (strcmp(op, "+") == 0) { mpf_add(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result->bigFloatVal, l); }
+        else if (strcmp(op, "-") == 0) { mpf_sub(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result->bigFloatVal, l); }
+        else if (strcmp(op, "*") == 0) { mpf_mul(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result->bigFloatVal, l); }
+        else if (strcmp(op, "/") == 0) { mpf_div(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result->bigFloatVal, l); }
+        else if (strcmp(op, ">") == 0) result = make_int(mpf_cmp(l, r) > 0);
+        else if (strcmp(op, "<") == 0) result = make_int(mpf_cmp(l, r) < 0);
+        else if (strcmp(op, ">=") == 0) result = make_int(mpf_cmp(l, r) >= 0);
+        else if (strcmp(op, "<=") == 0) result = make_int(mpf_cmp(l, r) <= 0);
+        else if (strcmp(op, "==") == 0) result = make_int(mpf_cmp(l, r) == 0);
+        else if (strcmp(op, "!=") == 0) result = make_int(mpf_cmp(l, r) != 0);
+        else result = make_int(0);
+        mpf_clear(l); mpf_clear(r);
+        return result;
+    }
+    // BigInt arithmetic
+    if (left->type == TYPE_BIGINT || right->type == TYPE_BIGINT) {
+        mpz_t l, r;
+        mpz_init(l); mpz_init(r);
+        if (left->type == TYPE_BIGINT) mpz_set(l, left->bigIntVal);
+        else mpz_set_si(l, left->intVal);
+        if (right->type == TYPE_BIGINT) mpz_set(r, right->bigIntVal);
+        else mpz_set_si(r, right->intVal);
+        Value* result;
+        if (strcmp(op, "+") == 0) { result = make_bigint_from_long(0); mpz_add(result->bigIntVal, l, r); }
+        else if (strcmp(op, "-") == 0) { result = make_bigint_from_long(0); mpz_sub(result->bigIntVal, l, r); }
+        else if (strcmp(op, "*") == 0) { result = make_bigint_from_long(0); mpz_mul(result->bigIntVal, l, r); }
+        else if (strcmp(op, "/") == 0) { result = make_bigint_from_long(0); mpz_tdiv_q(result->bigIntVal, l, r); }
+        else if (strcmp(op, "%") == 0) { result = make_bigint_from_long(0); mpz_tdiv_r(result->bigIntVal, l, r); }
+        else if (strcmp(op, ">") == 0) result = make_int(mpz_cmp(l, r) > 0);
+        else if (strcmp(op, "<") == 0) result = make_int(mpz_cmp(l, r) < 0);
+        else if (strcmp(op, ">=") == 0) result = make_int(mpz_cmp(l, r) >= 0);
+        else if (strcmp(op, "<=") == 0) result = make_int(mpz_cmp(l, r) <= 0);
+        else if (strcmp(op, "==") == 0) result = make_int(mpz_cmp(l, r) == 0);
+        else if (strcmp(op, "!=") == 0) result = make_int(mpz_cmp(l, r) != 0);
+        else result = make_int(0);
+        mpz_clear(l); mpz_clear(r);
+        return result;
+    }
     // Int arithmetic
     if (strcmp(op, "+") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
         return make_int(left->intVal + right->intVal);
@@ -632,6 +729,8 @@ int is_truthy(Value* v) {
     if (v->type == TYPE_STRING) return strlen(v->strVal) > 0;
     if (v->type == TYPE_ARRAY) return v->arrVal.length > 0;
     if (v->type == TYPE_MAP) return v->mapVal.length > 0;
+    if (v->type == TYPE_BIGINT) return mpz_cmp_si(v->bigIntVal, 0) != 0;
+    if (v->type == TYPE_BIGFLOAT) return mpf_cmp_d(v->bigFloatVal, 0.0) != 0;
     return 0;
 }
 
@@ -967,8 +1066,12 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return fmt.Sprintf("make_string(%q)", n.Value)
 	case *parser.IntLiteral:
 		return fmt.Sprintf("make_int(%s)", n.Value)
+	case *parser.BigIntLiteral:
+		return fmt.Sprintf("make_bigint(\"%s\")", strings.TrimRight(strings.TrimRight(n.Value, "n"), "N"))
 	case *parser.Float64Literal:
 		return fmt.Sprintf("make_float(%s)", n.Value)
+	case *parser.BigFloatLiteral:
+		return fmt.Sprintf("make_bigfloat(\"%s\")", strings.TrimRight(strings.TrimRight(n.Value, "b"), "B"))
 	case *parser.BoolLiteral:
 		if n.Value {
 			return "make_int(1)"
@@ -1196,9 +1299,9 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 
 	// Check if CC environment variable is set
 	if cc := os.Getenv("CC"); cc != "" {
-		flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0"}
+		flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0", "-lgmp"}
 		if runtime.GOOS == "windows" {
-			flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c99", "-O0"}
+			flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c99", "-O0", "-lgmp"}
 		}
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
@@ -1209,7 +1312,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 	// Check for gcc first
 	if runtime.GOOS == "windows" {
 		if _, err := exec.LookPath("gcc"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c99", "-O0"}
+			flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c99", "-O0", "-lgmp"}
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
 			}
@@ -1217,7 +1320,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 		}
 	} else {
 		if _, err := exec.LookPath("gcc"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0"}
+			flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0", "-lgmp"}
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
 			}
@@ -1226,7 +1329,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 	}
 	// Check for clang
 	if _, err := exec.LookPath("clang"); err == nil {
-		flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0"}
+		flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0", "-lgmp"}
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
 		}
@@ -1299,6 +1402,10 @@ func (g *Generator) mapKarkainTypeToC(karkainType string) string {
 		return "char*"
 	case "bool":
 		return "int"
+	case "bigint":
+		return "mpz_t"
+	case "bigfloat":
+		return "mpf_t"
 	default:
 		// Handle pointer types
 		if strings.HasPrefix(karkainType, "*") {
@@ -1314,8 +1421,12 @@ func (g *Generator) mapLiteralToC(node parser.Node) string {
 	switch n := node.(type) {
 	case *parser.IntLiteral:
 		return n.Value
+	case *parser.BigIntLiteral:
+		return fmt.Sprintf("make_bigint(\"%s\")", strings.TrimRight(strings.TrimRight(n.Value, "n"), "N"))
 	case *parser.Float64Literal:
 		return n.Value
+	case *parser.BigFloatLiteral:
+		return fmt.Sprintf("make_bigfloat(\"%s\")", strings.TrimRight(strings.TrimRight(n.Value, "b"), "B"))
 	case *parser.Identifier:
 		return n.Name
 	case *parser.BinaryExpr:

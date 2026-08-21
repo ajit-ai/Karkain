@@ -57,6 +57,8 @@ const (
 	TokenIdent   TokenType = "IDENT"
 	TokenInt     TokenType = "INT"
 	TokenFloat64 TokenType = "FLOAT64"
+	TokenBigInt  TokenType = "BIGINT"
+	TokenBigFloat TokenType = "BIGFLOAT"
 	TokenString  TokenType = "STRING"
 
 	// Operators & Delimiters
@@ -105,27 +107,58 @@ var keywords = map[string]TokenType{
 	"while":    TokenWhile,
 }
 
+// Token stores source offsets instead of copying token strings.
+// This eliminates heap allocations during tokenization — the token
+// text is derived on-demand via the Literal() method which returns
+// a zero-copy slice of the original source buffer.
 type Token struct {
-	Type    TokenType
-	Literal string
-	Line    int
+	Type TokenType
+	Start uint32
+	Len   uint16
+	Line  uint16
+	Col   uint16
+}
+
+// Literal returns the token's source text by slicing into the lexer's
+// input buffer. This is a zero-allocation view at the point of token
+// creation; the string is materialized only when this method is called.
+func (t Token) Literal(src string) string {
+	if t.Len == 0 {
+		return ""
+	}
+	return src[t.Start : uint32(t.Start)+uint32(t.Len)]
+}
+
+// LiteralBytes returns the token's source text as a byte slice, avoiding
+// any string allocation. Useful for comparisons.
+func (t Token) LiteralBytes(src []byte) []byte {
+	if t.Len == 0 {
+		return nil
+	}
+	return src[t.Start : uint32(t.Start)+uint32(t.Len)]
 }
 
 type Lexer struct {
-	Input        string
+	Input        []byte
 	Position     int
 	ReadPosition int
 	Ch           byte
 	Line         int
+	Col          int
 }
 
 // GetInput returns the lexer's input string (needed for C import parsing)
 func (l *Lexer) GetInput() string {
+	return string(l.Input)
+}
+
+// GetInputBytes returns the raw input bytes for zero-copy token literal access
+func (l *Lexer) GetInputBytes() []byte {
 	return l.Input
 }
 
 func New(input string) *Lexer {
-	l := &Lexer{Input: input, Line: 1}
+	l := &Lexer{Input: []byte(input), Line: 1, Col: 1}
 	l.readChar()
 	return l
 }
@@ -153,107 +186,100 @@ func (l *Lexer) NextToken() Token {
 	var tok Token
 	switch l.Ch {
 	case '(':
-		tok = Token{Type: TokenLParen, Literal: "(", Line: l.Line}
+		tok = Token{Type: TokenLParen, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case ')':
-		tok = Token{Type: TokenRParen, Literal: ")", Line: l.Line}
+		tok = Token{Type: TokenRParen, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '{':
-		tok = Token{Type: TokenLBrace, Literal: "{", Line: l.Line}
+		tok = Token{Type: TokenLBrace, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '}':
-		tok = Token{Type: TokenRBrace, Literal: "}", Line: l.Line}
+		tok = Token{Type: TokenRBrace, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '[':
-		tok = Token{Type: TokenLBracket, Literal: "[", Line: l.Line}
+		tok = Token{Type: TokenLBracket, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case ']':
-		tok = Token{Type: TokenRBracket, Literal: "]", Line: l.Line}
+		tok = Token{Type: TokenRBracket, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case ':':
-		tok = Token{Type: TokenColon, Literal: ":", Line: l.Line}
+		tok = Token{Type: TokenColon, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case ',':
-		tok = Token{Type: TokenComma, Literal: ",", Line: l.Line}
+		tok = Token{Type: TokenComma, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case ';':
-		tok = Token{Type: TokenSemicolon, Literal: ";", Line: l.Line}
+		tok = Token{Type: TokenSemicolon, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '.':
-		tok = Token{Type: TokenDot, Literal: ".", Line: l.Line}
+		tok = Token{Type: TokenDot, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '@':
-		tok = Token{Type: TokenAt, Literal: "@", Line: l.Line}
+		tok = Token{Type: TokenAt, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '=':
 		if l.peekChar() == '=' {
-			ch := l.Ch
+			start := l.Position
 			l.readChar()
-			tok = Token{Type: TokenEqual, Literal: string(ch) + string(l.Ch), Line: l.Line}
+			tok = Token{Type: TokenEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
-			tok = Token{Type: TokenAssign, Literal: "=", Line: l.Line}
+			tok = Token{Type: TokenAssign, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
 	case '!':
 		if l.peekChar() == '=' {
-			ch := l.Ch
+			start := l.Position
 			l.readChar()
-			tok = Token{Type: TokenNotEqual, Literal: string(ch) + string(l.Ch), Line: l.Line}
+			tok = Token{Type: TokenNotEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
-			tok = Token{Type: TokenNot, Literal: "!", Line: l.Line}
+			tok = Token{Type: TokenNot, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
 	case '&':
 		if l.peekChar() == '&' {
+			start := l.Position
 			l.readChar()
-			tok = Token{Type: TokenAnd, Literal: "&&", Line: l.Line}
+			tok = Token{Type: TokenAnd, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
-			tok = Token{Type: TokenIllegal, Literal: "&", Line: l.Line}
+			tok = Token{Type: TokenIllegal, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
 	case '|':
 		if l.peekChar() == '|' {
+			start := l.Position
 			l.readChar()
-			tok = Token{Type: TokenOr, Literal: "||", Line: l.Line}
+			tok = Token{Type: TokenOr, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
-			tok = Token{Type: TokenIllegal, Literal: "|", Line: l.Line}
+			tok = Token{Type: TokenIllegal, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
 	case '<':
 		if l.peekChar() == '-' {
-			ch := l.Ch
+			start := l.Position
 			l.readChar()
-			tok = Token{Type: TokenSend, Literal: string(ch) + string(l.Ch), Line: l.Line}
+			tok = Token{Type: TokenSend, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else if l.peekChar() == '=' {
-			ch := l.Ch
+			start := l.Position
 			l.readChar()
-			tok = Token{Type: TokenLessEqual, Literal: string(ch) + string(l.Ch), Line: l.Line}
+			tok = Token{Type: TokenLessEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
-			tok = Token{Type: TokenLessThan, Literal: "<", Line: l.Line}
+			tok = Token{Type: TokenLessThan, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
 	case '>':
 		if l.peekChar() == '=' {
-			ch := l.Ch
+			start := l.Position
 			l.readChar()
-			tok = Token{Type: TokenGreaterEqual, Literal: string(ch) + string(l.Ch), Line: l.Line}
+			tok = Token{Type: TokenGreaterEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
-			tok = Token{Type: TokenGreaterThan, Literal: ">", Line: l.Line}
+			tok = Token{Type: TokenGreaterThan, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
 	case '+':
-		tok = Token{Type: TokenPlus, Literal: "+", Line: l.Line}
+		tok = Token{Type: TokenPlus, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '-':
-		tok = Token{Type: TokenMinus, Literal: "-", Line: l.Line}
+		tok = Token{Type: TokenMinus, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '*':
-		tok = Token{Type: TokenStar, Literal: "*", Line: l.Line}
+		tok = Token{Type: TokenStar, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '/':
-		tok = Token{Type: TokenSlash, Literal: "/", Line: l.Line}
+		tok = Token{Type: TokenSlash, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '%':
-		tok = Token{Type: TokenPercent, Literal: "%", Line: l.Line}
+		tok = Token{Type: TokenPercent, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '"':
-		tok.Type = TokenString
-		tok.Literal = l.readString()
-		tok.Line = l.Line
-		return tok
+		return l.scanString()
 	case 0:
-		tok = Token{Type: TokenEOF, Literal: "", Line: l.Line}
+		tok = Token{Type: TokenEOF, Start: uint32(l.Position), Len: 0, Line: uint16(l.Line), Col: uint16(l.Col)}
 	default:
 		if isLetter(l.Ch) {
-			literal := l.readIdentifier()
-			return Token{Type: lookupIdent(literal), Literal: literal, Line: l.Line}
+			return l.scanIdentifier()
 		} else if isDigit(l.Ch) {
-			literal := l.readNumber()
-			// Check if it's a float
-			if strings.Contains(literal, ".") {
-				return Token{Type: TokenFloat64, Literal: literal, Line: l.Line}
-			}
-			return Token{Type: TokenInt, Literal: literal, Line: l.Line}
+			return l.scanNumber()
 		} else {
-			tok = Token{Type: TokenIllegal, Literal: string(l.Ch), Line: l.Line}
+			tok = Token{Type: TokenIllegal, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
 	}
 
@@ -265,60 +291,101 @@ func (l *Lexer) skipWhitespace() {
 	for l.Ch == ' ' || l.Ch == '\t' || l.Ch == '\n' || l.Ch == '\r' {
 		if l.Ch == '\n' {
 			l.Line++
+			l.Col = 0
 		}
 		l.readChar()
+		l.Col++
 	}
 
 	// Skip comments
 	if l.Ch == '/' && l.peekChar() == '/' {
 		for l.Ch != '\n' && l.Ch != 0 {
 			l.readChar()
+			l.Col++
 		}
 		l.skipWhitespace() // Skip whitespace after comment
 	}
 }
 
-func (l *Lexer) readIdentifier() string {
-	pos := l.Position
+func (l *Lexer) scanIdentifier() Token {
+	start := l.Position
+	startLine := l.Line
+	startCol := l.Col
 	for isLetter(l.Ch) || isDigit(l.Ch) {
 		l.readChar()
+		l.Col++
 	}
-	return l.Input[pos:l.Position]
+	tok := Token{Type: lookupIdent(string(l.Input[start:l.Position])), Start: uint32(start), Len: uint16(l.Position - start), Line: uint16(startLine), Col: uint16(startCol)}
+	return tok
 }
 
-func (l *Lexer) readNumber() string {
-	pos := l.Position
+func (l *Lexer) scanNumber() Token {
+	start := l.Position
+	startLine := l.Line
+	startCol := l.Col
 	for isDigit(l.Ch) {
 		l.readChar()
+		l.Col++
 	}
 	// Handle float64 literals with decimal point
 	if l.Ch == '.' {
 		l.readChar()
+		l.Col++
 		for isDigit(l.Ch) {
 			l.readChar()
+			l.Col++
 		}
 	}
-	return l.Input[pos:l.Position]
+	tt := TokenInt
+	text := string(l.Input[start:l.Position])
+	if strings.Contains(text, ".") {
+		// Check for bigfloat suffix 'b' after decimal
+		if l.Ch == 'b' || l.Ch == 'B' {
+			l.readChar()
+			l.Col++
+			return Token{Type: TokenBigFloat, Start: uint32(start), Len: uint16(l.Position - start), Line: uint16(startLine), Col: uint16(startCol)}
+		}
+		tt = TokenFloat64
+	} else {
+		// Check for bigint suffix 'n' after integer
+		if l.Ch == 'n' || l.Ch == 'N' {
+			l.readChar()
+			l.Col++
+			return Token{Type: TokenBigInt, Start: uint32(start), Len: uint16(l.Position - start), Line: uint16(startLine), Col: uint16(startCol)}
+		}
+	}
+	return Token{Type: tt, Start: uint32(start), Len: uint16(l.Position - start), Line: uint16(startLine), Col: uint16(startCol)}
 }
 
-func (l *Lexer) readString() string {
-	pos := l.Position + 1
+func (l *Lexer) scanString() Token {
+	startLine := l.Line
+	startCol := l.Col
+	startPos := l.Position
+	l.readChar() // skip opening quote
+	l.Col++
+
 	for {
-		l.readChar()
 		if l.Ch == 0 {
 			break
 		}
 		if l.Ch == '\\' {
 			l.readChar() // skip escaped character
+			l.Col++
 			continue
 		}
 		if l.Ch == '"' {
 			break
 		}
+		l.readChar()
+		l.Col++
 	}
-	str := l.Input[pos:l.Position]
-	l.readChar()
-	return str
+	// Token spans from the opening quote to the closing quote (exclusive of closing quote for the inner content)
+	tokStart := startPos + 1 // skip opening quote in the literal
+	tokLen := l.Position - tokStart
+	l.readChar() // consume closing quote
+	l.Col++
+
+	return Token{Type: TokenString, Start: uint32(tokStart), Len: uint16(tokLen), Line: uint16(startLine), Col: uint16(startCol)}
 }
 
 // Read C import block content between { }
@@ -340,7 +407,7 @@ func (l *Lexer) readCBlock() string {
 			}
 		}
 	}
-	str := l.Input[pos:l.Position]
+	str := string(l.Input[pos:l.Position])
 	l.readChar() // consume closing }
 	return str
 }
@@ -417,6 +484,10 @@ func lookupIdent(ident string) TokenType {
 		return TokenStruct
 	case "bool":
 		return TokenBool
+	case "bigint":
+		return TokenBigInt
+	case "bigfloat":
+		return TokenBigFloat
 	case "true":
 		return TokenTrue
 	case "false":

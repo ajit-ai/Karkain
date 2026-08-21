@@ -251,6 +251,7 @@ func compileWithGCC(cFile, runtimeFile, outputBinary string) error {
 		"-o", outputBinary,
 		cFile,
 		"-lm",
+		"-lgmp",
 	}
 
 	// Include runtime.c if it exists
