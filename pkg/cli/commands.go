@@ -43,6 +43,15 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 		return CommandResult{ExitCode: 1, Message: "Parse failed"}
 	}
 
+	// Phase 43: Run borrow checker
+	if errs := runBorrowCheck(prog); len(errs) > 0 {
+		msg := "Borrow check failed:\n"
+		for _, e := range errs {
+			msg += "  " + e.Message + "\n"
+		}
+		return CommandResult{ExitCode: 1, Message: msg}
+	}
+
 	cfg.RunAfter = true
 	cg := codegen.New(cfg)
 
@@ -70,6 +79,15 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 	prog := parseSource(sourceText, verbose)
 	if prog == nil {
 		return CommandResult{ExitCode: 1, Message: "Parse failed"}
+	}
+
+	// Phase 43: Run borrow checker
+	if errs := runBorrowCheck(prog); len(errs) > 0 {
+		msg := "Borrow check failed:\n"
+		for _, e := range errs {
+			msg += "  " + e.Message + "\n"
+		}
+		return CommandResult{ExitCode: 1, Message: msg}
 	}
 
 	cfg.RunAfter = false
@@ -281,6 +299,12 @@ func parseSource(sourceText string, verbose bool) *parser.Program {
 	}
 
 	return prog
+}
+
+// Phase 43: Run borrow checker on a parsed program
+func runBorrowCheck(prog *parser.Program) []sema.BorrowError {
+	checker := sema.NewBorrowChecker()
+	return checker.Check(prog)
 }
 
 func printTokenStream(sourceText string) {
