@@ -1211,6 +1211,8 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		return g.genEnumDecl(node)
 	case *parser.ForStmt:
 		return g.genForStmt(node)
+	case *parser.ForInStmt:
+		return g.genForInStmt(node)
 	}
 	return ""
 }
@@ -1328,6 +1330,9 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Function == "appendArray" {
 			return fmt.Sprintf("karkain_appendArray(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
+		if n.Function == "push" {
+			return fmt.Sprintf("karkain_appendArray(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
 		if n.Function == "hasKey" {
 			return fmt.Sprintf("karkain_hasKey(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
@@ -1336,6 +1341,17 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "mod" {
 			return fmt.Sprintf("karkain_mod(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		// Phase 47: Method calls — obj.method(args) → method(obj, args)
+		if strings.Contains(n.Function, ".") {
+			parts := strings.SplitN(n.Function, ".", 2)
+			receiver := parts[0]
+			method := parts[1]
+			args := []string{receiver}
+			for _, arg := range n.Args {
+				args = append(args, g.genExpr(arg))
+			}
+			return fmt.Sprintf("%s(%s)", method, strings.Join(args, ", "))
 		}
 		if n.Function == "spawn" {
 			// Phase 16: Generate spawn expression
@@ -1694,6 +1710,22 @@ func (g *Generator) genForStmt(node *parser.ForStmt) string {
 		sb.WriteString(g.genStatement(bodyStmt))
 	}
 	sb.WriteString("\t}\n")
+	return sb.String()
+}
+
+// Phase 47: for-in loop codegen — generates C for loop over array elements
+func (g *Generator) genForInStmt(node *parser.ForInStmt) string {
+	var sb strings.Builder
+	iterExpr := g.genExpr(node.Iter)
+	sb.WriteString(fmt.Sprintf("\t{ Value* _iter = %s; ", iterExpr))
+	sb.WriteString(fmt.Sprintf("int _len = (_iter && _iter->type == TYPE_ARRAY) ? _iter->arrVal.length : 0; "))
+	sb.WriteString(fmt.Sprintf("for (int _i = 0; _i < _len; _i++) { "))
+	sb.WriteString(fmt.Sprintf("Value* %s = _iter->arrVal.items[_i]; ", node.VarName))
+	for _, bodyStmt := range node.Body {
+		sb.WriteString(g.genStatement(bodyStmt))
+	}
+	sb.WriteString("} }")
+	sb.WriteString("\n")
 	return sb.String()
 }
 

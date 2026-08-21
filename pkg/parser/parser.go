@@ -296,8 +296,40 @@ func (p *Parser) parseWhile() *WhileStmt {
 }
 
 // Phase 19: for (init; cond; post) { body }
-func (p *Parser) parseFor() *ForStmt {
+func (p *Parser) parseFor() Node {
 	p.nextToken() // consume 'for'
+
+	// Phase 47: Detect for-in syntax: for x in expr { ... }
+	// After consuming 'for', curToken = variable name, peekToken = 'in'
+	if p.curToken.Type == lexer.TokenIdent && p.peekToken.Type == lexer.TokenIn {
+		name := p.curToken.Literal(p.src)
+		p.nextToken() // consume variable name
+		p.nextToken() // consume 'in'
+		// Parse iter expression manually to avoid parseIdentExpr consuming '{' as struct literal
+		var iter Node
+		switch p.curToken.Type {
+		case lexer.TokenIdent:
+			iter = p.arena.AllocIdentifier(p.curToken.Literal(p.src))
+			p.nextToken()
+		case lexer.TokenInt:
+			iter = p.arena.AllocIntLiteral(p.curToken.Literal(p.src))
+			p.nextToken()
+		case lexer.TokenLParen:
+			p.nextToken() // consume '('
+			iter = p.parseExpr()
+			p.nextToken() // consume ')'
+		default:
+			iter = p.parseExpr()
+		}
+		if p.curToken.Type == lexer.TokenLBrace {
+			p.nextToken() // consume '{'
+		}
+		body := p.parseBlock()
+		p.nextToken() // consume '}'
+		return p.arena.AllocForInStmt(name, iter, body)
+	}
+
+	// C-style for loop: for (init; cond; post) { ... }
 	p.nextToken() // consume '('
 
 	// Parse init (can be empty)
