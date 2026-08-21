@@ -36,24 +36,26 @@ func New(cfg Config) *Generator {
 }
 
 func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
-	cCode := g.generateCHeader()
+	var sb strings.Builder
+	sb.WriteString(g.generateCHeader())
 
 	// Add AVX2 and scalar matrix multiplication kernels
-	cCode += g.genAVX2MatrixMul("rowsA", "colsA", "colsB")
-	cCode += g.genScalarMatrixMul()
+	sb.WriteString(g.genAVX2MatrixMul("rowsA", "colsA", "colsB"))
+	sb.WriteString(g.genScalarMatrixMul())
 
 	// Emit #line directive for source mapping if debug mode is enabled
 	if g.cfg.Debug {
 		// Convert backslashes to forward slashes for cross-platform compatibility
 		cleanSourceFile := strings.Replace(sourceFile, "\\", "/", -1)
-		cCode += fmt.Sprintf("#line 1 \"%s\"\n", cleanSourceFile)
+		fmt.Fprintf(&sb, "#line 1 \"%s\"\n", cleanSourceFile)
 	}
 
 	// Inject C import blocks - check if they exist first
 	if len(prog.CImports) > 0 {
 		for _, cImport := range prog.CImports {
 			if cImport.Content != "" && !strings.Contains(cImport.Content, "Phase 11") {
-				cCode += cImport.Content + "\n"
+				sb.WriteString(cImport.Content)
+				sb.WriteByte('\n')
 			}
 		}
 	}
@@ -70,24 +72,26 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 			if fn.Name == "main" {
 				retType = "int"
 			}
-			cCode += fmt.Sprintf("%s %s(%s);\n", retType, fn.Name, strings.Join(params, ", "))
+			fmt.Fprintf(&sb, "%s %s(%s);\n", retType, fn.Name, strings.Join(params, ", "))
 		}
 	}
-	cCode += "\n"
+	sb.WriteByte('\n')
 
 	// Generate all function declarations
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
-			cCode += g.genFuncDecl(fn)
+			sb.WriteString(g.genFuncDecl(fn))
 		}
 	}
 
 	// Phase 18: Generate GPU kernel declarations and host launchers
 	for _, stmt := range prog.Statements {
 		if kernel, ok := stmt.(*parser.KernelDeclStmt); ok {
-			cCode += g.genKernelDecl(kernel)
+			sb.WriteString(g.genKernelDecl(kernel))
 		}
 	}
+
+	cCode := sb.String()
 
 	if g.cfg.Verbose {
 		fmt.Println("=== [3] GENERATED C99 SOURCE CODE ===")
@@ -887,24 +891,25 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		retType = "int"
 	}
 
-	out := fmt.Sprintf("%s %s(%s) {\n", retType, fnName, strings.Join(params, ", "))
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s %s(%s) {\n", retType, fnName, strings.Join(params, ", "))
 
 	// Phase 14: Initialize quantum runtime in main
 	if fnName == "main" {
-		out += "\tquantum_init();\n"
+		sb.WriteString("\tquantum_init();\n")
 	}
 
 	for _, stmt := range fn.Body {
-		out += g.genStatement(stmt)
+		sb.WriteString(g.genStatement(stmt))
 	}
 
 	if fnName == "main" {
-		out += "\treturn 0;\n"
+		sb.WriteString("\treturn 0;\n")
 	} else {
-		out += "\treturn make_int(0);\n"
+		sb.WriteString("\treturn make_int(0);\n")
 	}
-	out += "}\n\n"
-	return out
+	sb.WriteString("}\n\n")
+	return sb.String()
 }
 
 func (g *Generator) genStatement(stmt parser.Node) string {
@@ -952,41 +957,47 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 	case *parser.ExprStmt:
 		return fmt.Sprintf("\t%s;\n", g.genExpr(node.Expression))
 	case *parser.IfStmt:
-		res := fmt.Sprintf("\tif (is_truthy(%s)) {\n", g.genExpr(node.Condition))
+		var res strings.Builder
+		fmt.Fprintf(&res, "\tif (is_truthy(%s)) {\n", g.genExpr(node.Condition))
 		for _, cStmt := range node.Consequence {
-			res += "\t" + g.genStatement(cStmt)
+			res.WriteString("\t")
+			res.WriteString(g.genStatement(cStmt))
 		}
-		res += "\t}"
+		res.WriteString("\t}")
 		if len(node.Alternative) > 0 {
 			if len(node.Alternative) == 1 {
 				if elseIf, ok := node.Alternative[0].(*parser.IfStmt); ok {
-					// else if -> else if(...)
 					elseIfStr := g.genStatement(elseIf)
-					res += " else " + strings.TrimPrefix(elseIfStr, "\t")
+					res.WriteString(" else ")
+					res.WriteString(strings.TrimPrefix(elseIfStr, "\t"))
 				} else {
-					res += " else {\n"
+					res.WriteString(" else {\n")
 					for _, aStmt := range node.Alternative {
-						res += "\t" + g.genStatement(aStmt)
+						res.WriteString("\t")
+						res.WriteString(g.genStatement(aStmt))
 					}
-					res += "\t}"
+					res.WriteString("\t}")
 				}
 			} else {
-				res += " else {\n"
+				res.WriteString(" else {\n")
 				for _, aStmt := range node.Alternative {
-					res += "\t" + g.genStatement(aStmt)
+					res.WriteString("\t")
+					res.WriteString(g.genStatement(aStmt))
 				}
-				res += "\t}"
+				res.WriteString("\t}")
 			}
 		}
-		res += "\n"
-		return res
+		res.WriteString("\n")
+		return res.String()
 	case *parser.WhileStmt:
-		res := fmt.Sprintf("\twhile (is_truthy(%s)) {\n", g.genExpr(node.Condition))
+		var res strings.Builder
+		fmt.Fprintf(&res, "\twhile (is_truthy(%s)) {\n", g.genExpr(node.Condition))
 		for _, bodyStmt := range node.Body {
-			res += "\t" + g.genStatement(bodyStmt)
+			res.WriteString("\t")
+			res.WriteString(g.genStatement(bodyStmt))
 		}
-		res += "\t}\n"
-		return res
+		res.WriteString("\t}\n")
+		return res.String()
 	case *parser.AllocExpr:
 		countExpr := g.mapLiteralToC(node.Count)
 		cType := g.mapKarkainTypeToC(node.Type)
@@ -1450,28 +1461,27 @@ func (g *Generator) genStructDecl(node *parser.StructDeclStmt) string {
 
 // Phase 19: Generate C for loop from Karkain for statement
 func (g *Generator) genForStmt(node *parser.ForStmt) string {
-	out := "\tfor ("
+	var sb strings.Builder
+	sb.WriteString("\tfor (")
 	if node.Init != nil {
-		out += g.genStatement(node.Init)
-		// Strip trailing newline from init statement
-		out = strings.TrimRight(out, "\n")
+		initStmt := g.genStatement(node.Init)
+		sb.WriteString(strings.TrimRight(initStmt, "\n"))
 	}
-	out += "; "
+	sb.WriteString("; ")
 	if node.Condition != nil {
-		out += fmt.Sprintf("is_truthy(%s)", g.genExpr(node.Condition))
+		fmt.Fprintf(&sb, "is_truthy(%s)", g.genExpr(node.Condition))
 	}
-	out += "; "
+	sb.WriteString("; ")
 	if node.Post != nil {
-		postExpr := g.genExpr(node.Post)
-		// For expression statements like i = i + 1, strip the trailing semicolon
-		out += postExpr
+		sb.WriteString(g.genExpr(node.Post))
 	}
-	out += ") {\n"
+	sb.WriteString(") {\n")
 	for _, bodyStmt := range node.Body {
-		out += "\t\t" + g.genStatement(bodyStmt)
+		sb.WriteString("\t\t")
+		sb.WriteString(g.genStatement(bodyStmt))
 	}
-	out += "\t}\n"
-	return out
+	sb.WriteString("\t}\n")
+	return sb.String()
 }
 
 // Phase 19: Generate C struct literal initialization
