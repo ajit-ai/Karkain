@@ -1,12 +1,14 @@
 # Karkain Development Conventions
 
-## Branch Workflow
+## Branch Workflow (MANDATORY RULE)
 
-After every Phase completion and successful test run:
+After EVERY Phase completion and successful test run:
 1. Commit all changes to `develop` branch
 2. Merge `develop` into `main` branch
+3. Push both branches to origin
 
 This ensures `main` always reflects the latest working state.
+NEVER skip this step. This is a hard rule, not optional.
 
 ## Testing
 
