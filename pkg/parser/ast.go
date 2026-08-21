@@ -96,6 +96,33 @@ type CallExpr struct {
 	IsCFunc  bool // True if this is a C function call (e.g., C.sqrt)
 }
 
+// Phase 41: Hybrid Memory Model — safe references + @raw for hardware
+
+// RefType represents a reference type: &T (immutable) or &mut T (mutable)
+type RefType struct {
+	BaseType string // The referenced type, e.g., "int", "[]float64"
+	Mutable  bool   // true for &mut T, false for &T
+}
+
+// RawAccessExpr represents hardware memory access: @raw(addr) or @raw(addr, val)
+// @raw(addr) reads from memory address, @raw(addr, val) writes to it
+type RawAccessExpr struct {
+	Address Node // Memory address expression
+	Value   Node // Value to write (nil for read-only)
+}
+
+// BorrowExpr represents creating a borrow: &x or &mut x
+type BorrowExpr struct {
+	Operand Node
+	Mutable bool // true for &mut x, false for &x
+}
+
+// MoveExpr represents an explicit move: move(x)
+// Transfers ownership from x to the target
+type MoveExpr struct {
+	Operand Node
+}
+
 // Phase 11: Native C Interop, Raw Pointers, and Continuous Matrix Memory Layouts
 
 type CImportBlock struct {

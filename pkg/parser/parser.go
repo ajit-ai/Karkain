@@ -112,9 +112,24 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 
 	p.nextToken() // consume identifier
 
-	// Check for type annotation (e.g., `var x int = 42`)
+	// Check for type annotation (e.g., `var x int = 42`, `let p &int = &x`)
 	var typeName string
-	if p.curToken.Type == lexer.TokenStar {
+	if p.curToken.Type == lexer.TokenAmp {
+		// Reference type: &T or &mut T
+		p.nextToken() // consume '&'
+		mutable := false
+		if p.curToken.Type == lexer.TokenMut {
+			mutable = true
+			p.nextToken() // consume 'mut'
+		}
+		if p.curToken.Type == lexer.TokenIdent {
+			typeName = "&" + p.curToken.Literal(p.src)
+			if mutable {
+				typeName = "&mut " + p.curToken.Literal(p.src)
+			}
+			p.nextToken() // consume base type
+		}
+	} else if p.curToken.Type == lexer.TokenStar {
 		typeName = "*" // Pointer type
 		p.nextToken()  // consume '*'
 		if p.curToken.Type == lexer.TokenIdent {
@@ -221,6 +236,13 @@ func (p *Parser) parseStatement() Node {
 		cImport := p.parseCImport()
 		if cImport != nil {
 			return &ExprStmt{Expression: &StringLiteral{Value: cImport.Content}}
+		}
+		return nil
+	case lexer.TokenAt, lexer.TokenAmp, lexer.TokenMove:
+		// Phase 41: Expression statements starting with @, &, or move
+		expr := p.parsePrimaryExpr()
+		if expr != nil {
+			return &ExprStmt{Expression: expr}
 		}
 		return nil
 	default:
@@ -609,6 +631,40 @@ func (p *Parser) parsePrimaryExpr() Node {
 		expr := p.parseExpr()
 		p.nextToken() // consume ')'
 		return &UnquoteExpr{Expr: expr}
+	case lexer.TokenAt:
+		// Phase 41: @raw(addr) or @raw(addr, val) — hardware memory access
+		p.nextToken() // consume '@'
+		if p.curToken.Type == lexer.TokenRaw {
+			p.nextToken() // consume 'raw'
+			p.nextToken() // consume '('
+			addr := p.parseExpr()
+			var val Node
+			if p.curToken.Type == lexer.TokenComma {
+				p.nextToken() // consume ','
+				val = p.parseExpr()
+			}
+			p.nextToken() // consume ')'
+			return &RawAccessExpr{Address: addr, Value: val}
+		}
+		// Generic @-prefixed call (future extensibility)
+		return nil
+	case lexer.TokenAmp:
+		// Phase 41: &x or &mut x — borrow expression
+		p.nextToken() // consume '&'
+		mutable := false
+		if p.curToken.Type == lexer.TokenMut {
+			mutable = true
+			p.nextToken() // consume 'mut'
+		}
+		operand := p.parsePrimaryExpr()
+		return &BorrowExpr{Operand: operand, Mutable: mutable}
+	case lexer.TokenMove:
+		// Phase 41: move(x) — explicit ownership transfer
+		p.nextToken() // consume 'move'
+		p.nextToken() // consume '('
+		operand := p.parseExpr()
+		p.nextToken() // consume ')'
+		return &MoveExpr{Operand: operand}
 	}
 	return nil
 }

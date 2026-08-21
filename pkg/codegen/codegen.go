@@ -1258,6 +1258,23 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return fmt.Sprintf("&(%s)", g.genExpr(n.Operand))
 	case *parser.Dereference:
 		return fmt.Sprintf("*(%s)", g.genExpr(n.Operand))
+	case *parser.BorrowExpr:
+		// Phase 41: &x and &mut x — references are transparent pointers in C
+		// The borrow checker validates safety at compile time, zero cost at runtime
+		return g.genExpr(n.Operand)
+	case *parser.MoveExpr:
+		// Phase 41: move(x) — in C, just pass the value
+		// Move semantics are enforced at compile time, zero cost at runtime
+		return g.genExpr(n.Operand)
+	case *parser.RawAccessExpr:
+		// Phase 41: @raw(addr) read or @raw(addr, val) write
+		// Address is a raw integer, not a Value* — use mapLiteralToC for raw C value
+		addr := g.mapLiteralToC(n.Address)
+		if n.Value != nil {
+			val := g.mapLiteralToC(n.Value)
+			return fmt.Sprintf("(*((volatile unsigned long long*)(%s)) = (unsigned long long)(%s))", addr, val)
+		}
+		return fmt.Sprintf("(*((volatile unsigned long long*)(%s)))", addr)
 	case *parser.AllocExpr:
 		countExpr := g.genExpr(n.Count)
 		cType := g.mapKarkainTypeToC(n.Type)
@@ -1436,6 +1453,14 @@ func (g *Generator) mapKarkainTypeToC(karkainType string) string {
 	case "bigfloat":
 		return "mpf_t"
 	default:
+		// Phase 41: Handle reference types — &T and &mut T map to Value* in C
+		// References are transparent pointers; the borrow checker enforces safety at compile time
+		if strings.HasPrefix(karkainType, "&mut ") {
+			return "Value*"
+		}
+		if strings.HasPrefix(karkainType, "&") {
+			return "Value*"
+		}
 		// Handle pointer types
 		if strings.HasPrefix(karkainType, "*") {
 			baseType := strings.TrimPrefix(karkainType, "*")

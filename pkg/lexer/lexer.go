@@ -88,6 +88,7 @@ const (
 	TokenDot       TokenType = "."
 	TokenAt        TokenType = "@"
 	TokenSemicolon TokenType = ";"
+	TokenAmp       TokenType = "&"  // Phase 41: reference/borrow operator
 
 	TOKEN_DERIVE TokenType = "DERIVE"
 	TOKEN_TAG    TokenType = "TAG"
@@ -97,6 +98,11 @@ const (
 	TokenGlobalID TokenType = "GLOBAL_ID"
 	TokenBarrier  TokenType = "BARRIER"
 	TokenColon    TokenType = "COLON"
+
+	// Phase 41: Hybrid Memory Model
+	TokenMut TokenType = "MUT"
+	TokenRaw TokenType = "RAW"
+	TokenMove TokenType = "MOVE"
 )
 
 var keywords = map[string]TokenType{
@@ -229,7 +235,7 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 			tok = Token{Type: TokenAnd, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
-			tok = Token{Type: TokenIllegal, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
+			tok = Token{Type: TokenAmp, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
 	case '|':
 		if l.peekChar() == '|' {
@@ -500,6 +506,12 @@ func lookupIdent(ident string) TokenType {
 		return TokenGlobalID
 	case "barrier":
 		return TokenBarrier
+	case "mut":
+		return TokenMut
+	case "raw":
+		return TokenRaw
+	case "move":
+		return TokenMove
 	default:
 		return TokenIdent
 	}
