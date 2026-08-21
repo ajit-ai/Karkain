@@ -104,6 +104,16 @@ func (p *Parser) parseFunc() *FuncDecl {
 			paramName := p.curToken.Literal(p.src)
 			fn.Params = append(fn.Params, paramName)
 			p.nextToken() // consume param name
+
+			// Phase 46: Parse optional type annotation (e.g., `a int`, `b string`)
+			if p.curToken.Type == lexer.TokenIdent {
+				typeName := p.curToken.Literal(p.src)
+				fn.ParamTypes = append(fn.ParamTypes, typeName)
+				p.nextToken() // consume type name
+			} else {
+				fn.ParamTypes = append(fn.ParamTypes, "")
+			}
+
 			if p.curToken.Type == lexer.TokenComma {
 				p.nextToken() // consume ','
 			}
