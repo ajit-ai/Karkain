@@ -923,3 +923,46 @@ func TestGenOptionSomeNone(t *testing.T) {
 		t.Errorf("expected make_int(0), got %s", noneResult)
 	}
 }
+
+func TestParserTypedParams(t *testing.T) {
+	input := `func add(a int, b int) { print(a + b) } func main() { add(3, 7) }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+	if len(prog.Statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(prog.Statements))
+	}
+	fn, ok := prog.Statements[0].(*parser.FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	if len(fn.Params) != 2 {
+		t.Fatalf("expected 2 params, got %d", len(fn.Params))
+	}
+	if fn.Params[0] != "a" || fn.ParamTypes[0] != "int" {
+		t.Errorf("param 0: expected (a, int), got (%s, %s)", fn.Params[0], fn.ParamTypes[0])
+	}
+	if fn.Params[1] != "b" || fn.ParamTypes[1] != "int" {
+		t.Errorf("param 1: expected (b, int), got (%s, %s)", fn.Params[1], fn.ParamTypes[1])
+	}
+}
+
+func TestParserEnumMatchPattern(t *testing.T) {
+	input := `enum Color { Red, Green, Blue } func main() { let c = Color.Green; let label = match c { Color.Red => 1, Color.Green => 2, Color.Blue => 3, _ => 0 } }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+	if len(prog.Statements) != 2 {
+		t.Fatalf("expected 2 statements (enum + func), got %d", len(prog.Statements))
+	}
+	enumDecl, ok := prog.Statements[0].(*parser.EnumDecl)
+	if !ok {
+		t.Fatalf("expected EnumDecl, got %T", prog.Statements[0])
+	}
+	if enumDecl.Name != "Color" {
+		t.Errorf("expected enum name Color, got %s", enumDecl.Name)
+	}
+	if len(enumDecl.Variants) != 3 {
+		t.Errorf("expected 3 variants, got %d", len(enumDecl.Variants))
+	}
+}

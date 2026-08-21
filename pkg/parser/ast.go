@@ -12,6 +12,7 @@ type Program struct {
 type FuncDecl struct {
 	Name          string
 	Params        []string
+	ParamTypes    []string           // Phase 46: typed parameters (e.g., "int", "string")
 	Body          []Node
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 }
