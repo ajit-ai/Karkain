@@ -90,6 +90,7 @@ const (
 	TokenSemicolon TokenType = ";"
 	TokenAmp       TokenType = "&"  // Phase 41: reference/borrow operator
 	TokenFatArrow  TokenType = "=>" // Phase 42: match arm separator
+	TokenQuestion  TokenType = "?"  // Phase 44: error propagation operator
 
 	TOKEN_DERIVE TokenType = "DERIVE"
 	TOKEN_TAG    TokenType = "TAG"
@@ -290,6 +291,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{Type: TokenSlash, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '%':
 		tok = Token{Type: TokenPercent, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
+	case '?':
+		tok = Token{Type: TokenQuestion, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '"':
 		return l.scanString()
 	case 0:
