@@ -123,6 +123,14 @@ type MoveExpr struct {
 	Operand Node
 }
 
+// Phase 44: Error propagation, exhaustive match, linear type enforcement
+
+// PropagateExpr represents the ? operator: expr?
+// Desugars to: match expr { Ok(v) => v, Err(e) => return Err(e) }
+type PropagateExpr struct {
+	Operand Node
+}
+
 // Phase 42: Option<T>, Result<T,E>, match, SIMD, packed structs, linear types
 
 // OptionSomeExpr represents Some(value) — an option with a value

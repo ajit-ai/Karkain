@@ -1348,6 +1348,11 @@ func (g *Generator) genExpr(node parser.Node) string {
 		// Phase 41: move(x) — in C, just pass the value
 		// Move semantics are enforced at compile time, zero cost at runtime
 		return g.genExpr(n.Operand)
+	case *parser.PropagateExpr:
+		// Phase 44: expr? — error propagation operator
+		// Currently passes through (Result is not yet a tagged union at runtime)
+		// The borrow checker verifies ? is used on a Result-typed expression
+		return g.genExpr(n.Operand)
 	case *parser.RawAccessExpr:
 		// Phase 41: @raw(addr) read or @raw(addr, val) write
 		// Address is a raw integer, not a Value* — use mapLiteralToC for raw C value

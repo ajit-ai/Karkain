@@ -558,6 +558,12 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 		}
 	}
 
+	// Phase 44: Handle ? postfix operator for error propagation
+	if p.curToken.Type == lexer.TokenQuestion {
+		p.nextToken() // consume '?'
+		left = &PropagateExpr{Operand: left}
+	}
+
 	return left
 }
 
