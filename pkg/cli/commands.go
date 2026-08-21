@@ -288,7 +288,7 @@ func printTokenStream(sourceText string) {
 	l := lexer.New(sourceText)
 	for {
 		tok := l.NextToken()
-		fmt.Printf("Line %d | Type: %-10s | Literal: %q\n", tok.Line, tok.Type, tok.Literal)
+		fmt.Printf("Line %d | Type: %-10s | Literal: %q\n", tok.Line, tok.Type, tok.Literal(sourceText))
 		if tok.Type == "EOF" {
 			break
 		}

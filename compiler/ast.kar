@@ -101,17 +101,25 @@ func TK_EOF() { return 99 }
 // Token creation and access
 // ============================================================
 
-func createToken(kind, literal, loc) {
+func createToken(kind, start, len, loc) {
     let tok = []
     tok = appendArray(tok, kind)
-    tok = appendArray(tok, literal)
+    tok = appendArray(tok, start)
+    tok = appendArray(tok, len)
     tok = appendArray(tok, loc)
     return tok
 }
 
 func tokenKind(tok) { return tok[0] }
-func tokenLiteral(tok) { return tok[1] }
-func tokenLoc(tok) { return tok[2] }
+func tokenStart(tok) { return tok[1] }
+func tokenLen(tok) { return tok[2] }
+func tokenLoc(tok) { return tok[3] }
+
+func tokenLiteral(tok, source) {
+    let start = tokenStart(tok)
+    let length = tokenLen(tok)
+    return substr(source, start, length)
+}
 
 // ============================================================
 // AST Node Types
