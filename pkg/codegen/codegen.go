@@ -28,11 +28,12 @@ func NewConfig() Config {
 }
 
 type Generator struct {
-	cfg Config
+	cfg       Config
+	enumDecls map[string]*parser.EnumDecl // Phase 45: tracked enum declarations
 }
 
 func New(cfg Config) *Generator {
-	return &Generator{cfg: cfg}
+	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl)}
 }
 
 func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
@@ -57,6 +58,14 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 				sb.WriteString(cImport.Content)
 				sb.WriteByte('\n')
 			}
+		}
+	}
+
+	// Phase 45: Generate enum type declarations before functions
+	for _, stmt := range prog.Statements {
+		if enum, ok := stmt.(*parser.EnumDecl); ok {
+			g.enumDecls[enum.Name] = enum
+			sb.WriteString(g.genEnumDecl(enum))
 		}
 	}
 
@@ -417,6 +426,15 @@ typedef struct Value {
         } mapVal;
     };
 } Value;
+
+// Phase 45: Built-in Result tagged union
+typedef enum { Result_Tag_default, Result_Tag_Ok, Result_Tag_Err } Result_Tag;
+typedef struct { Result_Tag tag; union { Value* Ok; Value* Err; }; } Result;
+
+static inline Result Result_make_Ok(Value* val) { Result r; r.tag = Result_Tag_Ok; r.Ok = val; return r; }
+static inline Result Result_make_Err(Value* val) { Result r; r.tag = Result_Tag_Err; r.Err = val; return r; }
+#define Result_Ok_ok ((Result){ .tag = Result_Tag_Ok })
+#define Result_Err_err ((Result){ .tag = Result_Tag_Err })
 
 Value* make_int(long long v) {
     Value* val = (Value*)malloc(sizeof(Value));
@@ -968,6 +986,17 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 		case "binding":
 			cond = "1"
 			binding = arm.Pattern.Binding
+		case "enum_variant":
+			// Phase 45: Enum variant pattern like Color.Red
+			// The binding contains "EnumName.Variant"
+			parts := strings.SplitN(arm.Pattern.Binding, ".", 2)
+			if len(parts) == 2 {
+				enumName, variantName := parts[0], parts[1]
+				tagIdx := g.getEnumVariantIndex(enumName, variantName)
+				cond = fmt.Sprintf("is_truthy(binary_op(_match_val, \"==\", make_int(%d)))", tagIdx)
+			} else {
+				cond = "1"
+			}
 		}
 
 		bodyExpr := g.genExpr(arm.Body)
@@ -1010,6 +1039,18 @@ func (g *Generator) genSIMDExpr(node *parser.SIMDBuiltinExpr) string {
 	default:
 		return fmt.Sprintf("binary_op(%s, \"%s\", %s)", left, node.Op, right)
 	}
+}
+
+// Phase 45: Get the integer tag index for an enum variant
+func (g *Generator) getEnumVariantIndex(enumName, variantName string) int {
+	if enumDecl, ok := g.enumDecls[enumName]; ok {
+		for i, v := range enumDecl.Variants {
+			if v.Name == variantName {
+				return i + 1 // tags start at 1
+			}
+		}
+	}
+	return 0
 }
 
 func (g *Generator) genStatement(stmt parser.Node) string {
@@ -1165,6 +1206,9 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		return "\tbarrier(CLK_LOCAL_MEM_FENCE);\n"
 	case *parser.StructDeclStmt:
 		return g.genStructDecl(node)
+	case *parser.EnumDecl:
+		g.enumDecls[node.Name] = node
+		return g.genEnumDecl(node)
 	case *parser.ForStmt:
 		return g.genForStmt(node)
 	}
@@ -1350,9 +1394,15 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return g.genExpr(n.Operand)
 	case *parser.PropagateExpr:
 		// Phase 44: expr? — error propagation operator
-		// Currently passes through (Result is not yet a tagged union at runtime)
-		// The borrow checker verifies ? is used on a Result-typed expression
+		// For now, passes through. Full desugaring needs tagged union support.
 		return g.genExpr(n.Operand)
+	case *parser.EnumVariantExpr:
+		// Phase 45: EnumName.Variant or EnumName.Variant(payload)
+		if n.Value != nil {
+			val := g.genExpr(n.Value)
+			return fmt.Sprintf("%s_make_%s(%s)", n.EnumName, n.Variant, val)
+		}
+		return fmt.Sprintf("%s_%s", n.EnumName, n.Variant)
 	case *parser.RawAccessExpr:
 		// Phase 41: @raw(addr) read or @raw(addr, val) write
 		// Address is a raw integer, not a Value* — use mapLiteralToC for raw C value
@@ -1600,6 +1650,26 @@ func (g *Generator) genStructDecl(node *parser.StructDeclStmt) string {
 	}
 	out += fmt.Sprintf("} %s;\n\n", node.Name)
 	return out
+}
+
+// Phase 45: Generate C tagged union for enum declaration
+func (g *Generator) genEnumDecl(node *parser.EnumDecl) string {
+	var sb strings.Builder
+
+	// For codegen compatibility with Value* type system,
+	// unit variants become integer constants via #define
+	for i, v := range node.Variants {
+		if v.Payload != "" {
+			// Payload variant: store as integer tag for now
+			sb.WriteString(fmt.Sprintf("#define %s_%s make_int(%d)\n", node.Name, v.Name, i+1))
+		} else {
+			// Unit variant: integer tag
+			sb.WriteString(fmt.Sprintf("#define %s_%s make_int(%d)\n", node.Name, v.Name, i+1))
+		}
+	}
+
+	sb.WriteString("\n")
+	return sb.String()
 }
 
 // Phase 19: Generate C for loop from Karkain for statement
