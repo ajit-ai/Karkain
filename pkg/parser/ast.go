@@ -428,6 +428,13 @@ type ForStmt struct {
 	Body      []Node
 }
 
+// Phase 47: for-in loops (for x in arr { ... })
+type ForInStmt struct {
+	VarName string // iterator variable name
+	Iter    Node   // expression to iterate over
+	Body    []Node
+}
+
 // Phase 19: Unary expressions (-x, !x)
 type UnaryExpr struct {
 	Operator string

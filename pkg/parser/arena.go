@@ -127,6 +127,13 @@ func (a *Arena) AllocWhileStmt(condition Node, body []Node) *WhileStmt {
 	return a.Get(id).(*WhileStmt)
 }
 
+func (a *Arena) AllocForInStmt(varName string, iter Node, body []Node) *ForInStmt {
+	id := a.Alloc(func() Node {
+		return &ForInStmt{VarName: varName, Iter: iter, Body: body}
+	})
+	return a.Get(id).(*ForInStmt)
+}
+
 func (a *Arena) AllocForStmt(init Node, condition Node, post Node, body []Node) *ForStmt {
 	id := a.Alloc(func() Node {
 		return &ForStmt{Init: init, Condition: condition, Post: post, Body: body}

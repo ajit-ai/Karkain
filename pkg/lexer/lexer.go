@@ -45,6 +45,7 @@ const (
 	// Loop Keywords
 	TokenWhile TokenType = "WHILE"
 	TokenFor   TokenType = "FOR"
+	TokenIn    TokenType = "IN" // Phase 47: for-in loops
 
 	// Type Keywords
 	TokenStruct  TokenType = "STRUCT"
@@ -547,6 +548,8 @@ func lookupIdent(ident string) TokenType {
 		return TokenPacked
 	case "enum":
 		return TokenEnum
+	case "in":
+		return TokenIn
 	default:
 		return TokenIdent
 	}

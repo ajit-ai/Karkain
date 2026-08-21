@@ -966,3 +966,33 @@ func TestParserEnumMatchPattern(t *testing.T) {
 		t.Errorf("expected 3 variants, got %d", len(enumDecl.Variants))
 	}
 }
+
+func TestParserForInLoop(t *testing.T) {
+	input := `func main() { let arr = [10, 20, 30]; let sum = 0; for x in arr { sum = sum + x } }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+	if len(prog.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(prog.Statements))
+	}
+	fn, ok := prog.Statements[0].(*parser.FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	// Body should have: let arr = ..., let sum = 0, for x in arr { ... }
+	found := false
+	for _, stmt := range fn.Body {
+		if forIn, ok := stmt.(*parser.ForInStmt); ok {
+			found = true
+			if forIn.VarName != "x" {
+				t.Errorf("expected iterator var 'x', got '%s'", forIn.VarName)
+			}
+			if len(forIn.Body) != 1 {
+				t.Errorf("expected 1 body statement, got %d", len(forIn.Body))
+			}
+		}
+	}
+	if !found {
+		t.Error("expected ForInStmt in function body")
+	}
+}
