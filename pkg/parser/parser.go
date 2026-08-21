@@ -245,6 +245,9 @@ func (p *Parser) parseStatement() Node {
 			return &ExprStmt{Expression: expr}
 		}
 		return nil
+	case lexer.TokenMatch:
+		// Phase 42: match value { pattern => expr, ... }
+		return &ExprStmt{Expression: p.parseMatchExpr()}
 	default:
 		p.addError(fmt.Sprintf("unexpected token '%s' (%s)", p.curToken.Literal(p.src), p.curToken.Type))
 		p.nextToken()
@@ -646,8 +649,51 @@ func (p *Parser) parsePrimaryExpr() Node {
 			p.nextToken() // consume ')'
 			return &RawAccessExpr{Address: addr, Value: val}
 		}
-		// Generic @-prefixed call (future extensibility)
+		// Phase 42: @simd_add(a, b), @simd_mul(a, b), etc.
+		if p.curToken.Type == lexer.TokenIdent {
+			op := p.curToken.Literal(p.src)
+			p.nextToken() // consume simd op name
+			if strings.HasPrefix(op, "simd_") {
+				simdOp := strings.TrimPrefix(op, "simd_")
+				p.nextToken() // consume '('
+				args := []Node{}
+				if p.curToken.Type != lexer.TokenRParen {
+					args = append(args, p.parseExpr())
+					for p.curToken.Type == lexer.TokenComma {
+						p.nextToken() // consume ','
+						args = append(args, p.parseExpr())
+					}
+				}
+				p.nextToken() // consume ')'
+				return &SIMDBuiltinExpr{Op: simdOp, Args: args}
+			}
+		}
 		return nil
+	case lexer.TokenSome:
+		// Phase 42: Some(value)
+		p.nextToken() // consume 'Some'
+		p.nextToken() // consume '('
+		val := p.parseExpr()
+		p.nextToken() // consume ')'
+		return &OptionSomeExpr{Value: val}
+	case lexer.TokenNone:
+		// Phase 42: None
+		p.nextToken() // consume 'None'
+		return &OptionNoneExpr{}
+	case lexer.TokenOk:
+		// Phase 42: Ok(value)
+		p.nextToken() // consume 'Ok'
+		p.nextToken() // consume '('
+		val := p.parseExpr()
+		p.nextToken() // consume ')'
+		return &ResultOkExpr{Value: val}
+	case lexer.TokenErr:
+		// Phase 42: Err(error)
+		p.nextToken() // consume 'Err'
+		p.nextToken() // consume '('
+		err := p.parseExpr()
+		p.nextToken() // consume ')'
+		return &ResultErrExpr{Error: err}
 	case lexer.TokenAmp:
 		// Phase 41: &x or &mut x — borrow expression
 		p.nextToken() // consume '&'
@@ -665,8 +711,115 @@ func (p *Parser) parsePrimaryExpr() Node {
 		operand := p.parseExpr()
 		p.nextToken() // consume ')'
 		return &MoveExpr{Operand: operand}
+	case lexer.TokenMatch:
+		// Phase 42: match value { pattern => expr, ... }
+		return p.parseMatchExpr()
 	}
 	return nil
+}
+
+// Phase 42: match value { pattern => expr, ... }
+func (p *Parser) parseMatchExpr() *MatchExpr {
+	p.nextToken() // consume 'match'
+
+	// Parse match value — manually to avoid parseIdentExpr consuming '{' as struct literal
+	var value Node
+	switch p.curToken.Type {
+	case lexer.TokenIdent:
+		value = p.arena.AllocIdentifier(p.curToken.Literal(p.src))
+		p.nextToken()
+	case lexer.TokenInt:
+		value = p.arena.AllocIntLiteral(p.curToken.Literal(p.src))
+		p.nextToken()
+	case lexer.TokenString:
+		value = p.arena.AllocStringLiteral(p.curToken.Literal(p.src))
+		p.nextToken()
+	case lexer.TokenFloat64:
+		value = p.arena.AllocFloat64Literal(p.curToken.Literal(p.src))
+		p.nextToken()
+	case lexer.TokenLParen:
+		p.nextToken() // consume '('
+		value = p.parseExpr()
+		p.nextToken() // consume ')'
+	default:
+		value = p.parseUnary()
+	}
+
+	p.nextToken() // consume '{'
+
+	arms := []MatchArm{}
+	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
+		// Parse pattern
+		pattern := MatchPattern{}
+		switch p.curToken.Type {
+		case lexer.TokenSome:
+			pattern.Type = "Some"
+			p.nextToken() // consume 'Some'
+			if p.curToken.Type == lexer.TokenLParen {
+				p.nextToken() // consume '('
+				pattern.Binding = p.curToken.Literal(p.src)
+				p.nextToken() // consume binding name
+				p.nextToken() // consume ')'
+			}
+		case lexer.TokenNone:
+			pattern.Type = "None"
+			p.nextToken() // consume 'None'
+		case lexer.TokenOk:
+			pattern.Type = "Ok"
+			p.nextToken() // consume 'Ok'
+			if p.curToken.Type == lexer.TokenLParen {
+				p.nextToken() // consume '('
+				pattern.Binding = p.curToken.Literal(p.src)
+				p.nextToken() // consume binding name
+				p.nextToken() // consume ')'
+			}
+		case lexer.TokenErr:
+			pattern.Type = "Err"
+			p.nextToken() // consume 'Err'
+			if p.curToken.Type == lexer.TokenLParen {
+				p.nextToken() // consume '('
+				pattern.Binding = p.curToken.Literal(p.src)
+				p.nextToken() // consume binding name
+				p.nextToken() // consume ')'
+			}
+		case lexer.TokenInt, lexer.TokenString, lexer.TokenFloat64, lexer.TokenBigInt, lexer.TokenBigFloat:
+			pattern.Type = "literal"
+			pattern.Value = p.parsePrimaryExpr()
+		case lexer.TokenTrue:
+			pattern.Type = "literal"
+			pattern.Value = &BoolLiteral{Value: true}
+			p.nextToken()
+		case lexer.TokenFalse:
+			pattern.Type = "literal"
+			pattern.Value = &BoolLiteral{Value: false}
+			p.nextToken()
+		default:
+			// Wildcard or variable binding
+			if p.curToken.Type == lexer.TokenIdent {
+				name := p.curToken.Literal(p.src)
+				if name == "_" {
+					pattern.Type = "wildcard"
+				} else {
+					pattern.Type = "binding"
+					pattern.Binding = name
+				}
+				p.nextToken()
+			}
+		}
+
+		if p.curToken.Type != lexer.TokenFatArrow {
+			p.addError(fmt.Sprintf("expected '=>' in match arm, got '%s'", p.curToken.Literal(p.src)))
+		}
+		p.nextToken() // consume '=>'
+		body := p.parseExpr()
+		arms = append(arms, MatchArm{Pattern: pattern, Body: body})
+
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume optional ','
+		}
+	}
+	p.nextToken() // consume '}'
+	return &MatchExpr{Value: value, Arms: arms}
 }
 
 func (p *Parser) parseArrayLiteral() *ArrayLiteral {

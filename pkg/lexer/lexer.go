@@ -89,6 +89,7 @@ const (
 	TokenAt        TokenType = "@"
 	TokenSemicolon TokenType = ";"
 	TokenAmp       TokenType = "&"  // Phase 41: reference/borrow operator
+	TokenFatArrow  TokenType = "=>" // Phase 42: match arm separator
 
 	TOKEN_DERIVE TokenType = "DERIVE"
 	TOKEN_TAG    TokenType = "TAG"
@@ -103,6 +104,16 @@ const (
 	TokenMut TokenType = "MUT"
 	TokenRaw TokenType = "RAW"
 	TokenMove TokenType = "MOVE"
+
+	// Phase 42: Option<T>, Result<T,E>, match
+	TokenSome   TokenType = "SOME"
+	TokenNone   TokenType = "NONE"
+	TokenOk     TokenType = "OK"
+	TokenErr    TokenType = "ERR"
+	TokenMatch  TokenType = "MATCH"
+	TokenLinear TokenType = "LINEAR"
+	TokenPacked TokenType = "PACKED"
+	TokenSIMD   TokenType = "SIMD"
 )
 
 var keywords = map[string]TokenType{
@@ -218,6 +229,10 @@ func (l *Lexer) NextToken() Token {
 			start := l.Position
 			l.readChar()
 			tok = Token{Type: TokenEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
+		} else if l.peekChar() == '>' {
+			start := l.Position
+			l.readChar()
+			tok = Token{Type: TokenFatArrow, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
 			tok = Token{Type: TokenAssign, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
@@ -512,6 +527,20 @@ func lookupIdent(ident string) TokenType {
 		return TokenRaw
 	case "move":
 		return TokenMove
+	case "Some":
+		return TokenSome
+	case "None":
+		return TokenNone
+	case "Ok":
+		return TokenOk
+	case "Err":
+		return TokenErr
+	case "match":
+		return TokenMatch
+	case "linear":
+		return TokenLinear
+	case "packed":
+		return TokenPacked
 	default:
 		return TokenIdent
 	}

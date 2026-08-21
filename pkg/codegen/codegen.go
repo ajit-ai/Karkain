@@ -930,6 +930,88 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	return sb.String()
 }
 
+// Phase 42: match expression codegen
+func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
+	valueExpr := g.genExpr(node.Value)
+	var sb strings.Builder
+	sb.WriteString("({ ")
+	sb.WriteString(fmt.Sprintf("Value* _match_val = %s; ", valueExpr))
+	sb.WriteString("Value* _match_result = _match_val; ")
+
+	// Generate if-else chain for match arms
+	for i, arm := range node.Arms {
+		cond := ""
+		binding := ""
+		switch arm.Pattern.Type {
+		case "Some":
+			if arm.Pattern.Binding != "" {
+				binding = arm.Pattern.Binding
+			}
+			cond = "1"
+		case "None":
+			cond = "1"
+		case "Ok":
+			if arm.Pattern.Binding != "" {
+				binding = arm.Pattern.Binding
+			}
+			cond = "1"
+		case "Err":
+			if arm.Pattern.Binding != "" {
+				binding = arm.Pattern.Binding
+			}
+			cond = "1"
+		case "literal":
+			litExpr := g.mapLiteralToC(arm.Pattern.Value)
+			cond = fmt.Sprintf("is_truthy(binary_op(_match_val, \"==\", %s))", litExpr)
+		case "wildcard":
+			cond = "1"
+		case "binding":
+			cond = "1"
+			binding = arm.Pattern.Binding
+		}
+
+		bodyExpr := g.genExpr(arm.Body)
+		if i == 0 {
+			if binding != "" {
+				sb.WriteString(fmt.Sprintf(" if (%s) { Value* %s = _match_val; _match_result = %s; }", cond, binding, bodyExpr))
+			} else {
+				sb.WriteString(fmt.Sprintf(" if (%s) { _match_result = %s; }", cond, bodyExpr))
+			}
+		} else {
+			if binding != "" {
+				sb.WriteString(fmt.Sprintf(" else if (%s) { Value* %s = _match_val; _match_result = %s; }", cond, binding, bodyExpr))
+			} else {
+				sb.WriteString(fmt.Sprintf(" else if (%s) { _match_result = %s; }", cond, bodyExpr))
+			}
+		}
+	}
+	sb.WriteString(" _match_result; })")
+	return sb.String()
+}
+
+// Phase 42: SIMD intrinsic codegen
+func (g *Generator) genSIMDExpr(node *parser.SIMDBuiltinExpr) string {
+	if len(node.Args) < 2 {
+		return "make_int(0)"
+	}
+	left := g.genExpr(node.Args[0])
+	right := g.genExpr(node.Args[1])
+
+	// For Value*-wrapped types, extract and operate
+	switch node.Op {
+	case "add":
+		return fmt.Sprintf("binary_op(%s, \"+\", %s)", left, right)
+	case "mul":
+		return fmt.Sprintf("binary_op(%s, \"*\", %s)", left, right)
+	case "sub":
+		return fmt.Sprintf("binary_op(%s, \"-\", %s)", left, right)
+	case "div":
+		return fmt.Sprintf("binary_op(%s, \"/\", %s)", left, right)
+	default:
+		return fmt.Sprintf("binary_op(%s, \"%s\", %s)", left, node.Op, right)
+	}
+}
+
 func (g *Generator) genStatement(stmt parser.Node) string {
 	switch node := stmt.(type) {
 	case *parser.VarDeclStmt:
@@ -1275,6 +1357,19 @@ func (g *Generator) genExpr(node parser.Node) string {
 			return fmt.Sprintf("(*((volatile unsigned long long*)(%s)) = (unsigned long long)(%s))", addr, val)
 		}
 		return fmt.Sprintf("(*((volatile unsigned long long*)(%s)))", addr)
+	// Phase 42: Option<T> and Result<T,E>
+	case *parser.OptionSomeExpr:
+		return g.genExpr(n.Value)
+	case *parser.OptionNoneExpr:
+		return "make_int(0)"
+	case *parser.ResultOkExpr:
+		return g.genExpr(n.Value)
+	case *parser.ResultErrExpr:
+		return g.genExpr(n.Error)
+	case *parser.MatchExpr:
+		return g.genMatchExpr(n)
+	case *parser.SIMDBuiltinExpr:
+		return g.genSIMDExpr(n)
 	case *parser.AllocExpr:
 		countExpr := g.genExpr(n.Count)
 		cType := g.mapKarkainTypeToC(n.Type)
