@@ -20,10 +20,11 @@ type Parser struct {
 	src       string   // Source text for zero-copy token literal access
 	arena     *Arena   // Arena allocator for AST nodes — batch allocation
 	Errors    []string // Phase 19: Parser error tracking
+	enumNames map[string]bool // Phase 45: known enum type names
 }
 
 func New(l *lexer.Lexer) *Parser {
-	p := &Parser{l: l, src: l.GetInput(), arena: NewArena(), Errors: []string{}}
+	p := &Parser{l: l, src: l.GetInput(), arena: NewArena(), Errors: []string{}, enumNames: make(map[string]bool)}
 	p.nextToken()
 	p.nextToken()
 	return p
@@ -59,6 +60,18 @@ func (p *Parser) ParseProgram() *Program {
 			}
 		} else if p.curToken.Type == lexer.TokenTypeDef {
 			if stmt := p.parseStructDecl(); stmt != nil {
+				prog.Statements = append(prog.Statements, stmt)
+			}
+		} else if p.curToken.Type == lexer.TokenLinear {
+			if stmt := p.parseLinearTypeDecl(); stmt != nil {
+				prog.Statements = append(prog.Statements, stmt)
+			}
+		} else if p.curToken.Type == lexer.TokenPacked {
+			if stmt := p.parsePackedStructDecl(); stmt != nil {
+				prog.Statements = append(prog.Statements, stmt)
+			}
+		} else if p.curToken.Type == lexer.TokenEnum {
+			if stmt := p.parseEnumDecl(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenImport {
@@ -800,16 +813,25 @@ func (p *Parser) parseMatchExpr() *MatchExpr {
 			pattern.Value = &BoolLiteral{Value: false}
 			p.nextToken()
 		default:
-			// Wildcard or variable binding
+			// Wildcard, variable binding, or enum variant pattern (Color.Red)
 			if p.curToken.Type == lexer.TokenIdent {
 				name := p.curToken.Literal(p.src)
-				if name == "_" {
+				p.nextToken() // consume identifier
+
+				// Phase 45: Check for Enum.Variant pattern
+				if p.curToken.Type == lexer.TokenDot {
+					p.nextToken() // consume '.'
+					variantName := p.curToken.Literal(p.src)
+					p.nextToken() // consume variant name
+					pattern.Type = "enum_variant"
+					pattern.Binding = name + "." + variantName
+				} else if name == "_" {
 					pattern.Type = "wildcard"
 				} else {
 					pattern.Type = "binding"
 					pattern.Binding = name
+					p.nextToken()
 				}
-				p.nextToken()
 			}
 		}
 
@@ -887,11 +909,23 @@ func (p *Parser) parseIdentExpr() Node {
 			}
 			p.nextToken() // consume ')'
 
+			if p.enumNames[ident] {
+				var val Node
+				if len(args) == 1 {
+					val = args[0]
+				}
+				return &EnumVariantExpr{EnumName: ident, Variant: rightIdent, Value: val}
+			}
+
 			return &CallExpr{
 				Function: ident + "." + rightIdent,
 				Args:     args,
 				IsCFunc:  ident == "C",
 			}
+		}
+
+		if p.enumNames[ident] {
+			return &EnumVariantExpr{EnumName: ident, Variant: rightIdent, Value: nil}
 		}
 
 		return &DotExpr{Left: p.arena.AllocIdentifier(ident), Right: rightIdent}
@@ -974,6 +1008,85 @@ func (p *Parser) parseStructDecl() *StructDeclStmt {
 	p.nextToken() // consume '}'
 
 	return &StructDeclStmt{Name: name, Fields: fields}
+}
+
+// Phase 45: enum declaration parsing: enum Name { Variant, Variant(payload), ... }
+func (p *Parser) parseEnumDecl() *EnumDecl {
+	p.nextToken() // consume 'enum'
+	name := p.curToken.Literal(p.src)
+	p.enumNames[name] = true // register enum name
+	p.nextToken() // consume enum name
+	p.nextToken() // consume '{'
+
+	variants := []EnumVariant{}
+	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
+		variant := EnumVariant{}
+		variant.Name = p.curToken.Literal(p.src)
+		p.nextToken() // consume variant name
+
+		if p.curToken.Type == lexer.TokenLParen {
+			p.nextToken() // consume '('
+			variant.Payload = p.curToken.Literal(p.src)
+			p.nextToken() // consume payload type
+			p.nextToken() // consume ')'
+		}
+
+		variants = append(variants, variant)
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+		}
+	}
+	p.nextToken() // consume '}'
+
+	return &EnumDecl{Name: name, Variants: variants}
+}
+
+// Phase 45: linear type declaration parsing
+func (p *Parser) parseLinearTypeDecl() *LinearTypeDecl {
+	p.nextToken() // consume 'linear'
+	p.nextToken() // consume 'type'
+	name := p.curToken.Literal(p.src)
+	p.nextToken() // consume type name
+	p.nextToken() // consume '{'
+
+	fields := []StructField{}
+	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
+		fieldName := p.curToken.Literal(p.src)
+		p.nextToken() // consume field name
+		fieldType := p.curToken.Literal(p.src)
+		p.nextToken() // consume field type
+		fields = append(fields, StructField{Name: fieldName, Type: fieldType})
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+		}
+	}
+	p.nextToken() // consume '}'
+
+	return &LinearTypeDecl{Name: name, Fields: fields}
+}
+
+// Phase 45: packed struct declaration parsing
+func (p *Parser) parsePackedStructDecl() *PackedStructDecl {
+	p.nextToken() // consume 'packed'
+	p.nextToken() // consume 'struct'
+	name := p.curToken.Literal(p.src)
+	p.nextToken() // consume struct name
+	p.nextToken() // consume '{'
+
+	fields := []StructField{}
+	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
+		fieldName := p.curToken.Literal(p.src)
+		p.nextToken() // consume field name
+		fieldType := p.curToken.Literal(p.src)
+		p.nextToken() // consume field type
+		fields = append(fields, StructField{Name: fieldName, Type: fieldType})
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+		}
+	}
+	p.nextToken() // consume '}'
+
+	return &PackedStructDecl{Name: name, Fields: fields}
 }
 
 // Phase 11: Native C Interop parsing

@@ -115,6 +115,7 @@ const (
 	TokenLinear TokenType = "LINEAR"
 	TokenPacked TokenType = "PACKED"
 	TokenSIMD   TokenType = "SIMD"
+	TokenEnum   TokenType = "ENUM"
 )
 
 var keywords = map[string]TokenType{
@@ -544,6 +545,8 @@ func lookupIdent(ident string) TokenType {
 		return TokenLinear
 	case "packed":
 		return TokenPacked
+	case "enum":
+		return TokenEnum
 	default:
 		return TokenIdent
 	}

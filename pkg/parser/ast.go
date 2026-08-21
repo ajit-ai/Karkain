@@ -191,6 +191,30 @@ type PackedStructDecl struct {
 	Fields []StructField
 }
 
+// Phase 45: Custom enum types with algebraic data variants
+
+// EnumDecl represents an enum declaration:
+// enum Color { Red, Green, Blue }
+// enum Result { Ok(value), Err(error) }
+type EnumDecl struct {
+	Name     string
+	Variants []EnumVariant
+}
+
+// EnumVariant represents one variant of an enum
+type EnumVariant struct {
+	Name    string // e.g., "Red", "Ok", "Err"
+	Payload string // type of payload, empty for unit variants
+}
+
+// EnumVariantExpr represents constructing an enum variant:
+// Color.Red, Ok(42), Err("fail")
+type EnumVariantExpr struct {
+	EnumName string // type name (empty for inferred)
+	Variant  string // variant name
+	Value    Node   // payload expression (nil for unit variants)
+}
+
 // Phase 11: Native C Interop, Raw Pointers, and Continuous Matrix Memory Layouts
 
 type CImportBlock struct {
