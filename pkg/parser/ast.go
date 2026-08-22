@@ -22,6 +22,7 @@ type VarDeclStmt struct {
 	Value    Node
 	Type     string // Optional type information (e.g., "*int")
 	IsMatrix bool   // True if this is a matrix declaration
+	Escapes  bool   // Phase 49: true if variable escapes current scope (passed to func, returned, captured by lambda)
 }
 
 type ReturnStmt struct {

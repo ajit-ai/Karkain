@@ -126,6 +126,10 @@ func (p *Parser) parseFunc() *FuncDecl {
 
 	fn.Body = p.parseBlock()
 	p.nextToken() // consume '}'
+
+	// Phase 49: Escape analysis — mark variables that escape the function scope
+	MarkVarEscaping(fn.Body)
+
 	return fn
 }
 
