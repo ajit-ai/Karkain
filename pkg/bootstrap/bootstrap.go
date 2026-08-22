@@ -247,7 +247,7 @@ func findGeneratedCFile(projectRoot, karSource string) string {
 // compileWithGCC compiles a C source file with runtime.c into an output binary.
 func compileWithGCC(cFile, runtimeFile, outputBinary string) error {
 	args := []string{
-		"-std=c99",
+		"-std=c2x",
 		"-o", outputBinary,
 		cFile,
 		"-lm",

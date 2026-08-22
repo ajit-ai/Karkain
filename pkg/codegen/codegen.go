@@ -438,7 +438,69 @@ static inline Result Result_make_Err(Value* val) { Result r; r.tag = Result_Tag_
 #define Result_Ok_ok ((Result){ .tag = Result_Tag_Ok })
 #define Result_Err_err ((Result){ .tag = Result_Tag_Err })
 
+// ============================================================
+// Phase 49: Value Representation & Allocation Model
+// ============================================================
+// Allocation classification:
+//   VAL_IMMEDIATE — int, float, bool: value stored inline in Value union, no heap
+//   VAL_HEAP      — string, array, map, bigint, bigfloat: data on heap
+//   VAL_REF       — &T / &mut T: zero-cost pointer, references another Value
+typedef enum { VAL_IMMEDIATE, VAL_HEAP, VAL_REF } ValueClass;
+
+static inline ValueClass value_class(Value v) {
+    switch (v.type) {
+        case TYPE_INT:
+        case TYPE_FLOAT64:
+        case TYPE_BOOL:
+            return VAL_IMMEDIATE;
+        case TYPE_STRING:
+        case TYPE_ARRAY:
+        case TYPE_MAP:
+        case TYPE_BIGINT:
+        case TYPE_BIGFLOAT:
+            return VAL_HEAP;
+    }
+    return VAL_IMMEDIATE;
+}
+
+// Stack-allocated primitive constructors (no malloc, for use in generated C)
+// These create Value structs directly on the C stack as compound literals.
+static inline Value mk_int(long long v) {
+    Value val; val.type = TYPE_INT; val.intVal = v; return val;
+}
+static inline Value mk_float(double v) {
+    Value val; val.type = TYPE_FLOAT64; val.floatVal = v; return val;
+}
+static inline Value mk_bool_val(int v) {
+    Value val; val.type = TYPE_BOOL; val.intVal = v ? 1 : 0; return val;
+}
+static inline Value mk_nil(void) {
+    Value val; val.type = TYPE_INT; val.intVal = 0; return val;
+}
+
+// Heap-allocated constructors (for strings, arrays, maps, bigint, bigfloat)
+// These return Value* because heap data cannot live on the C stack.
+// Ownership: caller owns the returned Value*.
+// Future phases will add lifetime tracking and escape analysis.
+
+// Layout assertion: Value must fit in a single cache line for efficient stack passing
+_Static_assert(sizeof(Value) <= 64, "Value must fit in a 64-byte cache line");
+
+// Phase 49: Value Representation & Allocation Model
+// Small integer pool: values -128..127 never malloc (covers most literals, loop counters, booleans)
 Value* make_int(long long v) {
+    if (v >= -128 && v <= 127) {
+        static Value pool[256];
+        static int pool_init = 0;
+        if (!pool_init) {
+            for (int i = 0; i < 256; i++) {
+                pool[i].type = TYPE_INT;
+                pool[i].intVal = i - 128;
+            }
+            pool_init = 1;
+        }
+        return &pool[v + 128];
+    }
     Value* val = (Value*)malloc(sizeof(Value));
     val->type = TYPE_INT;
     val->intVal = v;
@@ -852,12 +914,11 @@ Value* karkain_appendArray(Value* arr, Value* elem) {
     return arr;
 }
 
-// Phase 19: Boolean support
+// Phase 49: Boolean — static true/false, never malloc
 Value* make_bool(int v) {
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_BOOL;
-    val->intVal = v ? 1 : 0;
-    return val;
+    static Value bool_true = { .type = TYPE_BOOL, .intVal = 1 };
+    static Value bool_false = { .type = TYPE_BOOL, .intVal = 0 };
+    return v ? &bool_true : &bool_false;
 }
 
 // Phase 19: Map hasKey and delete
@@ -1546,9 +1607,9 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 
 	// Check if CC environment variable is set
 	if cc := os.Getenv("CC"); cc != "" {
-		flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0", "-lgmp"}
+		flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp"}
 		if runtime.GOOS == "windows" {
-			flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c99", "-O0", "-lgmp"}
+			flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-lgmp"}
 		}
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
@@ -1559,7 +1620,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 	// Check for gcc first
 	if runtime.GOOS == "windows" {
 		if _, err := exec.LookPath("gcc"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c99", "-O0", "-lgmp"}
+			flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-lgmp"}
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
 			}
@@ -1567,7 +1628,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 		}
 	} else {
 		if _, err := exec.LookPath("gcc"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0", "-lgmp"}
+			flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp"}
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
 			}
@@ -1576,7 +1637,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 	}
 	// Check for clang
 	if _, err := exec.LookPath("clang"); err == nil {
-		flags := []string{cFile, "-o", exeFile, "-std=c99", "-O0", "-lgmp"}
+		flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp"}
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
 		}
