@@ -996,3 +996,110 @@ func TestParserForInLoop(t *testing.T) {
 		t.Error("expected ForInStmt in function body")
 	}
 }
+
+func TestParserBreakContinue(t *testing.T) {
+	input := `func main() { let i = 0; while (i < 10) { i = i + 1; if (i == 3) { continue } if (i == 5) { break } } }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+	fn, ok := prog.Statements[0].(*parser.FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	var whileStmt *parser.WhileStmt
+	for _, stmt := range fn.Body {
+		if w, ok := stmt.(*parser.WhileStmt); ok {
+			whileStmt = w
+		}
+	}
+	if whileStmt == nil {
+		t.Fatal("expected WhileStmt in function body")
+	}
+	if len(whileStmt.Body) != 3 {
+		t.Errorf("expected 3 body statements in while (assign, if-continue, if-break), got %d", len(whileStmt.Body))
+	}
+	foundBreak := false
+	foundContinue := false
+	for _, stmt := range whileStmt.Body {
+		if ifStmt, ok := stmt.(*parser.IfStmt); ok {
+			for _, c := range ifStmt.Consequence {
+				if _, ok := c.(*parser.BreakStmt); ok {
+					foundBreak = true
+				}
+				if _, ok := c.(*parser.ContinueStmt); ok {
+					foundContinue = true
+				}
+			}
+		}
+	}
+	if !foundBreak {
+		t.Error("expected BreakStmt inside if in while body")
+	}
+	if !foundContinue {
+		t.Error("expected ContinueStmt inside if in while body")
+	}
+}
+
+func TestParserLambda(t *testing.T) {
+	input := `func main() { let add = fn(a, b) { return a + b }; print(add(1, 2)) }`
+	l := lexer.New(input)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+	fn, ok := prog.Statements[0].(*parser.FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	if len(fn.Body) != 2 {
+		t.Fatalf("expected 2 body statements, got %d", len(fn.Body))
+	}
+	// Lambda desugars to FuncDecl via let x = fn(...)
+	lambdaFn, ok := fn.Body[0].(*parser.VarDeclStmt)
+	if !ok {
+		t.Fatalf("expected VarDeclStmt for lambda, got %T", fn.Body[0])
+	}
+	if lambdaFn.Name != "add" {
+		t.Errorf("expected lambda name 'add', got '%s'", lambdaFn.Name)
+	}
+	decl, ok := lambdaFn.Value.(*parser.FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl inside VarDeclStmt, got %T", lambdaFn.Value)
+	}
+	if len(decl.Params) != 2 {
+		t.Errorf("expected 2 params, got %d", len(decl.Params))
+	}
+}
+
+func TestBreakContinueCodegen(t *testing.T) {
+	g := New(Config{})
+	breakNode := &parser.BreakStmt{}
+	continueNode := &parser.ContinueStmt{}
+	breakCode := g.genStatement(breakNode)
+	continueCode := g.genStatement(continueNode)
+	if !strings.Contains(breakCode, "break;") {
+		t.Errorf("expected 'break;' in generated C, got %s", breakCode)
+	}
+	if !strings.Contains(continueCode, "continue;") {
+		t.Errorf("expected 'continue;' in generated C, got %s", continueCode)
+	}
+}
+
+func TestWhileCodegen(t *testing.T) {
+	g := New(Config{})
+	whileNode := &parser.WhileStmt{
+		Condition: &parser.BinaryExpr{
+			Left:     &parser.Identifier{Name: "i"},
+			Operator: "<",
+			Right:    &parser.IntLiteral{Value: "10"},
+		},
+		Body: []parser.Node{
+			&parser.BreakStmt{},
+		},
+	}
+	code := g.genStatement(whileNode)
+	if !strings.Contains(code, "while (is_truthy(binary_op(i, \"<\", make_int(10))))") {
+		t.Errorf("unexpected while condition: %s", code)
+	}
+	if !strings.Contains(code, "break;") {
+		t.Errorf("expected break in while body: %s", code)
+	}
+}

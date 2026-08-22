@@ -134,6 +134,30 @@ func (a *Arena) AllocForInStmt(varName string, iter Node, body []Node) *ForInStm
 	return a.Get(id).(*ForInStmt)
 }
 
+func (a *Arena) AllocForInStmtWithKey(keyName string, varName string, iter Node, body []Node) *ForInStmt {
+	id := a.Alloc(func() Node {
+		return &ForInStmt{KeyName: keyName, VarName: varName, Iter: iter, Body: body}
+	})
+	return a.Get(id).(*ForInStmt)
+}
+
+func (a *Arena) AllocBreakStmt() *BreakStmt {
+	id := a.Alloc(func() Node { return &BreakStmt{} })
+	return a.Get(id).(*BreakStmt)
+}
+
+func (a *Arena) AllocContinueStmt() *ContinueStmt {
+	id := a.Alloc(func() Node { return &ContinueStmt{} })
+	return a.Get(id).(*ContinueStmt)
+}
+
+func (a *Arena) AllocLambdaExpr(params []string, paramTypes []string, body []Node) *LambdaExpr {
+	id := a.Alloc(func() Node {
+		return &LambdaExpr{Params: params, ParamTypes: paramTypes, Body: body}
+	})
+	return a.Get(id).(*LambdaExpr)
+}
+
 func (a *Arena) AllocForStmt(init Node, condition Node, post Node, body []Node) *ForStmt {
 	id := a.Alloc(func() Node {
 		return &ForStmt{Init: init, Condition: condition, Post: post, Body: body}
