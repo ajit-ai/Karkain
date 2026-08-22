@@ -28,8 +28,10 @@ func NewConfig() Config {
 }
 
 type Generator struct {
-	cfg       Config
-	enumDecls map[string]*parser.EnumDecl // Phase 45: tracked enum declarations
+	cfg         Config
+	enumDecls   map[string]*parser.EnumDecl // Phase 45: tracked enum declarations
+	lambdaCount int                          // Phase 48: unique lambda naming
+	lambdaBuf   strings.Builder              // Phase 48: lambda function definitions to inject
 }
 
 func New(cfg Config) *Generator {
@@ -927,7 +929,19 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		retType = "int"
 	}
 
+	// Phase 48: Generate body first to collect any lambda definitions
+	g.lambdaBuf.Reset()
+	var bodySb strings.Builder
+	for _, stmt := range fn.Body {
+		bodySb.WriteString(g.genStatement(stmt))
+	}
+
+	// Now build the full output: lambda defs + function
 	var sb strings.Builder
+	if g.lambdaBuf.Len() > 0 {
+		sb.WriteString(g.lambdaBuf.String())
+		g.lambdaBuf.Reset()
+	}
 	fmt.Fprintf(&sb, "%s %s(%s) {\n", retType, fnName, strings.Join(params, ", "))
 
 	// Phase 14: Initialize quantum runtime in main
@@ -935,9 +949,7 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		sb.WriteString("\tquantum_init();\n")
 	}
 
-	for _, stmt := range fn.Body {
-		sb.WriteString(g.genStatement(stmt))
-	}
+	sb.WriteString(bodySb.String())
 
 	if fnName == "main" {
 		sb.WriteString("\treturn 0;\n")
@@ -1058,6 +1070,10 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 	case *parser.VarDeclStmt:
 		if node.IsMatrix {
 			return g.genMatrixDecl(node)
+		}
+		// Phase 48: let x = fn(...) → emit as named function declaration
+		if fn, ok := node.Value.(*parser.FuncDecl); ok {
+			return g.genFuncDecl(fn)
 		}
 		// Check if this is an unboxed type declaration
 		if node.Type != "" {
@@ -1213,6 +1229,10 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		return g.genForStmt(node)
 	case *parser.ForInStmt:
 		return g.genForInStmt(node)
+	case *parser.BreakStmt:
+		return "\tbreak;\n"
+	case *parser.ContinueStmt:
+		return "\tcontinue;\n"
 	}
 	return ""
 }
@@ -1252,6 +1272,21 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return expr
 	case *parser.IndexExpr:
 		return fmt.Sprintf("array_get(%s, %s)", g.genExpr(n.Left), g.genExpr(n.Index))
+	case *parser.LambdaExpr:
+		g.lambdaCount++
+		name := fmt.Sprintf("_lambda_%d", g.lambdaCount)
+		params := []string{}
+		for _, p := range n.Params {
+			params = append(params, "Value* "+p)
+		}
+		var body strings.Builder
+		for _, stmt := range n.Body {
+			body.WriteString(g.genStatement(stmt))
+		}
+		// GCC nested function: define as a static function inside the enclosing scope
+		fmt.Fprintf(&g.lambdaBuf, "Value* %s(%s) {\n%s\treturn make_int(0);\n}\n\n", name, strings.Join(params, ", "), body.String())
+		return name
+
 	case *parser.BinaryExpr:
 		if n.Operator == "=" {
 			// Handle assignment specially
@@ -1717,14 +1752,28 @@ func (g *Generator) genForStmt(node *parser.ForStmt) string {
 func (g *Generator) genForInStmt(node *parser.ForInStmt) string {
 	var sb strings.Builder
 	iterExpr := g.genExpr(node.Iter)
-	sb.WriteString(fmt.Sprintf("\t{ Value* _iter = %s; ", iterExpr))
-	sb.WriteString(fmt.Sprintf("int _len = (_iter && _iter->type == TYPE_ARRAY) ? _iter->arrVal.length : 0; "))
-	sb.WriteString(fmt.Sprintf("for (int _i = 0; _i < _len; _i++) { "))
-	sb.WriteString(fmt.Sprintf("Value* %s = _iter->arrVal.items[_i]; ", node.VarName))
-	for _, bodyStmt := range node.Body {
-		sb.WriteString(g.genStatement(bodyStmt))
+	if node.KeyName != "" {
+		// Phase 48: Map iteration — for k, v in map { ... }
+		sb.WriteString(fmt.Sprintf("\t{ Value* _iter = %s; ", iterExpr))
+		sb.WriteString(fmt.Sprintf("int _len = (_iter && _iter->type == TYPE_MAP) ? _iter->mapVal.length : 0; "))
+		sb.WriteString(fmt.Sprintf("for (int _i = 0; _i < _len; _i++) { "))
+		sb.WriteString(fmt.Sprintf("Value* %s = _iter->mapVal.keys[_i]; ", node.KeyName))
+		sb.WriteString(fmt.Sprintf("Value* %s = _iter->mapVal.values[_i]; ", node.VarName))
+		for _, bodyStmt := range node.Body {
+			sb.WriteString(g.genStatement(bodyStmt))
+		}
+		sb.WriteString("} }")
+	} else {
+		// Array iteration
+		sb.WriteString(fmt.Sprintf("\t{ Value* _iter = %s; ", iterExpr))
+		sb.WriteString(fmt.Sprintf("int _len = (_iter && _iter->type == TYPE_ARRAY) ? _iter->arrVal.length : 0; "))
+		sb.WriteString(fmt.Sprintf("for (int _i = 0; _i < _len; _i++) { "))
+		sb.WriteString(fmt.Sprintf("Value* %s = _iter->arrVal.items[_i]; ", node.VarName))
+		for _, bodyStmt := range node.Body {
+			sb.WriteString(g.genStatement(bodyStmt))
+		}
+		sb.WriteString("} }")
 	}
-	sb.WriteString("} }")
 	sb.WriteString("\n")
 	return sb.String()
 }

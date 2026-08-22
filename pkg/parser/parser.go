@@ -181,6 +181,14 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 		return &VarDeclStmt{Name: name, Value: matrixDecl, IsMatrix: true}
 	}
 
+	// Phase 48: let x = fn(a, b) { ... } → treat as named function declaration
+	if p.curToken.Type == lexer.TokenFn {
+		lambda := p.parseLambda()
+		fn := p.arena.AllocFuncDecl(name, lambda.Params, lambda.Body, nil)
+		fn.ParamTypes = lambda.ParamTypes
+		return &VarDeclStmt{Name: name, Value: fn}
+	}
+
 	val := p.parseExpr()
 
 	// If we have a type, store it in the variable declaration
@@ -252,6 +260,14 @@ func (p *Parser) parseStatement() Node {
 		return p.parseReceive()
 	case lexer.TokenBarrier:
 		return p.parseBarrierStmt()
+	case lexer.TokenBreak:
+		p.nextToken() // consume 'break'
+		return p.arena.AllocBreakStmt()
+	case lexer.TokenContinue:
+		p.nextToken() // consume 'continue'
+		return p.arena.AllocContinueStmt()
+	case lexer.TokenFn:
+		return &ExprStmt{Expression: p.parseLambda()}
 	case lexer.TokenIdent:
 		return p.parseIdentStatement()
 	case lexer.TokenImport:
@@ -282,6 +298,38 @@ func (p *Parser) parseReturn() *ReturnStmt {
 	p.nextToken() // consume 'return'
 	val := p.parseExpr()
 	return &ReturnStmt{Value: val}
+}
+
+// Phase 48: Lambda expressions — fn(a, b) { return a + b }
+func (p *Parser) parseLambda() *LambdaExpr {
+	p.nextToken() // consume 'fn'
+	p.nextToken() // consume '('
+
+	params := []string{}
+	paramTypes := []string{}
+	for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+		if p.curToken.Type == lexer.TokenIdent {
+			paramName := p.curToken.Literal(p.src)
+			params = append(params, paramName)
+			p.nextToken() // consume param name
+			if p.curToken.Type == lexer.TokenIdent {
+				paramTypes = append(paramTypes, p.curToken.Literal(p.src))
+				p.nextToken() // consume type
+			} else {
+				paramTypes = append(paramTypes, "")
+			}
+		} else {
+			p.nextToken()
+		}
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+		}
+	}
+	p.nextToken() // consume ')'
+	p.nextToken() // consume '{'
+	body := p.parseBlock()
+	p.nextToken() // consume '}'
+	return p.arena.AllocLambdaExpr(params, paramTypes, body)
 }
 
 func (p *Parser) parseWhile() *WhileStmt {
@@ -327,6 +375,30 @@ func (p *Parser) parseFor() Node {
 		body := p.parseBlock()
 		p.nextToken() // consume '}'
 		return p.arena.AllocForInStmt(name, iter, body)
+	}
+
+	// Phase 48: for-in with map key: for k, v in map { ... }
+	if p.curToken.Type == lexer.TokenIdent && p.peekToken.Type == lexer.TokenComma {
+		keyName := p.curToken.Literal(p.src)
+		p.nextToken() // consume key name
+		p.nextToken() // consume ','
+		valName := p.curToken.Literal(p.src)
+		p.nextToken() // consume value name
+		p.nextToken() // consume 'in'
+		var iter Node
+		switch p.curToken.Type {
+		case lexer.TokenIdent:
+			iter = p.arena.AllocIdentifier(p.curToken.Literal(p.src))
+			p.nextToken()
+		default:
+			iter = p.parseExpr()
+		}
+		if p.curToken.Type == lexer.TokenLBrace {
+			p.nextToken() // consume '{'
+		}
+		body := p.parseBlock()
+		p.nextToken() // consume '}'
+		return p.arena.AllocForInStmtWithKey(keyName, valName, iter, body)
 	}
 
 	// C-style for loop: for (init; cond; post) { ... }
@@ -775,6 +847,8 @@ func (p *Parser) parsePrimaryExpr() Node {
 	case lexer.TokenMatch:
 		// Phase 42: match value { pattern => expr, ... }
 		return p.parseMatchExpr()
+	case lexer.TokenFn:
+		return p.parseLambda()
 	}
 	return nil
 }

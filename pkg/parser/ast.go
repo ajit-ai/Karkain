@@ -430,9 +430,26 @@ type ForStmt struct {
 
 // Phase 47: for-in loops (for x in arr { ... })
 type ForInStmt struct {
-	VarName string // iterator variable name
+	VarName string // iterator variable name (value for maps, element for arrays)
+	KeyName string // Phase 48: key variable for map iteration (empty for arrays)
 	Iter    Node   // expression to iterate over
 	Body    []Node
+}
+
+// Phase 48: break/continue
+type BreakStmt struct{}
+type ContinueStmt struct{}
+
+// Phase 48: Lambda / function pointer expressions: fn(a, b) { return a + b }
+type LambdaExpr struct {
+	Params    []string
+	ParamTypes []string
+	Body      []Node
+}
+
+// Phase 48: Function reference expression (used when let x = fn(...) is desugared to named function)
+type FuncRefExpr struct {
+	Name string
 }
 
 // Phase 19: Unary expressions (-x, !x)

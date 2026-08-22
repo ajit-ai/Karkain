@@ -43,9 +43,11 @@ const (
 	TokenComptime TokenType = "COMPTIME"
 
 	// Loop Keywords
-	TokenWhile TokenType = "WHILE"
-	TokenFor   TokenType = "FOR"
-	TokenIn    TokenType = "IN" // Phase 47: for-in loops
+	TokenWhile    TokenType = "WHILE"
+	TokenFor      TokenType = "FOR"
+	TokenIn       TokenType = "IN"       // Phase 47: for-in loops
+	TokenBreak    TokenType = "BREAK"    // Phase 48: break
+	TokenContinue TokenType = "CONTINUE" // Phase 48: continue
 
 	// Type Keywords
 	TokenStruct  TokenType = "STRUCT"
@@ -117,6 +119,7 @@ const (
 	TokenPacked TokenType = "PACKED"
 	TokenSIMD   TokenType = "SIMD"
 	TokenEnum   TokenType = "ENUM"
+	TokenFn     TokenType = "FN" // Phase 48: lambda/function pointers
 )
 
 var keywords = map[string]TokenType{
@@ -125,6 +128,7 @@ var keywords = map[string]TokenType{
 	"unquote":  TokenUnquote,
 	"comptime": TokenComptime,
 	"while":    TokenWhile,
+	"fn":       TokenFn,
 }
 
 // Token stores source offsets instead of copying token strings.
@@ -548,8 +552,14 @@ func lookupIdent(ident string) TokenType {
 		return TokenPacked
 	case "enum":
 		return TokenEnum
+	case "fn":
+		return TokenFn
 	case "in":
 		return TokenIn
+	case "break":
+		return TokenBreak
+	case "continue":
+		return TokenContinue
 	default:
 		return TokenIdent
 	}
