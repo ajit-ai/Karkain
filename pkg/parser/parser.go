@@ -576,6 +576,13 @@ func (p *Parser) parseIdentStatement() Node {
 			}}
 		}
 		dotExpr := &DotExpr{Left: left, Right: rightIdent}
+		// Phase 52: Chain nested field access — a.b.c
+		for p.curToken.Type == lexer.TokenDot {
+			p.nextToken() // consume '.'
+			nextField := p.curToken.Literal(p.src)
+			p.nextToken() // consume field identifier
+			dotExpr = &DotExpr{Left: dotExpr, Right: nextField}
+		}
 		// Check for dot assignment: p.name = value
 		if p.curToken.Type == lexer.TokenAssign {
 			p.nextToken() // consume '='
@@ -1093,7 +1100,15 @@ func (p *Parser) parseIdentExpr() Node {
 			return &EnumVariantExpr{EnumName: ident, Variant: rightIdent, Value: nil}
 		}
 
-		return &DotExpr{Left: p.arena.AllocIdentifier(ident), Right: rightIdent}
+		// Phase 52: Chain nested field access — a.b.c → DotExpr{Left: DotExpr{Left: a, Right: b}, Right: c}
+		dotExpr := &DotExpr{Left: p.arena.AllocIdentifier(ident), Right: rightIdent}
+		for p.curToken.Type == lexer.TokenDot {
+			p.nextToken() // consume '.'
+			nextField := p.curToken.Literal(p.src)
+			p.nextToken() // consume field identifier
+			dotExpr = &DotExpr{Left: dotExpr, Right: nextField}
+		}
+		return dotExpr
 	}
 
 	// Check for function call
