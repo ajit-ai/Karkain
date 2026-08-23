@@ -91,6 +91,13 @@ type IndexExpr struct {
 	Index Node
 }
 
+// Phase 55: slice expression target[start:end]; End nil = open-ended (to length)
+type SliceExpr struct {
+	Target Node
+	Start  Node
+	End    Node
+}
+
 type BinaryExpr struct {
 	Left     Node
 	Operator string

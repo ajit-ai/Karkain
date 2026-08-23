@@ -504,7 +504,12 @@ func (p *Parser) parseIdentStatement() Node {
 	// Check for index assignment: arr[i] = val or matrix arr[r,c] = val
 	if p.curToken.Type == lexer.TokenLBracket {
 		p.nextToken() // consume '['
-		first := p.parseExpr()
+		var first Node
+		if p.curToken.Type == lexer.TokenColon { // Phase 55: open start
+			first = &IntLiteral{Value: "0"}
+		} else {
+			first = p.parseExpr()
+		}
 		if p.curToken.Type == lexer.TokenComma {
 			// Matrix index: arr[row, col] = val
 			p.nextToken() // consume ','
@@ -521,6 +526,16 @@ func (p *Parser) parseIdentStatement() Node {
 				return &ExprStmt{Expression: &BinaryExpr{Left: matIdx, Operator: "=", Right: val}}
 			}
 			return &ExprStmt{Expression: matIdx}
+		}
+		// Phase 55: slice in statement position: s[0:5]
+		if p.curToken.Type == lexer.TokenColon {
+			p.nextToken() // consume ':'
+			var end Node
+			if p.curToken.Type != lexer.TokenRBracket {
+				end = p.parseExpr()
+			}
+			p.nextToken() // consume ']'
+			return &ExprStmt{Expression: &SliceExpr{Target: &Identifier{Name: ident}, Start: first, End: end}}
 		}
 		// Single index: arr[i] = val or arr[i]
 		p.nextToken() // consume ']'
@@ -696,16 +711,29 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 		return p.arena.AllocBinaryExpr(left, "=", right)
 	}
 
-	// Handle index expression [index] or matrix index [row, col]
+	// Handle index / matrix / slice postfix
 	if p.curToken.Type == lexer.TokenLBracket {
 		p.nextToken() // consume '['
-		first := p.parseExpr()
+		var first Node
+		if p.curToken.Type == lexer.TokenColon { // Phase 55: open start [:n]
+			first = &IntLiteral{Value: "0"}
+		} else {
+			first = p.parseExpr()
+		}
 		if p.curToken.Type == lexer.TokenComma {
 			// Matrix index: [row, col]
 			p.nextToken() // consume ','
 			col := p.parseExpr()
 			p.nextToken() // consume ']'
 			left = p.arena.AllocMatrixIndexExpr(left, first, col)
+		} else if p.curToken.Type == lexer.TokenColon { // Phase 55: slice [a:b]
+			p.nextToken() // consume ':'
+			var end Node
+			if p.curToken.Type != lexer.TokenRBracket {
+				end = p.parseExpr()
+			}
+			p.nextToken() // consume ']'
+			left = &SliceExpr{Target: left, Start: first, End: end}
 		} else {
 			// Array/map index: [index]
 			p.nextToken() // consume ']'
