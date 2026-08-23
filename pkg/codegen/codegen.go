@@ -28,10 +28,11 @@ func NewConfig() Config {
 }
 
 type Generator struct {
-	cfg         Config
-	enumDecls   map[string]*parser.EnumDecl // Phase 45: tracked enum declarations
-	lambdaCount int                          // Phase 48: unique lambda naming
-	lambdaBuf   strings.Builder              // Phase 48: lambda function definitions to inject
+	cfg              Config
+	enumDecls        map[string]*parser.EnumDecl // Phase 45: tracked enum declarations
+	lambdaCount      int                         // Phase 48: unique lambda naming
+	lambdaBuf        strings.Builder             // Phase 48: lambda function definitions to inject
+	quantumRegisters []string                    // Phase 14: declared quantum registers, in declaration order
 }
 
 func New(cfg Config) *Generator {
@@ -1331,48 +1332,42 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 	case *parser.AddressOf:
 		return fmt.Sprintf("&(%s)", g.genExpr(node.Operand))
 	case *parser.QRegDeclStmt:
-		// Phase 14: Generate quantum register declaration
+		// Phase 14: Generate quantum register declaration; track it for gate/measure resolution
+		g.quantumRegisters = append(g.quantumRegisters, node.Name)
 		qubitsExpr := g.mapLiteralToC(node.Qubits)
 		return fmt.Sprintf("\tQuantumRegister %s;\n\tqreg_init(&%s, %s);\n", node.Name, node.Name, qubitsExpr)
 	case *parser.GateApplyStmt:
 		// Phase 14: Generate gate application calls
-		qrName := g.getQuantumRegisterName()
+		targetReg, targetIdx := g.resolveQubitOperand(node.Target)
 
 		switch node.Gate {
 		case "H":
-			targetExpr := g.mapLiteralToC(node.Target)
-			return fmt.Sprintf("\tgate_h(&%s, %s);\n", qrName, targetExpr)
+			return fmt.Sprintf("\tgate_h(&%s, %s);\n", targetReg, targetIdx)
 		case "X":
-			targetExpr := g.mapLiteralToC(node.Target)
-			return fmt.Sprintf("\tgate_x(&%s, %s);\n", qrName, targetExpr)
+			return fmt.Sprintf("\tgate_x(&%s, %s);\n", targetReg, targetIdx)
+		case "Y":
+			return fmt.Sprintf("\tgate_y(&%s, %s);\n", targetReg, targetIdx)
+		case "Z":
+			return fmt.Sprintf("\tgate_z(&%s, %s);\n", targetReg, targetIdx)
 		case "CNOT":
-			controlExpr := ""
-			if controlLit, ok := node.Control.(*parser.IntLiteral); ok {
-				controlExpr = controlLit.Value
-			} else {
-				controlExpr = g.mapLiteralToC(node.Control)
+			if node.Control != nil {
+				controlReg, controlIdx := g.resolveQubitOperand(node.Control)
+				if controlReg == targetReg {
+					return fmt.Sprintf("\tgate_cnot(&%s, %s, %s);\n", targetReg, controlIdx, targetIdx)
+				}
+				return fmt.Sprintf("\t// Cross-register CNOT (%s[%s] -> %s[%s]) not yet supported\n", controlReg, controlIdx, targetReg, targetIdx)
 			}
-			targetExpr := ""
-			if targetLit, ok := node.Target.(*parser.IntLiteral); ok {
-				targetExpr = targetLit.Value
-			} else {
-				targetExpr = g.mapLiteralToC(node.Target)
-			}
-			return fmt.Sprintf("\tgate_cnot(&%s, %s, %s);\n", qrName, controlExpr, targetExpr)
+			return fmt.Sprintf("\tgate_cnot(&%s, %s, %s);\n", targetReg, "0", targetIdx)
+		case "CZ":
+			controlReg, controlIdx := g.resolveQubitOperand(node.Control)
+			return fmt.Sprintf("\t// CZ gate (%s[%s], %s[%s]) not yet supported\n", controlReg, controlIdx, targetReg, targetIdx)
 		default:
 			return fmt.Sprintf("\t// Unknown gate: %s\n", node.Gate)
 		}
 	case *parser.MeasureExpr:
 		// Phase 14: Generate measure call in statement context
-		// For statement context, we generate the call without storing
-		qrName := g.getQuantumRegisterName()
-		targetExpr := ""
-		if intLit, ok := node.Qubit.(*parser.IntLiteral); ok {
-			targetExpr = intLit.Value
-		} else {
-			targetExpr = g.mapLiteralToC(node.Qubit)
-		}
-		return fmt.Sprintf("\tmeasure(&%s, %s);\n", qrName, targetExpr)
+		regName, idx := g.resolveQubitOperand(node.Qubit)
+		return fmt.Sprintf("\tmeasure(&%s, %s);\n", regName, idx)
 	case *parser.ActorDeclStmt:
 		// Phase 16: Generate actor declaration
 		return fmt.Sprintf("\t// Actor %s (declaration placeholder)\n", node.Name)
@@ -1681,16 +1676,9 @@ func (g *Generator) genExpr(node parser.Node) string {
 		left := g.genExpr(n.Left)
 		return fmt.Sprintf("map_get(%s, make_string(%q))", left, n.Right)
 	case *parser.MeasureExpr:
-		// Phase 14: Generate measure expression
-		qrName := g.getQuantumRegisterName()
-		// Extract raw int value for C function
-		targetExpr := ""
-		if intLit, ok := n.Qubit.(*parser.IntLiteral); ok {
-			targetExpr = intLit.Value
-		} else {
-			targetExpr = g.mapLiteralToC(n.Qubit)
-		}
-		return fmt.Sprintf("measure(&%s, %s)", qrName, targetExpr)
+		// Phase 14: Generate measure expression — yields a classical bit as Value
+		regName, idx := g.resolveQubitOperand(n.Qubit)
+		return fmt.Sprintf("make_int(measure(&%s, %s))", regName, idx)
 	case *parser.SpawnExpr:
 		// Phase 16: Generate spawn expression
 		return fmt.Sprintf("// spawn(%s) (placeholder)", n.ActorName)
@@ -1994,8 +1982,34 @@ func (g *Generator) genStructLiteral(node *parser.StructLiteral) string {
 }
 
 // Phase 14: Get the quantum register name
-func (g *Generator) getQuantumRegisterName() string {
-	return "qr"
+// Phase 14: Resolve a qubit operand to (registerName, rawIndex).
+// Accepts register-index form qr[0] and bare index form 0.
+// Bare indices resolve against the most recently declared register.
+func (g *Generator) resolveQubitOperand(node parser.Node) (string, string) {
+	if node == nil {
+		return g.lastQuantumRegister(), "0"
+	}
+	if idxExpr, ok := node.(*parser.IndexExpr); ok {
+		reg := g.lastQuantumRegister()
+		if ident, ok := idxExpr.Left.(*parser.Identifier); ok {
+			reg = ident.Name
+		}
+		if intLit, ok := idxExpr.Index.(*parser.IntLiteral); ok {
+			return reg, intLit.Value
+		}
+		return reg, g.mapLiteralToC(idxExpr.Index)
+	}
+	if intLit, ok := node.(*parser.IntLiteral); ok {
+		return g.lastQuantumRegister(), intLit.Value
+	}
+	return g.lastQuantumRegister(), g.mapLiteralToC(node)
+}
+
+func (g *Generator) lastQuantumRegister() string {
+	if len(g.quantumRegisters) == 0 {
+		return "qr"
+	}
+	return g.quantumRegisters[len(g.quantumRegisters)-1]
 }
 
 // Phase 18: Generate GPU kernel declaration and host launcher
