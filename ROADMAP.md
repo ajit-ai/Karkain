@@ -304,3 +304,60 @@ of Karkain — **speed, multithreading, memory safety**:
 Karkain's differentiator remains: **compile-time ownership safety + performance on CPU/GPU/quantum**,
 not breadth of hardware targets. This decision may be revisited only after Phases 53–62 are
 complete AND a portable-fallback + golden-test strategy exists per target.
+
+
+---
+
+## Phase 63+: Independence Roadmap (Decision Record, 2026-08)
+
+**Goal**: `.kar` files and the Karkain toolchain become fully independent for all
+system-level activity. Every known capability gap is tracked as a phase below.
+The milestone definition of INDEPENDENCE: `karkain` compiles Karkain source,
+including its own compiler, with zero dependency on any other language's
+toolchain for day-to-day development.
+
+### Gap Register (source of the phases below)
+
+| # | Gap | Status today |
+|---|-----|--------------|
+| G1 | Borrow checker not enforcing full ownership | lexical scoping only (Ph 51) |
+| G2 | SSA optimizer too shallow vs LLVM-class pipelines | fold + DCE only |
+| G3 | No package manager / module versioning | import blocks only |
+| G4 | No LSP, formatter, REPL, structured diagnostics | ad-hoc errors |
+| G5 | Self-hosting partial | seed tests only |
+| G6 | Concurrency ergonomics below goroutine class | spawn/receive primitives |
+
+### Phases
+
+```
+PHASE 63: Full Ownership & Borrow Checker        [closes G1]
+PHASE 64: IR Optimizer Depth I                   [closes G2]
+          GVN/CSE, constant propagation, inlining on SSA
+PHASE 65: Package Manager & Module System (kpm)  [closes G3]
+          semantic versioning, lockfiles, registry layout
+PHASE 66: Toolchain Polish                       [closes G4]
+          LSP server, kfmt formatter, rich diagnostics, REPL
+PHASE 67: IR Optimizer Depth II                  [completes G2]
+          LICM, loop unrolling, bounds-check hoisting, pass manager
+PHASE 68: Self-Hosting Completion                [closes G5 -> INDEPENDENCE]
+          lexer+parser+sema+codegen rewritten in .kar;
+          karkain.exe bootstraps itself; drop Go toolchain from release path
+PHASE 69: Ecosystem Hardening & v1.0 Freeze      [sustainment]
+          stdlib audit, fuzzing, conformance suite, language spec v1.0
+```
+
+### Ordering Rules
+
+1. Phase 63 before 64: optimizer may assume verified ownership semantics
+2. Phase 68 requires 60 (stdlib) and 65 (kpm): self-hosted build must fetch deps
+3. INDEPENDENCE is declared only when CI builds karkain-from-karkain green
+   for three consecutive releases
+
+### SSA Pipeline Positioning (context for G2)
+
+Karkain's strategy mirrors Go's, not LLVM's: a compact in-house SSA mid-level IR
+(block-param CFG, typed registers) performs language-aware optimizations, then
+emits C23 and delegates register allocation + machine codegen to GCC/Clang.
+This is NOT an LLVM replacement and must not become one � the C backend IS our
+portable backend. G2 work targets passes LLVM cannot see (value semantics,
+ownership-driven DCE) rather than duplicating machine-level optimization.
