@@ -19,6 +19,7 @@ type Config struct {
 	RunAfter    bool
 	Debug       bool   // Add debug flag for DWARF symbols
 	Target      string // Target architecture (native, wasm32-wasi)
+	DisableSSA  bool   // Phase 53: disable SSA IR pipeline (fallback to legacy emission)
 }
 
 func NewConfig() Config {
@@ -99,6 +100,14 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	// Generate all function declarations
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			// Phase 53: SSA IR pipeline — lower, optimize, verify, emit.
+			// Falls back to legacy emission on any lowering/verification failure.
+			if !g.cfg.DisableSSA {
+				if out, ok2 := g.emitFunctionViaIR(prog, fn); ok2 {
+					sb.WriteString(out)
+					continue
+				}
+			}
 			sb.WriteString(g.genFuncDecl(fn))
 		}
 	}

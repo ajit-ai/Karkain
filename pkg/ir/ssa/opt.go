@@ -183,6 +183,8 @@ func dceFunction(fn *Function) {
 				switch in.Op {
 				case OpCallVoid, OpIndexSet, OpPrint:
 					sideEffect = true
+				case OpCall:
+					sideEffect = true // may have effects even when result unused
 				case OpRawC:
 					sideEffect = true // may have arbitrary effects
 				}

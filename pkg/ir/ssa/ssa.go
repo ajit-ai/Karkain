@@ -92,6 +92,8 @@ const (
 	OpIndexGet       // %d = index_get %arr, %i
 	OpIndexSet       // index_set %arr, %i, %v
 	OpPrint          // print %v
+	OpLoad           // %d = load cell        (variable read)
+	OpStore          // store cell, %v        (variable write)
 	OpRawC           // ESCAPE HATCH: opaque pre-rendered C expression (dest) or statement (no dest)
 )
 
@@ -103,6 +105,7 @@ type Instr struct {
 	Args   []Operand
 	OpStr  string   // binop operator / call target name
 	RawC   string   // OpRawC payload
+	Cell   string   // OpLoad/OpStore variable cell name
 	// Branch payloads:
 	ThenTarget, ElseTarget string      // OpBr
 	JmpTarget              string      // OpJmp
@@ -254,6 +257,10 @@ func formatInstr(in Instr) string {
 		return fmt.Sprintf("index_set %s[%s] = %s", in.Args[0].String(), in.Args[1].String(), in.Args[2].String())
 	case OpPrint:
 		return "print " + in.Args[0].String()
+	case OpLoad:
+		return fmt.Sprintf("%%%-8s = load %s : %s", in.Dest, in.Cell, in.Ty)
+	case OpStore:
+		return fmt.Sprintf("store %s = %s", in.Cell, in.Args[0].String())
 	case OpRawC:
 		if in.Dest != "" {
 			return fmt.Sprintf("%%%-8s = rawc {%s}", in.Dest, in.RawC)
