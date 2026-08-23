@@ -13,8 +13,8 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–62).
-Current phase: **53** — IR Infrastructure.
-Last completed: **52** — Value-by-Value Runtime API (+ quantum gate syntax fix).
+Current phase: **54** — Closure & Capture Semantics.
+Last completed: **53** — IR Infrastructure (SSA pipeline live, verify+legacy-fallback).
 
 ## Guiding Principles
 
