@@ -16,29 +16,120 @@ type BorrowError struct {
 	Line    uint16
 }
 
+type varEntry struct {
+	ownership VarOwnership
+	typeName  string
+	line      uint16
+}
+
+type borrowRecord struct {
+	name     string
+	prev     VarOwnership
+}
+
+type scope struct {
+	parent    *scope
+	vars      map[string]*varEntry
+	usage     map[string]int
+	borrows   []borrowRecord
+}
+
+func (s *scope) lookup(name string) (*varEntry, *scope) {
+	if e, ok := s.vars[name]; ok {
+		return e, s
+	}
+	if s.parent != nil {
+		return s.parent.lookup(name)
+	}
+	return nil, nil
+}
+
+func (s *scope) lookupOwn(name string) *varEntry {
+	if e, ok := s.vars[name]; ok {
+		return e
+	}
+	return nil
+}
+
 type BorrowChecker struct {
-	variables     map[string]VarOwnership
-	linearTypes   map[string]bool   // types declared as linear
-	usageCount    map[string]int    // usage count for linear type variables
-	varTypes      map[string]string // variable name -> type name
-	errors        []BorrowError
+	scope       *scope
+	linearTypes map[string]bool
+	errors      []BorrowError
 }
 
 func NewBorrowChecker() *BorrowChecker {
 	return &BorrowChecker{
-		variables:   make(map[string]VarOwnership),
 		linearTypes: make(map[string]bool),
-		usageCount:  make(map[string]int),
-		varTypes:    make(map[string]string),
 	}
+}
+
+func (bc *BorrowChecker) pushScope() {
+	bc.scope = &scope{
+		parent: bc.scope,
+		vars:   make(map[string]*varEntry),
+		usage:  make(map[string]int),
+	}
+}
+
+func (bc *BorrowChecker) popScope() {
+	if bc.scope == nil {
+		return
+	}
+	// Revert borrows that were initiated in this scope
+	for i := len(bc.scope.borrows) - 1; i >= 0; i-- {
+		rec := bc.scope.borrows[i]
+		entry, _ := bc.scope.lookup(rec.name)
+		if entry != nil {
+			entry.ownership = rec.prev
+		}
+	}
+	// Propagate usage counts to parent for linear type checking
+	parent := bc.scope.parent
+	if parent != nil {
+		for name, count := range bc.scope.usage {
+			parent.usage[name] += count
+		}
+	}
+	bc.scope = parent
+}
+
+func (bc *BorrowChecker) declare(name string, typeName string, line uint16) {
+	bc.scope.vars[name] = &varEntry{
+		ownership: Owned,
+		typeName:  typeName,
+		line:      line,
+	}
+}
+
+func (bc *BorrowChecker) lookup(name string) *varEntry {
+	if bc.scope == nil {
+		return nil
+	}
+	entry, _ := bc.scope.lookup(name)
+	return entry
+}
+
+func (bc *BorrowChecker) setOwnership(name string, state VarOwnership) {
+	if bc.scope == nil {
+		return
+	}
+	entry, _ := bc.scope.lookup(name)
+	if entry != nil {
+		entry.ownership = state
+	}
+}
+
+func (bc *BorrowChecker) trackUsage(name string) {
+	if bc.scope == nil {
+		return
+	}
+	bc.scope.usage[name]++
 }
 
 func (bc *BorrowChecker) Check(prog *parser.Program) []BorrowError {
 	bc.errors = nil
-	bc.variables = make(map[string]VarOwnership)
+	bc.scope = nil
 	bc.linearTypes = make(map[string]bool)
-	bc.usageCount = make(map[string]int)
-	bc.varTypes = make(map[string]string)
 
 	// First pass: collect linear type declarations
 	for _, stmt := range prog.Statements {
@@ -47,28 +138,49 @@ func (bc *BorrowChecker) Check(prog *parser.Program) []BorrowError {
 		}
 	}
 
+	// Push global scope
+	bc.pushScope()
+
 	// Second pass: check ownership and borrow rules
 	for _, stmt := range prog.Statements {
 		bc.checkNode(stmt)
 	}
 
 	// Third pass: verify linear types were used exactly once
-	for name, typeName := range bc.varTypes {
-		if bc.linearTypes[typeName] {
-			count := bc.usageCount[name]
-			if count == 0 {
-				bc.errors = append(bc.errors, BorrowError{
-					Message: "linear type variable '" + name + "' of type '" + typeName + "' was never used",
-				})
-			} else if count > 1 {
-				bc.errors = append(bc.errors, BorrowError{
-					Message: "linear type variable '" + name + "' of type '" + typeName + "' was used " + itoa(count) + " times (must be exactly 1)",
-				})
-			}
+	bc.checkLinearTypes()
+
+	bc.popScope()
+	return bc.errors
+}
+
+func (bc *BorrowChecker) checkLinearTypes() {
+	if bc.scope == nil {
+		return
+	}
+	for name, count := range bc.scope.usage {
+		entry := bc.scope.lookupOwn(name)
+		if entry == nil {
+			continue
+		}
+		typeName := entry.typeName
+		if typeName == "" {
+			continue
+		}
+		if !bc.linearTypes[typeName] {
+			continue
+		}
+		if count == 0 {
+			bc.errors = append(bc.errors, BorrowError{
+				Message: "linear type variable '" + name + "' of type '" + typeName + "' was never used",
+				Line:    entry.line,
+			})
+		} else if count > 1 {
+			bc.errors = append(bc.errors, BorrowError{
+				Message: "linear type variable '" + name + "' of type '" + typeName + "' was used " + itoa(count) + " times (must be exactly 1)",
+				Line:    entry.line,
+			})
 		}
 	}
-
-	return bc.errors
 }
 
 func itoa(n int) string {
@@ -89,40 +201,33 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 	}
 	switch n := node.(type) {
 	case *parser.FuncDecl:
-		bc.checkBlock(n.Body)
+		bc.checkFuncDecl(n)
 	case *parser.VarDeclStmt:
-		bc.checkNode(n.Value)
-		bc.variables[n.Name] = Owned
-		if n.Type != "" {
-			bc.varTypes[n.Name] = n.Type
-		} else {
-			// Phase 44: Infer Option/Result types from initializers
-			typeName := bc.inferMatchType(n.Value)
-			if typeName != "" {
-				bc.varTypes[n.Name] = typeName
-			}
-		}
+		bc.checkVarDecl(n)
 	case *parser.ReturnStmt:
 		bc.checkNode(n.Value)
 	case *parser.ExprStmt:
 		bc.checkNode(n.Expression)
 	case *parser.IfStmt:
-		bc.checkNode(n.Condition)
-		bc.checkBlock(n.Consequence)
-		bc.checkBlock(n.Alternative)
+		bc.checkIfStmt(n)
 	case *parser.WhileStmt:
 		bc.checkNode(n.Condition)
+		bc.pushScope()
 		bc.checkBlock(n.Body)
+		bc.popScope()
 	case *parser.ForStmt:
+		bc.pushScope()
 		bc.checkNode(n.Init)
 		bc.checkNode(n.Condition)
-		bc.checkNode(n.Post)
 		bc.checkBlock(n.Body)
+		bc.checkNode(n.Post)
+		bc.popScope()
+	case *parser.BreakStmt, *parser.ContinueStmt:
+		// no-op for borrow checking
 	case *parser.PrintStmt:
 		bc.checkNode(n.Value)
 	case *parser.BinaryExpr:
-		bc.checkNode(n.Left)
-		bc.checkNode(n.Right)
+		bc.checkBinaryExpr(n)
 	case *parser.UnaryExpr:
 		bc.checkNode(n.Operand)
 	case *parser.CallExpr:
@@ -144,7 +249,7 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 	case *parser.DotExpr:
 		bc.checkNode(n.Left)
 	case *parser.Identifier:
-		bc.checkIdentifierUse(n.Name)
+		bc.checkIdentifierUse(n)
 	case *parser.BorrowExpr:
 		bc.checkBorrow(n)
 	case *parser.MoveExpr:
@@ -155,16 +260,13 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 	case *parser.OptionSomeExpr:
 		bc.checkNode(n.Value)
 	case *parser.OptionNoneExpr:
+		// no-op
 	case *parser.ResultOkExpr:
 		bc.checkNode(n.Value)
 	case *parser.ResultErrExpr:
 		bc.checkNode(n.Error)
 	case *parser.MatchExpr:
-		bc.checkNode(n.Value)
-		for _, arm := range n.Arms {
-			bc.checkNode(arm.Body)
-		}
-		bc.checkExhaustiveMatch(n)
+		bc.checkMatchExpr(n)
 	case *parser.PropagateExpr:
 		bc.checkNode(n.Operand)
 	case *parser.SIMDBuiltinExpr:
@@ -179,32 +281,103 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 		bc.checkNode(n.Operand)
 	case *parser.Dereference:
 		bc.checkNode(n.Operand)
+	case *parser.EnumVariantExpr:
+		if n.Value != nil {
+			bc.checkNode(n.Value)
+		}
+	case *parser.BlockStmt:
+		bc.checkBlock(n.Statements)
+	case *parser.ForInStmt:
+		bc.checkNode(n.Iter)
+		bc.pushScope()
+		bc.declare(n.VarName, "", 0)
+		if n.KeyName != "" {
+			bc.declare(n.KeyName, "", 0)
+		}
+		bc.checkBlock(n.Body)
+		bc.popScope()
+	case *parser.LambdaExpr:
+		bc.pushScope()
+		for i, param := range n.Params {
+			typeName := ""
+			if i < len(n.ParamTypes) {
+				typeName = n.ParamTypes[i]
+			}
+			bc.declare(param, typeName, 0)
+		}
+		for _, stmt := range n.Body {
+			bc.checkNode(stmt)
+		}
+		bc.popScope()
 	}
 }
 
 func (bc *BorrowChecker) checkBlock(block []parser.Node) {
+	bc.pushScope()
 	for _, stmt := range block {
 		bc.checkNode(stmt)
 	}
+	bc.popScope()
 }
 
-func (bc *BorrowChecker) checkIdentifierUse(name string) {
-	state, exists := bc.variables[name]
-	if !exists {
+func (bc *BorrowChecker) checkFuncDecl(n *parser.FuncDecl) {
+	bc.pushScope()
+	for _, stmt := range n.Body {
+		bc.checkNode(stmt)
+	}
+	bc.popScope()
+}
+
+func (bc *BorrowChecker) checkVarDecl(n *parser.VarDeclStmt) {
+	bc.checkNode(n.Value)
+	typeName := n.Type
+	if typeName == "" {
+		typeName = bc.inferMatchType(n.Value)
+	}
+	bc.declare(n.Name, typeName, 0)
+}
+
+func (bc *BorrowChecker) checkIfStmt(n *parser.IfStmt) {
+	bc.checkNode(n.Condition)
+	bc.checkBlock(n.Consequence)
+	bc.checkBlock(n.Alternative)
+}
+
+func (bc *BorrowChecker) checkBinaryExpr(n *parser.BinaryExpr) {
+	bc.checkNode(n.Left)
+	bc.checkNode(n.Right)
+}
+
+func (bc *BorrowChecker) checkMatchExpr(n *parser.MatchExpr) {
+	bc.checkNode(n.Value)
+	for _, arm := range n.Arms {
+		bc.pushScope()
+		// Bind pattern variables
+		if arm.Pattern.Binding != "" {
+			bc.declare(arm.Pattern.Binding, "", 0)
+		}
+		bc.checkNode(arm.Body)
+		bc.popScope()
+	}
+	bc.checkExhaustiveMatch(n)
+}
+
+func (bc *BorrowChecker) checkIdentifierUse(n *parser.Identifier) {
+	entry := bc.lookup(n.Name)
+	if entry == nil {
 		return
 	}
-	switch state {
+	switch entry.ownership {
 	case Moved:
 		bc.errors = append(bc.errors, BorrowError{
-			Message: "use of moved value: '" + name + "'",
+			Message: "use of moved value: '" + n.Name + "'",
 		})
 	case BorrowedMut:
 		bc.errors = append(bc.errors, BorrowError{
-			Message: "cannot use '" + name + "' while mutably borrowed",
+			Message: "cannot use '" + n.Name + "' while mutably borrowed",
 		})
 	}
-	// Track usage for linear type enforcement
-	bc.usageCount[name]++
+	bc.trackUsage(n.Name)
 }
 
 func (bc *BorrowChecker) checkBorrow(n *parser.BorrowExpr) {
@@ -214,35 +387,36 @@ func (bc *BorrowChecker) checkBorrow(n *parser.BorrowExpr) {
 		return
 	}
 	name := ident.Name
-
-	state, exists := bc.variables[name]
-	if !exists {
+	entry := bc.lookup(name)
+	if entry == nil {
 		return
 	}
-
-	if state == Moved {
+	if entry.ownership == Moved {
 		bc.errors = append(bc.errors, BorrowError{
 			Message: "cannot borrow moved value: '" + name + "'",
 		})
 		return
 	}
-
 	if n.Mutable {
-		if state == Borrowed || state == BorrowedMut {
+		if entry.ownership == Borrowed || entry.ownership == BorrowedMut {
 			bc.errors = append(bc.errors, BorrowError{
 				Message: "cannot mutably borrow '" + name + "' — already borrowed",
 			})
 			return
 		}
-		bc.variables[name] = BorrowedMut
+		prev := entry.ownership
+		entry.ownership = BorrowedMut
+		bc.scope.borrows = append(bc.scope.borrows, borrowRecord{name: name, prev: prev})
 	} else {
-		if state == BorrowedMut {
+		if entry.ownership == BorrowedMut {
 			bc.errors = append(bc.errors, BorrowError{
 				Message: "cannot borrow '" + name + "' — mutably borrowed",
 			})
 			return
 		}
-		bc.variables[name] = Borrowed
+		prev := entry.ownership
+		entry.ownership = Borrowed
+		bc.scope.borrows = append(bc.scope.borrows, borrowRecord{name: name, prev: prev})
 	}
 }
 
@@ -253,43 +427,36 @@ func (bc *BorrowChecker) checkMove(n *parser.MoveExpr) {
 		return
 	}
 	name := ident.Name
-
-	state, exists := bc.variables[name]
-	if !exists {
+	entry := bc.lookup(name)
+	if entry == nil {
 		return
 	}
-
-	if state == Moved {
+	if entry.ownership == Moved {
 		bc.errors = append(bc.errors, BorrowError{
 			Message: "cannot move '" + name + "' — already moved",
 		})
 		return
 	}
-
-	if state == Borrowed || state == BorrowedMut {
+	if entry.ownership == Borrowed || entry.ownership == BorrowedMut {
 		bc.errors = append(bc.errors, BorrowError{
 			Message: "cannot move '" + name + "' — value is borrowed",
 		})
 		return
 	}
-
-	bc.variables[name] = Moved
+	entry.ownership = Moved
 }
 
 // checkExhaustiveMatch verifies that match expressions cover all variants
 // for Option<T> (Some/None) and Result<T,E> (Ok/Err) types
 func (bc *BorrowChecker) checkExhaustiveMatch(node *parser.MatchExpr) {
-	// Determine the type of the matched value
 	valueType := bc.inferMatchType(node.Value)
 	if valueType == "" {
 		return
 	}
-
 	covered := make(map[string]bool)
 	for _, arm := range node.Arms {
 		covered[arm.Pattern.Type] = true
 	}
-
 	switch valueType {
 	case "Option":
 		if !covered["Some"] || !covered["None"] {
@@ -324,16 +491,11 @@ func (bc *BorrowChecker) checkExhaustiveMatch(node *parser.MatchExpr) {
 func (bc *BorrowChecker) inferMatchType(node parser.Node) string {
 	switch n := node.(type) {
 	case *parser.Identifier:
-		typeName, exists := bc.varTypes[n.Name]
-		if !exists {
+		entry := bc.lookup(n.Name)
+		if entry == nil {
 			return ""
 		}
-		if typeName == "Option" {
-			return "Option"
-		}
-		if typeName == "Result" {
-			return "Result"
-		}
+		return entry.typeName
 	case *parser.OptionSomeExpr:
 		return "Option"
 	case *parser.OptionNoneExpr:
@@ -344,7 +506,6 @@ func (bc *BorrowChecker) inferMatchType(node parser.Node) string {
 		return "Result"
 	case *parser.CallExpr:
 		// Could be a function returning Option/Result
-		// For now, return empty
 	}
 	return ""
 }
