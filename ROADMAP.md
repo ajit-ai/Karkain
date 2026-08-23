@@ -326,6 +326,7 @@ toolchain for day-to-day development.
 | G4 | No LSP, formatter, REPL, structured diagnostics | ad-hoc errors |
 | G5 | Self-hosting partial | seed tests only |
 | G6 | Concurrency ergonomics below goroutine class | spawn/receive primitives |
+| G7 | No explicit SIMD vector types; no atomics/memory ordering | GCC auto-vectorization only; lock-free structures impossible |
 
 ### Phases
 
@@ -344,13 +345,19 @@ PHASE 68: Self-Hosting Completion                [closes G5 -> INDEPENDENCE]
           karkain.exe bootstraps itself; drop Go toolchain from release path
 PHASE 69: Ecosystem Hardening & v1.0 Freeze      [sustainment]
           stdlib audit, fuzzing, conformance suite, language spec v1.0
+PHASE 70: SIMD Vector Types & Atomics            [closes G7]
+          explicit lane types ([4]f32), portable intrinsics surface,
+          atomics + memory orderings (seq_cst/acq_rel/relaxed),
+          cache-line alignment attributes; freestanding mode candidate
 ```
 
 ### Ordering Rules
 
 1. Phase 63 before 64: optimizer may assume verified ownership semantics
 2. Phase 68 requires 60 (stdlib) and 65 (kpm): self-hosted build must fetch deps
-3. INDEPENDENCE is declared only when CI builds karkain-from-karkain green
+3. Phase 70 atomics depend on the threading model from Phase 57 â€” land the
+   atomics portion with or after 57, not before
+4. INDEPENDENCE is declared only when CI builds karkain-from-karkain green
    for three consecutive releases
 
 ### SSA Pipeline Positioning (context for G2)
@@ -358,6 +365,6 @@ PHASE 69: Ecosystem Hardening & v1.0 Freeze      [sustainment]
 Karkain's strategy mirrors Go's, not LLVM's: a compact in-house SSA mid-level IR
 (block-param CFG, typed registers) performs language-aware optimizations, then
 emits C23 and delegates register allocation + machine codegen to GCC/Clang.
-This is NOT an LLVM replacement and must not become one — the C backend IS our
+This is NOT an LLVM replacement and must not become one ï¿½ the C backend IS our
 portable backend. G2 work targets passes LLVM cannot see (value semantics,
 ownership-driven DCE) rather than duplicating machine-level optimization.
