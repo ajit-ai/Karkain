@@ -71,6 +71,13 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		}
 	}
 
+	// Phase 50: Generate struct type declarations before functions
+	for _, stmt := range prog.Statements {
+		if st, ok := stmt.(*parser.StructDeclStmt); ok {
+			sb.WriteString(g.genStructDecl(st))
+		}
+	}
+
 	// Phase 40: Generate forward declarations for all functions
 	// This enables cross-file references when multiple .kar files are concatenated
 	for _, stmt := range prog.Statements {
@@ -407,7 +414,7 @@ typedef struct {
 #define HAS_AVX2 0
 #endif
 
-typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL, TYPE_BIGINT, TYPE_BIGFLOAT } ValueType;
+typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL, TYPE_BIGINT, TYPE_BIGFLOAT, TYPE_OPTION, TYPE_RESULT } ValueType;
 
 typedef struct Value {
     ValueType type;
@@ -426,6 +433,15 @@ typedef struct Value {
             struct Value** values;
             int length;
         } mapVal;
+        struct {
+            int tag;           // 0=None, 1=Some
+            struct Value* inner;
+        } optVal;
+        struct {
+            int tag;           // 0=Ok, 1=Err
+            struct Value* okVal;
+            struct Value* errVal;
+        } resVal;
     };
 } Value;
 
@@ -458,9 +474,25 @@ static inline ValueClass value_class(Value v) {
         case TYPE_MAP:
         case TYPE_BIGINT:
         case TYPE_BIGFLOAT:
+        case TYPE_OPTION:
+        case TYPE_RESULT:
             return VAL_HEAP;
     }
     return VAL_IMMEDIATE;
+}
+
+// Phase 50: Option/Result constructors — heap-allocated, return Value*
+static inline Value* option_some(Value* inner) {
+    Value* v = (Value*)malloc(sizeof(Value)); v->type = TYPE_OPTION; v->optVal.tag = 1; v->optVal.inner = inner; return v;
+}
+static inline Value* option_none(void) {
+    Value* v = (Value*)malloc(sizeof(Value)); v->type = TYPE_OPTION; v->optVal.tag = 0; v->optVal.inner = 0; return v;
+}
+static inline Value* result_ok(Value* inner) {
+    Value* v = (Value*)malloc(sizeof(Value)); v->type = TYPE_RESULT; v->resVal.tag = 0; v->resVal.okVal = inner; v->resVal.errVal = 0; return v;
+}
+static inline Value* result_err(Value* err) {
+    Value* v = (Value*)malloc(sizeof(Value)); v->type = TYPE_RESULT; v->resVal.tag = 1; v->resVal.okVal = 0; v->resVal.errVal = err; return v;
 }
 
 // Stack-allocated primitive constructors (no malloc, for use in generated C)
@@ -488,6 +520,8 @@ _Static_assert(sizeof(Value) <= 64, "Value must fit in a 64-byte cache line");
 
 // Phase 49: Value Representation & Allocation Model
 // Small integer pool: values -128..127 never malloc (covers most literals, loop counters, booleans)
+// NOTE: Pool values must NOT be mutated after creation. Callers that need to modify a value
+// should create a new Value* via malloc rather than mutating a pool entry.
 Value* make_int(long long v) {
     if (v >= -128 && v <= 127) {
         static Value pool[256];
@@ -619,6 +653,20 @@ Value* array_get(Value* arr, Value* idx) {
     return arr->arrVal.items[i];
 }
 
+// Phase 50: Index assignment — sets element at index for both arrays and maps
+Value* index_set(Value* container, Value* idx, Value* val) {
+    if (!container) return val;
+    if (container->type == TYPE_MAP) return map_set(container, idx, val);
+    if (container->type == TYPE_ARRAY && idx->type == TYPE_INT) {
+        int i = (int)idx->intVal;
+        if (i >= 0 && i < container->arrVal.length) {
+            container->arrVal.items[i] = val;
+            return val;
+        }
+    }
+    return val;
+}
+
 Value* karkain_len(Value* v) {
     if (!v) return make_int(0);
     if (v->type == TYPE_ARRAY) return make_int(v->arrVal.length);
@@ -708,6 +756,12 @@ void print_value(Value* v) {
             else printf("%lld", item->intVal);
         }
         printf("}\n");
+    } else if (v->type == TYPE_OPTION) {
+        if (v->optVal.tag == 0) printf("None\n");
+        else { printf("Some("); print_value(v->optVal.inner); printf(")\n"); }
+    } else if (v->type == TYPE_RESULT) {
+        if (v->resVal.tag == 0) { printf("Ok("); print_value(v->resVal.okVal); printf(")\n"); }
+        else { printf("Err("); print_value(v->resVal.errVal); printf(")\n"); }
     }
     fflush(stdout);
 }
@@ -829,12 +883,15 @@ Value* binary_op(Value* left, const char* op, Value* right) {
 int is_truthy(Value* v) {
     if (!v) return 0;
     if (v->type == TYPE_INT) return v->intVal != 0;
+    if (v->type == TYPE_BOOL) return v->intVal != 0;
     if (v->type == TYPE_FLOAT64) return v->floatVal != 0.0;
     if (v->type == TYPE_STRING) return strlen(v->strVal) > 0;
     if (v->type == TYPE_ARRAY) return v->arrVal.length > 0;
     if (v->type == TYPE_MAP) return v->mapVal.length > 0;
     if (v->type == TYPE_BIGINT) return mpz_cmp_si(v->bigIntVal, 0) != 0;
     if (v->type == TYPE_BIGFLOAT) return mpf_cmp_d(v->bigFloatVal, 0.0) != 0;
+    if (v->type == TYPE_OPTION) return v->optVal.tag != 0;
+    if (v->type == TYPE_RESULT) return v->resVal.tag == 0;
     return 0;
 }
 
@@ -1029,7 +1086,6 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 	sb.WriteString(fmt.Sprintf("Value* _match_val = %s; ", valueExpr))
 	sb.WriteString("Value* _match_result = _match_val; ")
 
-	// Generate if-else chain for match arms
 	for i, arm := range node.Arms {
 		cond := ""
 		binding := ""
@@ -1038,19 +1094,19 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 			if arm.Pattern.Binding != "" {
 				binding = arm.Pattern.Binding
 			}
-			cond = "1"
+			cond = "(_match_val->type == TYPE_OPTION && _match_val->optVal.tag == 1)"
 		case "None":
-			cond = "1"
+			cond = "(_match_val->type == TYPE_OPTION && _match_val->optVal.tag == 0)"
 		case "Ok":
 			if arm.Pattern.Binding != "" {
 				binding = arm.Pattern.Binding
 			}
-			cond = "1"
+			cond = "(_match_val->type == TYPE_RESULT && _match_val->resVal.tag == 0)"
 		case "Err":
 			if arm.Pattern.Binding != "" {
 				binding = arm.Pattern.Binding
 			}
-			cond = "1"
+			cond = "(_match_val->type == TYPE_RESULT && _match_val->resVal.tag == 1)"
 		case "literal":
 			litExpr := g.mapLiteralToC(arm.Pattern.Value)
 			cond = fmt.Sprintf("is_truthy(binary_op(_match_val, \"==\", %s))", litExpr)
@@ -1060,8 +1116,6 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 			cond = "1"
 			binding = arm.Pattern.Binding
 		case "enum_variant":
-			// Phase 45: Enum variant pattern like Color.Red
-			// The binding contains "EnumName.Variant"
 			parts := strings.SplitN(arm.Pattern.Binding, ".", 2)
 			if len(parts) == 2 {
 				enumName, variantName := parts[0], parts[1]
@@ -1072,23 +1126,72 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 			}
 		}
 
-		bodyExpr := g.genExpr(arm.Body)
-		if i == 0 {
-			if binding != "" {
-				sb.WriteString(fmt.Sprintf(" if (%s) { Value* %s = _match_val; _match_result = %s; }", cond, binding, bodyExpr))
+		prefix := " "
+		if i > 0 {
+			prefix = " else "
+		}
+
+		var bodyBlock strings.Builder
+		bodyBlock.WriteString("{ ")
+
+		if binding != "" {
+			if arm.Pattern.Type == "Some" {
+				bodyBlock.WriteString(fmt.Sprintf("Value* %s = _match_val->optVal.inner; ", binding))
+			} else if arm.Pattern.Type == "Ok" {
+				bodyBlock.WriteString(fmt.Sprintf("Value* %s = _match_val->resVal.okVal; ", binding))
+			} else if arm.Pattern.Type == "Err" {
+				bodyBlock.WriteString(fmt.Sprintf("Value* %s = _match_val->resVal.errVal; ", binding))
 			} else {
-				sb.WriteString(fmt.Sprintf(" if (%s) { _match_result = %s; }", cond, bodyExpr))
-			}
-		} else {
-			if binding != "" {
-				sb.WriteString(fmt.Sprintf(" else if (%s) { Value* %s = _match_val; _match_result = %s; }", cond, binding, bodyExpr))
-			} else {
-				sb.WriteString(fmt.Sprintf(" else if (%s) { _match_result = %s; }", cond, bodyExpr))
+				bodyBlock.WriteString(fmt.Sprintf("Value* %s = _match_val; ", binding))
 			}
 		}
+
+		g.genArmBody(arm.Body, &bodyBlock)
+
+		bodyBlock.WriteString("}")
+		sb.WriteString(fmt.Sprintf("%sif (%s) %s", prefix, cond, bodyBlock.String()))
 	}
 	sb.WriteString(" _match_result; })")
 	return sb.String()
+}
+
+func (g *Generator) genArmBody(body parser.Node, sb *strings.Builder) {
+	switch b := body.(type) {
+	case *parser.ExprStmt:
+		sb.WriteString(fmt.Sprintf("_match_result = %s; ", g.genExpr(b.Expression)))
+	case *parser.BlockStmt:
+		for j, stmt := range b.Statements {
+			g.genStatementTo(sb, stmt)
+			if j == len(b.Statements)-1 {
+				if exprStmt, ok := stmt.(*parser.ExprStmt); ok {
+					sb.WriteString(fmt.Sprintf("_match_result = %s; ", g.genExpr(exprStmt.Expression)))
+				}
+			}
+		}
+	case *parser.PrintStmt:
+		sb.WriteString(fmt.Sprintf("print_value(%s); ", g.genExpr(b.Value)))
+	default:
+		sb.WriteString(fmt.Sprintf("_match_result = %s; ", g.genExpr(body)))
+	}
+}
+
+func (g *Generator) genStatementTo(sb *strings.Builder, stmt parser.Node) {
+	switch node := stmt.(type) {
+	case *parser.VarDeclStmt:
+		if node.IsMatrix {
+			sb.WriteString(g.genMatrixDecl(node))
+		} else {
+			sb.WriteString(fmt.Sprintf("Value* %s = %s; ", node.Name, g.genExpr(node.Value)))
+		}
+	case *parser.PrintStmt:
+		sb.WriteString(fmt.Sprintf("print_value(%s); ", g.genExpr(node.Value)))
+	case *parser.ExprStmt:
+		sb.WriteString(fmt.Sprintf("%s; ", g.genExpr(node.Expression)))
+	case *parser.ReturnStmt:
+		sb.WriteString(fmt.Sprintf("return %s; ", g.genExpr(node.Value)))
+	default:
+		sb.WriteString(g.genStatement(stmt))
+	}
 }
 
 // Phase 42: SIMD intrinsic codegen
@@ -1136,12 +1239,10 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		if fn, ok := node.Value.(*parser.FuncDecl); ok {
 			return g.genFuncDecl(fn)
 		}
-		// Check if this is an unboxed type declaration
+		// Check if this is a typed declaration
 		if node.Type != "" {
-			cType := g.mapKarkainTypeToC(node.Type)
-			// For unboxed types, convert the value to raw C literal
-			valueExpr := g.mapLiteralToC(node.Value)
-			return fmt.Sprintf("\t%s %s = %s;\n", cType, node.Name, valueExpr)
+			// Phase 50: All typed declarations use Value* — consistent with runtime type system
+			return fmt.Sprintf("\tValue* %s = %s;\n", node.Name, g.genExpr(node.Value))
 		}
 		// For dynamic types, use Value* wrapper
 		return fmt.Sprintf("\tValue* %s = %s;\n", node.Name, g.genExpr(node.Value))
@@ -1354,6 +1455,19 @@ func (g *Generator) genExpr(node parser.Node) string {
 			left := g.genExpr(n.Left)
 			right := g.genExpr(n.Right)
 
+			// Phase 50: Index assignment — m[k] = v → index_set(m, k, v)
+			if idxExpr, ok := n.Left.(*parser.IndexExpr); ok {
+				target := g.genExpr(idxExpr.Left)
+				index := g.genExpr(idxExpr.Index)
+				return fmt.Sprintf("index_set(%s, %s, %s)", target, index, right)
+			}
+
+			// Phase 50: Dot assignment — p.name = v → map_set(p, "name", v)
+			if dotExpr, ok := n.Left.(*parser.DotExpr); ok {
+				target := g.genExpr(dotExpr.Left)
+				return fmt.Sprintf("map_set(%s, make_string(%q), %s)", target, dotExpr.Right, right)
+			}
+
 			// If the left side is a matrix index, we need proper type handling
 			if _, ok := n.Left.(*parser.MatrixIndexExpr); ok {
 				// For matrix assignment, convert the right side to proper C literal
@@ -1505,9 +1619,10 @@ func (g *Generator) genExpr(node parser.Node) string {
 		// Move semantics are enforced at compile time, zero cost at runtime
 		return g.genExpr(n.Operand)
 	case *parser.PropagateExpr:
-		// Phase 44: expr? — error propagation operator
-		// For now, passes through. Full desugaring needs tagged union support.
-		return g.genExpr(n.Operand)
+		// Phase 50: expr? — error propagation operator
+		// Desugar to: if result is Err, return Err; otherwise unwrap Ok value
+		operand := g.genExpr(n.Operand)
+		return fmt.Sprintf("(({Value* _r = %s; if (_r->type == TYPE_RESULT && _r->resVal.tag == 1) return _r; _r->type == TYPE_RESULT ? _r->resVal.okVal : _r; }))", operand)
 	case *parser.EnumVariantExpr:
 		// Phase 45: EnumName.Variant or EnumName.Variant(payload)
 		if n.Value != nil {
@@ -1524,15 +1639,15 @@ func (g *Generator) genExpr(node parser.Node) string {
 			return fmt.Sprintf("(*((volatile unsigned long long*)(%s)) = (unsigned long long)(%s))", addr, val)
 		}
 		return fmt.Sprintf("(*((volatile unsigned long long*)(%s)))", addr)
-	// Phase 42: Option<T> and Result<T,E>
+	// Phase 50: Option<T> and Result<T,E>
 	case *parser.OptionSomeExpr:
-		return g.genExpr(n.Value)
+		return fmt.Sprintf("option_some(%s)", g.genExpr(n.Value))
 	case *parser.OptionNoneExpr:
-		return "make_int(0)"
+		return "option_none()"
 	case *parser.ResultOkExpr:
-		return g.genExpr(n.Value)
+		return fmt.Sprintf("result_ok(%s)", g.genExpr(n.Value))
 	case *parser.ResultErrExpr:
-		return g.genExpr(n.Error)
+		return fmt.Sprintf("result_err(%s)", g.genExpr(n.Error))
 	case *parser.MatchExpr:
 		return g.genMatchExpr(n)
 	case *parser.SIMDBuiltinExpr:
@@ -1544,9 +1659,9 @@ func (g *Generator) genExpr(node parser.Node) string {
 	case *parser.FreeExpr:
 		return fmt.Sprintf("free(%s)", g.genExpr(n.Ptr))
 	case *parser.DotExpr:
-		// Handle dot expressions for C struct access
+		// Phase 50: Struct field access via map_get — structs are stored as maps internally
 		left := g.genExpr(n.Left)
-		return fmt.Sprintf("%s.%s", left, n.Right)
+		return fmt.Sprintf("map_get(%s, make_string(%q))", left, n.Right)
 	case *parser.MeasureExpr:
 		// Phase 14: Generate measure expression
 		qrName := g.getQuantumRegisterName()
@@ -1753,29 +1868,35 @@ func (g *Generator) mapLiteralToC(node parser.Node) string {
 	}
 }
 
-// Phase 19: Generate C struct declaration from Karkain struct type
+// Phase 50: Struct declaration — structs are stored as maps internally
+// The typedef is kept for documentation; actual data is map-based
 func (g *Generator) genStructDecl(node *parser.StructDeclStmt) string {
-	out := fmt.Sprintf("typedef struct {\n")
-	for _, field := range node.Fields {
-		cType := g.mapKarkainTypeToC(field.Type)
-		out += fmt.Sprintf("    %s %s;\n", cType, field.Name)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("// struct %s { ", node.Name))
+	for i, field := range node.Fields {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("%s %s", field.Type, field.Name))
 	}
-	out += fmt.Sprintf("} %s;\n\n", node.Name)
-	return out
+	sb.WriteString(" }\n")
+	return sb.String()
 }
 
-// Phase 45: Generate C tagged union for enum declaration
+// Phase 50: Generate C tagged union for enum declaration
 func (g *Generator) genEnumDecl(node *parser.EnumDecl) string {
 	var sb strings.Builder
 
-	// For codegen compatibility with Value* type system,
-	// unit variants become integer constants via #define
+	// Phase 50: Enum variant constructors — all variants use integer tags
 	for i, v := range node.Variants {
 		if v.Payload != "" {
-			// Payload variant: store as integer tag for now
-			sb.WriteString(fmt.Sprintf("#define %s_%s make_int(%d)\n", node.Name, v.Name, i+1))
+			// Payload variant: generate a constructor function
+			sb.WriteString(fmt.Sprintf("Value* %s_%s_make(Value* payload) {\n", node.Name, v.Name))
+			sb.WriteString(fmt.Sprintf("    Value* v = (Value*)malloc(sizeof(Value));\n"))
+			sb.WriteString(fmt.Sprintf("    v->type = TYPE_INT; v->intVal = %d; return v;\n", i+1))
+			sb.WriteString(fmt.Sprintf("}\n"))
 		} else {
-			// Unit variant: integer tag
+			// Unit variant: integer tag constant
 			sb.WriteString(fmt.Sprintf("#define %s_%s make_int(%d)\n", node.Name, v.Name, i+1))
 		}
 	}
@@ -1839,19 +1960,17 @@ func (g *Generator) genForInStmt(node *parser.ForInStmt) string {
 	return sb.String()
 }
 
-// Phase 19: Generate C struct literal initialization
+// Phase 50: Generate C struct literal — structs are stored as maps internally
 func (g *Generator) genStructLiteral(node *parser.StructLiteral) string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("({%s _s; ", node.TypeName))
+	expr := "make_map()"
 	for _, field := range node.Fields {
 		if binExpr, ok := field.(*parser.BinaryExpr); ok {
 			if ident, ok := binExpr.Left.(*parser.Identifier); ok {
-				sb.WriteString(fmt.Sprintf("_s.%s = %s; ", ident.Name, g.genExpr(binExpr.Right)))
+				expr = fmt.Sprintf("map_set(%s, make_string(%q), %s)", expr, ident.Name, g.genExpr(binExpr.Right))
 			}
 		}
 	}
-	sb.WriteString(fmt.Sprintf("_s; })"))
-	return sb.String()
+	return expr
 }
 
 // Phase 14: Get the quantum register name
