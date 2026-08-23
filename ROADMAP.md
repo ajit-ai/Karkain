@@ -285,3 +285,22 @@ PHASE 62: Native Codegen
 **Rationale**: Phases 50–55 are foundational correctness and language semantics.
 Phases 56–59 wire up the existing (but disconnected) backend infrastructure.
 Phases 60–62 complete the ecosystem.
+
+---
+
+## Explicitly Out of Scope (Decision Record)
+
+**NPU, DSP, and FPGA backend targets — REMOVED from roadmap (decision: 2026-08).**
+
+Rationale: pursuing these targets risks degrading the three non-negotiable properties
+of Karkain — **speed, multithreading, memory safety**:
+
+- Vendor-specific lowering paths fragment portability and cannot be CI-tested without hardware
+- Device execution models (async NPU graphs, FPGA pipelines, real-time DSP) complicate the
+  concurrency story and introduce cross-device data races
+- Escape-hatch pressure from DMA/ring-buffer/quantization paths erodes borrow-checker guarantees
+- Optimization effort splits across incompatible pass pipelines, threatening the "fastest" goal
+
+Karkain's differentiator remains: **compile-time ownership safety + performance on CPU/GPU/quantum**,
+not breadth of hardware targets. This decision may be revisited only after Phases 53–62 are
+complete AND a portable-fallback + golden-test strategy exists per target.
