@@ -84,10 +84,10 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
 			params := []string{}
 			for _, p := range fn.Params {
-				params = append(params, "Value* "+p)
-			}
-			retType := "Value*"
-			if fn.Name == "main" {
+			params = append(params, "Value "+p)
+		}
+		retType := "Value"
+		if fn.Name == "main" {
 				retType = "int"
 			}
 			fmt.Fprintf(&sb, "%s %s(%s);\n", retType, fn.Name, strings.Join(params, ", "))
@@ -449,8 +449,8 @@ typedef struct Value {
 typedef enum { Result_Tag_default, Result_Tag_Ok, Result_Tag_Err } Result_Tag;
 typedef struct { Result_Tag tag; union { Value* Ok; Value* Err; }; } Result;
 
-static inline Result Result_make_Ok(Value* val) { Result r; r.tag = Result_Tag_Ok; r.Ok = val; return r; }
-static inline Result Result_make_Err(Value* val) { Result r; r.tag = Result_Tag_Err; r.Err = val; return r; }
+static inline Result Result_make_Ok(Value val) { Result r; r.tag = Result_Tag_Ok; Value* h = (Value*)malloc(sizeof(Value)); *h = val; r.Ok = h; return r; }
+static inline Result Result_make_Err(Value val) { Result r; r.tag = Result_Tag_Err; Value* h = (Value*)malloc(sizeof(Value)); *h = val; r.Err = h; return r; }
 #define Result_Ok_ok ((Result){ .tag = Result_Tag_Ok })
 #define Result_Err_err ((Result){ .tag = Result_Tag_Err })
 
@@ -481,18 +481,21 @@ static inline ValueClass value_class(Value v) {
     return VAL_IMMEDIATE;
 }
 
-// Phase 50: Option/Result constructors — heap-allocated, return Value*
-static inline Value* option_some(Value* inner) {
-    Value* v = (Value*)malloc(sizeof(Value)); v->type = TYPE_OPTION; v->optVal.tag = 1; v->optVal.inner = inner; return v;
+// Phase 52: Option/Result constructors — take Value, heap-allocate inner copy for lifetime, return Value
+static inline Value option_some(Value inner) {
+    Value v; v.type = TYPE_OPTION; v.optVal.tag = 1;
+    Value* h = (Value*)malloc(sizeof(Value)); *h = inner; v.optVal.inner = h; return v;
 }
-static inline Value* option_none(void) {
-    Value* v = (Value*)malloc(sizeof(Value)); v->type = TYPE_OPTION; v->optVal.tag = 0; v->optVal.inner = 0; return v;
+static inline Value option_none(void) {
+    Value v; v.type = TYPE_OPTION; v.optVal.tag = 0; v.optVal.inner = 0; return v;
 }
-static inline Value* result_ok(Value* inner) {
-    Value* v = (Value*)malloc(sizeof(Value)); v->type = TYPE_RESULT; v->resVal.tag = 0; v->resVal.okVal = inner; v->resVal.errVal = 0; return v;
+static inline Value result_ok(Value inner) {
+    Value v; v.type = TYPE_RESULT; v.resVal.tag = 0;
+    Value* h = (Value*)malloc(sizeof(Value)); *h = inner; v.resVal.okVal = h; v.resVal.errVal = 0; return v;
 }
-static inline Value* result_err(Value* err) {
-    Value* v = (Value*)malloc(sizeof(Value)); v->type = TYPE_RESULT; v->resVal.tag = 1; v->resVal.okVal = 0; v->resVal.errVal = err; return v;
+static inline Value result_err(Value err) {
+    Value v; v.type = TYPE_RESULT; v.resVal.tag = 1; v.resVal.okVal = 0;
+    Value* h = (Value*)malloc(sizeof(Value)); *h = err; v.resVal.errVal = h; return v;
 }
 
 // Stack-allocated primitive constructors (no malloc, for use in generated C)
@@ -510,19 +513,19 @@ static inline Value mk_nil(void) {
     Value val; val.type = TYPE_INT; val.intVal = 0; return val;
 }
 
-// Heap-allocated constructors (for strings, arrays, maps, bigint, bigfloat)
-// These return Value* because heap data cannot live on the C stack.
-// Ownership: caller owns the returned Value*.
-// Future phases will add lifetime tracking and escape analysis.
+// Phase 52: Value-by-Value Runtime API — ALL constructors return Value (stack-allocated struct).
+// Heap-backed data (strdup'd strings, array/map element storage, GMP state) remains on the heap,
+// but the Value wrapper itself lives on the C stack — no malloc for primitives.
+// Container storage heap-copies elements on insert; mutation functions take Value*.
 
 // Layout assertion: Value must fit in a single cache line for efficient stack passing
 _Static_assert(sizeof(Value) <= 64, "Value must fit in a 64-byte cache line");
 
-// Phase 49: Value Representation & Allocation Model
+// Phase 52: Value Representation & Allocation Model
 // Small integer pool: values -128..127 never malloc (covers most literals, loop counters, booleans)
-// NOTE: Pool values must NOT be mutated after creation. Callers that need to modify a value
-// should create a new Value* via malloc rather than mutating a pool entry.
-Value* make_int(long long v) {
+// BUG-6 fix: pool entries are returned as COPIES (Value by value), so callers can never
+// mutate shared pool state — each caller owns its own Value.
+Value make_int(long long v) {
     if (v >= -128 && v <= 127) {
         static Value pool[256];
         static int pool_init = 0;
@@ -533,151 +536,161 @@ Value* make_int(long long v) {
             }
             pool_init = 1;
         }
-        return &pool[v + 128];
+        Value out = pool[v + 128];
+        return out;
     }
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_INT;
-    val->intVal = v;
+    Value val;
+    val.type = TYPE_INT;
+    val.intVal = v;
     return val;
 }
 
-Value* make_float(double v) {
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_FLOAT64;
-    val->floatVal = v;
+Value make_float(double v) {
+    Value val;
+    val.type = TYPE_FLOAT64;
+    val.floatVal = v;
     return val;
 }
 
-Value* make_bigint(const char* s) {
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_BIGINT;
-    mpz_init(val->bigIntVal);
-    mpz_set_str(val->bigIntVal, s, 10);
+Value make_bigint(const char* s) {
+    Value val;
+    val.type = TYPE_BIGINT;
+    mpz_init(val.bigIntVal);
+    mpz_set_str(val.bigIntVal, s, 10);
     return val;
 }
 
-Value* make_bigint_from_long(long long v) {
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_BIGINT;
-    mpz_init(val->bigIntVal);
-    mpz_set_si(val->bigIntVal, v);
+Value make_bigint_from_long(long long v) {
+    Value val;
+    val.type = TYPE_BIGINT;
+    mpz_init(val.bigIntVal);
+    mpz_set_si(val.bigIntVal, v);
     return val;
 }
 
-Value* make_bigfloat(const char* s) {
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_BIGFLOAT;
-    mpf_init(val->bigFloatVal);
-    mpf_set_str(val->bigFloatVal, s, 10);
+Value make_bigfloat(const char* s) {
+    Value val;
+    val.type = TYPE_BIGFLOAT;
+    mpf_init(val.bigFloatVal);
+    mpf_set_str(val.bigFloatVal, s, 10);
     return val;
 }
 
-Value* make_bigfloat_from_double(double v) {
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_BIGFLOAT;
-    mpf_init(val->bigFloatVal);
-    mpf_set_d(val->bigFloatVal, v);
+Value make_bigfloat_from_double(double v) {
+    Value val;
+    val.type = TYPE_BIGFLOAT;
+    mpf_init(val.bigFloatVal);
+    mpf_set_d(val.bigFloatVal, v);
     return val;
 }
 
-Value* make_string(const char* s) {
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_STRING;
-    val->strVal = strdup(s);
+Value make_string(const char* s) {
+    Value val;
+    val.type = TYPE_STRING;
+    val.strVal = strdup(s);
     return val;
 }
 
-Value* make_array() {
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_ARRAY;
-    val->arrVal.items = NULL;
-    val->arrVal.length = 0;
+Value make_array() {
+    Value val;
+    val.type = TYPE_ARRAY;
+    val.arrVal.items = NULL;
+    val.arrVal.length = 0;
     return val;
 }
 
-Value* make_map() {
-    Value* val = (Value*)malloc(sizeof(Value));
-    val->type = TYPE_MAP;
-    val->mapVal.keys = NULL;
-    val->mapVal.values = NULL;
-    val->mapVal.length = 0;
+Value make_map() {
+    Value val;
+    val.type = TYPE_MAP;
+    val.mapVal.keys = NULL;
+    val.mapVal.values = NULL;
+    val.mapVal.length = 0;
     return val;
 }
 
-void array_push(Value* arr, Value* elem) {
+// Mutation takes Value* (pointer to caller's stack variable); element is heap-copied for storage.
+void array_push(Value* arr, Value elem) {
     if (!arr || arr->type != TYPE_ARRAY) return;
+    Value* copy = (Value*)malloc(sizeof(Value));
+    *copy = elem;
     arr->arrVal.length++;
     arr->arrVal.items = (Value**)realloc(arr->arrVal.items, sizeof(Value*) * arr->arrVal.length);
-    arr->arrVal.items[arr->arrVal.length - 1] = elem;
+    arr->arrVal.items[arr->arrVal.length - 1] = copy;
 }
 
-int values_equal(Value* a, Value* b) {
-    if (!a || !b || a->type != b->type) return 0;
-    if (a->type == TYPE_INT) return a->intVal == b->intVal;
-    if (a->type == TYPE_STRING) return strcmp(a->strVal, b->strVal) == 0;
+int values_equal(Value a, Value b) {
+    if (a.type != b.type) return 0;
+    if (a.type == TYPE_INT) return a.intVal == b.intVal;
+    if (a.type == TYPE_STRING) return strcmp(a.strVal, b.strVal) == 0;
     return 0;
 }
 
-Value* map_set(Value* m, Value* k, Value* v) {
-    if (!m || m->type != TYPE_MAP) return m;
+// Mutation takes Value*; key and value are heap-copied for storage. Returns void.
+void map_set(Value* m, Value k, Value v) {
+    if (!m || m->type != TYPE_MAP) return;
     for (int i = 0; i < m->mapVal.length; i++) {
-        if (values_equal(m->mapVal.keys[i], k)) {
-            m->mapVal.values[i] = v;
-            return m;
+        if (values_equal(*m->mapVal.keys[i], k)) {
+            Value* vc = (Value*)malloc(sizeof(Value));
+            *vc = v;
+            m->mapVal.values[i] = vc;
+            return;
         }
     }
+    Value* kc = (Value*)malloc(sizeof(Value));
+    *kc = k;
+    Value* vc2 = (Value*)malloc(sizeof(Value));
+    *vc2 = v;
     m->mapVal.length++;
     m->mapVal.keys = (Value**)realloc(m->mapVal.keys, sizeof(Value*) * m->mapVal.length);
     m->mapVal.values = (Value**)realloc(m->mapVal.values, sizeof(Value*) * m->mapVal.length);
-    m->mapVal.keys[m->mapVal.length - 1] = k;
-    m->mapVal.values[m->mapVal.length - 1] = v;
-    return m;
+    m->mapVal.keys[m->mapVal.length - 1] = kc;
+    m->mapVal.values[m->mapVal.length - 1] = vc2;
 }
 
-Value* map_get(Value* m, Value* k) {
-    if (!m || m->type != TYPE_MAP) return make_int(0);
-    for (int i = 0; i < m->mapVal.length; i++) {
-        if (values_equal(m->mapVal.keys[i], k)) {
-            return m->mapVal.values[i];
+Value map_get(Value m, Value k) {
+    if (m.type != TYPE_MAP) return make_int(0);
+    for (int i = 0; i < m.mapVal.length; i++) {
+        if (values_equal(*m.mapVal.keys[i], k)) {
+            return *m.mapVal.values[i];
         }
     }
     return make_int(0);
 }
 
-Value* array_get(Value* arr, Value* idx) {
-    if (!arr) return make_int(0);
-    if (arr->type == TYPE_MAP) return map_get(arr, idx);
-    if (arr->type != TYPE_ARRAY || idx->type != TYPE_INT) return make_int(0);
-    int i = (int)idx->intVal;
-    if (i < 0 || i >= arr->arrVal.length) return make_int(0);
-    return arr->arrVal.items[i];
+Value array_get(Value arr, Value idx) {
+    if (arr.type == TYPE_MAP) return map_get(arr, idx);
+    if (arr.type != TYPE_ARRAY || idx.type != TYPE_INT) return make_int(0);
+    int i = (int)idx.intVal;
+    if (i < 0 || i >= arr.arrVal.length) return make_int(0);
+    return *arr.arrVal.items[i];
 }
 
 // Phase 50: Index assignment — sets element at index for both arrays and maps
-Value* index_set(Value* container, Value* idx, Value* val) {
-    if (!container) return val;
-    if (container->type == TYPE_MAP) return map_set(container, idx, val);
-    if (container->type == TYPE_ARRAY && idx->type == TYPE_INT) {
-        int i = (int)idx->intVal;
+// Mutation takes Value*; the value is heap-copied for storage. Returns void.
+void index_set(Value* container, Value idx, Value val) {
+    if (!container) return;
+    if (container->type == TYPE_MAP) { map_set(container, idx, val); return; }
+    if (container->type == TYPE_ARRAY && idx.type == TYPE_INT) {
+        int i = (int)idx.intVal;
         if (i >= 0 && i < container->arrVal.length) {
-            container->arrVal.items[i] = val;
-            return val;
+            Value* copy = (Value*)malloc(sizeof(Value));
+            *copy = val;
+            container->arrVal.items[i] = copy;
+            return;
         }
     }
-    return val;
 }
 
-Value* karkain_len(Value* v) {
-    if (!v) return make_int(0);
-    if (v->type == TYPE_ARRAY) return make_int(v->arrVal.length);
-    if (v->type == TYPE_MAP) return make_int(v->mapVal.length);
-    if (v->type == TYPE_STRING) return make_int(strlen(v->strVal));
+Value karkain_len(Value v) {
+    if (v.type == TYPE_ARRAY) return make_int(v.arrVal.length);
+    if (v.type == TYPE_MAP) return make_int(v.mapVal.length);
+    if (v.type == TYPE_STRING) return make_int(strlen(v.strVal));
     return make_int(0);
 }
 
-Value* karkain_readFile(Value* path) {
-    if (!path || path->type != TYPE_STRING) return make_string("");
-    FILE* f = fopen(path->strVal, "rb");
+Value karkain_readFile(Value path) {
+    if (path.type != TYPE_STRING) return make_string("");
+    FILE* f = fopen(path.strVal, "rb");
     if (!f) return make_string("");
     fseek(f, 0, SEEK_END);
     long sz = ftell(f);
@@ -686,37 +699,36 @@ Value* karkain_readFile(Value* path) {
     fread(buf, 1, sz, f);
     fclose(f);
     buf[sz] = '\0';
-    Value* res = make_string(buf);
+    Value res = make_string(buf);
     free(buf);
     return res;
 }
 
-Value* karkain_writeFile(Value* path, Value* content) {
-    if (!path || path->type != TYPE_STRING) return make_int(0);
-    FILE* f = fopen(path->strVal, "wb");
+Value karkain_writeFile(Value path, Value content) {
+    if (path.type != TYPE_STRING) return make_int(0);
+    FILE* f = fopen(path.strVal, "wb");
     if (!f) return make_int(0);
-    const char* str = (content && content->type == TYPE_STRING) ? content->strVal : "";
+    const char* str = (content.type == TYPE_STRING) ? content.strVal : "";
     fputs(str, f);
     fclose(f);
     return make_int(1);
 }
 
-void print_value(Value* v) {
-    if (!v) return;
-    if (v->type == TYPE_INT) {
-        printf("%lld\n", v->intVal);
-    } else if (v->type == TYPE_BOOL) {
-        printf("%s\n", v->intVal ? "true" : "false");
-    } else if (v->type == TYPE_FLOAT64) {
-        printf("%g\n", v->floatVal);
-    } else if (v->type == TYPE_STRING) {
-        printf("%s\n", v->strVal);
-    } else if (v->type == TYPE_BIGINT) {
-        mpz_out_str(stdout, 10, v->bigIntVal);
+void print_value(Value v) {
+    if (v.type == TYPE_INT) {
+        printf("%lld\n", v.intVal);
+    } else if (v.type == TYPE_BOOL) {
+        printf("%s\n", v.intVal ? "true" : "false");
+    } else if (v.type == TYPE_FLOAT64) {
+        printf("%g\n", v.floatVal);
+    } else if (v.type == TYPE_STRING) {
+        printf("%s\n", v.strVal);
+    } else if (v.type == TYPE_BIGINT) {
+        mpz_out_str(stdout, 10, v.bigIntVal);
         printf("\n");
-    } else if (v->type == TYPE_BIGFLOAT) {
+    } else if (v.type == TYPE_BIGFLOAT) {
         mp_exp_t exp;
-        char* str = mpf_get_str(NULL, &exp, 10, 0, v->bigFloatVal);
+        char* str = mpf_get_str(NULL, &exp, 10, 0, v.bigFloatVal);
         int len = strlen(str);
         if (exp <= 0) {
             printf("0.");
@@ -735,53 +747,52 @@ void print_value(Value* v) {
         void (*freefunc)(void *, size_t);
         mp_get_memory_functions(NULL, NULL, &freefunc);
         freefunc(str, len + 1);
-    } else if (v->type == TYPE_ARRAY) {
+    } else if (v.type == TYPE_ARRAY) {
         printf("[");
-        for (int i = 0; i < v->arrVal.length; i++) {
+        for (int i = 0; i < v.arrVal.length; i++) {
             if (i > 0) printf(", ");
-            Value* item = v->arrVal.items[i];
+            Value* item = v.arrVal.items[i];
             if (item->type == TYPE_STRING) printf("\"%s\"", item->strVal);
             else if (item->type == TYPE_INT) printf("%lld", item->intVal);
         }
         printf("]\n");
-    } else if (v->type == TYPE_MAP) {
+    } else if (v.type == TYPE_MAP) {
         printf("{");
-        for (int i = 0; i < v->mapVal.length; i++) {
+        for (int i = 0; i < v.mapVal.length; i++) {
             if (i > 0) printf(", ");
-            Value* k = v->mapVal.keys[i];
-            Value* item = v->mapVal.values[i];
+            Value* k = v.mapVal.keys[i];
+            Value* item = v.mapVal.values[i];
             if (k->type == TYPE_STRING) printf("\"%s\": ", k->strVal);
             else printf("%lld: ", k->intVal);
             if (item->type == TYPE_STRING) printf("\"%s\"", item->strVal);
             else printf("%lld", item->intVal);
         }
         printf("}\n");
-    } else if (v->type == TYPE_OPTION) {
-        if (v->optVal.tag == 0) printf("None\n");
-        else { printf("Some("); print_value(v->optVal.inner); printf(")\n"); }
-    } else if (v->type == TYPE_RESULT) {
-        if (v->resVal.tag == 0) { printf("Ok("); print_value(v->resVal.okVal); printf(")\n"); }
-        else { printf("Err("); print_value(v->resVal.errVal); printf(")\n"); }
+    } else if (v.type == TYPE_OPTION) {
+        if (v.optVal.tag == 0) printf("None\n");
+        else { printf("Some("); print_value(*v.optVal.inner); printf(")\n"); }
+    } else if (v.type == TYPE_RESULT) {
+        if (v.resVal.tag == 0) { printf("Ok("); print_value(*v.resVal.okVal); printf(")\n"); }
+        else { printf("Err("); print_value(*v.resVal.errVal); printf(")\n"); }
     }
     fflush(stdout);
 }
 
-Value* binary_op(Value* left, const char* op, Value* right) {
-    if (!left || !right) return make_int(0);
+Value binary_op(Value left, const char* op, Value right) {
     // String concatenation
-    if (strcmp(op, "+") == 0 && left->type == TYPE_STRING && right->type == TYPE_STRING) {
-        size_t len = strlen(left->strVal) + strlen(right->strVal);
+    if (strcmp(op, "+") == 0 && left.type == TYPE_STRING && right.type == TYPE_STRING) {
+        size_t len = strlen(left.strVal) + strlen(right.strVal);
         char* buf = (char*)malloc(len + 1);
-        strcpy(buf, left->strVal);
-        strcat(buf, right->strVal);
-        Value* result = make_string(buf);
+        strcpy(buf, left.strVal);
+        strcat(buf, right.strVal);
+        Value result = make_string(buf);
         free(buf);
         return result;
     }
     // Float64 arithmetic
-    if (left->type == TYPE_FLOAT64 || right->type == TYPE_FLOAT64) {
-        double l = (left->type == TYPE_FLOAT64) ? left->floatVal : (double)left->intVal;
-        double r = (right->type == TYPE_FLOAT64) ? right->floatVal : (double)right->intVal;
+    if (left.type == TYPE_FLOAT64 || right.type == TYPE_FLOAT64) {
+        double l = (left.type == TYPE_FLOAT64) ? left.floatVal : (double)left.intVal;
+        double r = (right.type == TYPE_FLOAT64) ? right.floatVal : (double)right.intVal;
         if (strcmp(op, "+") == 0) return make_float(l + r);
         if (strcmp(op, "-") == 0) return make_float(l - r);
         if (strcmp(op, "*") == 0) return make_float(l * r);
@@ -794,22 +805,22 @@ Value* binary_op(Value* left, const char* op, Value* right) {
         if (strcmp(op, "!=") == 0) return make_int(l != r);
     }
     // BigFloat arithmetic (promotes int/bigint to bigfloat)
-    if (left->type == TYPE_BIGFLOAT || right->type == TYPE_BIGFLOAT) {
+    if (left.type == TYPE_BIGFLOAT || right.type == TYPE_BIGFLOAT) {
         mpf_t l, r;
         mpf_init(l); mpf_init(r);
-        if (left->type == TYPE_BIGFLOAT) mpf_set(l, left->bigFloatVal);
-        else if (left->type == TYPE_BIGINT) mpf_set_z(l, left->bigIntVal);
-        else if (left->type == TYPE_INT) mpf_set_si(l, left->intVal);
-        else mpf_set_d(l, left->floatVal);
-        if (right->type == TYPE_BIGFLOAT) mpf_set(r, right->bigFloatVal);
-        else if (right->type == TYPE_BIGINT) mpf_set_z(r, right->bigIntVal);
-        else if (right->type == TYPE_INT) mpf_set_si(r, right->intVal);
-        else mpf_set_d(r, right->floatVal);
-        Value* result;
-        if (strcmp(op, "+") == 0) { mpf_add(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result->bigFloatVal, l); }
-        else if (strcmp(op, "-") == 0) { mpf_sub(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result->bigFloatVal, l); }
-        else if (strcmp(op, "*") == 0) { mpf_mul(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result->bigFloatVal, l); }
-        else if (strcmp(op, "/") == 0) { mpf_div(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result->bigFloatVal, l); }
+        if (left.type == TYPE_BIGFLOAT) mpf_set(l, left.bigFloatVal);
+        else if (left.type == TYPE_BIGINT) mpf_set_z(l, left.bigIntVal);
+        else if (left.type == TYPE_INT) mpf_set_si(l, left.intVal);
+        else mpf_set_d(l, left.floatVal);
+        if (right.type == TYPE_BIGFLOAT) mpf_set(r, right.bigFloatVal);
+        else if (right.type == TYPE_BIGINT) mpf_set_z(r, right.bigIntVal);
+        else if (right.type == TYPE_INT) mpf_set_si(r, right.intVal);
+        else mpf_set_d(r, right.floatVal);
+        Value result;
+        if (strcmp(op, "+") == 0) { mpf_add(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result.bigFloatVal, l); }
+        else if (strcmp(op, "-") == 0) { mpf_sub(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result.bigFloatVal, l); }
+        else if (strcmp(op, "*") == 0) { mpf_mul(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result.bigFloatVal, l); }
+        else if (strcmp(op, "/") == 0) { mpf_div(l, l, r); result = make_bigfloat_from_double(0); mpf_set(result.bigFloatVal, l); }
         else if (strcmp(op, ">") == 0) result = make_int(mpf_cmp(l, r) > 0);
         else if (strcmp(op, "<") == 0) result = make_int(mpf_cmp(l, r) < 0);
         else if (strcmp(op, ">=") == 0) result = make_int(mpf_cmp(l, r) >= 0);
@@ -821,19 +832,19 @@ Value* binary_op(Value* left, const char* op, Value* right) {
         return result;
     }
     // BigInt arithmetic
-    if (left->type == TYPE_BIGINT || right->type == TYPE_BIGINT) {
+    if (left.type == TYPE_BIGINT || right.type == TYPE_BIGINT) {
         mpz_t l, r;
         mpz_init(l); mpz_init(r);
-        if (left->type == TYPE_BIGINT) mpz_set(l, left->bigIntVal);
-        else mpz_set_si(l, left->intVal);
-        if (right->type == TYPE_BIGINT) mpz_set(r, right->bigIntVal);
-        else mpz_set_si(r, right->intVal);
-        Value* result;
-        if (strcmp(op, "+") == 0) { result = make_bigint_from_long(0); mpz_add(result->bigIntVal, l, r); }
-        else if (strcmp(op, "-") == 0) { result = make_bigint_from_long(0); mpz_sub(result->bigIntVal, l, r); }
-        else if (strcmp(op, "*") == 0) { result = make_bigint_from_long(0); mpz_mul(result->bigIntVal, l, r); }
-        else if (strcmp(op, "/") == 0) { result = make_bigint_from_long(0); mpz_tdiv_q(result->bigIntVal, l, r); }
-        else if (strcmp(op, "%") == 0) { result = make_bigint_from_long(0); mpz_tdiv_r(result->bigIntVal, l, r); }
+        if (left.type == TYPE_BIGINT) mpz_set(l, left.bigIntVal);
+        else mpz_set_si(l, left.intVal);
+        if (right.type == TYPE_BIGINT) mpz_set(r, right.bigIntVal);
+        else mpz_set_si(r, right.intVal);
+        Value result;
+        if (strcmp(op, "+") == 0) { result = make_bigint_from_long(0); mpz_add(result.bigIntVal, l, r); }
+        else if (strcmp(op, "-") == 0) { result = make_bigint_from_long(0); mpz_sub(result.bigIntVal, l, r); }
+        else if (strcmp(op, "*") == 0) { result = make_bigint_from_long(0); mpz_mul(result.bigIntVal, l, r); }
+        else if (strcmp(op, "/") == 0) { result = make_bigint_from_long(0); mpz_tdiv_q(result.bigIntVal, l, r); }
+        else if (strcmp(op, "%") == 0) { result = make_bigint_from_long(0); mpz_tdiv_r(result.bigIntVal, l, r); }
         else if (strcmp(op, ">") == 0) result = make_int(mpz_cmp(l, r) > 0);
         else if (strcmp(op, "<") == 0) result = make_int(mpz_cmp(l, r) < 0);
         else if (strcmp(op, ">=") == 0) result = make_int(mpz_cmp(l, r) >= 0);
@@ -845,53 +856,52 @@ Value* binary_op(Value* left, const char* op, Value* right) {
         return result;
     }
     // Int arithmetic
-    if (strcmp(op, "+") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
-        return make_int(left->intVal + right->intVal);
+    if (strcmp(op, "+") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
+        return make_int(left.intVal + right.intVal);
     }
-    if (strcmp(op, "-") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
-        return make_int(left->intVal - right->intVal);
+    if (strcmp(op, "-") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
+        return make_int(left.intVal - right.intVal);
     }
-    if (strcmp(op, "*") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
-        return make_int(left->intVal * right->intVal);
+    if (strcmp(op, "*") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
+        return make_int(left.intVal * right.intVal);
     }
-    if (strcmp(op, "/") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
-        return make_int(right->intVal != 0 ? left->intVal / right->intVal : 0);
+    if (strcmp(op, "/") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
+        return make_int(right.intVal != 0 ? left.intVal / right.intVal : 0);
     }
-    if (strcmp(op, ">") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
-        return make_int(left->intVal > right->intVal);
+    if (strcmp(op, ">") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
+        return make_int(left.intVal > right.intVal);
     }
-    if (strcmp(op, "<") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
-        return make_int(left->intVal < right->intVal);
+    if (strcmp(op, "<") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
+        return make_int(left.intVal < right.intVal);
     }
-    if (strcmp(op, ">=") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
-        return make_int(left->intVal >= right->intVal);
+    if (strcmp(op, ">=") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
+        return make_int(left.intVal >= right.intVal);
     }
-    if (strcmp(op, "<=") == 0 && left->type == TYPE_INT && right->type == TYPE_INT) {
-        return make_int(left->intVal <= right->intVal);
+    if (strcmp(op, "<=") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
+        return make_int(left.intVal <= right.intVal);
     }
     if (strcmp(op, "!=") == 0) {
-        if (left->type == TYPE_INT && right->type == TYPE_INT) return make_int(left->intVal != right->intVal);
-        if (left->type == TYPE_STRING && right->type == TYPE_STRING) return make_int(strcmp(left->strVal, right->strVal) != 0);
+        if (left.type == TYPE_INT && right.type == TYPE_INT) return make_int(left.intVal != right.intVal);
+        if (left.type == TYPE_STRING && right.type == TYPE_STRING) return make_int(strcmp(left.strVal, right.strVal) != 0);
     }
     if (strcmp(op, "==") == 0) {
-        if (left->type == TYPE_INT && right->type == TYPE_INT) return make_int(left->intVal == right->intVal);
-        if (left->type == TYPE_STRING && right->type == TYPE_STRING) return make_int(strcmp(left->strVal, right->strVal) == 0);
+        if (left.type == TYPE_INT && right.type == TYPE_INT) return make_int(left.intVal == right.intVal);
+        if (left.type == TYPE_STRING && right.type == TYPE_STRING) return make_int(strcmp(left.strVal, right.strVal) == 0);
     }
     return make_int(0);
 }
 
-int is_truthy(Value* v) {
-    if (!v) return 0;
-    if (v->type == TYPE_INT) return v->intVal != 0;
-    if (v->type == TYPE_BOOL) return v->intVal != 0;
-    if (v->type == TYPE_FLOAT64) return v->floatVal != 0.0;
-    if (v->type == TYPE_STRING) return strlen(v->strVal) > 0;
-    if (v->type == TYPE_ARRAY) return v->arrVal.length > 0;
-    if (v->type == TYPE_MAP) return v->mapVal.length > 0;
-    if (v->type == TYPE_BIGINT) return mpz_cmp_si(v->bigIntVal, 0) != 0;
-    if (v->type == TYPE_BIGFLOAT) return mpf_cmp_d(v->bigFloatVal, 0.0) != 0;
-    if (v->type == TYPE_OPTION) return v->optVal.tag != 0;
-    if (v->type == TYPE_RESULT) return v->resVal.tag == 0;
+int is_truthy(Value v) {
+    if (v.type == TYPE_INT) return v.intVal != 0;
+    if (v.type == TYPE_BOOL) return v.intVal != 0;
+    if (v.type == TYPE_FLOAT64) return v.floatVal != 0.0;
+    if (v.type == TYPE_STRING) return strlen(v.strVal) > 0;
+    if (v.type == TYPE_ARRAY) return v.arrVal.length > 0;
+    if (v.type == TYPE_MAP) return v.mapVal.length > 0;
+    if (v.type == TYPE_BIGINT) return mpz_cmp_si(v.bigIntVal, 0) != 0;
+    if (v.type == TYPE_BIGFLOAT) return mpf_cmp_d(v.bigFloatVal, 0.0) != 0;
+    if (v.type == TYPE_OPTION) return v.optVal.tag != 0;
+    if (v.type == TYPE_RESULT) return v.resVal.tag == 0;
     return 0;
 }
 
@@ -905,9 +915,9 @@ void karkain_free(void* ptr) {
 }
 
 // Phase 10: String standard library functions
-Value* karkain_trim(Value* str) {
-    if (!str || str->type != TYPE_STRING) return make_string("");
-    char* s = str->strVal;
+Value karkain_trim(Value str) {
+    if (str.type != TYPE_STRING) return make_string("");
+    char* s = str.strVal;
     char* start = s;
     char* end = s + strlen(s) - 1;
     while (start <= end && (*start == ' ' || *start == '\t' || *start == '\n' || *start == '\r')) start++;
@@ -916,24 +926,24 @@ Value* karkain_trim(Value* str) {
     char* buf = (char*)malloc(len + 1);
     if (len > 0) memcpy(buf, start, len);
     buf[len] = '\0';
-    Value* res = make_string(buf);
+    Value res = make_string(buf);
     free(buf);
     return res;
 }
 
-Value* karkain_contains(Value* haystack, Value* needle) {
-    if (!haystack || !needle || haystack->type != TYPE_STRING || needle->type != TYPE_STRING) return make_int(0);
-    return make_int(strstr(haystack->strVal, needle->strVal) != NULL);
+Value karkain_contains(Value haystack, Value needle) {
+    if (haystack.type != TYPE_STRING || needle.type != TYPE_STRING) return make_int(0);
+    return make_int(strstr(haystack.strVal, needle.strVal) != NULL);
 }
 
-Value* karkain_split(Value* str, Value* delim) {
-    if (!str || !delim || str->type != TYPE_STRING || delim->type != TYPE_STRING) return make_array();
-    Value* arr = make_array();
-    char* s = strdup(str->strVal);
-    char* d = delim->strVal;
+Value karkain_split(Value str, Value delim) {
+    if (str.type != TYPE_STRING || delim.type != TYPE_STRING) return make_array();
+    Value arr = make_array();
+    char* s = strdup(str.strVal);
+    char* d = delim.strVal;
     char* token = strtok(s, d);
     while (token != NULL) {
-        array_push(arr, make_string(token));
+        array_push(&arr, make_string(token));
         token = strtok(NULL, d);
     }
     free(s);
@@ -941,21 +951,21 @@ Value* karkain_split(Value* str, Value* delim) {
 }
 
 // Phase 10: Math standard library functions
-Value* karkain_sqrt(Value* v) {
-    if (!v || v->type != TYPE_INT) return make_int(0);
-    return make_int((long long)sqrt((double)v->intVal));
+Value karkain_sqrt(Value v) {
+    if (v.type != TYPE_INT) return make_int(0);
+    return make_int((long long)sqrt((double)v.intVal));
 }
 
-Value* karkain_abs(Value* v) {
-    if (!v || v->type != TYPE_INT) return make_int(0);
-    return make_int(v->intVal >= 0 ? v->intVal : -v->intVal);
+Value karkain_abs(Value v) {
+    if (v.type != TYPE_INT) return make_int(0);
+    return make_int(v.intVal >= 0 ? v.intVal : -v.intVal);
 }
 
-Value* karkain_pow(Value* base, Value* exp) {
-    if (!base || !exp || base->type != TYPE_INT || exp->type != TYPE_INT) return make_int(0);
+Value karkain_pow(Value base, Value exp) {
+    if (base.type != TYPE_INT || exp.type != TYPE_INT) return make_int(0);
     long long result = 1;
-    long long b = base->intVal;
-    long long e = exp->intVal;
+    long long b = base.intVal;
+    long long e = exp.intVal;
     while (e > 0) {
         if (e & 1) result *= b;
         b *= b;
@@ -964,56 +974,52 @@ Value* karkain_pow(Value* base, Value* exp) {
     return make_int(result);
 }
 
-// Phase 10: Array append function
-Value* karkain_appendArray(Value* arr, Value* elem) {
-    if (!arr || arr->type != TYPE_ARRAY) return make_array();
+// Phase 10: Array append function — mutates arr and returns it
+Value karkain_appendArray(Value* arr, Value elem) {
+    if (!arr || arr->type != TYPE_ARRAY) return mk_nil();
     array_push(arr, elem);
-    return arr;
+    return *arr;
 }
 
-// Phase 49: Boolean — static true/false, never malloc
-Value* make_bool(int v) {
-    static Value bool_true = { .type = TYPE_BOOL, .intVal = 1 };
-    static Value bool_false = { .type = TYPE_BOOL, .intVal = 0 };
-    return v ? &bool_true : &bool_false;
+// Phase 52: Boolean — compound literal, never malloc, no shared state
+Value make_bool(int v) {
+    return v ? (Value){ .type = TYPE_BOOL, .intVal = 1 } : (Value){ .type = TYPE_BOOL, .intVal = 0 };
 }
 
 // Phase 19: Map hasKey and delete
-Value* karkain_hasKey(Value* m, Value* k) {
-    if (!m || m->type != TYPE_MAP) return make_int(0);
-    for (int i = 0; i < m->mapVal.length; i++) {
-        if (values_equal(m->mapVal.keys[i], k)) {
+Value karkain_hasKey(Value m, Value k) {
+    if (m.type != TYPE_MAP) return make_int(0);
+    for (int i = 0; i < m.mapVal.length; i++) {
+        if (values_equal(*m.mapVal.keys[i], k)) {
             return make_int(1);
         }
     }
     return make_int(0);
 }
 
-Value* karkain_delete(Value* m, Value* k) {
-    if (!m || m->type != TYPE_MAP) return m;
+void karkain_delete(Value* m, Value k) {
+    if (!m || m->type != TYPE_MAP) return;
     for (int i = 0; i < m->mapVal.length; i++) {
-        if (values_equal(m->mapVal.keys[i], k)) {
+        if (values_equal(*m->mapVal.keys[i], k)) {
             for (int j = i; j < m->mapVal.length - 1; j++) {
                 m->mapVal.keys[j] = m->mapVal.keys[j + 1];
                 m->mapVal.values[j] = m->mapVal.values[j + 1];
             }
             m->mapVal.length--;
-            return m;
+            return;
         }
     }
-    return m;
 }
 
 // Phase 19: Modulo operator
-Value* karkain_mod(Value* a, Value* b) {
-    if (!a || !b) return make_int(0);
-    if (a->type == TYPE_INT && b->type == TYPE_INT) {
-        if (b->intVal == 0) return make_int(0);
-        return make_int(a->intVal % b->intVal);
+Value karkain_mod(Value a, Value b) {
+    if (a.type == TYPE_INT && b.type == TYPE_INT) {
+        if (b.intVal == 0) return make_int(0);
+        return make_int(a.intVal % b.intVal);
     }
-    if (a->type == TYPE_FLOAT64 || b->type == TYPE_FLOAT64) {
-        double l = (a->type == TYPE_FLOAT64) ? a->floatVal : (double)a->intVal;
-        double r = (b->type == TYPE_FLOAT64) ? b->floatVal : (double)b->intVal;
+    if (a.type == TYPE_FLOAT64 || b.type == TYPE_FLOAT64) {
+        double l = (a.type == TYPE_FLOAT64) ? a.floatVal : (double)a.intVal;
+        double r = (b.type == TYPE_FLOAT64) ? b.floatVal : (double)b.intVal;
         if (r == 0.0) return make_float(0.0);
         return make_float(fmod(l, r));
     }
@@ -1021,15 +1027,14 @@ Value* karkain_mod(Value* a, Value* b) {
 }
 
 // Phase 19: Negate unary operator
-Value* karkain_negate(Value* v) {
-    if (!v) return make_int(0);
-    if (v->type == TYPE_INT) return make_int(-v->intVal);
-    if (v->type == TYPE_FLOAT64) return make_float(-v->floatVal);
+Value karkain_negate(Value v) {
+    if (v.type == TYPE_INT) return make_int(-v.intVal);
+    if (v.type == TYPE_FLOAT64) return make_float(-v.floatVal);
     return make_int(0);
 }
 
 // Phase 19: Logical NOT operator
-Value* karkain_not(Value* v) {
+Value karkain_not(Value v) {
     return make_int(is_truthy(v) ? 0 : 1);
 }
 `
@@ -1038,10 +1043,10 @@ Value* karkain_not(Value* v) {
 func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	params := []string{}
 	for _, p := range fn.Params {
-		params = append(params, "Value* "+p)
+		params = append(params, "Value "+p)
 	}
 
-	retType := "Value*"
+	retType := "Value"
 	fnName := fn.Name
 	if fnName == "main" {
 		retType = "int"
@@ -1083,8 +1088,8 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 	valueExpr := g.genExpr(node.Value)
 	var sb strings.Builder
 	sb.WriteString("({ ")
-	sb.WriteString(fmt.Sprintf("Value* _match_val = %s; ", valueExpr))
-	sb.WriteString("Value* _match_result = _match_val; ")
+	sb.WriteString(fmt.Sprintf("Value _match_val = %s; ", valueExpr))
+	sb.WriteString("Value _match_result = _match_val; ")
 
 	for i, arm := range node.Arms {
 		cond := ""
@@ -1094,19 +1099,19 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 			if arm.Pattern.Binding != "" {
 				binding = arm.Pattern.Binding
 			}
-			cond = "(_match_val->type == TYPE_OPTION && _match_val->optVal.tag == 1)"
+			cond = "(_match_val.type == TYPE_OPTION && _match_val.optVal.tag == 1)"
 		case "None":
-			cond = "(_match_val->type == TYPE_OPTION && _match_val->optVal.tag == 0)"
+			cond = "(_match_val.type == TYPE_OPTION && _match_val.optVal.tag == 0)"
 		case "Ok":
 			if arm.Pattern.Binding != "" {
 				binding = arm.Pattern.Binding
 			}
-			cond = "(_match_val->type == TYPE_RESULT && _match_val->resVal.tag == 0)"
+			cond = "(_match_val.type == TYPE_RESULT && _match_val.resVal.tag == 0)"
 		case "Err":
 			if arm.Pattern.Binding != "" {
 				binding = arm.Pattern.Binding
 			}
-			cond = "(_match_val->type == TYPE_RESULT && _match_val->resVal.tag == 1)"
+			cond = "(_match_val.type == TYPE_RESULT && _match_val.resVal.tag == 1)"
 		case "literal":
 			litExpr := g.mapLiteralToC(arm.Pattern.Value)
 			cond = fmt.Sprintf("is_truthy(binary_op(_match_val, \"==\", %s))", litExpr)
@@ -1136,13 +1141,13 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 
 		if binding != "" {
 			if arm.Pattern.Type == "Some" {
-				bodyBlock.WriteString(fmt.Sprintf("Value* %s = _match_val->optVal.inner; ", binding))
+				bodyBlock.WriteString(fmt.Sprintf("Value %s = *_match_val.optVal.inner; ", binding))
 			} else if arm.Pattern.Type == "Ok" {
-				bodyBlock.WriteString(fmt.Sprintf("Value* %s = _match_val->resVal.okVal; ", binding))
+				bodyBlock.WriteString(fmt.Sprintf("Value %s = *_match_val.resVal.okVal; ", binding))
 			} else if arm.Pattern.Type == "Err" {
-				bodyBlock.WriteString(fmt.Sprintf("Value* %s = _match_val->resVal.errVal; ", binding))
+				bodyBlock.WriteString(fmt.Sprintf("Value %s = *_match_val.resVal.errVal; ", binding))
 			} else {
-				bodyBlock.WriteString(fmt.Sprintf("Value* %s = _match_val; ", binding))
+				bodyBlock.WriteString(fmt.Sprintf("Value %s = _match_val; ", binding))
 			}
 		}
 
@@ -1181,7 +1186,7 @@ func (g *Generator) genStatementTo(sb *strings.Builder, stmt parser.Node) {
 		if node.IsMatrix {
 			sb.WriteString(g.genMatrixDecl(node))
 		} else {
-			sb.WriteString(fmt.Sprintf("Value* %s = %s; ", node.Name, g.genExpr(node.Value)))
+			sb.WriteString(fmt.Sprintf("Value %s = %s; ", node.Name, g.genExpr(node.Value)))
 		}
 	case *parser.PrintStmt:
 		sb.WriteString(fmt.Sprintf("print_value(%s); ", g.genExpr(node.Value)))
@@ -1241,11 +1246,11 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		}
 		// Check if this is a typed declaration
 		if node.Type != "" {
-			// Phase 50: All typed declarations use Value* — consistent with runtime type system
-			return fmt.Sprintf("\tValue* %s = %s;\n", node.Name, g.genExpr(node.Value))
+			// Phase 52: All declarations use Value (by value, stack-allocated)
+			return fmt.Sprintf("\tValue %s = %s;\n", node.Name, g.genExpr(node.Value))
 		}
-		// For dynamic types, use Value* wrapper
-		return fmt.Sprintf("\tValue* %s = %s;\n", node.Name, g.genExpr(node.Value))
+		// For dynamic types, use Value wrapper
+		return fmt.Sprintf("\tValue %s = %s;\n", node.Name, g.genExpr(node.Value))
 	case *parser.ReturnStmt:
 		return fmt.Sprintf("\treturn %s;\n", g.genExpr(node.Value))
 	case *parser.PrintStmt:
@@ -1420,18 +1425,20 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return n.Name
 	case *parser.ArrayLiteral:
 		var sb strings.Builder
-		sb.WriteString("({ Value* _arr = make_array(); ")
+		sb.WriteString("({ Value _arr = make_array(); ")
 		for _, elem := range n.Elements {
-			sb.WriteString(fmt.Sprintf("array_push(_arr, %s); ", g.genExpr(elem)))
+			sb.WriteString(fmt.Sprintf("array_push(&_arr, %s); ", g.genExpr(elem)))
 		}
 		sb.WriteString("_arr; })")
 		return sb.String()
 	case *parser.MapLiteral:
-		expr := "make_map()"
+		var sb strings.Builder
+		sb.WriteString("({ Value _m = make_map(); ")
 		for i := 0; i < len(n.Keys); i++ {
-			expr = fmt.Sprintf("map_set(%s, %s, %s)", expr, g.genExpr(n.Keys[i]), g.genExpr(n.Values[i]))
+			sb.WriteString(fmt.Sprintf("map_set(&_m, %s, %s); ", g.genExpr(n.Keys[i]), g.genExpr(n.Values[i])))
 		}
-		return expr
+		sb.WriteString("_m; })")
+		return sb.String()
 	case *parser.IndexExpr:
 		return fmt.Sprintf("array_get(%s, %s)", g.genExpr(n.Left), g.genExpr(n.Index))
 	case *parser.LambdaExpr:
@@ -1439,14 +1446,14 @@ func (g *Generator) genExpr(node parser.Node) string {
 		name := fmt.Sprintf("_lambda_%d", g.lambdaCount)
 		params := []string{}
 		for _, p := range n.Params {
-			params = append(params, "Value* "+p)
+			params = append(params, "Value "+p)
 		}
 		var body strings.Builder
 		for _, stmt := range n.Body {
 			body.WriteString(g.genStatement(stmt))
 		}
 		// GCC nested function: define as a static function inside the enclosing scope
-		fmt.Fprintf(&g.lambdaBuf, "Value* %s(%s) {\n%s\treturn make_int(0);\n}\n\n", name, strings.Join(params, ", "), body.String())
+		fmt.Fprintf(&g.lambdaBuf, "Value %s(%s) {\n%s\treturn make_int(0);\n}\n\n", name, strings.Join(params, ", "), body.String())
 		return name
 
 	case *parser.BinaryExpr:
@@ -1455,17 +1462,23 @@ func (g *Generator) genExpr(node parser.Node) string {
 			left := g.genExpr(n.Left)
 			right := g.genExpr(n.Right)
 
-			// Phase 50: Index assignment — m[k] = v → index_set(m, k, v)
+			// Phase 52: Index assignment — m[k] = v → index_set(&m, k, v) (mutates variable directly)
 			if idxExpr, ok := n.Left.(*parser.IndexExpr); ok {
-				target := g.genExpr(idxExpr.Left)
 				index := g.genExpr(idxExpr.Index)
-				return fmt.Sprintf("index_set(%s, %s, %s)", target, index, right)
+				if ident, ok := idxExpr.Left.(*parser.Identifier); ok {
+					return fmt.Sprintf("index_set(&%s, %s, %s)", ident.Name, index, right)
+				}
+				target := g.genExpr(idxExpr.Left)
+				return fmt.Sprintf("({ Value _iset_tgt = %s; index_set(&_iset_tgt, %s, %s); _iset_tgt; })", target, index, right)
 			}
 
-			// Phase 50: Dot assignment — p.name = v → map_set(p, "name", v)
+			// Phase 52: Dot assignment — p.name = v → map_set(&p, "name", v) (mutates variable directly)
 			if dotExpr, ok := n.Left.(*parser.DotExpr); ok {
+				if ident, ok := dotExpr.Left.(*parser.Identifier); ok {
+					return fmt.Sprintf("map_set(&%s, make_string(%q), %s)", ident.Name, dotExpr.Right, right)
+				}
 				target := g.genExpr(dotExpr.Left)
-				return fmt.Sprintf("map_set(%s, make_string(%q), %s)", target, dotExpr.Right, right)
+				return fmt.Sprintf("({ Value _ms_tgt = %s; map_set(&_ms_tgt, make_string(%q), %s); _ms_tgt; })", target, dotExpr.Right, right)
 			}
 
 			// If the left side is a matrix index, we need proper type handling
@@ -1537,17 +1550,22 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Function == "pow" {
 			return fmt.Sprintf("karkain_pow(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
-		if n.Function == "appendArray" {
-			return fmt.Sprintf("karkain_appendArray(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
-		}
-		if n.Function == "push" {
-			return fmt.Sprintf("karkain_appendArray(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		if n.Function == "appendArray" || n.Function == "push" {
+			// Mutating builtin: pass first arg by pointer when it's a variable
+			if ident, ok := n.Args[0].(*parser.Identifier); ok {
+				return fmt.Sprintf("karkain_appendArray(&%s, %s)", ident.Name, g.genExpr(n.Args[1]))
+			}
+			return fmt.Sprintf("({ Value _ap_arr = %s; karkain_appendArray(&_ap_arr, %s); _ap_arr; })", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		if n.Function == "hasKey" {
 			return fmt.Sprintf("karkain_hasKey(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		if n.Function == "delete" {
-			return fmt.Sprintf("karkain_delete(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+			// Mutating builtin: pass first arg by pointer when it's a variable
+			if ident, ok := n.Args[0].(*parser.Identifier); ok {
+				return fmt.Sprintf("karkain_delete(&%s, %s)", ident.Name, g.genExpr(n.Args[1]))
+			}
+			return fmt.Sprintf("({ Value _del_m = %s; karkain_delete(&_del_m, %s); _del_m; })", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		if n.Function == "mod" {
 			return fmt.Sprintf("karkain_mod(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
@@ -1622,7 +1640,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 		// Phase 50: expr? — error propagation operator
 		// Desugar to: if result is Err, return Err; otherwise unwrap Ok value
 		operand := g.genExpr(n.Operand)
-		return fmt.Sprintf("(({Value* _r = %s; if (_r->type == TYPE_RESULT && _r->resVal.tag == 1) return _r; _r->type == TYPE_RESULT ? _r->resVal.okVal : _r; }))", operand)
+		return fmt.Sprintf("(({Value _r = %s; if (_r.type == TYPE_RESULT && _r.resVal.tag == 1) return _r; _r.type == TYPE_RESULT ? *_r.resVal.okVal : _r; }))", operand)
 	case *parser.EnumVariantExpr:
 		// Phase 45: EnumName.Variant or EnumName.Variant(payload)
 		if n.Value != nil {
@@ -1891,9 +1909,9 @@ func (g *Generator) genEnumDecl(node *parser.EnumDecl) string {
 	for i, v := range node.Variants {
 		if v.Payload != "" {
 			// Payload variant: generate a constructor function
-			sb.WriteString(fmt.Sprintf("Value* %s_%s_make(Value* payload) {\n", node.Name, v.Name))
-			sb.WriteString(fmt.Sprintf("    Value* v = (Value*)malloc(sizeof(Value));\n"))
-			sb.WriteString(fmt.Sprintf("    v->type = TYPE_INT; v->intVal = %d; return v;\n", i+1))
+			sb.WriteString(fmt.Sprintf("Value %s_%s_make(Value payload) {\n", node.Name, v.Name))
+			sb.WriteString(fmt.Sprintf("    (void)payload;\n"))
+			sb.WriteString(fmt.Sprintf("    return make_int(%d);\n", i+1))
 			sb.WriteString(fmt.Sprintf("}\n"))
 		} else {
 			// Unit variant: integer tag constant
@@ -1935,22 +1953,22 @@ func (g *Generator) genForInStmt(node *parser.ForInStmt) string {
 	var sb strings.Builder
 	iterExpr := g.genExpr(node.Iter)
 	if node.KeyName != "" {
-		// Phase 48: Map iteration — for k, v in map { ... }
-		sb.WriteString(fmt.Sprintf("\t{ Value* _iter = %s; ", iterExpr))
-		sb.WriteString(fmt.Sprintf("int _len = (_iter && _iter->type == TYPE_MAP) ? _iter->mapVal.length : 0; "))
+		// Phase 52: Map iteration — for k, v in map { ... }
+		sb.WriteString(fmt.Sprintf("\t{ Value _iter = %s; ", iterExpr))
+		sb.WriteString(fmt.Sprintf("int _len = (_iter.type == TYPE_MAP) ? _iter.mapVal.length : 0; "))
 		sb.WriteString(fmt.Sprintf("for (int _i = 0; _i < _len; _i++) { "))
-		sb.WriteString(fmt.Sprintf("Value* %s = _iter->mapVal.keys[_i]; ", node.KeyName))
-		sb.WriteString(fmt.Sprintf("Value* %s = _iter->mapVal.values[_i]; ", node.VarName))
+		sb.WriteString(fmt.Sprintf("Value %s = *_iter.mapVal.keys[_i]; ", node.KeyName))
+		sb.WriteString(fmt.Sprintf("Value %s = *_iter.mapVal.values[_i]; ", node.VarName))
 		for _, bodyStmt := range node.Body {
 			sb.WriteString(g.genStatement(bodyStmt))
 		}
 		sb.WriteString("} }")
 	} else {
-		// Array iteration
-		sb.WriteString(fmt.Sprintf("\t{ Value* _iter = %s; ", iterExpr))
-		sb.WriteString(fmt.Sprintf("int _len = (_iter && _iter->type == TYPE_ARRAY) ? _iter->arrVal.length : 0; "))
+		// Phase 52: Array iteration
+		sb.WriteString(fmt.Sprintf("\t{ Value _iter = %s; ", iterExpr))
+		sb.WriteString(fmt.Sprintf("int _len = (_iter.type == TYPE_ARRAY) ? _iter.arrVal.length : 0; "))
 		sb.WriteString(fmt.Sprintf("for (int _i = 0; _i < _len; _i++) { "))
-		sb.WriteString(fmt.Sprintf("Value* %s = _iter->arrVal.items[_i]; ", node.VarName))
+		sb.WriteString(fmt.Sprintf("Value %s = *_iter.arrVal.items[_i]; ", node.VarName))
 		for _, bodyStmt := range node.Body {
 			sb.WriteString(g.genStatement(bodyStmt))
 		}
@@ -1960,17 +1978,19 @@ func (g *Generator) genForInStmt(node *parser.ForInStmt) string {
 	return sb.String()
 }
 
-// Phase 50: Generate C struct literal — structs are stored as maps internally
+// Phase 52: Generate C struct literal — structs are stored as maps internally
 func (g *Generator) genStructLiteral(node *parser.StructLiteral) string {
-	expr := "make_map()"
+	var sb strings.Builder
+	sb.WriteString("({ Value _s = make_map(); ")
 	for _, field := range node.Fields {
 		if binExpr, ok := field.(*parser.BinaryExpr); ok {
 			if ident, ok := binExpr.Left.(*parser.Identifier); ok {
-				expr = fmt.Sprintf("map_set(%s, make_string(%q), %s)", expr, ident.Name, g.genExpr(binExpr.Right))
+				sb.WriteString(fmt.Sprintf("map_set(&_s, make_string(%q), %s); ", ident.Name, g.genExpr(binExpr.Right)))
 			}
 		}
 	}
-	return expr
+	sb.WriteString("_s; })")
+	return sb.String()
 }
 
 // Phase 14: Get the quantum register name
