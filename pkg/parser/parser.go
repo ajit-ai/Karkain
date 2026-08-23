@@ -491,6 +491,13 @@ func (p *Parser) parseIdentStatement() Node {
 	ident := p.curToken.Literal(p.src)
 	p.nextToken() // consume identifier
 
+	// Phase 14: Bare quantum gate syntax — H qr[0], CNOT qr[0], qr[1]
+	// A known gate name in statement position followed by an operand (identifier or int)
+	// is a gate apply, not an expression statement.
+	if isQuantumGate(ident) && (p.curToken.Type == lexer.TokenIdent || p.curToken.Type == lexer.TokenInt) {
+		return p.parseBareGateApply(ident)
+	}
+
 	// Check for index assignment: arr[i] = val or matrix arr[r,c] = val
 	if p.curToken.Type == lexer.TokenLBracket {
 		p.nextToken() // consume '['
@@ -796,6 +803,9 @@ func (p *Parser) parsePrimaryExpr() Node {
 	case lexer.TokenFalse:
 		p.nextToken()
 		return p.arena.AllocBoolLiteral(false)
+	case lexer.TokenMeasure:
+		// Phase 14: measure(qr[0]) in expression position — yields a classical bit
+		return p.parseMeasure()
 	case lexer.TokenQuote:
 		p.nextToken() // consume 'quote'
 		p.nextToken() // consume '('
@@ -1369,9 +1379,64 @@ func (p *Parser) parseQRegDecl() *QRegDeclStmt {
 	p.nextToken() // consume 'qreg'
 	name := p.curToken.Literal(p.src)
 	p.nextToken() // consume name
-	p.nextToken() // consume '='
-	qubits := p.parseExpr()
+
+	var qubits Node
+	if p.curToken.Type == lexer.TokenLBracket {
+		// Bracket form: qreg qr[2]
+		p.nextToken() // consume '['
+		qubits = p.parseExpr()
+		if p.curToken.Type == lexer.TokenRBracket {
+			p.nextToken() // consume ']'
+		}
+	} else {
+		// Assignment form: qreg qr = 2
+		p.nextToken() // consume '='
+		qubits = p.parseExpr()
+	}
+
 	return &QRegDeclStmt{Name: name, Qubits: qubits}
+}
+
+// quantumGateNames — gates usable with bare statement syntax (H qr[0], CNOT qr[0], qr[1])
+var quantumGateNames = map[string]bool{
+	"H": true, "X": true, "Y": true, "Z": true,
+	"S": true, "T": true, "SX": true,
+	"RX": true, "RY": true, "RZ": true, "PHASE": true,
+	"CNOT": true, "CZ": true, "SWAP": true, "CCX": true,
+}
+
+func isQuantumGate(name string) bool {
+	return quantumGateNames[name]
+}
+
+// parseBareGateApply parses bare gate syntax: GateName operand [, operand]...
+// Convention matches keyword form: for two-qubit gates the FIRST operand is control,
+// the SECOND is target (CNOT qr[0], qr[1] → Control=qr[0], Target=qr[1]).
+func (p *Parser) parseBareGateApply(gateName string) *GateApplyStmt {
+	target := p.parseExpr()
+
+	var control Node = nil
+	var params []Node = nil
+
+	// Second operand: two-qubit gate (control) or rotation parameter
+	if p.curToken.Type == lexer.TokenComma {
+		p.nextToken() // consume ','
+		second := p.parseExpr()
+		switch gateName {
+		case "CNOT", "CZ", "SWAP", "CCX":
+			control = target
+			target = second
+		default:
+			params = []Node{second}
+		}
+	}
+
+	return &GateApplyStmt{
+		Gate:    gateName,
+		Target:  target,
+		Control: control,
+		Params:  params,
+	}
 }
 
 func (p *Parser) parseGateApply() *GateApplyStmt {
@@ -1413,9 +1478,19 @@ func (p *Parser) parseGateApply() *GateApplyStmt {
 
 func (p *Parser) parseMeasure() *MeasureExpr {
 	p.nextToken() // consume 'measure'
-	p.nextToken() // consume '('
+
+	// Paren form: measure(qr[0])
+	if p.curToken.Type == lexer.TokenLParen {
+		p.nextToken() // consume '('
+		qubit := p.parseExpr()
+		if p.curToken.Type == lexer.TokenRParen {
+			p.nextToken() // consume ')'
+		}
+		return &MeasureExpr{Qubit: qubit}
+	}
+
+	// Bare form: measure qr[0]
 	qubit := p.parseExpr()
-	p.nextToken() // consume ')'
 	return &MeasureExpr{Qubit: qubit}
 }
 
