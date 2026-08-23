@@ -1,0 +1,19 @@
+func main() {
+    let s = "Hello, Karkain!"
+    print(s[0:5])
+    print(s[7:14])
+    print(s[7:])
+    print(s == "Hello, Karkain!")
+    print(s != "Hello, Karkain!")
+    print("abc" < "abd")
+    print("b" > "a")
+
+    let nums = [10, 20, 30, 40, 50]
+    let mid = nums[1:4]
+    print(mid[0])
+    print(mid[2])
+    print(nums[:2])
+
+    let name = "World"
+    print(fmt("Hello, {}! n={} f={}", name, 42, 3.5))
+}

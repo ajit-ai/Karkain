@@ -638,6 +638,73 @@ int values_equal(Value a, Value b) {
     return 0;
 }
 
+// Phase 55: slicing with bounds checking; negative end counts from length, -1 = open
+Value karkain_slice(Value v, Value s, Value e) {
+    long long start = (s.type == TYPE_INT) ? s.intVal : 0;
+    long long end = (e.type == TYPE_INT) ? e.intVal : -1;
+    if (v.type == TYPE_STRING) {
+        long long n = (long long)strlen(v.strVal);
+        if (end < 0) end += n + 1;
+        if (start < 0) start = 0;
+        if (end > n) end = n;
+        if (start >= end || start >= n) return make_string("");
+        long long len = end - start;
+        char* buf = (char*)malloc((size_t)len + 1);
+        memcpy(buf, v.strVal + start, (size_t)len);
+        buf[len] = 0;
+        Value r = make_string(buf);
+        free(buf);
+        return r;
+    }
+    if (v.type == TYPE_ARRAY) {
+        long long n = (long long)v.arrVal.length;
+        if (end < 0) end += n + 1;
+        if (start < 0) start = 0;
+        if (end > n) end = n;
+        Value out = make_array();
+        if (start < end) {
+            for (long long i = start; i < end; i++) array_push(&out, *v.arrVal.items[i]);
+        }
+        return out;
+    }
+    return make_int(0);
+}
+
+// Phase 55: formatting — fmt("x={} y={}", a, b); {} consumes next arg in order
+#include <stdarg.h>
+Value karkain_fmt(Value fstr, int count, ...) {
+    if (fstr.type != TYPE_STRING) return make_string("");
+    const char* f = fstr.strVal;
+    size_t cap = strlen(f) + (size_t)(count > 0 ? count : 0) * 32 + 16;
+    char* buf = (char*)malloc(cap);
+    size_t pos = 0;
+    va_list ap;
+    va_start(ap, count);
+    while (*f && pos + 64 < cap) {
+        if (f[0] == '{' && f[1] == '}') {
+            f += 2;
+            if (count-- <= 0) continue;
+            Value v = va_arg(ap, Value);
+            char tmp[48];
+            const char* piece = "";
+            if (v.type == TYPE_STRING) piece = v.strVal;
+            else if (v.type == TYPE_FLOAT64) { snprintf(tmp, sizeof(tmp), "%g", v.floatVal); piece = tmp; }
+            else if (v.type == TYPE_INT || v.type == TYPE_BOOL) { snprintf(tmp, sizeof(tmp), "%lld", v.intVal); piece = tmp; }
+            size_t pl = strlen(piece);
+            if (pos + pl + 1 >= cap) break;
+            memcpy(buf + pos, piece, pl);
+            pos += pl;
+            continue;
+        }
+        buf[pos++] = *f++;
+    }
+    va_end(ap);
+    buf[pos] = 0;
+    Value r = make_string(buf);
+    free(buf);
+    return r;
+}
+
 // Mutation takes Value*; key and value are heap-copied for storage. Returns void.
 void map_set(Value* m, Value k, Value v) {
     if (!m || m->type != TYPE_MAP) return;
@@ -792,6 +859,16 @@ void print_value(Value v) {
 }
 
 Value binary_op(Value left, const char* op, Value right) {
+    // Phase 55: string comparison operators (ordering + equality)
+    if (left.type == TYPE_STRING && right.type == TYPE_STRING) {
+        int c = strcmp(left.strVal, right.strVal);
+        if (strcmp(op, "==") == 0) return make_int(c == 0);
+        if (strcmp(op, "!=") == 0) return make_int(c != 0);
+        if (strcmp(op, "<") == 0) return make_int(c < 0);
+        if (strcmp(op, ">") == 0) return make_int(c > 0);
+        if (strcmp(op, "<=") == 0) return make_int(c <= 0);
+        if (strcmp(op, ">=") == 0) return make_int(c >= 0);
+    }
     // String concatenation
     if (strcmp(op, "+") == 0 && left.type == TYPE_STRING && right.type == TYPE_STRING) {
         size_t len = strlen(left.strVal) + strlen(right.strVal);
@@ -1476,6 +1553,12 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return sb.String()
 	case *parser.IndexExpr:
 		return fmt.Sprintf("array_get(%s, %s)", g.genExpr(n.Left), g.genExpr(n.Index))
+	case *parser.SliceExpr:
+		end := "make_int(-1)"
+		if n.End != nil {
+			end = g.genExpr(n.End)
+		}
+		return fmt.Sprintf("karkain_slice(%s, %s, %s)", g.genExpr(n.Target), g.genExpr(n.Start), end)
 	case *parser.LambdaExpr:
 		g.lambdaCount++
 		name := fmt.Sprintf("_lambda_%d", g.lambdaCount)
@@ -1556,6 +1639,13 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "len" {
 			return fmt.Sprintf("karkain_len(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "fmt" && len(n.Args) > 0 { // Phase 55: string formatting
+			parts := []string{g.genExpr(n.Args[0]), fmt.Sprintf("%d", len(n.Args)-1)}
+			for _, a := range n.Args[1:] {
+				parts = append(parts, g.genExpr(a))
+			}
+			return fmt.Sprintf("karkain_fmt(%s)", strings.Join(parts, ", "))
 		}
 		if n.Function == "readFile" {
 			return fmt.Sprintf("karkain_readFile(%s)", g.genExpr(n.Args[0]))
