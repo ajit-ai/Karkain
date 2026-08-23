@@ -33,11 +33,14 @@ type Generator struct {
 	enumDecls        map[string]*parser.EnumDecl // Phase 45: tracked enum declarations
 	lambdaCount      int                         // Phase 48: unique lambda naming
 	lambdaBuf        strings.Builder             // Phase 48: lambda function definitions to inject
+	closureVars      map[string]bool             // Phase 54: let-bound lambdas with captures
+	lastClosureInit  string                      // Phase 54: env-instance init emitted at binding site
 	quantumRegisters []string                    // Phase 14: declared quantum registers, in declaration order
 }
 
 func New(cfg Config) *Generator {
-	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl)}
+	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl),
+		closureVars: make(map[string]bool)}
 }
 
 func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
@@ -1056,6 +1059,31 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		params = append(params, "Value "+p)
 	}
 
+	// Phase 54: closure conversion — capturing lambdas take an env struct of
+	// pointers to the captured variables (mutable, shared with enclosing scope).
+	closureDefs, closureUndefs := "", ""
+	if len(fn.Captures) > 0 {
+		envT := "ClosureEnv_" + sanitizeC(fn.Name)
+		g.closureVars[fn.Name] = true
+		var fields strings.Builder
+		for _, cap := range fn.Captures {
+			fmt.Fprintf(&fields, "\tValue* %s;\n", cap)
+			closureDefs += fmt.Sprintf("#define %s (*_env->%s)\n", cap, cap)
+			closureUndefs += fmt.Sprintf("#undef %s\n", cap)
+		}
+		holder := "_genv_" + sanitizeC(fn.Name)
+		inits := ""
+		for _, cap := range fn.Captures {
+			inits += fmt.Sprintf("_e.%s = &%s; ", cap, cap)
+		}
+		g.lambdaBuf.WriteString(fmt.Sprintf(
+			"typedef struct {\n%s} %s;\nstatic %s* %s;\n\n", fields.String(), envT, envT, holder))
+		params = append([]string{envT + "* _env"}, params...)
+		g.lastClosureInit = fmt.Sprintf("\t{ static %s _e; %s%s = &_e; }\n", envT, inits, holder)
+	} else {
+		g.lastClosureInit = ""
+	}
+
 	retType := "Value"
 	fnName := fn.Name
 	if fnName == "main" {
@@ -1082,7 +1110,9 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		sb.WriteString("\tquantum_init();\n")
 	}
 
+	sb.WriteString(closureDefs)
 	sb.WriteString(bodySb.String())
+	sb.WriteString(closureUndefs)
 
 	if fnName == "main" {
 		sb.WriteString("\treturn 0;\n")
@@ -1250,9 +1280,10 @@ func (g *Generator) genStatement(stmt parser.Node) string {
 		if node.IsMatrix {
 			return g.genMatrixDecl(node)
 		}
-		// Phase 48: let x = fn(...) → emit as named function declaration
+		// Phase 48/54: let x = fn(...) → emit as named function declaration
 		if fn, ok := node.Value.(*parser.FuncDecl); ok {
-			return g.genFuncDecl(fn)
+			out := g.genFuncDecl(fn)
+			return out + g.lastClosureInit // Phase 54: env instance init after closure def
 		}
 		// Check if this is a typed declaration
 		if node.Type != "" {
@@ -1597,7 +1628,17 @@ func (g *Generator) genExpr(node parser.Node) string {
 		for _, arg := range n.Args {
 			args = append(args, g.genExpr(arg))
 		}
-		return fmt.Sprintf("%s(%s)", n.Function, strings.Join(args, ", "))
+		// Phase 54: closure variables carry an implicit env argument
+	if g.closureVars[n.Function] {
+		return fmt.Sprintf("%s(_genv_%s%s)", n.Function, sanitizeC(n.Function),
+			func() string {
+				if len(args) > 0 {
+					return ", " + strings.Join(args, ", ")
+				}
+				return ""
+			}())
+	}
+	return fmt.Sprintf("%s(%s)", n.Function, strings.Join(args, ", "))
 	case *parser.MatrixIndexExpr:
 		// Generate row-major offset calculation: (row * cols + col)
 		matrixExpr := g.genExpr(n.Matrix)
@@ -2096,3 +2137,4 @@ void matrix_mul_scalar(double* A, double* B, double* C, int64_t rowsA, int64_t c
 }
 `
 }
+

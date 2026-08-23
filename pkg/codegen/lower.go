@@ -127,7 +127,7 @@ func (l *fnLowerer) lowerExpr(e parser.Node) ssa.Operand {
 		return ssa.Reg(dest)
 	case *parser.CallExpr:
 		if !n.IsCFunc && !strings.Contains(n.Function, ".") &&
-			!mutatingBuiltin(n.Function) &&
+			!mutatingBuiltin(n.Function) && !l.g.closureVars[n.Function] &&
 			(l.declared[n.Function] || callableBuiltin(n.Function)) {
 			args := make([]ssa.Operand, len(n.Args))
 			for i, a := range n.Args {

@@ -190,6 +190,7 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 		lambda := p.parseLambda()
 		fn := p.arena.AllocFuncDecl(name, lambda.Params, lambda.Body, nil)
 		fn.ParamTypes = lambda.ParamTypes
+		fn.Captures = lambda.Captures // Phase 54: propagate captures to named binding
 		return &VarDeclStmt{Name: name, Value: fn}
 	}
 
@@ -348,7 +349,9 @@ func (p *Parser) parseLambda() *LambdaExpr {
 	p.nextToken() // consume '{'
 	body := p.parseBlock()
 	p.nextToken() // consume '}'
-	return p.arena.AllocLambdaExpr(params, paramTypes, body)
+	le := p.arena.AllocLambdaExpr(params, paramTypes, body)
+	le.Captures = ComputeCaptures(params, body) // Phase 54
+	return le
 }
 
 func (p *Parser) parseWhile() *WhileStmt {

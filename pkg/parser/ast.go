@@ -15,6 +15,7 @@ type FuncDecl struct {
 	ParamTypes    []string           // Phase 46: typed parameters (e.g., "int", "string")
 	Body          []Node
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
+	Captures      []string           // Phase 54: free variables captured from enclosing scope (lambdas only)
 }
 
 type VarDeclStmt struct {
@@ -450,6 +451,7 @@ type LambdaExpr struct {
 	Params    []string
 	ParamTypes []string
 	Body      []Node
+	Captures  []string // Phase 54: free variables captured from enclosing scope
 }
 
 // Phase 48: Function reference expression (used when let x = fn(...) is desugared to named function)
