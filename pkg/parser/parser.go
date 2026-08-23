@@ -291,6 +291,15 @@ func (p *Parser) parseStatement() Node {
 	case lexer.TokenMatch:
 		// Phase 42: match value { pattern => expr, ... }
 		return &ExprStmt{Expression: p.parseMatchExpr()}
+	case lexer.TokenInt, lexer.TokenFloat64, lexer.TokenString, lexer.TokenBigInt, lexer.TokenBigFloat,
+		lexer.TokenSome, lexer.TokenNone, lexer.TokenOk, lexer.TokenErr,
+		lexer.TokenLParen, lexer.TokenLBracket, lexer.TokenLBrace,
+		lexer.TokenTrue, lexer.TokenFalse:
+		expr := p.parseExpr()
+		if expr != nil {
+			return &ExprStmt{Expression: expr}
+		}
+		return nil
 	default:
 		p.addError(fmt.Sprintf("unexpected token '%s' (%s)", p.curToken.Literal(p.src), p.curToken.Type))
 		p.nextToken()
@@ -476,28 +485,36 @@ func (p *Parser) parseIdentStatement() Node {
 	ident := p.curToken.Literal(p.src)
 	p.nextToken() // consume identifier
 
-	// Check for matrix index assignment
+	// Check for index assignment: arr[i] = val or matrix arr[r,c] = val
 	if p.curToken.Type == lexer.TokenLBracket {
 		p.nextToken() // consume '['
-		row := p.parseExpr()
-		p.nextToken() // consume ','
-		col := p.parseExpr()
+		first := p.parseExpr()
+		if p.curToken.Type == lexer.TokenComma {
+			// Matrix index: arr[row, col] = val
+			p.nextToken() // consume ','
+			col := p.parseExpr()
+			p.nextToken() // consume ']'
+			matIdx := &MatrixIndexExpr{
+				Matrix: &Identifier{Name: ident},
+				Row:    first,
+				Col:    col,
+			}
+			if p.curToken.Type == lexer.TokenAssign {
+				p.nextToken() // consume '='
+				val := p.parseExpr()
+				return &ExprStmt{Expression: &BinaryExpr{Left: matIdx, Operator: "=", Right: val}}
+			}
+			return &ExprStmt{Expression: matIdx}
+		}
+		// Single index: arr[i] = val or arr[i]
 		p.nextToken() // consume ']'
-
+		idxExpr := &IndexExpr{Left: &Identifier{Name: ident}, Index: first}
 		if p.curToken.Type == lexer.TokenAssign {
 			p.nextToken() // consume '='
 			val := p.parseExpr()
-			assignExpr := &BinaryExpr{
-				Left: &MatrixIndexExpr{
-					Matrix: &Identifier{Name: ident},
-					Row:    row,
-					Col:    col,
-				},
-				Operator: "=",
-				Right:    val,
-			}
-			return &ExprStmt{Expression: assignExpr}
+			return &ExprStmt{Expression: &BinaryExpr{Left: idxExpr, Operator: "=", Right: val}}
 		}
+		return &ExprStmt{Expression: idxExpr}
 	}
 
 	// Simple variable assignment (reassignment, not declaration)
@@ -552,7 +569,14 @@ func (p *Parser) parseIdentStatement() Node {
 				IsCFunc:  ident == "C",
 			}}
 		}
-		return &ExprStmt{Expression: &DotExpr{Left: left, Right: rightIdent}}
+		dotExpr := &DotExpr{Left: left, Right: rightIdent}
+		// Check for dot assignment: p.name = value
+		if p.curToken.Type == lexer.TokenAssign {
+			p.nextToken() // consume '='
+			val := p.parseExpr()
+			return &ExprStmt{Expression: &BinaryExpr{Left: dotExpr, Operator: "=", Right: val}}
+		}
+		return &ExprStmt{Expression: dotExpr}
 	}
 
 	// Check for binary operator (assignment via expression)
@@ -959,7 +983,15 @@ func (p *Parser) parseMatchExpr() *MatchExpr {
 			p.addError(fmt.Sprintf("expected '=>' in match arm, got '%s'", p.curToken.Literal(p.src)))
 		}
 		p.nextToken() // consume '=>'
-		body := p.parseExpr()
+		var body Node
+		if p.curToken.Type == lexer.TokenLBrace {
+			p.nextToken() // consume '{'
+			stmts := p.parseBlock()
+			p.nextToken() // consume '}'
+			body = &BlockStmt{Statements: stmts}
+		} else {
+			body = p.parseStatement()
+		}
 		arms = append(arms, MatchArm{Pattern: pattern, Body: body})
 
 		if p.curToken.Type == lexer.TokenComma {

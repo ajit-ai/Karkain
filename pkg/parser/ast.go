@@ -48,6 +48,10 @@ type PrintStmt struct {
 	Value Node
 }
 
+type BlockStmt struct {
+	Statements []Node
+}
+
 type StringLiteral struct {
 	Value string
 }

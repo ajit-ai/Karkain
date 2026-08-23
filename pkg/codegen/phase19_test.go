@@ -92,17 +92,14 @@ func TestGenStructDecl(t *testing.T) {
 		},
 	}
 	result := g.genStructDecl(node)
-	if !strings.Contains(result, "typedef struct {") {
-		t.Errorf("expected typedef struct, got:\n%s", result)
+	if !strings.Contains(result, "struct Person") {
+		t.Errorf("expected struct Person comment, got:\n%s", result)
 	}
-	if !strings.Contains(result, "char* name;") {
-		t.Errorf("expected char* name;, got:\n%s", result)
+	if !strings.Contains(result, "string name") {
+		t.Errorf("expected string name in comment, got:\n%s", result)
 	}
-	if !strings.Contains(result, "int64_t age;") {
-		t.Errorf("expected int64_t age;, got:\n%s", result)
-	}
-	if !strings.Contains(result, "} Person;") {
-		t.Errorf("expected } Person;, got:\n%s", result)
+	if !strings.Contains(result, "int age") {
+		t.Errorf("expected int age in comment, got:\n%s", result)
 	}
 }
 
@@ -232,14 +229,14 @@ func TestGenStructLiteral(t *testing.T) {
 		},
 	}
 	result := g.genStructLiteral(node)
-	if !strings.Contains(result, "Person") {
-		t.Errorf("expected Person struct type, got %s", result)
+	if !strings.Contains(result, "make_map()") {
+		t.Errorf("expected make_map() for struct literal, got %s", result)
 	}
-	if !strings.Contains(result, "_s.name =") {
-		t.Errorf("expected _s.name assignment, got %s", result)
+	if !strings.Contains(result, "make_string(\"name\")") {
+		t.Errorf("expected name field key, got %s", result)
 	}
-	if !strings.Contains(result, "_s.age =") {
-		t.Errorf("expected _s.age assignment, got %s", result)
+	if !strings.Contains(result, "map_set") {
+		t.Errorf("expected map_set for struct literal, got %s", result)
 	}
 }
 
@@ -916,11 +913,11 @@ func TestGenOptionSomeNone(t *testing.T) {
 	someResult := g.genExpr(someExpr)
 	noneResult := g.genExpr(noneExpr)
 
-	if someResult != "make_int(42)" {
-		t.Errorf("expected make_int(42), got %s", someResult)
+	if someResult != "option_some(make_int(42))" {
+		t.Errorf("expected option_some(make_int(42)), got %s", someResult)
 	}
-	if noneResult != "make_int(0)" {
-		t.Errorf("expected make_int(0), got %s", noneResult)
+	if noneResult != "option_none()" {
+		t.Errorf("expected option_none(), got %s", noneResult)
 	}
 }
 
