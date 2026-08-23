@@ -13,7 +13,12 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–62).
-Current phase: **50** — Bug Fixes & Language Correctness.
+Current phase: **53** — IR Infrastructure.
+Last completed: **52** — Value-by-Value Runtime API.
+
+## Known Issues (pre-existing)
+
+- `examples/quantum_test.kar` fails: quantum gate statements (`H qr[0]`, `CNOT qr[0], qr[1]`) are mangled by the parser (broken before Phase 52; gate operands parsed as bare identifiers). Needs a dedicated fix.
 
 ## Guiding Principles
 
