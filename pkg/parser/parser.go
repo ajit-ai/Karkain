@@ -291,9 +291,15 @@ func (p *Parser) parseStatement() Node {
 	case lexer.TokenMatch:
 		// Phase 42: match value { pattern => expr, ... }
 		return &ExprStmt{Expression: p.parseMatchExpr()}
+	case lexer.TokenLBrace:
+		// Phase 51: bare block { stmts }
+		p.nextToken() // consume '{'
+		stmts := p.parseBlock()
+		p.nextToken() // consume '}'
+		return &BlockStmt{Statements: stmts}
 	case lexer.TokenInt, lexer.TokenFloat64, lexer.TokenString, lexer.TokenBigInt, lexer.TokenBigFloat,
 		lexer.TokenSome, lexer.TokenNone, lexer.TokenOk, lexer.TokenErr,
-		lexer.TokenLParen, lexer.TokenLBracket, lexer.TokenLBrace,
+		lexer.TokenLParen, lexer.TokenLBracket,
 		lexer.TokenTrue, lexer.TokenFalse:
 		expr := p.parseExpr()
 		if expr != nil {
@@ -863,7 +869,14 @@ func (p *Parser) parsePrimaryExpr() Node {
 			mutable = true
 			p.nextToken() // consume 'mut'
 		}
-		operand := p.parsePrimaryExpr()
+		// Parse operand as simple expression (not struct literal)
+		var operand Node
+		if p.curToken.Type == lexer.TokenIdent {
+			operand = &Identifier{Name: p.curToken.Literal(p.src)}
+			p.nextToken()
+		} else {
+			operand = p.parsePrimaryExpr()
+		}
 		return &BorrowExpr{Operand: operand, Mutable: mutable}
 	case lexer.TokenMove:
 		// Phase 41: move(x) — explicit ownership transfer
