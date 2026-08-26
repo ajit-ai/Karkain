@@ -368,3 +368,84 @@ emits C23 and delegates register allocation + machine codegen to GCC/Clang.
 This is NOT an LLVM replacement and must not become one ï¿½ the C backend IS our
 portable backend. G2 work targets passes LLVM cannot see (value semantics,
 ownership-driven DCE) rather than duplicating machine-level optimization.
+
+---
+
+## Unified Audit & Phase Readjustment (2026-08)
+
+**Source**: ROADMAP bug register + codebase sweep + GCC `-Wall` + gap register (L1–L10, G1–G7).
+Total tracked items: **38** (8 bugs, 20 placeholders, 15 gaps, 6 dead code issues).
+
+### Bugs (must fix)
+
+| ID | Issue | Status |
+|---|---|---|
+| BUG-1 | Struct codegen broken — raw field types, boxed assignments | OPEN |
+| BUG-2 | Option/Result match arms always compile to `1` | OPEN |
+| BUG-3 | Index assignment `m[k] = v` generates assignment to rvalue | OPEN |
+| BUG-4 | `?` error propagation is a no-op | OPEN |
+| BUG-5 | Borrow checker lacks lexical scoping | OPEN |
+| BUG-6 | `make_int` pool mutable shared state | FIXED |
+| BUG-7 | Enum variants with payloads emit undefined `_make` | OPEN |
+| BUG-8 | Typed declarations mix `char*` vs `Value*` | OPEN |
+
+### Placeholders (emit only comments or dummy values)
+
+| ID | Feature | Phase |
+|---|---|---|
+| P1-P4 | Actor spawn/receive/send/runtime | 57 |
+| P5-P8 | HTTP, reflect, comptime | 60 |
+| P9 | GPU kernel host launch | 58 |
+| P10 | LSP server | 66 |
+| P11-P12 | Package manager fetch | 65 |
+| P13-P20 | Quantum distributed/QEC/QML/CNOT/CZ/RY | 59 |
+
+### Gaps (safety, quality, tooling)
+
+| ID | Gap | Phase |
+|---|---|---|
+| G1 | No ownership-enforced deallocation | 63 |
+| G2 | No panic/error boundary | 63 |
+| G3 | `?` propagation incomplete | 63 |
+| G4 | UTF-8 blindness | 55b |
+| G5 | Slices copy, don't view | 55b |
+| G6 | Deep equality missing | 55b |
+| G7 | No checked arithmetic | 55b |
+| G8 | No defer/RAII | 63 |
+| G9 | rawc bypasses SSA | 64 |
+| G10 | Concurrency below goroutine-class | 57 |
+| G11 | No pub/private visibility | 65 |
+| G12 | SSA optimizer too shallow | 64/67 |
+| G13 | No package manager | 65 |
+| G14 | No LSP/formatter/REPL | 66 |
+| G15 | No SIMD/atomics | 70 |
+
+### Dead Code / Build Quality
+
+| ID | Issue | Phase |
+|---|---|---|
+| D1 | HTTP stub in every binary | 55b |
+| D2 | Unused mat_rows/mat_cols | 55b |
+| D3 | Unused SHA256 results | 55b |
+| D4 | MSVC #pragma on GCC | 55b |
+| D5 | No verbose flag | 55b |
+| D6 | No #line directives | 55b |
+
+### Unified Execution Order
+
+```
+55b: Tooling & Dead Code Cleanup + deep equality + checked arithmetic
+56:  Self-Hosting Completion
+57:  Actor & Concurrency Runtime (P1-P4)
+58:  GPU Kernel Integration (P9)
+59:  Quantum Pipeline (P13-P20)
+60:  Standard Library (P5-P8)
+63:  Full Borrow Checker + Ownership (BUG-5, G1-G3, G8)
+64:  IR Optimizer Depth I (G9, M2)
+65:  Package Manager + Modules (P11-P12, G11)
+66:  Toolchain — LSP/fmt/REPL (P10)
+67:  IR Optimizer Depth II
+68:  Self-Hosting Completion (INDEPENDENCE)
+69:  Ecosystem Hardening + v1.0
+70:  SIMD Vector Types + Atomics
+```

@@ -634,7 +634,33 @@ void array_push(Value* arr, Value elem) {
 int values_equal(Value a, Value b) {
     if (a.type != b.type) return 0;
     if (a.type == TYPE_INT) return a.intVal == b.intVal;
+    if (a.type == TYPE_BOOL) return a.intVal == b.intVal;
+    if (a.type == TYPE_FLOAT64) {
+        double diff = a.floatVal - b.floatVal;
+        return (diff > -1e-9 && diff < 1e-9);
+    }
     if (a.type == TYPE_STRING) return strcmp(a.strVal, b.strVal) == 0;
+    if (a.type == TYPE_ARRAY) {
+        if (a.arrVal.length != b.arrVal.length) return 0;
+        for (int i = 0; i < a.arrVal.length; i++) {
+            if (!values_equal(*a.arrVal.items[i], *b.arrVal.items[i])) return 0;
+        }
+        return 1;
+    }
+    if (a.type == TYPE_MAP) {
+        if (a.mapVal.length != b.mapVal.length) return 0;
+        for (int i = 0; i < a.mapVal.length; i++) {
+            int found = 0;
+            for (int j = 0; j < b.mapVal.length; j++) {
+                if (values_equal(*a.mapVal.keys[i], *b.mapVal.keys[j]) &&
+                    values_equal(*a.mapVal.values[i], *b.mapVal.values[j])) {
+                    found = 1; break;
+                }
+            }
+            if (!found) return 0;
+        }
+        return 1;
+    }
     return 0;
 }
 
@@ -971,12 +997,10 @@ Value binary_op(Value left, const char* op, Value right) {
         return make_int(left.intVal <= right.intVal);
     }
     if (strcmp(op, "!=") == 0) {
-        if (left.type == TYPE_INT && right.type == TYPE_INT) return make_int(left.intVal != right.intVal);
-        if (left.type == TYPE_STRING && right.type == TYPE_STRING) return make_int(strcmp(left.strVal, right.strVal) != 0);
+        return make_int(!values_equal(left, right));
     }
     if (strcmp(op, "==") == 0) {
-        if (left.type == TYPE_INT && right.type == TYPE_INT) return make_int(left.intVal == right.intVal);
-        if (left.type == TYPE_STRING && right.type == TYPE_STRING) return make_int(strcmp(left.strVal, right.strVal) == 0);
+        return make_int(values_equal(left, right));
     }
     return make_int(0);
 }
@@ -1126,6 +1150,32 @@ Value karkain_negate(Value v) {
 // Phase 19: Logical NOT operator
 Value karkain_not(Value v) {
     return make_int(is_truthy(v) ? 0 : 1);
+}
+
+// Phase 55b: Checked arithmetic — returns option_some(result) on success, option_none() on overflow
+Value karkain_add_checked(Value a, Value b) {
+    if (a.type == TYPE_INT && b.type == TYPE_INT) {
+        long long r;
+        if (__builtin_add_overflow(a.intVal, b.intVal, &r)) return option_none();
+        return option_some(make_int(r));
+    }
+    return option_some(binary_op(a, "+", b));
+}
+Value karkain_sub_checked(Value a, Value b) {
+    if (a.type == TYPE_INT && b.type == TYPE_INT) {
+        long long r;
+        if (__builtin_sub_overflow(a.intVal, b.intVal, &r)) return option_none();
+        return option_some(make_int(r));
+    }
+    return option_some(binary_op(a, "-", b));
+}
+Value karkain_mul_checked(Value a, Value b) {
+    if (a.type == TYPE_INT && b.type == TYPE_INT) {
+        long long r;
+        if (__builtin_mul_overflow(a.intVal, b.intVal, &r)) return option_none();
+        return option_some(make_int(r));
+    }
+    return option_some(binary_op(a, "*", b));
 }
 `
 }
@@ -1694,6 +1744,15 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "mod" {
 			return fmt.Sprintf("karkain_mod(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "add_checked" {
+			return fmt.Sprintf("karkain_add_checked(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "sub_checked" {
+			return fmt.Sprintf("karkain_sub_checked(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "mul_checked" {
+			return fmt.Sprintf("karkain_mul_checked(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		// Phase 47: Method calls — obj.method(args) → method(obj, args)
 		if strings.Contains(n.Function, ".") {

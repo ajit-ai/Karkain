@@ -1,0 +1,77 @@
+func main() {
+    // --- Deep Equality (G6) ---
+
+    // Bool equality
+    print(true == true)
+    print(false == false)
+    print(true != false)
+
+    // Array equality (element-wise recursive)
+    let a1 = [1, 2, 3]
+    let a2 = [1, 2, 3]
+    let a3 = [1, 2, 4]
+    print(a1 == a2)
+    print(a1 != a3)
+    print(a1 == a3)
+
+    // Nested array equality
+    let n1 = [[1, 2], [3, 4]]
+    let n2 = [[1, 2], [3, 4]]
+    let n3 = [[1, 2], [3, 5]]
+    print(n1 == n2)
+    print(n1 != n3)
+
+    // Map equality (key-value pair-wise)
+    let m1 = {"x": 10, "y": 20}
+    let m2 = {"x": 10, "y": 20}
+    let m3 = {"x": 10, "y": 99}
+    print(m1 == m2)
+    print(m1 != m3)
+
+    // Different-length arrays
+    print([1, 2] == [1, 2, 3])
+
+    // --- Checked Arithmetic (G7) ---
+
+    // add_checked: normal case
+    let r1 = add_checked(100, 200)
+    match r1 {
+        Some(v) => print(v),
+        None => print("overflow")
+    }
+
+    // sub_checked: normal case
+    let r2 = sub_checked(500, 200)
+    match r2 {
+        Some(v) => print(v),
+        None => print("overflow")
+    }
+
+    // mul_checked: normal case
+    let r3 = mul_checked(12, 10)
+    match r3 {
+        Some(v) => print(v),
+        None => print("overflow")
+    }
+
+    // add_checked: overflow
+    let r4 = add_checked(999999999999999999, 1)
+    match r4 {
+        Some(v) => print(v),
+        None => print("add overflow detected")
+    }
+
+    // sub_checked: underflow
+    let r5 = sub_checked(-999999999999999999, 1)
+    match r5 {
+        Some(v) => print(v),
+        None => print("sub underflow detected")
+    }
+
+    // mul_checked: overflow
+    let r6 = mul_checked(999999999999999999, 2)
+    match r6 {
+        Some(v) => print(v),
+        None => print("mul overflow detected")
+    }
+}
