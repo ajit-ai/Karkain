@@ -14,7 +14,7 @@ NEVER skip this step. This is a hard rule, not optional.
 
 See `ROADMAP.md` for the complete development plan (Phases 50–62).
 Current phase: **56** — Self-Hosting Compiler Completion.
-Last completed: **55c** — Cleanup (HTTP ifdef guard, AST line tracking, #line debug emission, dead code removal, format string fix).
+Last completed: **55d** — KPM Package Manager (semver, lock file, integrity, registry stub, auth, cache, workspace, audit — all integrated into karkain.exe).
 
 ## Guiding Principles
 
@@ -27,7 +27,7 @@ Last completed: **55c** — Cleanup (HTTP ifdef guard, AST line tracking, #line 
 
 Run the full test suite before committing:
 ```
-go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... -count=1
+go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1
 ```
 
 All tests must pass before committing.
