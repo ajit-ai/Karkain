@@ -25,39 +25,62 @@ func printHelp() {
 Usage:
   karkain [command] [options] <file.kar>
 
-Commands:
-  run <file.kar>       Compile and immediately run a .kar script (default)
-  build <file.kar>     Compile a .kar script into a native standalone executable
-  transpile <file.kar> Transpile a .kar script to C or other backends (e.g., --target c99)
-  check <file.kar>     Validate syntax and semantics without producing output
-  test <path>          Discover and run *_test.kar files
-  lsp                  Start Language Server Protocol server for IDE integration
+COMPILER COMMANDS:
+  run <file.kar>          Compile and run (default)
+  build <file.kar>        Compile to native executable
+  transpile <file.kar>    Generate C or other backend output
+  check <file.kar>        Validate syntax and semantics
+  test <path>             Discover and run *_test.kar files
+  lsp                     Start Language Server Protocol server
 
-Package Management:
-  init <name>          Initialize a new Karkain project with standard structure
-  add <dep> [version]  Add a dependency to the project manifest (karkain.toml)
-  fetch                Download and cache all project dependencies
+PACKAGE MANAGEMENT:
+  karkain pkg init [name]                Create new project
+  karkain pkg add <pkg> [version]        Add dependency
+  karkain pkg add <pkg> --source git --url <url>
+  karkain pkg add <pkg> --source local --url <path>
+  karkain pkg remove <pkg>               Remove dependency
+  karkain pkg update [pkg]               Re-resolve versions
+  karkain pkg upgrade                    Update all to latest compatible
+  karkain pkg fetch                      Download all dependencies
+  karkain pkg deps                       List dependencies
+  karkain pkg deps --tree                Show dependency tree
+  karkain pkg deps --outdated            Check for newer versions
+  karkain pkg search <query>             Search package registry
+  karkain pkg info <pkg>                 Show package details
+  karkain pkg publish                    Publish to registry
+  karkain pkg login                      Authenticate with registry
+  karkain pkg logout                     Clear auth token
+  karkain pkg whoami                     Show current user
+  karkain pkg audit                      Check for vulnerabilities
+  karkain pkg audit --licenses           License compatibility check
+  karkain pkg verify                     Verify checksums of all deps
+  karkain pkg cache list                 Show cached packages
+  karkain pkg cache clean                Remove all cached packages
+  karkain pkg cache clean --stale        Remove unused packages (>30 days)
+  karkain pkg cache path                 Show cache directory
+  karkain pkg workspace init             Initialize workspace root
+  karkain pkg workspace add <path>       Add member package
+  karkain pkg workspace build            Build all packages
+  karkain pkg workspace test             Test all packages
 
-Options:
-  -o <path>           Specify custom output binary file path (used with build)
-  -c, --compile-only  Keep generated C source code file (temp_runner.c) on disk
-  -g, --debug         Generate debug symbols (DWARF/PDB) for GDB/LLDB/VS Code debugging
-  --target <target>   Specify target architecture (native, wasm32-wasi)
-  --verbose           Emit detailed pipeline logs (Tokens, AST, C Code, Compiler Invocation)
-  -v, --version       Show version information
-  -h, --help          Show this help message
+OPTIONS:
+  -o <path>               Output binary path (build)
+  -c, --compile-only      Keep generated C source
+  -g, --debug             Generate debug symbols + #line directives
+  --target <target>       Target architecture (native, wasm32-wasi)
+  --verbose               Emit detailed pipeline logs
+  -v, --version           Show version
+  -h, --help              Show this help
 
 Examples:
   karkain run examples/array_test.kar
   karkain build examples/compiler_test.kar -o bin/app.exe
-  karkain transpile examples/compiler_test.kar --target c99
-  karkain check examples/phase1_test.kar
-  karkain test examples/
-  karkain init my_project
-  karkain add stdlib 0.14.0
-  karkain fetch
-  karkain examples/phase1_test.kar --verbose
-  karkain lsp`)
+  karkain pkg init my_project
+  karkain pkg add stdlib ^0.14.0
+  karkain pkg add utils --source git --url https://github.com/bob/utils.git
+  karkain pkg fetch
+  karkain pkg deps --tree
+  karkain pkg search quantum`)
 }
 
 // LSP message types
@@ -120,95 +143,485 @@ type Position struct {
 	Character int `json:"character"`
 }
 
-// handlePackageCommand handles init, add, and fetch commands.
-func handlePackageCommand(command, targetFile string, extraArgs []string) {
+// handlePackageCommand dispatches all 'karkain pkg' subcommands.
+func handlePackageCommand(args []string) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Printf("Error getting current directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	switch command {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		fmt.Println("Usage: karkain pkg <command> [options]")
+		fmt.Println("Run 'karkain --help' for full command list")
+		return
+	}
+
+	subCmd := args[0]
+	rest := args[1:]
+
+	switch subCmd {
+
+	// --- PROJECT INIT ---
 	case "init":
-		projectName := targetFile
-		if projectName == "" {
-			fmt.Println("Error: init command requires a project name")
-			fmt.Println("Usage: karkain init <project_name>")
-			os.Exit(1)
+		name := ""
+		if len(rest) > 0 && !strings.HasPrefix(rest[0], "-") {
+			name = rest[0]
 		}
-
-		projectDir := filepath.Join(cwd, projectName)
-		result, err := kpkg.InitProject(projectDir, projectName)
+		if name == "" {
+			name = filepath.Base(cwd)
+		}
+		projectDir := filepath.Join(cwd, name)
+		result, err := kpkg.InitProject(projectDir, name)
 		if err != nil {
-			fmt.Printf("Error creating project: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+		fmt.Printf("Project '%s' created in %s\n", name, result.ProjectDir)
+		fmt.Println("Created:")
+		for _, f := range result.Created {
+			fmt.Printf("  %s\n", f)
+		}
+		fmt.Printf("\nNext steps:\n  cd %s\n  karkain pkg add <dependency>\n  karkain run\n", name)
 
-		fmt.Printf("Project '%s' created successfully!\n", projectName)
-		fmt.Printf("  Directory: %s\n", result.ProjectDir)
-		fmt.Printf("  Manifest:  %s\n", result.Manifest)
-		fmt.Println("\nNext steps:")
-		fmt.Printf("  cd %s\n", projectName)
-		fmt.Println("  karkain run src/main.kar")
-
+	// --- ADD DEPENDENCY ---
 	case "add":
-		depName := targetFile
-		if depName == "" {
-			fmt.Println("Error: add command requires a dependency name")
-			fmt.Println("Usage: karkain add <dependency> [version]")
+		if len(rest) < 1 {
+			fmt.Fprintln(os.Stderr, "Error: package name required\n  Usage: karkain pkg add <pkg> [version]")
 			os.Exit(1)
 		}
-
+		pkgName := rest[0]
 		version := "*"
-		if len(extraArgs) > 0 {
-			version = extraArgs[0]
+		source := "registry"
+		url := ""
+		for i := 1; i < len(rest); i++ {
+			switch rest[i] {
+			case "--source":
+				if i+1 < len(rest) {
+					i++
+					source = rest[i]
+				}
+			case "--url":
+				if i+1 < len(rest) {
+					i++
+					url = rest[i]
+				}
+			default:
+				if !strings.HasPrefix(rest[i], "-") {
+					version = rest[i]
+				}
+			}
 		}
-
-		// Try to find project root
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			fmt.Println("Make sure you are inside a Karkain project directory (with karkain.toml)")
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project (no karkain.toml)")
 			os.Exit(1)
 		}
-
-		err = kpkg.AddDependency(projectDir, depName, version, "registry", "")
+		err = kpkg.AddDependency(projectDir, pkgName, version, source, url)
 		if err != nil {
-			fmt.Printf("Error adding dependency: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+		fmt.Printf("Added %s@%s (%s)\n", pkgName, version, source)
+		dep := kpkg.Dependency{Name: pkgName, Version: version, Source: source, URL: url}
+		if fetchErr := kpkg.FetchModule(projectDir, dep); fetchErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: fetch failed: %v\n  Run 'karkain pkg fetch' to retry\n", fetchErr)
+		} else {
+			fmt.Printf("Cached to .karkain/cache/\n")
+		}
 
-		fmt.Printf("Added dependency '%s' version %s\n", depName, version)
+	// --- REMOVE DEPENDENCY ---
+	case "remove", "rm":
+		if len(rest) < 1 {
+			fmt.Fprintln(os.Stderr, "Error: package name required\n  Usage: karkain pkg remove <pkg>")
+			os.Exit(1)
+		}
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			os.Exit(1)
+		}
+		err = kpkg.RemoveDependency(projectDir, rest[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Removed %s\n", rest[0])
 
+	// --- FETCH ---
 	case "fetch":
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			fmt.Println("Make sure you are inside a Karkain project directory (with karkain.toml)")
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
 			os.Exit(1)
 		}
-
 		fmt.Println("Fetching dependencies...")
 		err = kpkg.FetchAll(projectDir)
 		if err != nil {
-			fmt.Printf("Error fetching dependencies: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-
-		deps, err := kpkg.ListDependencies(projectDir)
-		if err != nil {
-			fmt.Printf("Error listing dependencies: %v\n", err)
-			os.Exit(1)
-		}
-
+		deps, _ := kpkg.ListDependencies(projectDir)
 		if len(deps) == 0 {
 			fmt.Println("No dependencies to fetch")
 		} else {
-			fmt.Printf("Fetched %d dependency(ies):\n", len(deps))
+			fmt.Printf("Fetched %d dependencies\n", len(deps))
 			for _, d := range deps {
-				fmt.Printf("  - %s\n", d)
+				fmt.Printf("  %s\n", d)
 			}
 		}
+
+	// --- UPDATE ---
+	case "update":
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			os.Exit(1)
+		}
+		if len(rest) > 0 {
+			manifest, pErr := kpkg.ParseManifest(filepath.Join(projectDir, kpkg.ManifestFile))
+			if pErr != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", pErr)
+				os.Exit(1)
+			}
+			dep, exists := manifest.Dependencies[rest[0]]
+			if !exists {
+				fmt.Fprintf(os.Stderr, "Error: %s is not a dependency\n", rest[0])
+				os.Exit(1)
+			}
+			fmt.Printf("Re-fetching %s@%s...\n", rest[0], dep.Version)
+			if fErr := kpkg.FetchModule(projectDir, dep); fErr != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", fErr)
+				os.Exit(1)
+			}
+			fmt.Printf("Updated %s\n", rest[0])
+		} else {
+			fmt.Println("Updating all dependencies...")
+			err = kpkg.FetchAll(projectDir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("All dependencies updated")
+		}
+
+	// --- UPGRADE ---
+	case "upgrade":
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			os.Exit(1)
+		}
+		manifest, pErr := kpkg.ParseManifest(filepath.Join(projectDir, kpkg.ManifestFile))
+		if pErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", pErr)
+			os.Exit(1)
+		}
+		fmt.Println("Checking for updates...")
+		updated := 0
+		for name, dep := range manifest.Dependencies {
+			if dep.Source != "registry" {
+				continue
+			}
+			if fErr := kpkg.FetchModule(projectDir, dep); fErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to update %s: %v\n", name, fErr)
+				continue
+			}
+			updated++
+		}
+		if updated == 0 {
+			fmt.Println("All dependencies are up to date")
+		} else {
+			fmt.Printf("Updated %d packages\n", updated)
+		}
+
+	// --- DEPS ---
+	case "deps":
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			os.Exit(1)
+		}
+		manifest, pErr := kpkg.ParseManifest(filepath.Join(projectDir, kpkg.ManifestFile))
+		if pErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", pErr)
+			os.Exit(1)
+		}
+		if len(manifest.Dependencies) == 0 {
+			fmt.Println("No dependencies")
+			return
+		}
+		treeMode := false
+		outdatedMode := false
+		for _, a := range rest {
+			if a == "--tree" {
+				treeMode = true
+			}
+			if a == "--outdated" {
+				outdatedMode = true
+			}
+		}
+		if treeMode {
+			fmt.Printf("%s@%s\n", manifest.Name, manifest.Version)
+			for name, dep := range manifest.Dependencies {
+				connector := "├── "
+				if name == lastDepKey(manifest.Dependencies) {
+					connector = "└── "
+				}
+				fmt.Printf("%s%s %s@%s (%s)\n", connector, name, name, dep.Version, dep.Source)
+			}
+			return
+		}
+		if outdatedMode {
+			fmt.Println("Checking for newer versions...")
+			for name, dep := range manifest.Dependencies {
+				if dep.Source != "registry" {
+					continue
+				}
+				latest, lErr := kpkg.LatestVersion(name)
+				if lErr != nil {
+					fmt.Printf("  %s %s -> (unable to check)\n", name, dep.Version)
+					continue
+				}
+				if latest != dep.Version {
+					fmt.Printf("  %s %s -> %s\n", name, dep.Version, latest)
+				}
+			}
+			return
+		}
+		fmt.Printf("%-20s %-8s %-10s %s\n", "PACKAGE", "VERSION", "SOURCE", "URL")
+		for name, dep := range manifest.Dependencies {
+			fmt.Printf("%-20s %-8s %-10s %s\n", name, dep.Version, dep.Source, dep.URL)
+		}
+
+	// --- SEARCH ---
+	case "search":
+		if len(rest) < 1 {
+			fmt.Fprintln(os.Stderr, "Error: search query required\n  Usage: karkain pkg search <query>")
+			os.Exit(1)
+		}
+		query := strings.Join(rest, " ")
+		results, err := kpkg.SearchRegistry(query)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if len(results) == 0 {
+			fmt.Println("No packages found")
+			return
+		}
+		fmt.Printf("Found %d packages:\n\n", len(results))
+		for _, r := range results {
+			fmt.Printf("  %-25s %-8s %s\n", r.Name, r.Version, r.Description)
+		}
+
+	// --- INFO ---
+	case "info":
+		if len(rest) < 1 {
+			fmt.Fprintln(os.Stderr, "Error: package name required\n  Usage: karkain pkg info <pkg>")
+			os.Exit(1)
+		}
+		info, err := kpkg.PackageInfo(rest[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Name:        %s\n", info.Name)
+		fmt.Printf("Latest:      %s\n", info.Latest)
+		fmt.Printf("Description: %s\n", info.Description)
+		fmt.Printf("Author:      %s\n", info.Author)
+		fmt.Printf("License:     %s\n", info.License)
+		fmt.Printf("Repository:  %s\n", info.Repository)
+		fmt.Printf("Keywords:    %s\n", strings.Join(info.Keywords, ", "))
+
+	// --- PUBLISH ---
+	case "publish":
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			os.Exit(1)
+		}
+		token, tErr := kpkg.LoadToken()
+		if tErr != nil {
+			fmt.Fprintln(os.Stderr, "Error: not logged in. Run 'karkain pkg login' first")
+			os.Exit(1)
+		}
+		manifest, pErr := kpkg.ParseManifest(filepath.Join(projectDir, kpkg.ManifestFile))
+		if pErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", pErr)
+			os.Exit(1)
+		}
+		fmt.Printf("Publishing %s@%s...\n", manifest.Name, manifest.Version)
+		err = kpkg.PublishPackage(projectDir, manifest, token.Token)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Published %s@%s\n", manifest.Name, manifest.Version)
+
+	// --- LOGIN ---
+	case "login":
+		fmt.Print("Username: ")
+		var user string
+		fmt.Scanln(&user)
+		fmt.Print("Password: ")
+		var pass string
+		fmt.Scanln(&pass)
+		token, err := kpkg.Authenticate(user, pass)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		err = kpkg.SaveToken(token)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not save token: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Logged in as %s\n", user)
+
+	// --- LOGOUT ---
+	case "logout":
+		err := kpkg.ClearToken()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Logged out")
+
+	// --- WHOAMI ---
+	case "whoami":
+		token, err := kpkg.LoadToken()
+		if err != nil {
+			fmt.Println("Not logged in")
+			return
+		}
+		fmt.Printf("Logged in as %s\n", token.Username)
+
+	// --- AUDIT ---
+	case "audit":
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			os.Exit(1)
+		}
+		if containsFlag(rest, "--licenses") {
+			fmt.Println("Checking license compatibility...")
+			warnings := kpkg.CheckLicenses(projectDir)
+			if len(warnings) == 0 {
+				fmt.Println("All licenses compatible")
+			} else {
+				for _, w := range warnings {
+					fmt.Printf("  WARN  %s\n", w)
+				}
+			}
+			return
+		}
+		fmt.Println("Scanning for vulnerabilities...")
+		vulns := kpkg.AuditDependencies(projectDir)
+		if len(vulns) == 0 {
+			fmt.Println("No known vulnerabilities found")
+		} else {
+			for _, v := range vulns {
+				fmt.Printf("  WARN  %s@%s: %s\n", v.Name, v.Version, v.Advisory)
+				fmt.Printf("        → %s\n", v.Fix)
+			}
+			fmt.Printf("\n%d issues found\n", len(vulns))
+		}
+
+	// --- VERIFY ---
+	case "verify":
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			os.Exit(1)
+		}
+		if containsFlag(rest, "--signatures") {
+			fmt.Println("Verifying package signatures... (signature verification not yet implemented)")
+			return
+		}
+		fmt.Println("Verifying package integrity...")
+		results := kpkg.VerifyIntegrity(projectDir)
+		allOk := true
+		for _, r := range results {
+			if r.Valid {
+				fmt.Printf("  OK   %s@%s\n", r.Name, r.Version)
+			} else {
+				fmt.Printf("  FAIL %s@%s: %s\n", r.Name, r.Version, r.Error)
+				allOk = false
+			}
+		}
+		if allOk {
+			fmt.Println("\nAll packages verified")
+		} else {
+			fmt.Println("\nIntegrity check failed")
+			os.Exit(1)
+		}
+
+	// --- CACHE ---
+	case "cache":
+		if len(rest) == 0 {
+			fmt.Println("Usage: karkain pkg cache <list|clean|path>")
+			return
+		}
+		switch rest[0] {
+		case "list":
+			kpkg.ListCache()
+		case "clean":
+			staleOnly := containsFlag(rest[1:], "--stale")
+			kpkg.CleanCache(staleOnly)
+		case "path":
+			pDir, _ := kpkg.FindProjectRoot(cwd)
+			if pDir == "" {
+				pDir = cwd
+			}
+			fmt.Println(filepath.Join(pDir, kpkg.CacheModules))
+		default:
+			fmt.Println("Usage: karkain pkg cache <list|clean|path>")
+		}
+
+	// --- WORKSPACE ---
+	case "workspace", "ws":
+		wsArgs := rest
+		if len(wsArgs) == 0 {
+			fmt.Println("Usage: karkain pkg workspace <init|add|build|test>")
+			return
+		}
+		switch wsArgs[0] {
+		case "init":
+			if err := kpkg.InitWorkspace(cwd); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("Initialized workspace")
+		case "add":
+			if len(wsArgs) < 2 {
+				fmt.Fprintln(os.Stderr, "Error: path required")
+				os.Exit(1)
+			}
+			if err := kpkg.AddWorkspaceMember(cwd, wsArgs[1]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Added %s to workspace\n", wsArgs[1])
+		case "build":
+			if err := kpkg.WorkspaceBuild(cwd); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		case "test":
+			if err := kpkg.WorkspaceTest(cwd); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown workspace command: %s\n", wsArgs[0])
+			os.Exit(1)
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown pkg command: %s\n", subCmd)
+		fmt.Println("Run 'karkain --help' for available commands")
+		os.Exit(1)
 	}
 }
 
@@ -280,7 +693,7 @@ func main() {
 	outputPath := ""
 	cfg := codegen.NewConfig()
 	verbose := false
-	extraArgs := []string{} // extra positional args (e.g., dep name, version)
+	extraArgs := []string{}
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -329,6 +742,10 @@ func main() {
 			}
 		case "build", "run", "check", "transpile", "test", "lsp", "init", "add", "fetch":
 			command = arg
+		case "pkg":
+			// Collect all remaining args and hand off to package manager
+			handlePackageCommand(args[i+1:])
+			return
 		default:
 			if strings.HasPrefix(arg, "-") {
 				fmt.Printf("Error: Unknown flag '%s'\n", arg)
@@ -343,19 +760,16 @@ func main() {
 		}
 	}
 
-	// Handle LSP command separately
 	if command == "lsp" {
 		handleLSP()
 		return
 	}
 
-	// Handle package management commands
 	if command == "init" || command == "add" || command == "fetch" {
-		handlePackageCommand(command, targetFile, extraArgs)
+		handlePackageCommand(append([]string{command}, append([]string{targetFile}, extraArgs...)...))
 		return
 	}
 
-	// Handle test command - path may be a directory
 	if command == "test" {
 		testPath := targetFile
 		if testPath == "" {
@@ -366,7 +780,6 @@ func main() {
 		os.Exit(result.ExitCode)
 	}
 
-	// All other commands require a .kar file
 	if targetFile == "" {
 		fmt.Println("Error: No input .kar file specified")
 		printHelp()
@@ -389,7 +802,6 @@ func main() {
 	case "build":
 		result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
 	case "transpile":
-		// Transpile is equivalent to build with --target flag
 		result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
 	case "check":
 		result = cli.CheckCommand(targetFile, verbose)
@@ -403,4 +815,21 @@ func main() {
 		fmt.Println(result.Message)
 	}
 	os.Exit(result.ExitCode)
+}
+
+func lastDepKey(m map[string]kpkg.Dependency) string {
+	last := ""
+	for k := range m {
+		last = k
+	}
+	return last
+}
+
+func containsFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag {
+			return true
+		}
+	}
+	return false
 }
