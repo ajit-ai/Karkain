@@ -36,6 +36,8 @@ type Generator struct {
 	closureVars      map[string]bool             // Phase 54: let-bound lambdas with captures
 	lastClosureInit  string                      // Phase 54: env-instance init emitted at binding site
 	quantumRegisters []string                    // Phase 14: declared quantum registers, in declaration order
+	needsHTTP        bool                        // Phase 55b: track if http.get is used (strip stub otherwise)
+	sourceFile       string                      // Phase 55b: source file for #line directives
 }
 
 func New(cfg Config) *Generator {
@@ -45,6 +47,17 @@ func New(cfg Config) *Generator {
 
 func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
 	var sb strings.Builder
+
+	// Pre-scan: detect http.get calls to conditionally include HTTP runtime
+	g.needsHTTP = false
+	g.sourceFile = strings.Replace(sourceFile, "\\", "/", -1)
+	for _, stmt := range prog.Statements {
+		g.scanNodeForHTTP(stmt)
+	}
+	if g.needsHTTP {
+		sb.WriteString("#define KARKAIN_USE_HTTP\n")
+	}
+
 	sb.WriteString(g.generateCHeader())
 
 	// Add AVX2 and scalar matrix multiplication kernels
@@ -352,6 +365,7 @@ void quantum_init() {
 }
 
 // Phase 15: HTTP Runtime (cross-platform socket abstraction)
+#ifdef KARKAIN_USE_HTTP
 // HTTP response structure
 typedef struct {
     int status_code;
@@ -374,6 +388,7 @@ void http_response_free(HttpResponse* response) {
         free(response);
     }
 }
+#endif
 
 // Phase 16: Actor Runtime (atomic MPMC mailboxes)
 typedef struct {
@@ -1180,6 +1195,98 @@ Value karkain_mul_checked(Value a, Value b) {
 `
 }
 
+// Phase 55b: pre-scan AST for http.get calls to conditionally include HTTP runtime
+func (g *Generator) scanNodeForHTTP(node parser.Node) {
+	if node == nil || g.needsHTTP {
+		return
+	}
+	switch n := node.(type) {
+	case *parser.CallExpr:
+		if n.Function == "http.get" {
+			g.needsHTTP = true
+			return
+		}
+		for _, a := range n.Args {
+			g.scanNodeForHTTP(a)
+		}
+	case *parser.FuncDecl:
+		for _, s := range n.Body {
+			g.scanNodeForHTTP(s)
+		}
+	case *parser.IfStmt:
+		g.scanNodeForHTTP(n.Condition)
+		for _, s := range n.Consequence {
+			g.scanNodeForHTTP(s)
+		}
+		for _, s := range n.Alternative {
+			g.scanNodeForHTTP(s)
+		}
+	case *parser.WhileStmt:
+		g.scanNodeForHTTP(n.Condition)
+		for _, s := range n.Body {
+			g.scanNodeForHTTP(s)
+		}
+	case *parser.ForStmt:
+		g.scanNodeForHTTP(n.Init)
+		g.scanNodeForHTTP(n.Condition)
+		g.scanNodeForHTTP(n.Post)
+		for _, s := range n.Body {
+			g.scanNodeForHTTP(s)
+		}
+	case *parser.ForInStmt:
+		g.scanNodeForHTTP(n.Iter)
+		for _, s := range n.Body {
+			g.scanNodeForHTTP(s)
+		}
+	case *parser.VarDeclStmt:
+		g.scanNodeForHTTP(n.Value)
+	case *parser.ReturnStmt:
+		g.scanNodeForHTTP(n.Value)
+	case *parser.ExprStmt:
+		g.scanNodeForHTTP(n.Expression)
+	case *parser.PrintStmt:
+		g.scanNodeForHTTP(n.Value)
+	case *parser.BinaryExpr:
+		g.scanNodeForHTTP(n.Left)
+		g.scanNodeForHTTP(n.Right)
+	case *parser.UnaryExpr:
+		g.scanNodeForHTTP(n.Operand)
+	case *parser.LambdaExpr:
+		for _, s := range n.Body {
+			g.scanNodeForHTTP(s)
+		}
+	case *parser.MatchExpr:
+		g.scanNodeForHTTP(n.Value)
+		for _, arm := range n.Arms {
+			g.scanNodeForHTTP(arm.Body)
+		}
+	case *parser.IndexExpr:
+		g.scanNodeForHTTP(n.Left)
+		g.scanNodeForHTTP(n.Index)
+	case *parser.SliceExpr:
+		g.scanNodeForHTTP(n.Target)
+		g.scanNodeForHTTP(n.Start)
+		g.scanNodeForHTTP(n.End)
+	case *parser.DotExpr:
+		g.scanNodeForHTTP(n.Left)
+	case *parser.ArrayLiteral:
+		for _, e := range n.Elements {
+			g.scanNodeForHTTP(e)
+		}
+	case *parser.MapLiteral:
+		for _, k := range n.Keys {
+			g.scanNodeForHTTP(k)
+		}
+		for _, v := range n.Values {
+			g.scanNodeForHTTP(v)
+		}
+	case *parser.StructLiteral:
+		for _, v := range n.Fields {
+			g.scanNodeForHTTP(v)
+		}
+	}
+}
+
 func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	params := []string{}
 	for _, p := range fn.Params {
@@ -1348,6 +1455,11 @@ func (g *Generator) genArmBody(body parser.Node, sb *strings.Builder) {
 }
 
 func (g *Generator) genStatementTo(sb *strings.Builder, stmt parser.Node) {
+	if g.cfg.Debug {
+		if line := parser.GetLine(stmt); line > 0 {
+			fmt.Fprintf(sb, "#line %d \"%s\"\n", line, g.sourceFile)
+		}
+	}
 	switch node := stmt.(type) {
 	case *parser.VarDeclStmt:
 		if node.IsMatrix {
@@ -1402,6 +1514,17 @@ func (g *Generator) getEnumVariantIndex(enumName, variantName string) int {
 }
 
 func (g *Generator) genStatement(stmt parser.Node) string {
+	return g.genStatementInner(stmt)
+}
+
+func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
+	if g.cfg.Debug {
+		defer func() {
+			if line := parser.GetLine(stmt); line > 0 {
+				result = fmt.Sprintf("#line %d \"%s\"\n%s", line, g.sourceFile, result)
+			}
+		}()
+	}
 	switch node := stmt.(type) {
 	case *parser.VarDeclStmt:
 		if node.IsMatrix {
@@ -1705,6 +1828,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 			return fmt.Sprintf("karkain_writeFile(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		if n.Function == "http.get" {
+			g.needsHTTP = true
 			return fmt.Sprintf("http_get(%s)", g.genExpr(n.Args[0]))
 		}
 		if n.Function == "trim" {
@@ -2011,10 +2135,8 @@ func (g *Generator) genMatrixDecl(stmt *parser.VarDeclStmt) string {
 		exit(1);
 	}
 	memset(%s, 0, %s * %s * sizeof(%s));
-	// Store matrix dimensions for row-major indexing
-	const int64_t %s_rows = %s;
 	const int64_t %s_cols = %s;
-`, stmt.Name, matrixDecl.DataType, cType, stmt.Name, stmt.Name, cType, rows, cols, cType, stmt.Name, cType, rows, cols, cType, stmt.Name, stmt.Name, rows, cols, cType, stmt.Name, rows, stmt.Name, cols)
+`, stmt.Name, matrixDecl.DataType, cType, stmt.Name, stmt.Name, cType, rows, cols, cType, stmt.Name, cType, rows, cols, cType, stmt.Name, stmt.Name, rows, cols, cType, stmt.Name, cols)
 
 	return decl
 }

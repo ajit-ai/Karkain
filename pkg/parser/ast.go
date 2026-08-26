@@ -7,6 +7,7 @@ type Node interface{}
 type Program struct {
 	Statements []Node
 	CImports   []*CImportBlock // C import blocks for codegen
+	Line       int
 }
 
 type FuncDecl struct {
@@ -16,6 +17,7 @@ type FuncDecl struct {
 	Body          []Node
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 	Captures      []string           // Phase 54: free variables captured from enclosing scope (lambdas only)
+	Line          int
 }
 
 type VarDeclStmt struct {
@@ -24,29 +26,35 @@ type VarDeclStmt struct {
 	Type     string // Optional type information (e.g., "*int")
 	IsMatrix bool   // True if this is a matrix declaration
 	Escapes  bool   // Phase 49: true if variable escapes current scope (passed to func, returned, captured by lambda)
+	Line     int
 }
 
 type ReturnStmt struct {
 	Value Node
+	Line  int
 }
 
 type ExprStmt struct {
 	Expression Node
+	Line       int
 }
 
 type IfStmt struct {
 	Condition   Node
 	Consequence []Node
 	Alternative []Node
+	Line        int
 }
 
 type WhileStmt struct {
 	Condition Node
 	Body      []Node
+	Line      int
 }
 
 type PrintStmt struct {
 	Value Node
+	Line  int
 }
 
 type BlockStmt struct {
@@ -55,40 +63,49 @@ type BlockStmt struct {
 
 type StringLiteral struct {
 	Value string
+	Line  int
 }
 
 type IntLiteral struct {
 	Value string
+	Line  int
 }
 
 type Float64Literal struct {
 	Value string
+	Line  int
 }
 
 type BigIntLiteral struct {
 	Value string
+	Line  int
 }
 
 type BigFloatLiteral struct {
 	Value string
+	Line  int
 }
 
 type Identifier struct {
 	Name string
+	Line int
 }
 
 type ArrayLiteral struct {
 	Elements []Node
+	Line     int
 }
 
 type MapLiteral struct {
 	Keys   []Node
 	Values []Node
+	Line   int
 }
 
 type IndexExpr struct {
 	Left  Node
 	Index Node
+	Line  int
 }
 
 // Phase 55: slice expression target[start:end]; End nil = open-ended (to length)
@@ -96,18 +113,21 @@ type SliceExpr struct {
 	Target Node
 	Start  Node
 	End    Node
+	Line   int
 }
 
 type BinaryExpr struct {
 	Left     Node
 	Operator string
 	Right    Node
+	Line     int
 }
 
 type CallExpr struct {
 	Function string
 	Args     []Node
 	IsCFunc  bool // True if this is a C function call (e.g., C.sqrt)
+	Line     int
 }
 
 // Phase 41: Hybrid Memory Model — safe references + @raw for hardware
@@ -123,18 +143,21 @@ type RefType struct {
 type RawAccessExpr struct {
 	Address Node // Memory address expression
 	Value   Node // Value to write (nil for read-only)
+	Line    int
 }
 
 // BorrowExpr represents creating a borrow: &x or &mut x
 type BorrowExpr struct {
 	Operand Node
 	Mutable bool // true for &mut x, false for &x
+	Line    int
 }
 
 // MoveExpr represents an explicit move: move(x)
 // Transfers ownership from x to the target
 type MoveExpr struct {
 	Operand Node
+	Line    int
 }
 
 // Phase 44: Error propagation, exhaustive match, linear type enforcement
@@ -143,6 +166,7 @@ type MoveExpr struct {
 // Desugars to: match expr { Ok(v) => v, Err(e) => return Err(e) }
 type PropagateExpr struct {
 	Operand Node
+	Line    int
 }
 
 // Phase 42: Option<T>, Result<T,E>, match, SIMD, packed structs, linear types
@@ -150,19 +174,22 @@ type PropagateExpr struct {
 // OptionSomeExpr represents Some(value) — an option with a value
 type OptionSomeExpr struct {
 	Value Node
+	Line  int
 }
 
 // OptionNoneExpr represents None — an empty option
-type OptionNoneExpr struct{}
+type OptionNoneExpr struct{ Line int }
 
 // ResultOkExpr represents Ok(value) — a successful result
 type ResultOkExpr struct {
 	Value Node
+	Line  int
 }
 
 // ResultErrExpr represents Err(error) — a failed result
 type ResultErrExpr struct {
 	Error Node
+	Line  int
 }
 
 // MatchExpr represents pattern matching:
@@ -170,6 +197,7 @@ type ResultErrExpr struct {
 type MatchExpr struct {
 	Value   Node
 	Arms    []MatchArm
+	Line    int
 }
 
 // MatchArm represents one arm of a match expression: pattern => expr
@@ -189,6 +217,7 @@ type MatchPattern struct {
 type SIMDBuiltinExpr struct {
 	Op   string // "add", "mul", "sub", "div", "min", "max", "sqrt"
 	Args []Node
+	Line int
 }
 
 // LinearTypeDecl marks a type as linear (must be used exactly once):
@@ -196,6 +225,7 @@ type SIMDBuiltinExpr struct {
 type LinearTypeDecl struct {
 	Name   string
 	Fields []StructField
+	Line   int
 }
 
 // PackedStructDecl marks a struct as packed (no padding):
@@ -203,6 +233,7 @@ type LinearTypeDecl struct {
 type PackedStructDecl struct {
 	Name   string
 	Fields []StructField
+	Line   int
 }
 
 // Phase 45: Custom enum types with algebraic data variants
@@ -213,6 +244,7 @@ type PackedStructDecl struct {
 type EnumDecl struct {
 	Name     string
 	Variants []EnumVariant
+	Line     int
 }
 
 // EnumVariant represents one variant of an enum
@@ -227,12 +259,14 @@ type EnumVariantExpr struct {
 	EnumName string // type name (empty for inferred)
 	Variant  string // variant name
 	Value    Node   // payload expression (nil for unit variants)
+	Line     int
 }
 
 // Phase 11: Native C Interop, Raw Pointers, and Continuous Matrix Memory Layouts
 
 type CImportBlock struct {
 	Content string // Raw C code between { }
+	Line    int
 }
 
 type PointerType struct {
@@ -241,36 +275,43 @@ type PointerType struct {
 
 type AddressOf struct {
 	Operand Node
+	Line    int
 }
 
 type Dereference struct {
 	Operand Node
+	Line    int
 }
 
 type AllocExpr struct {
 	Type  string // e.g., "int", "float64"
 	Count Node   // Number of elements
+	Line  int
 }
 
 type FreeExpr struct {
-	Ptr Node
+	Ptr  Node
+	Line int
 }
 
 type MatrixDecl struct {
 	Rows     Node
 	Cols     Node
 	DataType string // e.g., "float64", "int"
+	Line     int
 }
 
 type MatrixIndexExpr struct {
 	Matrix Node
 	Row    Node
 	Col    Node
+	Line   int
 }
 
 type DotExpr struct {
 	Left  Node
 	Right string // The field/method name
+	Line  int
 }
 
 // Phase 14: Quantum Computing AST Nodes
@@ -278,6 +319,7 @@ type DotExpr struct {
 type QRegDeclStmt struct {
 	Name   string
 	Qubits Node // Number of qubits
+	Line   int
 }
 
 type GateApplyStmt struct {
@@ -285,10 +327,12 @@ type GateApplyStmt struct {
 	Target  Node   // Target qubit(s)
 	Control Node   // Control qubit (for CNOT), nil for single-qubit gates
 	Params  []Node // Additional parameters (rotation angles, etc.)
+	Line    int
 }
 
 type MeasureExpr struct {
 	Qubit Node // Qubit to measure
+	Line  int
 }
 
 // Phase 16: Actor-based distributed concurrency AST nodes
@@ -298,6 +342,7 @@ type ActorDeclStmt struct {
 	Body     []Node
 	State    []ActorStateField  // Phase 37: actor state fields
 	Handlers []ActorHandler     // Phase 37: message handlers
+	Line     int
 }
 
 // ActorStateField represents a field in actor state
@@ -320,11 +365,13 @@ type SpawnExpr struct {
 	ActorName string
 	Args      []Node
 	NodeAddr  string // Phase 37: optional remote node address
+	Line      int
 }
 
 type ReceiveStmt struct {
 	Channel Node
 	VarName string
+	Line    int
 }
 
 type SendExpr struct {
@@ -332,6 +379,7 @@ type SendExpr struct {
 	Message    Node
 	IsSync     bool // true = !? (request-reply), false = ! (async)
 	Timeout    Node // optional timeout for sync send
+	Line       int
 }
 
 // Phase 17: Metaprogramming AST nodes
@@ -341,46 +389,55 @@ type MacroDeclStmt struct {
 	Params     []string
 	Body       []Node
 	IsHygienic bool // For hygiene tracking
+	Line       int
 }
 
 type MacroExpandExpr struct {
 	MacroName string
 	Args      []Node
+	Line      int
 }
 
 type QuoteExpr struct {
 	Expr Node // Quoted AST node
+	Line int
 }
 
 type UnquoteExpr struct {
 	Expr Node // Unquoted expression to be evaluated
+	Line int
 }
 
 
 type ComptimeExpr struct {
 	Expr Node // Expression evaluated at compile time
+	Line int
 }
 
 type ReflectTypeExpr struct {
 	TypeExpr Node // Type to reflect on
+	Line     int
 }
 
 type DeriveExpr struct {
 	Trait  string // e.g., "JsonSerializable"
 	Target Node   // Target struct/type
 	Args   []Node // Additional arguments
+	Line   int
 }
 
 type TagExpr struct {
 	Target   Node   // Target field/struct
 	TagName  string // Tag name
 	TagValue string // Tag value
+	Line     int
 }
 
 
 // ComptimeStmt represents a compile-time evaluated statement: `comptime var x = ...`
 type ComptimeStmt struct {
 	Body []Node
+	Line int
 }
 
 
@@ -401,15 +458,17 @@ type KernelDeclStmt struct {
 	WorkGroupY    int
 	WorkGroupZ    int
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
+	Line          int
 }
 
 // GlobalIdExpr represents GPU thread indexing: global_id(0)
 type GlobalIdExpr struct {
 	Dimension int // 0 = X, 1 = Y, 2 = Z
+	Line      int
 }
 
 // BarrierStmt represents thread block synchronization: barrier()
-type BarrierStmt struct{}
+type BarrierStmt struct{ Line int }
 
 // Phase 19: Struct type declarations
 type StructField struct {
@@ -421,16 +480,19 @@ type StructDeclStmt struct {
 	Name          string
 	Fields        []StructField
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
+	Line          int
 }
 
 type StructLiteral struct {
 	TypeName string
-	Fields   []Node   // BinaryExpr nodes: field = value
+	Fields   []Node // BinaryExpr nodes: field = value
+	Line     int
 }
 
 // Phase 19: Boolean literals
 type BoolLiteral struct {
 	Value bool
+	Line  int
 }
 
 // Phase 19: For loops
@@ -439,6 +501,7 @@ type ForStmt struct {
 	Condition Node
 	Post      Node
 	Body      []Node
+	Line      int
 }
 
 // Phase 47: for-in loops (for x in arr { ... })
@@ -447,11 +510,12 @@ type ForInStmt struct {
 	KeyName string // Phase 48: key variable for map iteration (empty for arrays)
 	Iter    Node   // expression to iterate over
 	Body    []Node
+	Line    int
 }
 
 // Phase 48: break/continue
-type BreakStmt struct{}
-type ContinueStmt struct{}
+type BreakStmt struct{ Line int }
+type ContinueStmt struct{ Line int }
 
 // Phase 48: Lambda / function pointer expressions: fn(a, b) { return a + b }
 type LambdaExpr struct {
@@ -459,17 +523,20 @@ type LambdaExpr struct {
 	ParamTypes []string
 	Body      []Node
 	Captures  []string // Phase 54: free variables captured from enclosing scope
+	Line      int
 }
 
 // Phase 48: Function reference expression (used when let x = fn(...) is desugared to named function)
 type FuncRefExpr struct {
 	Name string
+	Line int
 }
 
 // Phase 19: Unary expressions (-x, !x)
 type UnaryExpr struct {
 	Operator string
 	Operand  Node
+	Line     int
 }
 
 // Phase 26: Monomorphized Generics and Trait Constraints
@@ -488,8 +555,9 @@ type GenericInst struct {
 // TraitDeclStmt represents a trait declaration:
 // trait Numeric { fn add(self, other: T) -> T; fn zero() -> T; }
 type TraitDeclStmt struct {
-	Name   string
+	Name    string
 	Methods []TraitMethod
+	Line    int
 }
 
 // TraitMethod represents a method signature inside a trait
@@ -505,6 +573,7 @@ type ImplDeclStmt struct {
 	TraitName string   // Name of the trait being implemented
 	ForType   string   // Concrete type implementing the trait
 	Methods   []FuncDecl // Implemented methods
+	Line      int
 }
 
 // Phase 27: Hardware-Native Tensor Types & Autograd Engine
@@ -540,6 +609,7 @@ type TensorStmt struct {
 	Params     []TensorParam
 	ReturnType *TensorType
 	Body       []Node
+	Line       int
 }
 
 // TensorParam represents a parameter in a tensor function signature
@@ -554,22 +624,26 @@ type TensorOpExpr struct {
 	Op     string // "matmul", "relu", "softmax", "conv2d", "transpose"
 	Args   []Node // Operands (Identifiers or other expressions)
 	Attrs  map[string]Node // Named attributes (e.g., dim: 1 for transpose, stride: 2 for conv2d)
+	Line   int
 }
 
 // TensorReturnStmt represents a return statement inside a tensor block
 type TensorReturnStmt struct {
 	Value Node
+	Line  int
 }
 
 // TensorIndexExpr represents element access: t[i, j, k]
 type TensorIndexExpr struct {
-	Source Node
+	Source  Node
 	Indices []Node
+	Line    int
 }
 
 // TensorShapeOfExpr represents querying tensor shape: shape_of(x)
 type TensorShapeOfExpr struct {
 	Operand Node
+	Line    int
 }
 
 // Phase 28: Quantum Circuit Primitives, QIR & OpenQASM Backend
@@ -591,6 +665,7 @@ type CircuitDecl struct {
 	Params     []CircuitParam
 	ReturnType *BitType
 	Body       []Node
+	Line       int
 }
 
 // CircuitParam represents a parameter in a circuit signature
@@ -605,17 +680,20 @@ type QPUOpExpr struct {
 	Op    string // "h", "x", "y", "z", "rx", "ry", "rz", "cx", "cz", "swap", "measure", "reset"
 	Args  []Node // Target qubits, control qubits, rotation angles
 	Angle Node   // Rotation angle for parameterized gates (rx, ry, rz)
+	Line  int
 }
 
 // CircuitReturnStmt represents a return statement inside a circuit block
 type CircuitReturnStmt struct {
 	Value Node
+	Line  int
 }
 
 // QubitIndexExpr represents indexed qubit access: q[0], q[1]
 type QubitIndexExpr struct {
 	Qubit Node
 	Index Node
+	Line  int
 }
 
 // QubitAssignStmt represents qubit assignment: q = alloc qubit[2]
@@ -623,11 +701,13 @@ type QubitAssignStmt struct {
 	Name string
 	Size int  // Number of qubits in the register
 	Init bool // true for alloc, false for alias
+	Line int
 }
 
 // StmtList is a group of statements, used by macro expansion
 type StmtList struct {
 	Statements []Node
+	Line       int
 }
 
 // ============================================================
@@ -643,39 +723,46 @@ type CoroutineDecl struct {
 	IsAsync       bool   // async coroutine
 	RetType       string // return type
 	GenericParams []GenericTypeParam
+	Line          int
 }
 
 // AsyncExpr represents an async expression block: async { ... }
 type AsyncExpr struct {
 	Body []Node
+	Line int
 }
 
 // AwaitExpr represents an await expression: await(expr)
 type AwaitExpr struct {
 	Operand Node
 	Timeout Node // optional timeout
+	Line    int
 }
 
 // YieldExpr represents a yield expression: yield(value)
 type YieldExpr struct {
 	Value Node
+	Line  int
 }
 
 // ChSendExpr represents a channel send: ch <- value
 type ChSendExpr struct {
 	Channel Node
 	Value   Node
+	Line    int
 }
 
 // ChRecvExpr represents a channel receive: <-ch
 type ChRecvExpr struct {
 	Channel Node
+	Line    int
 }
 
 // ChDeclExpr represents a channel declaration: chan<T>(buffer_size)
 type ChDeclExpr struct {
 	ElementType string
 	BufferSize  Node // nil for unbuffered
+	Line        int
 }
 
 // SelectStmt represents a select multiplexer:
@@ -683,6 +770,7 @@ type ChDeclExpr struct {
 type SelectStmt struct {
 	Cases   []SelectCase
 	Default []Node
+	Line    int
 }
 
 // SelectCase represents one branch of a select statement
@@ -698,9 +786,116 @@ type SelectCase struct {
 type GreenSpawnExpr struct {
 	Function string
 	Args     []Node
+	Line     int
 }
 
 // AwaitAllExpr awaits multiple futures: await_all(f1, f2, ...)
 type AwaitAllExpr struct {
 	Futures []Node
+	Line    int
+}
+
+// GetLine returns the source line number for any AST node, or 0 if unknown.
+func GetLine(node Node) int {
+	if node == nil {
+		return 0
+	}
+	// Statement-level nodes (most common for #line directives)
+	switch n := node.(type) {
+	case *Program: return n.Line
+	case *FuncDecl: return n.Line
+	case *VarDeclStmt: return n.Line
+	case *ReturnStmt: return n.Line
+	case *ExprStmt: return n.Line
+	case *IfStmt: return n.Line
+	case *WhileStmt: return n.Line
+	case *PrintStmt: return n.Line
+	case *ForStmt: return n.Line
+	case *ForInStmt: return n.Line
+	case *StructDeclStmt: return n.Line
+	case *EnumDecl: return n.Line
+	case *QRegDeclStmt: return n.Line
+	case *GateApplyStmt: return n.Line
+	case *ActorDeclStmt: return n.Line
+	case *MacroDeclStmt: return n.Line
+	case *ComptimeStmt: return n.Line
+	case *KernelDeclStmt: return n.Line
+	case *CoroutineDecl: return n.Line
+	case *TensorStmt: return n.Line
+	case *CircuitDecl: return n.Line
+	case *SelectStmt: return n.Line
+	case *QubitAssignStmt: return n.Line
+	case *TraitDeclStmt: return n.Line
+	case *ImplDeclStmt: return n.Line
+	case *LinearTypeDecl: return n.Line
+	case *PackedStructDecl: return n.Line
+	case *StmtList: return n.Line
+	case *BarrierStmt: return n.Line
+	case *BreakStmt: return n.Line
+	case *ContinueStmt: return n.Line
+	// Expression nodes
+	case *StringLiteral: return n.Line
+	case *IntLiteral: return n.Line
+	case *Float64Literal: return n.Line
+	case *BigIntLiteral: return n.Line
+	case *BigFloatLiteral: return n.Line
+	case *Identifier: return n.Line
+	case *BoolLiteral: return n.Line
+	case *ArrayLiteral: return n.Line
+	case *MapLiteral: return n.Line
+	case *IndexExpr: return n.Line
+	case *SliceExpr: return n.Line
+	case *BinaryExpr: return n.Line
+	case *CallExpr: return n.Line
+	case *DotExpr: return n.Line
+	case *MatrixIndexExpr: return n.Line
+	case *UnaryExpr: return n.Line
+	case *LambdaExpr: return n.Line
+	case *FuncRefExpr: return n.Line
+	case *OptionSomeExpr: return n.Line
+	case *OptionNoneExpr: return n.Line
+	case *ResultOkExpr: return n.Line
+	case *ResultErrExpr: return n.Line
+	case *MatchExpr: return n.Line
+	case *EnumVariantExpr: return n.Line
+	case *RawAccessExpr: return n.Line
+	case *BorrowExpr: return n.Line
+	case *MoveExpr: return n.Line
+	case *PropagateExpr: return n.Line
+	case *AddressOf: return n.Line
+	case *Dereference: return n.Line
+	case *AllocExpr: return n.Line
+	case *FreeExpr: return n.Line
+	case *MatrixDecl: return n.Line
+	case *MeasureExpr: return n.Line
+	case *SpawnExpr: return n.Line
+	case *ReceiveStmt: return n.Line
+	case *SendExpr: return n.Line
+	case *CImportBlock: return n.Line
+	case *SIMDBuiltinExpr: return n.Line
+	case *MacroExpandExpr: return n.Line
+	case *QuoteExpr: return n.Line
+	case *UnquoteExpr: return n.Line
+	case *ComptimeExpr: return n.Line
+	case *ReflectTypeExpr: return n.Line
+	case *DeriveExpr: return n.Line
+	case *TagExpr: return n.Line
+	case *TensorOpExpr: return n.Line
+	case *TensorReturnStmt: return n.Line
+	case *TensorIndexExpr: return n.Line
+	case *TensorShapeOfExpr: return n.Line
+	case *QPUOpExpr: return n.Line
+	case *CircuitReturnStmt: return n.Line
+	case *QubitIndexExpr: return n.Line
+	case *GlobalIdExpr: return n.Line
+	case *AsyncExpr: return n.Line
+	case *AwaitExpr: return n.Line
+	case *YieldExpr: return n.Line
+	case *ChSendExpr: return n.Line
+	case *ChRecvExpr: return n.Line
+	case *ChDeclExpr: return n.Line
+	case *GreenSpawnExpr: return n.Line
+	case *AwaitAllExpr: return n.Line
+	}
+	return 0
 }

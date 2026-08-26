@@ -134,6 +134,7 @@ func (p *Parser) parseFunc() *FuncDecl {
 }
 
 func (p *Parser) parseVarDecl() *VarDeclStmt {
+	line := int(p.curToken.Line)
 	p.nextToken() // consume 'let' or 'var'
 	name := p.curToken.Literal(p.src)
 
@@ -182,7 +183,9 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 	// Check if the value is a matrix declaration
 	if p.curToken.Type == lexer.TokenMatrix {
 		matrixDecl := p.parseMatrixDeclInternal()
-		return &VarDeclStmt{Name: name, Value: matrixDecl, IsMatrix: true}
+		node := &VarDeclStmt{Name: name, Value: matrixDecl, IsMatrix: true}
+		setNodeLine(node, line)
+		return node
 	}
 
 	// Phase 48: let x = fn(a, b) { ... } → treat as named function declaration
@@ -191,25 +194,34 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 		fn := p.arena.AllocFuncDecl(name, lambda.Params, lambda.Body, nil)
 		fn.ParamTypes = lambda.ParamTypes
 		fn.Captures = lambda.Captures // Phase 54: propagate captures to named binding
-		return &VarDeclStmt{Name: name, Value: fn}
+		node := &VarDeclStmt{Name: name, Value: fn}
+		setNodeLine(node, line)
+		return node
 	}
 
 	val := p.parseExpr()
 
 	// If we have a type, store it in the variable declaration
 	if typeName != "" {
-		return &VarDeclStmt{Name: name, Value: val, Type: typeName}
+		node := &VarDeclStmt{Name: name, Value: val, Type: typeName}
+		setNodeLine(node, line)
+		return node
 	}
 
-	return &VarDeclStmt{Name: name, Value: val}
+	node := &VarDeclStmt{Name: name, Value: val}
+	setNodeLine(node, line)
+	return node
 }
 
 func (p *Parser) parsePrint() *PrintStmt {
+	line := int(p.curToken.Line)
 	p.nextToken() // consume 'print'
 	p.nextToken() // consume '('
 	val := p.parseExpr()
 	p.nextToken() // consume ')'
-	return &PrintStmt{Value: val}
+	node := &PrintStmt{Value: val}
+	setNodeLine(node, line)
+	return node
 }
 
 func (p *Parser) parseBlock() []Node {
@@ -228,6 +240,8 @@ func (p *Parser) parseBlock() []Node {
 }
 
 func (p *Parser) parseStatement() Node {
+	p.arena.SetLine(int(p.curToken.Line))
+	line := int(p.curToken.Line)
 	switch p.curToken.Type {
 	case lexer.TokenLet, lexer.TokenVar:
 		return p.parseVarDecl()
@@ -244,23 +258,23 @@ func (p *Parser) parseStatement() Node {
 	case lexer.TokenMatrix:
 		return p.parseMatrixDecl()
 	case lexer.TokenAlloc:
-		return &ExprStmt{Expression: p.parseAlloc()}
+		node := &ExprStmt{Expression: p.parseAlloc()}; setNodeLine(node, line); return node
 	case lexer.TokenFree:
-		return &ExprStmt{Expression: p.parseFree()}
+		node := &ExprStmt{Expression: p.parseFree()}; setNodeLine(node, line); return node
 	case lexer.TokenAddr:
-		return &ExprStmt{Expression: p.parseAddrOf()}
+		node := &ExprStmt{Expression: p.parseAddrOf()}; setNodeLine(node, line); return node
 	case lexer.TokenQReg:
 		return p.parseQRegDecl()
 	case lexer.TokenGate:
 		return p.parseGateApply()
 	case lexer.TokenMeasure:
-		return &ExprStmt{Expression: p.parseMeasure()}
+		node := &ExprStmt{Expression: p.parseMeasure()}; setNodeLine(node, line); return node
 	case lexer.TokenMacro:
 		return p.parseMacro()
 	case lexer.TokenComptime:
 		return p.parseComptimeStmt()
 	case lexer.TokenSpawn:
-		return &ExprStmt{Expression: p.parseSpawn()}
+		node := &ExprStmt{Expression: p.parseSpawn()}; setNodeLine(node, line); return node
 	case lexer.TokenReceive:
 		return p.parseReceive()
 	case lexer.TokenBarrier:
@@ -272,28 +286,24 @@ func (p *Parser) parseStatement() Node {
 		p.nextToken() // consume 'continue'
 		return p.arena.AllocContinueStmt()
 	case lexer.TokenFn:
-		return &ExprStmt{Expression: p.parseLambda()}
+		node := &ExprStmt{Expression: p.parseLambda()}; setNodeLine(node, line); return node
 	case lexer.TokenIdent:
 		return p.parseIdentStatement()
 	case lexer.TokenImport:
-		// Skip import blocks inside functions (they're handled at top level)
 		cImport := p.parseCImport()
 		if cImport != nil {
-			return &ExprStmt{Expression: &StringLiteral{Value: cImport.Content}}
+			node := &ExprStmt{Expression: &StringLiteral{Value: cImport.Content}}; setNodeLine(node, line); return node
 		}
 		return nil
 	case lexer.TokenAt, lexer.TokenAmp, lexer.TokenMove:
-		// Phase 41: Expression statements starting with @, &, or move
 		expr := p.parsePrimaryExpr()
 		if expr != nil {
-			return &ExprStmt{Expression: expr}
+			node := &ExprStmt{Expression: expr}; setNodeLine(node, line); return node
 		}
 		return nil
 	case lexer.TokenMatch:
-		// Phase 42: match value { pattern => expr, ... }
-		return &ExprStmt{Expression: p.parseMatchExpr()}
+		node := &ExprStmt{Expression: p.parseMatchExpr()}; setNodeLine(node, line); return node
 	case lexer.TokenLBrace:
-		// Phase 51: bare block { stmts }
 		p.nextToken() // consume '{'
 		stmts := p.parseBlock()
 		p.nextToken() // consume '}'
@@ -304,7 +314,7 @@ func (p *Parser) parseStatement() Node {
 		lexer.TokenTrue, lexer.TokenFalse:
 		expr := p.parseExpr()
 		if expr != nil {
-			return &ExprStmt{Expression: expr}
+			node := &ExprStmt{Expression: expr}; setNodeLine(node, line); return node
 		}
 		return nil
 	default:
@@ -315,9 +325,12 @@ func (p *Parser) parseStatement() Node {
 }
 
 func (p *Parser) parseReturn() *ReturnStmt {
+	line := int(p.curToken.Line)
 	p.nextToken() // consume 'return'
 	val := p.parseExpr()
-	return &ReturnStmt{Value: val}
+	node := &ReturnStmt{Value: val}
+	setNodeLine(node, line)
+	return node
 }
 
 // Phase 48: Lambda expressions — fn(a, b) { return a + b }
@@ -355,6 +368,7 @@ func (p *Parser) parseLambda() *LambdaExpr {
 }
 
 func (p *Parser) parseWhile() *WhileStmt {
+	line := int(p.curToken.Line)
 	p.nextToken() // consume 'while'
 	p.nextToken() // consume '('
 	condition := p.parseExpr()
@@ -362,11 +376,14 @@ func (p *Parser) parseWhile() *WhileStmt {
 	p.nextToken() // consume '{'
 	body := p.parseBlock()
 	p.nextToken() // consume '}'
-	return &WhileStmt{Condition: condition, Body: body}
+	node := &WhileStmt{Condition: condition, Body: body}
+	setNodeLine(node, line)
+	return node
 }
 
 // Phase 19: for (init; cond; post) { body }
 func (p *Parser) parseFor() Node {
+	line := int(p.curToken.Line)
 	p.nextToken() // consume 'for'
 
 	// Phase 47: Detect for-in syntax: for x in expr { ... }
@@ -457,10 +474,13 @@ func (p *Parser) parseFor() Node {
 	body := p.parseBlock()
 	p.nextToken() // consume '}'
 
-	return &ForStmt{Init: init, Condition: condition, Post: post, Body: body}
+	node := &ForStmt{Init: init, Condition: condition, Post: post, Body: body}
+	setNodeLine(node, line)
+	return node
 }
 
 func (p *Parser) parseIf() *IfStmt {
+	line := int(p.curToken.Line)
 	p.nextToken() // consume 'if'
 	p.nextToken() // consume '('
 	condition := p.parseExpr()
@@ -483,14 +503,23 @@ func (p *Parser) parseIf() *IfStmt {
 		}
 	}
 
-	return &IfStmt{
+	node := &IfStmt{
 		Condition:   condition,
 		Consequence: consequence,
 		Alternative: alternative,
 	}
+	setNodeLine(node, line)
+	return node
+}
+
+func (p *Parser) exprStmtAt(expr Node, line int) *ExprStmt {
+	node := &ExprStmt{Expression: expr}
+	setNodeLine(node, line)
+	return node
 }
 
 func (p *Parser) parseIdentStatement() Node {
+	line := int(p.curToken.Line)
 	ident := p.curToken.Literal(p.src)
 	p.nextToken() // consume identifier
 
@@ -523,9 +552,9 @@ func (p *Parser) parseIdentStatement() Node {
 			if p.curToken.Type == lexer.TokenAssign {
 				p.nextToken() // consume '='
 				val := p.parseExpr()
-				return &ExprStmt{Expression: &BinaryExpr{Left: matIdx, Operator: "=", Right: val}}
+				return p.exprStmtAt(&BinaryExpr{Left: matIdx, Operator: "=", Right: val}, line)
 			}
-			return &ExprStmt{Expression: matIdx}
+			return p.exprStmtAt(matIdx, line)
 		}
 		// Phase 55: slice in statement position: s[0:5]
 		if p.curToken.Type == lexer.TokenColon {
@@ -535,7 +564,7 @@ func (p *Parser) parseIdentStatement() Node {
 				end = p.parseExpr()
 			}
 			p.nextToken() // consume ']'
-			return &ExprStmt{Expression: &SliceExpr{Target: &Identifier{Name: ident}, Start: first, End: end}}
+			return p.exprStmtAt(&SliceExpr{Target: &Identifier{Name: ident}, Start: first, End: end}, line)
 		}
 		// Single index: arr[i] = val or arr[i]
 		p.nextToken() // consume ']'
@@ -543,9 +572,9 @@ func (p *Parser) parseIdentStatement() Node {
 		if p.curToken.Type == lexer.TokenAssign {
 			p.nextToken() // consume '='
 			val := p.parseExpr()
-			return &ExprStmt{Expression: &BinaryExpr{Left: idxExpr, Operator: "=", Right: val}}
+			return p.exprStmtAt(&BinaryExpr{Left: idxExpr, Operator: "=", Right: val}, line)
 		}
-		return &ExprStmt{Expression: idxExpr}
+		return p.exprStmtAt(idxExpr, line)
 	}
 
 	// Simple variable assignment (reassignment, not declaration)
@@ -557,7 +586,7 @@ func (p *Parser) parseIdentStatement() Node {
 			Operator: "=",
 			Right:    val,
 		}
-		return &ExprStmt{Expression: assignExpr}
+		return p.exprStmtAt(assignExpr, line)
 	}
 
 	// Otherwise it's an expression statement
@@ -576,7 +605,7 @@ func (p *Parser) parseIdentStatement() Node {
 			}
 		}
 		p.nextToken() // consume ')'
-		return &ExprStmt{Expression: &CallExpr{Function: ident, Args: args}}
+		return p.exprStmtAt(&CallExpr{Function: ident, Args: args}, line)
 	}
 
 	// Check for dot expression
@@ -593,12 +622,12 @@ func (p *Parser) parseIdentStatement() Node {
 					p.nextToken()
 				}
 			}
-			p.nextToken() // consume ')'
-			return &ExprStmt{Expression: &CallExpr{
-				Function: ident + "." + rightIdent,
-				Args:     args,
-				IsCFunc:  ident == "C",
-			}}
+		p.nextToken() // consume ')'
+		return p.exprStmtAt(&CallExpr{
+			Function: ident + "." + rightIdent,
+			Args:     args,
+			IsCFunc:  ident == "C",
+		}, line)
 		}
 		dotExpr := &DotExpr{Left: left, Right: rightIdent}
 		// Phase 52: Chain nested field access — a.b.c
@@ -612,9 +641,9 @@ func (p *Parser) parseIdentStatement() Node {
 		if p.curToken.Type == lexer.TokenAssign {
 			p.nextToken() // consume '='
 			val := p.parseExpr()
-			return &ExprStmt{Expression: &BinaryExpr{Left: dotExpr, Operator: "=", Right: val}}
+			return p.exprStmtAt(&BinaryExpr{Left: dotExpr, Operator: "=", Right: val}, line)
 		}
-		return &ExprStmt{Expression: dotExpr}
+		return p.exprStmtAt(dotExpr, line)
 	}
 
 	// Check for binary operator (assignment via expression)
@@ -625,20 +654,21 @@ func (p *Parser) parseIdentStatement() Node {
 		p.curToken.Type == lexer.TokenLessThan || p.curToken.Type == lexer.TokenGreaterThan ||
 		p.curToken.Type == lexer.TokenLessEqual || p.curToken.Type == lexer.TokenGreaterEqual ||
 		p.curToken.Type == lexer.TokenAnd || p.curToken.Type == lexer.TokenOr {
-		return &ExprStmt{Expression: p.parseBinaryExpr(left, 0)}
+		return p.exprStmtAt(p.parseBinaryExpr(left, 0), line)
 	}
 
 	// Phase 19: Handle send operator: channel <- message
 	if p.curToken.Type == lexer.TokenSend {
 		p.nextToken() // consume '<-'
 		message := p.parseExpr()
-		return &ExprStmt{Expression: &SendExpr{Channel: left, Message: message}}
+		return p.exprStmtAt(&SendExpr{Channel: left, Message: message}, line)
 	}
 
-	return &ExprStmt{Expression: left}
+	return p.exprStmtAt(left, line)
 }
 
 func (p *Parser) parseExpr() Node {
+	p.arena.SetLine(int(p.curToken.Line))
 	return p.parseBinaryExpr(nil, 0)
 }
 
@@ -794,6 +824,7 @@ func (p *Parser) parseUnary() Node {
 }
 
 func (p *Parser) parsePrimaryExpr() Node {
+	p.arena.SetLine(int(p.curToken.Line))
 	switch p.curToken.Type {
 	case lexer.TokenString:
 		val := p.curToken.Literal(p.src)
