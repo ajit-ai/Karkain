@@ -14,7 +14,7 @@ NEVER skip this step. This is a hard rule, not optional.
 
 See `ROADMAP.md` for the complete development plan (Phases 50–62).
 Current phase: **56** — Self-Hosting Compiler Completion.
-Last completed: **55b** — Tooling & Dead Code Cleanup (verbose flag wired, deep equality, checked arithmetic).
+Last completed: **55c** — Cleanup (HTTP ifdef guard, AST line tracking, #line debug emission, dead code removal, format string fix).
 
 ## Guiding Principles
 
