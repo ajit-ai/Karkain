@@ -13,8 +13,8 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–62).
-Current phase: **54** — Closure & Capture Semantics.
-Last completed: **53** — IR Infrastructure (SSA pipeline live, verify+legacy-fallback).
+Current phase: **56** — Self-Hosting Compiler Completion.
+Last completed: **55b** — Tooling & Dead Code Cleanup (verbose flag wired, deep equality, checked arithmetic).
 
 ## Guiding Principles
 

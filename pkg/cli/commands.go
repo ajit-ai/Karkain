@@ -53,6 +53,7 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 	}
 
 	cfg.RunAfter = true
+	cfg.Verbose = verbose
 	cg := codegen.New(cfg)
 
 	if err := cg.GenerateAndCompile(prog, targetFile); err != nil {
@@ -92,6 +93,7 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 
 	cfg.RunAfter = false
 	cfg.CompileOnly = true
+	cfg.Verbose = verbose
 	if outputPath != "" {
 		cfg.OutputPath = outputPath
 	}
