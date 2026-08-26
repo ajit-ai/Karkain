@@ -38,3 +38,7 @@
 .idea/
 *.swp
 *~
+
+# Generated C files from examples
+examples/*.c
+temp/

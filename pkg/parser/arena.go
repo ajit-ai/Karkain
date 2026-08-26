@@ -11,11 +11,12 @@ const arenaChunkSize = 4096
 // The arena does NOT support individual deallocation — all nodes are
 // freed when the arena itself is garbage-collected.
 type Arena struct {
-	chunks  [][]Node
-	chunk0  [arenaChunkSize]Node // inline first chunk to avoid one pointer indirection
-	current int                  // index within current chunk
-	chunkIdx int                 // current chunk index
-	total   uint32               // total nodes allocated
+	chunks      [][]Node
+	chunk0      [arenaChunkSize]Node // inline first chunk to avoid one pointer indirection
+	current     int                  // index within current chunk
+	chunkIdx    int                  // current chunk index
+	total       uint32               // total nodes allocated
+	currentLine int                  // Phase 55b: source line for next allocation
 }
 
 // NodeID is a compact 32-bit identifier for an AST node allocated in the arena.
@@ -35,6 +36,9 @@ func NewArena() *Arena {
 	return a
 }
 
+// SetLine records the source line number for the next allocation.
+func (a *Arena) SetLine(line int) { a.currentLine = line }
+
 // Alloc allocates a new AST node in the arena and returns a NodeID.
 // The node is constructed by calling the provided function.
 func (a *Arena) Alloc(fn func() Node) NodeID {
@@ -46,8 +50,11 @@ func (a *Arena) Alloc(fn func() Node) NodeID {
 		a.current = 0
 	}
 
+	node := fn()
+	setNodeLine(node, a.currentLine)
+
 	id := NodeID(a.total)
-	a.chunks[a.chunkIdx] = append(a.chunks[a.chunkIdx], fn())
+	a.chunks[a.chunkIdx] = append(a.chunks[a.chunkIdx], node)
 	a.current++
 	a.total++
 	return id
@@ -310,4 +317,109 @@ func (a *Arena) AllocProgram(statements []Node, cImports []*CImportBlock) *Progr
 		return &Program{Statements: statements, CImports: cImports}
 	})
 	return a.Get(id).(*Program)
+}
+
+// setNodeLine sets the Line field on any AST node that has one.
+// This is called by Alloc to propagate source line numbers from tokens.
+func setNodeLine(node Node, line int) {
+	if line == 0 || node == nil {
+		return
+	}
+	switch n := node.(type) {
+	case *Program: n.Line = line
+	case *FuncDecl: n.Line = line
+	case *VarDeclStmt: n.Line = line
+	case *ReturnStmt: n.Line = line
+	case *ExprStmt: n.Line = line
+	case *IfStmt: n.Line = line
+	case *WhileStmt: n.Line = line
+	case *PrintStmt: n.Line = line
+	case *BlockStmt: /* no Line field */
+	case *StringLiteral: n.Line = line
+	case *IntLiteral: n.Line = line
+	case *Float64Literal: n.Line = line
+	case *BigIntLiteral: n.Line = line
+	case *BigFloatLiteral: n.Line = line
+	case *Identifier: n.Line = line
+	case *ArrayLiteral: n.Line = line
+	case *MapLiteral: n.Line = line
+	case *IndexExpr: n.Line = line
+	case *SliceExpr: n.Line = line
+	case *BinaryExpr: n.Line = line
+	case *CallExpr: n.Line = line
+	case *RawAccessExpr: n.Line = line
+	case *BorrowExpr: n.Line = line
+	case *MoveExpr: n.Line = line
+	case *PropagateExpr: n.Line = line
+	case *OptionSomeExpr: n.Line = line
+	case *OptionNoneExpr: n.Line = line
+	case *ResultOkExpr: n.Line = line
+	case *ResultErrExpr: n.Line = line
+	case *MatchExpr: n.Line = line
+	case *SIMDBuiltinExpr: n.Line = line
+	case *LinearTypeDecl: n.Line = line
+	case *PackedStructDecl: n.Line = line
+	case *EnumDecl: n.Line = line
+	case *EnumVariantExpr: n.Line = line
+	case *CImportBlock: n.Line = line
+	case *AddressOf: n.Line = line
+	case *Dereference: n.Line = line
+	case *AllocExpr: n.Line = line
+	case *FreeExpr: n.Line = line
+	case *MatrixDecl: n.Line = line
+	case *MatrixIndexExpr: n.Line = line
+	case *DotExpr: n.Line = line
+	case *QRegDeclStmt: n.Line = line
+	case *GateApplyStmt: n.Line = line
+	case *MeasureExpr: n.Line = line
+	case *ActorDeclStmt: n.Line = line
+	case *SpawnExpr: n.Line = line
+	case *ReceiveStmt: n.Line = line
+	case *SendExpr: n.Line = line
+	case *MacroDeclStmt: n.Line = line
+	case *MacroExpandExpr: n.Line = line
+	case *QuoteExpr: n.Line = line
+	case *UnquoteExpr: n.Line = line
+	case *ComptimeExpr: n.Line = line
+	case *ComptimeStmt: n.Line = line
+	case *ReflectTypeExpr: n.Line = line
+	case *DeriveExpr: n.Line = line
+	case *TagExpr: n.Line = line
+	case *KernelDeclStmt: n.Line = line
+	case *GlobalIdExpr: n.Line = line
+	case *BarrierStmt: n.Line = line
+	case *StructDeclStmt: n.Line = line
+	case *StructLiteral: n.Line = line
+	case *BoolLiteral: n.Line = line
+	case *ForStmt: n.Line = line
+	case *ForInStmt: n.Line = line
+	case *BreakStmt: n.Line = line
+	case *ContinueStmt: n.Line = line
+	case *LambdaExpr: n.Line = line
+	case *FuncRefExpr: n.Line = line
+	case *UnaryExpr: n.Line = line
+	case *TraitDeclStmt: n.Line = line
+	case *ImplDeclStmt: n.Line = line
+	case *TensorStmt: n.Line = line
+	case *TensorOpExpr: n.Line = line
+	case *TensorReturnStmt: n.Line = line
+	case *TensorIndexExpr: n.Line = line
+	case *TensorShapeOfExpr: n.Line = line
+	case *CircuitDecl: n.Line = line
+	case *QPUOpExpr: n.Line = line
+	case *CircuitReturnStmt: n.Line = line
+	case *QubitIndexExpr: n.Line = line
+	case *QubitAssignStmt: n.Line = line
+	case *StmtList: n.Line = line
+	case *CoroutineDecl: n.Line = line
+	case *AsyncExpr: n.Line = line
+	case *AwaitExpr: n.Line = line
+	case *YieldExpr: n.Line = line
+	case *ChSendExpr: n.Line = line
+	case *ChRecvExpr: n.Line = line
+	case *ChDeclExpr: n.Line = line
+	case *SelectStmt: n.Line = line
+	case *GreenSpawnExpr: n.Line = line
+	case *AwaitAllExpr: n.Line = line
+	}
 }
