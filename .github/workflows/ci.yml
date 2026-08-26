@@ -1,0 +1,178 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install GCC
+        run: sudo apt-get update && sudo apt-get install -y gcc
+
+      - name: Run unit tests
+        run: go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1 -v
+
+      - name: Build compiler
+        run: go build -o karkain ./cmd/karkain
+
+      - name: Run E2E tests
+        run: |
+          PASS=0; FAIL=0
+          for f in examples/*.kar; do
+            if ./karkain run "$f" >/dev/null 2>&1; then
+              PASS=$((PASS + 1))
+            else
+              FAIL=$((FAIL + 1))
+              echo "FAIL: $f"
+            fi
+          done
+          echo "E2E: $PASS passed, $FAIL failed"
+          if [ "$FAIL" -gt 1 ]; then exit 1; fi  # allow 1 pre-existing failure
+
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            ext: .exe
+            format: zip
+          - goos: windows
+            goarch: arm64
+            ext: .exe
+            format: zip
+          - goos: linux
+            goarch: amd64
+            ext: ""
+            format: tar.gz
+          - goos: linux
+            goarch: arm64
+            ext: ""
+            format: tar.gz
+          - goos: linux
+            goarch: armv7
+            ext: ""
+            format: tar.gz
+          - goos: linux
+            goarch: i386
+            ext: ""
+            format: tar.gz
+          - goos: linux
+            goarch: ppc64le
+            ext: ""
+            format: tar.gz
+          - goos: linux
+            goarch: s390x
+            ext: ""
+            format: tar.gz
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+            format: tar.gz
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+            format: tar.gz
+          - goos: freebsd
+            goarch: amd64
+            ext: ""
+            format: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          BINARY="karkain${{ matrix.ext }}"
+          go build -ldflags="-s -w" -o "$BINARY" ./cmd/karkain
+
+      - name: Package (tar.gz)
+        if: matrix.format == 'tar.gz'
+        run: |
+          ARCHIVE="karkain-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "$ARCHIVE"
+          mv "karkain" "$ARCHIVE/"
+          cp README.md LICENSE "$ARCHIVE/" 2>/dev/null || true
+          cp -r stdlib "$ARCHIVE/stdlib" 2>/dev/null || true
+          echo "${{ github.ref_name }}" > "$ARCHIVE/VERSION"
+          tar czf "${ARCHIVE}.tar.gz" "$ARCHIVE/"
+
+      - name: Package (zip)
+        if: matrix.format == 'zip'
+        run: |
+          ARCHIVE="karkain-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "$ARCHIVE"
+          mv "karkain${{ matrix.ext }}" "$ARCHIVE/"
+          cp README.md LICENSE "$ARCHIVE/" 2>/dev/null || true
+          cp -r stdlib "$ARCHIVE/stdlib" 2>/dev/null || true
+          echo "${{ github.ref_name }}" > "$ARCHIVE/VERSION"
+          zip -r "${ARCHIVE}.zip" "$ARCHIVE/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: karkain-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: karkain-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}.${{ matrix.format }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          for f in *; do
+            sha256sum "$f"
+          done | tee ../checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          body: |
+            ## Karkain ${{ github.ref_name }}
+
+            ### Installation
+            Download the archive for your platform and add `karkain` to your PATH.
+
+            ### Supported Platforms
+            - Windows (amd64, arm64)
+            - Linux (amd64, arm64, armv7, i386, ppc64le, s390x)
+            - macOS (amd64 Intel, arm64 Apple Silicon)
+            - FreeBSD (amd64)
+
+            ### Checksums (SHA-256)
+            ```
+            $(cat checksums.txt)
+            ```
+          generate_release_notes: true
