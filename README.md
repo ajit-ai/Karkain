@@ -4,6 +4,10 @@
 
 Karkain is a statically typed, high-performance systems programming language designed for heterogeneous CPU/GPU/quantum computing, native actor concurrency, and compile-time memory safety. It compiles to C23 and delegates to GCC/Clang/MSVC for final machine code — giving you portability without sacrificing speed.
 
+> **Language specification:** see [`SPEC.md`](SPEC.md) for the authoritative,
+> versioned spec of the Karkain language (keywords, grammar, types, memory model,
+> and conformance status).
+
 ```
 .kar source → Lexer → Parser → SSA IR → Optimizer → Verifier → C23 → GCC/Clang → Binary
                                     ↓
