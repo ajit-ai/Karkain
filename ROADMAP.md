@@ -1,19 +1,19 @@
-# Karkain Roadmap — Complete Development Plan
+# Karkain Roadmap Ã¢â‚¬â€ Complete Development Plan
 
 ## Vision
 
 Karkain is a unified heterogeneous systems language for:
-- **CPU/GPU computing** — write host + kernel in one language
-- **Quantum computing** — first-class quantum primitives, circuits, error correction
-- **Multi-dimensional lattice simulation** — tensor types, autograd, distributed computation
-- **Systems programming** — Rust-like safety, C-like performance, Go-like simplicity
+- **CPU/GPU computing** Ã¢â‚¬â€ write host + kernel in one language
+- **Quantum computing** Ã¢â‚¬â€ first-class quantum primitives, circuits, error correction
+- **Multi-dimensional lattice simulation** Ã¢â‚¬â€ tensor types, autograd, distributed computation
+- **Systems programming** Ã¢â‚¬â€ Rust-like safety, C-like performance, Go-like simplicity
 
 ## Guiding Principles
 
-1. **Maturity over features** — depth, correctness, performance, verification before expansion
-2. **Semantic foundations first** — value representation, ownership, lifetimes, IR before features
-3. **Working > ambitious** — fix broken fundamentals before adding new capabilities
-4. **Incremental verification** — every phase must compile, pass E2E, pass all tests
+1. **Maturity over features** Ã¢â‚¬â€ depth, correctness, performance, verification before expansion
+2. **Semantic foundations first** Ã¢â‚¬â€ value representation, ownership, lifetimes, IR before features
+3. **Working > ambitious** Ã¢â‚¬â€ fix broken fundamentals before adding new capabilities
+4. **Incremental verification** Ã¢â‚¬â€ every phase must compile, pass E2E, pass all tests
 
 ---
 
@@ -24,36 +24,36 @@ Karkain is a unified heterogeneous systems language for:
 | Phases completed | 49 |
 | Go code (compiler) | ~34,600 lines across 100 files, 13 packages |
 | C runtime | ~777 lines (actor, quantum, reflect, rpc) |
-| Self-hosting sources | 6 .kar files (src/compiler/) |
+| Self-hosting sources | 6 .kark files (src/compiler/) |
 | Backend codegen files | 15 (C, WGSL, OpenCL, QIR, OpenASM, OpenPulse, QML, QEC, etc.) |
-| Standard library | 6 .kar files (io, string, math, async/actor, gpu) |
+| Standard library | 6 .kark files (io, string, math, async/actor, gpu) |
 
 ---
 
 ## Completed Phases Summary
 
-### Tier 1: Language Core (Phases 1–17)
+### Tier 1: Language Core (Phases 1Ã¢â‚¬â€œ17)
 Lexer, parser, code generator, basic types (int, float, string, bool), arrays, maps,
 control flow (if/else, while, for), functions, closures, structs, enums, quantum
 primitives (qreg, gates, measurement), kernel declarations, matrix operations, address-of/dereference.
 
-### Tier 2: Multi-Backend Emission (Phases 18–26)
+### Tier 2: Multi-Backend Emission (Phases 18Ã¢â‚¬â€œ26)
 GPU host-side codegen, OpenCL kernel emission, WGSL compute shader generation,
 generic kernel monomorphization, multi-backend dispatch, AVX2 SIMD matrix kernels,
 monomorphized generics with trait constraints, hardware-native tensor types, autograd engine.
 
-### Tier 3: Quantum Computing Stack (Phases 28–36)
+### Tier 3: Quantum Computing Stack (Phases 28Ã¢â‚¬â€œ36)
 Quantum primitives, OpenQASM 3.0 + QIR backends, hybrid VQE/QML gradient engine,
 GPU quantum state-vector simulator, distributed multi-GPU quantum, quantum noise models,
 OpenPulse codegen, quantum error correction, quantum circuit optimization,
 binary IR bytecode (.kbc), unified multi-target JIT engine + C ABI FFI.
 
-### Tier 4: Developer Experience & Concurrency (Phases 37–40)
+### Tier 4: Developer Experience & Concurrency (Phases 37Ã¢â‚¬â€œ40)
 Distributed actor system, coroutine/async runtime & green thread scheduler,
 LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 
-### Tier 5: Safety & Correctness (Phases 41–49) ← CURRENT
-- **41**: Hybrid memory model — `&T`/`&mut T` references, `move(x)`, `@raw(addr)`
+### Tier 5: Safety & Correctness (Phases 41Ã¢â‚¬â€œ49) Ã¢â€ Â CURRENT
+- **41**: Hybrid memory model Ã¢â‚¬â€ `&T`/`&mut T` references, `move(x)`, `@raw(addr)`
 - **42**: `Option<T>`, `Result<T,E>`, match expressions, SIMD intrinsics
 - **43**: Compile-time borrow checker
 - **44**: Error propagation (`?`), exhaustive match checking, linear type enforcement
@@ -72,7 +72,7 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 - `genStructDecl` emits C typedef with raw field types (`char* name; int64_t age;`)
 - `genStructLiteral` assigns boxed `Value*` to raw fields (`_s.name = make_string("Alice")`)
 - Top-level struct declarations are **never emitted** (`GenerateAndCompile` doesn't iterate them)
-- Field access passes raw `char*` to `print_value(Value*)` — type mismatch
+- Field access passes raw `char*` to `print_value(Value*)` Ã¢â‚¬â€ type mismatch
 - **Impact**: Structs are unparseable/unusable end-to-end
 
 ### BUG-2: Option/Result match arms are broken
@@ -82,7 +82,7 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 - **Impact**: Core error-handling semantics are non-functional
 
 ### BUG-3: Index assignment generates invalid C
-- `m["k"] = v` becomes `array_get(m, make_string("k")) = v;` — assignment to rvalue
+- `m["k"] = v` becomes `array_get(m, make_string("k")) = v;` Ã¢â‚¬â€ assignment to rvalue
 - **Impact**: Map/string mutation is impossible
 
 ### BUG-4: `?` error propagation is a no-op
@@ -90,8 +90,8 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 - **Impact**: Error propagation doesn't work
 
 ### BUG-5: Borrow checker lacks lexical scoping
-- Flat variable map shared across function body — two blocks using same name share state
-- Borrows never expire — `&x` poisons variable for rest of function
+- Flat variable map shared across function body Ã¢â‚¬â€ two blocks using same name share state
+- Borrows never expire Ã¢â‚¬â€ `&x` poisons variable for rest of function
 - `BorrowError.Line` is always 0
 - **Impact**: Safety guarantees are unreliable
 
@@ -100,11 +100,11 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 - **Impact**: Subtle data corruption possible
 
 ### BUG-7: Enum variants with payloads unimplemented
-- `EnumVariantExpr` with payload emits `EnumName_Variant_make(val)` — nothing defines this
+- `EnumVariantExpr` with payload emits `EnumName_Variant_make(val)` Ã¢â‚¬â€ nothing defines this
 - **Impact**: Tagged unions with data don't compile
 
 ### BUG-8: Typed declarations mix representations
-- `var s string = "hi"` → `char* s = make_string("hi")` (Value* into char* slot)
+- `var s string = "hi"` Ã¢â€ â€™ `char* s = make_string("hi")` (Value* into char* slot)
 - **Impact**: Typed variable declarations are broken
 
 ---
@@ -140,7 +140,7 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 
 | Task | Details | Priority |
 |------|---------|----------|
-| `binary_op(Value, op, Value)` → `Value` | Change signature to accept/return by value | HIGH |
+| `binary_op(Value, op, Value)` Ã¢â€ â€™ `Value` | Change signature to accept/return by value | HIGH |
 | `is_truthy(Value)` by value | Change signature | HIGH |
 | `print_value(Value)` by value | Change signature | HIGH |
 | `values_equal(Value, Value)` by value | Change signature | HIGH |
@@ -154,8 +154,8 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 | Task | Details | Priority |
 |------|---------|----------|
 | Define IR instruction set | SSA-form intermediate representation | CRITICAL |
-| AST → IR lowering | New pass replacing direct AST → C | CRITICAL |
-| IR → C23 emission | IR drives the C backend | CRITICAL |
+| AST Ã¢â€ â€™ IR lowering | New pass replacing direct AST Ã¢â€ â€™ C | CRITICAL |
+| IR Ã¢â€ â€™ C23 emission | IR drives the C backend | CRITICAL |
 | IR type system | Typed registers, not just Value* everywhere | HIGH |
 | IR optimization passes | Constant folding, dead code elimination | MEDIUM |
 | IR verification | Validate IR well-formedness | MEDIUM |
@@ -166,7 +166,7 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 | Task | Details | Priority |
 |------|---------|----------|
 | Closure data structures | Heap-allocated capture blocks | HIGH |
-| Escape analysis → closure conversion | Escaping locals become capture fields | HIGH |
+| Escape analysis Ã¢â€ â€™ closure conversion | Escaping locals become capture fields | HIGH |
 | Lambda codegen with captures | Pass capture block to lambda function | HIGH |
 | Mutable capture semantics | `&mut` captures update outer variable | MEDIUM |
 
@@ -182,14 +182,14 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 | Slice bounds checking | Runtime bounds validation | MEDIUM |
 
 ### PHASE 56: Self-Hosting Compiler Completion
-**Goal**: `src/compiler/*.kar` can compile itself.
+**Goal**: `src/compiler/*.kark` can compile itself.
 
 | Task | Details | Priority |
 |------|---------|----------|
-| Port lexer to Karkain | `src/compiler/lexer.kar` functional | HIGH |
-| Port parser to Karkain | `src/compiler/parser.kar` functional | HIGH |
-| Port codegen to Karkain | `src/compiler/codegen.kar` functional | HIGH |
-| 3-stage bootstrap pipeline | Karkain → C → GCC → karkain.exe | HIGH |
+| Port lexer to Karkain | `src/compiler/lexer.kark` functional | HIGH |
+| Port parser to Karkain | `src/compiler/parser.kark` functional | HIGH |
+| Port codegen to Karkain | `src/compiler/codegen.kark` functional | HIGH |
+| 3-stage bootstrap pipeline | Karkain Ã¢â€ â€™ C Ã¢â€ â€™ GCC Ã¢â€ â€™ karkain.exe | HIGH |
 | SHA-256 byte parity verification | Bootstrap binary matches | MEDIUM |
 
 ### PHASE 57: Actor & Concurrency Runtime
@@ -209,8 +209,8 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 
 | Task | Details | Priority |
 |------|---------|----------|
-| Kernel → WGSL pipeline | `kernel` → WGSL → WebGPU compute | HIGH |
-| Kernel → OpenCL pipeline | `kernel` → OpenCL C → clBuildProgram | HIGH |
+| Kernel Ã¢â€ â€™ WGSL pipeline | `kernel` Ã¢â€ â€™ WGSL Ã¢â€ â€™ WebGPU compute | HIGH |
+| Kernel Ã¢â€ â€™ OpenCL pipeline | `kernel` Ã¢â€ â€™ OpenCL C Ã¢â€ â€™ clBuildProgram | HIGH |
 | Host-side GPU launch | Memory transfer, dispatch, synchronization | HIGH |
 | GPU memory model | Device/Host/Shared memory domains | HIGH |
 | CPU fallback kernels | Auto-generate CPU version of each kernel | MEDIUM |
@@ -221,12 +221,12 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 
 | Task | Details | Priority |
 |------|---------|----------|
-| Circuit → OpenQASM 3.0 export | `circuit` → `.qasm` file | HIGH |
-| Circuit → QIR LLVM IR | `circuit` → QIR-compatible LLVM IR | HIGH |
-| Circuit → OpenPulse | Pulse-level control output | MEDIUM |
+| Circuit Ã¢â€ â€™ OpenQASM 3.0 export | `circuit` Ã¢â€ â€™ `.qasm` file | HIGH |
+| Circuit Ã¢â€ â€™ QIR LLVM IR | `circuit` Ã¢â€ â€™ QIR-compatible LLVM IR | HIGH |
+| Circuit Ã¢â€ â€™ OpenPulse | Pulse-level control output | MEDIUM |
 | Quantum simulator bridge | Host-side state vector simulation | HIGH |
 | Distributed quantum execution | Multi-GPU state vector (already coded, needs wiring) | MEDIUM |
-| QEC integration | Error correction codes → syndrome extraction circuits | LOW |
+| QEC integration | Error correction codes Ã¢â€ â€™ syndrome extraction circuits | LOW |
 
 ### PHASE 60: Standard Library
 **Goal**: Practical standard library for real programs.
@@ -245,7 +245,7 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 
 | Task | Details | Priority |
 |------|---------|----------|
-| `karkain test` runner | Discover and run `_test.kar` files | HIGH |
+| `karkain test` runner | Discover and run `_test.kark` files | HIGH |
 | Property-based testing | Randomized input testing framework | MEDIUM |
 | Compiler snapshot tests | C output golden files with diff checking | HIGH |
 | Fuzz testing | Parser/codegen fuzzing for crashes | MEDIUM |
@@ -267,7 +267,7 @@ LSP engine with diagnostics/completion/hover/go-to-def, package manager.
 ## Execution Priority Order
 
 ```
-PHASE 50: Bug Fixes & Language Correctness        ← NEXT
+PHASE 50: Bug Fixes & Language Correctness        Ã¢â€ Â NEXT
 PHASE 51: Borrow Checker Lexical Scoping
 PHASE 52: Value-by-Value Runtime API
 PHASE 53: IR Infrastructure
@@ -282,18 +282,18 @@ PHASE 61: Testing & Verification
 PHASE 62: Native Codegen
 ```
 
-**Rationale**: Phases 50–55 are foundational correctness and language semantics.
-Phases 56–59 wire up the existing (but disconnected) backend infrastructure.
-Phases 60–62 complete the ecosystem.
+**Rationale**: Phases 50Ã¢â‚¬â€œ55 are foundational correctness and language semantics.
+Phases 56Ã¢â‚¬â€œ59 wire up the existing (but disconnected) backend infrastructure.
+Phases 60Ã¢â‚¬â€œ62 complete the ecosystem.
 
 ---
 
 ## Explicitly Out of Scope (Decision Record)
 
-**NPU, DSP, and FPGA backend targets — REMOVED from roadmap (decision: 2026-08).**
+**NPU, DSP, and FPGA backend targets Ã¢â‚¬â€ REMOVED from roadmap (decision: 2026-08).**
 
 Rationale: pursuing these targets risks degrading the three non-negotiable properties
-of Karkain — **speed, multithreading, memory safety**:
+of Karkain Ã¢â‚¬â€ **speed, multithreading, memory safety**:
 
 - Vendor-specific lowering paths fragment portability and cannot be CI-tested without hardware
 - Device execution models (async NPU graphs, FPGA pipelines, real-time DSP) complicate the
@@ -302,7 +302,7 @@ of Karkain — **speed, multithreading, memory safety**:
 - Optimization effort splits across incompatible pass pipelines, threatening the "fastest" goal
 
 Karkain's differentiator remains: **compile-time ownership safety + performance on CPU/GPU/quantum**,
-not breadth of hardware targets. This decision may be revisited only after Phases 53–62 are
+not breadth of hardware targets. This decision may be revisited only after Phases 53Ã¢â‚¬â€œ62 are
 complete AND a portable-fallback + golden-test strategy exists per target.
 
 
@@ -310,7 +310,7 @@ complete AND a portable-fallback + golden-test strategy exists per target.
 
 ## Phase 63+: Independence Roadmap (Decision Record, 2026-08)
 
-**Goal**: `.kar` files and the Karkain toolchain become fully independent for all
+**Goal**: `.kark` files and the Karkain toolchain become fully independent for all
 system-level activity. Every known capability gap is tracked as a phase below.
 The milestone definition of INDEPENDENCE: `karkain` compiles Karkain source,
 including its own compiler, with zero dependency on any other language's
@@ -341,7 +341,7 @@ PHASE 66: Toolchain Polish                       [closes G4]
 PHASE 67: IR Optimizer Depth II                  [completes G2]
           LICM, loop unrolling, bounds-check hoisting, pass manager
 PHASE 68: Self-Hosting Completion                [closes G5 -> INDEPENDENCE]
-          lexer+parser+sema+codegen rewritten in .kar;
+          lexer+parser+sema+codegen rewritten in .kark;
           karkain.exe bootstraps itself; drop Go toolchain from release path
 PHASE 69: Ecosystem Hardening & v1.0 Freeze      [sustainment]
           stdlib audit, fuzzing, conformance suite, language spec v1.0
@@ -355,7 +355,7 @@ PHASE 70: SIMD Vector Types & Atomics            [closes G7]
 
 1. Phase 63 before 64: optimizer may assume verified ownership semantics
 2. Phase 68 requires 60 (stdlib) and 65 (kpm): self-hosted build must fetch deps
-3. Phase 70 atomics depend on the threading model from Phase 57 — land the
+3. Phase 70 atomics depend on the threading model from Phase 57 Ã¢â‚¬â€ land the
    atomics portion with or after 57, not before
 4. INDEPENDENCE is declared only when CI builds karkain-from-karkain green
    for three consecutive releases
@@ -365,7 +365,7 @@ PHASE 70: SIMD Vector Types & Atomics            [closes G7]
 Karkain's strategy mirrors Go's, not LLVM's: a compact in-house SSA mid-level IR
 (block-param CFG, typed registers) performs language-aware optimizations, then
 emits C23 and delegates register allocation + machine codegen to GCC/Clang.
-This is NOT an LLVM replacement and must not become one � the C backend IS our
+This is NOT an LLVM replacement and must not become one Ã¯Â¿Â½ the C backend IS our
 portable backend. G2 work targets passes LLVM cannot see (value semantics,
 ownership-driven DCE) rather than duplicating machine-level optimization.
 
@@ -373,14 +373,14 @@ ownership-driven DCE) rather than duplicating machine-level optimization.
 
 ## Unified Audit & Phase Readjustment (2026-08)
 
-**Source**: ROADMAP bug register + codebase sweep + GCC `-Wall` + gap register (L1�L10, G1�G7).
+**Source**: ROADMAP bug register + codebase sweep + GCC `-Wall` + gap register (L1â€“L10, G1â€“G7).
 Total tracked items: **38** (8 bugs, 20 placeholders, 15 gaps, 6 dead code issues).
 
 ### Bugs (must fix)
 
 | ID | Issue | Status |
 |---|---|---|
-| BUG-1 | Struct codegen broken � raw field types, boxed assignments | OPEN |
+| BUG-1 | Struct codegen broken â€” raw field types, boxed assignments | OPEN |
 | BUG-2 | Option/Result match arms always compile to `1` | OPEN |
 | BUG-3 | Index assignment `m[k] = v` generates assignment to rvalue | OPEN |
 | BUG-4 | `?` error propagation is a no-op | OPEN |
@@ -443,7 +443,7 @@ Total tracked items: **38** (8 bugs, 20 placeholders, 15 gaps, 6 dead code issue
 63:  Full Borrow Checker + Ownership (BUG-5, G1-G3, G8)
 64:  IR Optimizer Depth I (G9, M2)
 65:  Package Manager + Modules (P11-P12, G11)
-66:  Toolchain � LSP/fmt/REPL (P10)
+66:  Toolchain â€” LSP/fmt/REPL (P10)
 67:  IR Optimizer Depth II
 68:  Self-Hosting Completion (INDEPENDENCE)
 69:  Ecosystem Hardening + v1.0

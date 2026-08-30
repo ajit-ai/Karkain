@@ -17,7 +17,7 @@ func loadCompilerSource(t *testing.T) string {
 	root := filepath.Join("..", "..")
 	srcDir := filepath.Join(root, "src", "compiler")
 
-	files := []string{"ast.kar", "lexer.kar", "parser.kar", "sema.kar", "codegen.kar", "main.kar"}
+	files := []string{"ast.kark", "lexer.kark", "parser.kark", "sema.kark", "codegen.kark", "main.kark"}
 	var full strings.Builder
 	for _, f := range files {
 		data, err := os.ReadFile(filepath.Join(srcDir, f))
@@ -46,6 +46,6 @@ func TestCodeGenProfile(t *testing.T) {
 	cfg := codegen.NewConfig()
 	cfg.CompileOnly = true
 	g := codegen.New(cfg)
-	err := g.GenerateAndCompile(prog, filepath.Join("..", "..", "src", "compiler", "main.kar"))
+	err := g.GenerateAndCompile(prog, filepath.Join("..", "..", "src", "compiler", "main.kark"))
 	t.Logf("Codegen (CompileOnly=true): %v (err=%v)", time.Since(t1), err)
 }

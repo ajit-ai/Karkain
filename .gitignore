@@ -21,7 +21,7 @@
 *.spv
 *.wgsl
 *.cl
-*.kar.map
+*.kark.map
 
 # Temporary & Test Directories
 /my_project/

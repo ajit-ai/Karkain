@@ -97,7 +97,7 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	}
 
 	// Phase 40: Generate forward declarations for all functions
-	// This enables cross-file references when multiple .kar files are concatenated
+	// This enables cross-file references when multiple .kark files are concatenated
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
 			params := []string{}
@@ -116,7 +116,7 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	// Generate all function declarations
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
-			// Phase 53: SSA IR pipeline — lower, optimize, verify, emit.
+			// Phase 53: SSA IR pipeline â€” lower, optimize, verify, emit.
 			// Falls back to legacy emission on any lowering/verification failure.
 			if !g.cfg.DisableSSA {
 				if out, ok2 := g.emitFunctionViaIR(prog, fn); ok2 {
@@ -486,9 +486,9 @@ static inline Result Result_make_Err(Value val) { Result r; r.tag = Result_Tag_E
 // Phase 49: Value Representation & Allocation Model
 // ============================================================
 // Allocation classification:
-//   VAL_IMMEDIATE — int, float, bool: value stored inline in Value union, no heap
-//   VAL_HEAP      — string, array, map, bigint, bigfloat: data on heap
-//   VAL_REF       — &T / &mut T: zero-cost pointer, references another Value
+//   VAL_IMMEDIATE â€” int, float, bool: value stored inline in Value union, no heap
+//   VAL_HEAP      â€” string, array, map, bigint, bigfloat: data on heap
+//   VAL_REF       â€” &T / &mut T: zero-cost pointer, references another Value
 typedef enum { VAL_IMMEDIATE, VAL_HEAP, VAL_REF } ValueClass;
 
 static inline ValueClass value_class(Value v) {
@@ -509,7 +509,7 @@ static inline ValueClass value_class(Value v) {
     return VAL_IMMEDIATE;
 }
 
-// Phase 52: Option/Result constructors — take Value, heap-allocate inner copy for lifetime, return Value
+// Phase 52: Option/Result constructors â€” take Value, heap-allocate inner copy for lifetime, return Value
 static inline Value option_some(Value inner) {
     Value v; v.type = TYPE_OPTION; v.optVal.tag = 1;
     Value* h = (Value*)malloc(sizeof(Value)); *h = inner; v.optVal.inner = h; return v;
@@ -541,9 +541,9 @@ static inline Value mk_nil(void) {
     Value val; val.type = TYPE_INT; val.intVal = 0; return val;
 }
 
-// Phase 52: Value-by-Value Runtime API — ALL constructors return Value (stack-allocated struct).
+// Phase 52: Value-by-Value Runtime API â€” ALL constructors return Value (stack-allocated struct).
 // Heap-backed data (strdup'd strings, array/map element storage, GMP state) remains on the heap,
-// but the Value wrapper itself lives on the C stack — no malloc for primitives.
+// but the Value wrapper itself lives on the C stack â€” no malloc for primitives.
 // Container storage heap-copies elements on insert; mutation functions take Value*.
 
 // Layout assertion: Value must fit in a single cache line for efficient stack passing
@@ -552,7 +552,7 @@ _Static_assert(sizeof(Value) <= 64, "Value must fit in a 64-byte cache line");
 // Phase 52: Value Representation & Allocation Model
 // Small integer pool: values -128..127 never malloc (covers most literals, loop counters, booleans)
 // BUG-6 fix: pool entries are returned as COPIES (Value by value), so callers can never
-// mutate shared pool state — each caller owns its own Value.
+// mutate shared pool state â€” each caller owns its own Value.
 Value make_int(long long v) {
     if (v >= -128 && v <= 127) {
         static Value pool[256];
@@ -711,7 +711,7 @@ Value karkain_slice(Value v, Value s, Value e) {
     return make_int(0);
 }
 
-// Phase 55: formatting — fmt("x={} y={}", a, b); {} consumes next arg in order
+// Phase 55: formatting â€” fmt("x={} y={}", a, b); {} consumes next arg in order
 #include <stdarg.h>
 Value karkain_fmt(Value fstr, int count, ...) {
     if (fstr.type != TYPE_STRING) return make_string("");
@@ -786,7 +786,7 @@ Value array_get(Value arr, Value idx) {
     return *arr.arrVal.items[i];
 }
 
-// Phase 50: Index assignment — sets element at index for both arrays and maps
+// Phase 50: Index assignment â€” sets element at index for both arrays and maps
 // Mutation takes Value*; the value is heap-copied for storage. Returns void.
 void index_set(Value* container, Value idx, Value val) {
     if (!container) return;
@@ -1103,14 +1103,14 @@ Value karkain_pow(Value base, Value exp) {
     return make_int(result);
 }
 
-// Phase 10: Array append function — mutates arr and returns it
+// Phase 10: Array append function â€” mutates arr and returns it
 Value karkain_appendArray(Value* arr, Value elem) {
     if (!arr || arr->type != TYPE_ARRAY) return mk_nil();
     array_push(arr, elem);
     return *arr;
 }
 
-// Phase 52: Boolean — compound literal, never malloc, no shared state
+// Phase 52: Boolean â€” compound literal, never malloc, no shared state
 Value make_bool(int v) {
     return v ? (Value){ .type = TYPE_BOOL, .intVal = 1 } : (Value){ .type = TYPE_BOOL, .intVal = 0 };
 }
@@ -1167,7 +1167,7 @@ Value karkain_not(Value v) {
     return make_int(is_truthy(v) ? 0 : 1);
 }
 
-// Phase 55b: Checked arithmetic — returns option_some(result) on success, option_none() on overflow
+// Phase 55b: Checked arithmetic â€” returns option_some(result) on success, option_none() on overflow
 Value karkain_add_checked(Value a, Value b) {
     if (a.type == TYPE_INT && b.type == TYPE_INT) {
         long long r;
@@ -1293,7 +1293,7 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		params = append(params, "Value "+p)
 	}
 
-	// Phase 54: closure conversion — capturing lambdas take an env struct of
+	// Phase 54: closure conversion â€” capturing lambdas take an env struct of
 	// pointers to the captured variables (mutable, shared with enclosing scope).
 	closureDefs, closureUndefs := "", ""
 	if len(fn.Captures) > 0 {
@@ -1530,7 +1530,7 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 		if node.IsMatrix {
 			return g.genMatrixDecl(node)
 		}
-		// Phase 48/54: let x = fn(...) → emit as named function declaration
+		// Phase 48/54: let x = fn(...) â†’ emit as named function declaration
 		if fn, ok := node.Value.(*parser.FuncDecl); ok {
 			out := g.genFuncDecl(fn)
 			return out + g.lastClosureInit // Phase 54: env instance init after closure def
@@ -1753,7 +1753,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 			left := g.genExpr(n.Left)
 			right := g.genExpr(n.Right)
 
-			// Phase 52: Index assignment — m[k] = v → index_set(&m, k, v) (mutates variable directly)
+			// Phase 52: Index assignment â€” m[k] = v â†’ index_set(&m, k, v) (mutates variable directly)
 			if idxExpr, ok := n.Left.(*parser.IndexExpr); ok {
 				index := g.genExpr(idxExpr.Index)
 				if ident, ok := idxExpr.Left.(*parser.Identifier); ok {
@@ -1763,7 +1763,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 				return fmt.Sprintf("({ Value _iset_tgt = %s; index_set(&_iset_tgt, %s, %s); _iset_tgt; })", target, index, right)
 			}
 
-			// Phase 52: Dot assignment — p.name = v → map_set(&p, "name", v) (mutates variable directly)
+			// Phase 52: Dot assignment â€” p.name = v â†’ map_set(&p, "name", v) (mutates variable directly)
 			if dotExpr, ok := n.Left.(*parser.DotExpr); ok {
 				if ident, ok := dotExpr.Left.(*parser.Identifier); ok {
 					return fmt.Sprintf("map_set(&%s, make_string(%q), %s)", ident.Name, dotExpr.Right, right)
@@ -1878,7 +1878,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Function == "mul_checked" {
 			return fmt.Sprintf("karkain_mul_checked(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
-		// Phase 47: Method calls — obj.method(args) → method(obj, args)
+		// Phase 47: Method calls â€” obj.method(args) â†’ method(obj, args)
 		if strings.Contains(n.Function, ".") {
 			parts := strings.SplitN(n.Function, ".", 2)
 			receiver := parts[0]
@@ -1947,15 +1947,15 @@ func (g *Generator) genExpr(node parser.Node) string {
 	case *parser.Dereference:
 		return fmt.Sprintf("*(%s)", g.genExpr(n.Operand))
 	case *parser.BorrowExpr:
-		// Phase 41: &x and &mut x — references are transparent pointers in C
+		// Phase 41: &x and &mut x â€” references are transparent pointers in C
 		// The borrow checker validates safety at compile time, zero cost at runtime
 		return g.genExpr(n.Operand)
 	case *parser.MoveExpr:
-		// Phase 41: move(x) — in C, just pass the value
+		// Phase 41: move(x) â€” in C, just pass the value
 		// Move semantics are enforced at compile time, zero cost at runtime
 		return g.genExpr(n.Operand)
 	case *parser.PropagateExpr:
-		// Phase 50: expr? — error propagation operator
+		// Phase 50: expr? â€” error propagation operator
 		// Desugar to: if result is Err, return Err; otherwise unwrap Ok value
 		operand := g.genExpr(n.Operand)
 		return fmt.Sprintf("(({Value _r = %s; if (_r.type == TYPE_RESULT && _r.resVal.tag == 1) return _r; _r.type == TYPE_RESULT ? *_r.resVal.okVal : _r; }))", operand)
@@ -1968,7 +1968,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return fmt.Sprintf("%s_%s", n.EnumName, n.Variant)
 	case *parser.RawAccessExpr:
 		// Phase 41: @raw(addr) read or @raw(addr, val) write
-		// Address is a raw integer, not a Value* — use mapLiteralToC for raw C value
+		// Address is a raw integer, not a Value* â€” use mapLiteralToC for raw C value
 		addr := g.mapLiteralToC(n.Address)
 		if n.Value != nil {
 			val := g.mapLiteralToC(n.Value)
@@ -1995,11 +1995,11 @@ func (g *Generator) genExpr(node parser.Node) string {
 	case *parser.FreeExpr:
 		return fmt.Sprintf("free(%s)", g.genExpr(n.Ptr))
 	case *parser.DotExpr:
-		// Phase 50: Struct field access via map_get — structs are stored as maps internally
+		// Phase 50: Struct field access via map_get â€” structs are stored as maps internally
 		left := g.genExpr(n.Left)
 		return fmt.Sprintf("map_get(%s, make_string(%q))", left, n.Right)
 	case *parser.MeasureExpr:
-		// Phase 14: Generate measure expression — yields a classical bit as Value
+		// Phase 14: Generate measure expression â€” yields a classical bit as Value
 		regName, idx := g.resolveQubitOperand(n.Qubit)
 		return fmt.Sprintf("make_int(measure(&%s, %s))", regName, idx)
 	case *parser.SpawnExpr:
@@ -2157,7 +2157,7 @@ func (g *Generator) mapKarkainTypeToC(karkainType string) string {
 	case "bigfloat":
 		return "mpf_t"
 	default:
-		// Phase 41: Handle reference types — &T and &mut T map to Value* in C
+		// Phase 41: Handle reference types â€” &T and &mut T map to Value* in C
 		// References are transparent pointers; the borrow checker enforces safety at compile time
 		if strings.HasPrefix(karkainType, "&mut ") {
 			return "Value*"
@@ -2195,7 +2195,7 @@ func (g *Generator) mapLiteralToC(node parser.Node) string {
 	}
 }
 
-// Phase 50: Struct declaration — structs are stored as maps internally
+// Phase 50: Struct declaration â€” structs are stored as maps internally
 // The typedef is kept for documentation; actual data is map-based
 func (g *Generator) genStructDecl(node *parser.StructDeclStmt) string {
 	var sb strings.Builder
@@ -2214,7 +2214,7 @@ func (g *Generator) genStructDecl(node *parser.StructDeclStmt) string {
 func (g *Generator) genEnumDecl(node *parser.EnumDecl) string {
 	var sb strings.Builder
 
-	// Phase 50: Enum variant constructors — all variants use integer tags
+	// Phase 50: Enum variant constructors â€” all variants use integer tags
 	for i, v := range node.Variants {
 		if v.Payload != "" {
 			// Payload variant: generate a constructor function
@@ -2257,12 +2257,12 @@ func (g *Generator) genForStmt(node *parser.ForStmt) string {
 	return sb.String()
 }
 
-// Phase 47: for-in loop codegen — generates C for loop over array elements
+// Phase 47: for-in loop codegen â€” generates C for loop over array elements
 func (g *Generator) genForInStmt(node *parser.ForInStmt) string {
 	var sb strings.Builder
 	iterExpr := g.genExpr(node.Iter)
 	if node.KeyName != "" {
-		// Phase 52: Map iteration — for k, v in map { ... }
+		// Phase 52: Map iteration â€” for k, v in map { ... }
 		sb.WriteString(fmt.Sprintf("\t{ Value _iter = %s; ", iterExpr))
 		sb.WriteString(fmt.Sprintf("int _len = (_iter.type == TYPE_MAP) ? _iter.mapVal.length : 0; "))
 		sb.WriteString(fmt.Sprintf("for (int _i = 0; _i < _len; _i++) { "))
@@ -2287,7 +2287,7 @@ func (g *Generator) genForInStmt(node *parser.ForInStmt) string {
 	return sb.String()
 }
 
-// Phase 52: Generate C struct literal — structs are stored as maps internally
+// Phase 52: Generate C struct literal â€” structs are stored as maps internally
 func (g *Generator) genStructLiteral(node *parser.StructLiteral) string {
 	var sb strings.Builder
 	sb.WriteString("({ Value _s = make_map(); ")

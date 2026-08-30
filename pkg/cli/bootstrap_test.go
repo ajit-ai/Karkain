@@ -16,11 +16,11 @@ func TestBootstrap_Stage0Validation(t *testing.T) {
 
 	// Verify compiler source files exist
 	compilerFiles := []string{
-		"compiler/ast.kar",
-		"compiler/lexer.kar",
-		"compiler/parser.kar",
-		"compiler/codegen.kar",
-		"compiler/main.kar",
+		"compiler/ast.kark",
+		"compiler/lexer.kark",
+		"compiler/parser.kark",
+		"compiler/codegen.kark",
+		"compiler/main.kark",
 	}
 
 	for _, f := range compilerFiles {
@@ -56,7 +56,7 @@ func TestBootstrap_Stage0Validation(t *testing.T) {
 	}
 }
 
-// TestBootstrap_CompilerSourcesReadable verifies all compiler/*.kar files are readable
+// TestBootstrap_CompilerSourcesReadable verifies all compiler/*.kark files are readable
 func TestBootstrap_CompilerSourcesReadable(t *testing.T) {
 	projectRoot := findProjectRoot(t)
 	compilerDir := filepath.Join(projectRoot, "compiler")
@@ -68,7 +68,7 @@ func TestBootstrap_CompilerSourcesReadable(t *testing.T) {
 
 	karCount := 0
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".kar") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".kark") {
 			continue
 		}
 		karCount++
@@ -92,7 +92,7 @@ func TestBootstrap_CompilerSourcesReadable(t *testing.T) {
 	}
 
 	if karCount < 5 {
-		t.Errorf("Expected at least 5 .kar files in compiler/, found %d", karCount)
+		t.Errorf("Expected at least 5 .kark files in compiler/, found %d", karCount)
 	}
 }
 
@@ -226,10 +226,10 @@ func TestBootstrap_CheckCommand(t *testing.T) {
 		}
 	}
 
-	// Test check command with compiler/main.kar
-	testFile := filepath.Join(projectRoot, "compiler", "main.kar")
+	// Test check command with compiler/main.kark
+	testFile := filepath.Join(projectRoot, "compiler", "main.kark")
 	if _, err := os.Stat(testFile); os.IsNotExist(err) {
-		t.Skip("compiler/main.kar not found, skipping check test")
+		t.Skip("compiler/main.kark not found, skipping check test")
 	}
 
 	cmd := exec.Command(binPath, "check", testFile)

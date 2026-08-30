@@ -63,7 +63,7 @@ func TestBootstrap_Stage1Compilation(t *testing.T) {
 }
 
 // TestBootstrap_Stage2SelfHosting asserts karkain-stage1 parses and compiles
-// src/compiler/main.kar -> karkain-compiler2.
+// src/compiler/main.kark -> karkain-compiler2.
 func TestBootstrap_Stage2SelfHosting(t *testing.T) {
 	projectRoot := findProjectRoot(t)
 	cleanupBinaries(t, projectRoot)
@@ -127,5 +127,5 @@ func TestBootstrap_BitwiseIdentity(t *testing.T) {
 	t.Logf("Stage 1: %s (%d bytes)", s1.Binary, s1.Size)
 	t.Logf("Stage 2: %s (%d bytes) SHA256=%s", s2.Binary, s2.Size, s2.SHA256[:16])
 	t.Logf("Stage 3: %s (%d bytes) SHA256=%s", s3.Binary, s3.Size, s3.SHA256[:16])
-	t.Logf("Stage 2 == Stage 3: bitwise identical ✓")
+	t.Logf("Stage 2 == Stage 3: bitwise identical Ã¢Å“â€œ")
 }

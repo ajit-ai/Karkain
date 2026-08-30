@@ -17,7 +17,7 @@
       {
         "id": "karkain",
         "aliases": ["kar", "Karkain"],
-        "extensions": [".kar"],
+        "extensions": [".kark"],
         "configuration": "./language-configuration.json"
       }
     ],

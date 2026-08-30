@@ -23,7 +23,7 @@ type CommandResult struct {
 	Message  string
 }
 
-// RunCommand parses, type-checks, transpiles, compiles and executes a .kar file
+// RunCommand parses, type-checks, transpiles, compiles and executes a .kark file
 func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResult {
 	if err := ValidateKarFile(targetFile); err != nil {
 		return CommandResult{ExitCode: 1, Message: err.Error()}
@@ -62,7 +62,7 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 	return CommandResult{ExitCode: 0, Message: ""}
 }
 
-// BuildCommand compiles a .kar file into a native executable
+// BuildCommand compiles a .kark file into a native executable
 func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verbose bool) CommandResult {
 	if err := ValidateKarFile(targetFile); err != nil {
 		return CommandResult{ExitCode: 1, Message: err.Error()}
@@ -108,7 +108,7 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 	return CommandResult{ExitCode: 0, Message: "Build successful."}
 }
 
-// CheckCommand validates a .kar file without producing output binaries
+// CheckCommand validates a .kark file without producing output binaries
 func CheckCommand(targetFile string, verbose bool) CommandResult {
 	if err := ValidateKarFile(targetFile); err != nil {
 		return CommandResult{ExitCode: 1, Message: err.Error()}
@@ -164,7 +164,7 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 	return CommandResult{ExitCode: 0, Message: "Check passed."}
 }
 
-// TestCommand discovers and runs *_test.kar files and functions prefixed with test_ or @test
+// TestCommand discovers and runs *_test.kark files and functions prefixed with test_ or @test
 func TestCommand(testPath string, cfg codegen.Config, verbose bool) CommandResult {
 	info, err := os.Stat(testPath)
 	if err != nil {
@@ -218,17 +218,17 @@ func TestCommand(testPath string, cfg codegen.Config, verbose bool) CommandResul
 
 // --- internal helpers ---
 
-// ValidateKarFile checks that the given path is a non-empty .kar file path
+// ValidateKarFile checks that the given path is a non-empty .kark file path
 func ValidateKarFile(path string) error {
 	if path == "" {
-		return fmt.Errorf("No input .kar file specified")
+		return fmt.Errorf("No input .kark file specified")
 	}
 
 	// Check if the path is a known subcommand (e.g., "transpile", "build", "run")
 	subcommands := []string{"transpile", "build", "run", "check", "test", "lsp", "init", "add", "fetch"}
 	for _, cmd := range subcommands {
 		if path == cmd {
-			return fmt.Errorf("Input file must be a .kar file: %s", path)
+			return fmt.Errorf("Input file must be a .kark file: %s", path)
 		}
 	}
 
@@ -238,22 +238,22 @@ func ValidateKarFile(path string) error {
 	// Check if the path is a directory
 	info, err := os.Stat(cleanPath)
 	if err == nil && info.IsDir() {
-		// If it's a directory, assume main.kar inside it
-		cleanPath = filepath.Join(cleanPath, "main.kar")
+		// If it's a directory, assume main.kark inside it
+		cleanPath = filepath.Join(cleanPath, "main.kark")
 	}
 
-	if strings.ToLower(filepath.Ext(cleanPath)) != ".kar" {
-		return fmt.Errorf("Input file must be a .kar file: %s", path)
+	if strings.ToLower(filepath.Ext(cleanPath)) != ".kark" {
+		return fmt.Errorf("Input file must be a .kark file: %s", path)
 	}
 	return nil
 }
 
 func loadSourceWithSiblings(targetFile string) (string, error) {
-	// Handle directories by appending main.kar
+	// Handle directories by appending main.kark
 	cleanPath := filepath.Clean(targetFile)
 	info, err := os.Stat(cleanPath)
 	if err == nil && info.IsDir() {
-		cleanPath = filepath.Join(cleanPath, "main.kar")
+		cleanPath = filepath.Join(cleanPath, "main.kark")
 	}
 
 	dir := filepath.Dir(cleanPath)
@@ -264,7 +264,7 @@ func loadSourceWithSiblings(targetFile string) (string, error) {
 
 	if err == nil && len(entries) > 1 {
 		for _, entry := range entries {
-			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".kar" && entry.Name() != filepath.Base(cleanPath) {
+			if !entry.IsDir() && filepath.Ext(entry.Name()) == ".kark" && entry.Name() != filepath.Base(cleanPath) {
 				data, readErr := os.ReadFile(filepath.Join(dir, entry.Name()))
 				if readErr == nil {
 					fileStr := string(data)
@@ -382,7 +382,7 @@ func findTestFiles(dir string) ([]string, error) {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() && strings.HasSuffix(path, "_test.kar") {
+		if !info.IsDir() && strings.HasSuffix(path, "_test.kark") {
 			files = append(files, path)
 		}
 		return nil

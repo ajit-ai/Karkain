@@ -1,6 +1,6 @@
 // Phase 24: Self-hosted Karkain Code Generator
 // Generates C11, WGSL, OpenCL, and SPIR-V target code
-// Imports: compiler/ast.kar
+// Imports: compiler/ast.kark
 
 // ============================================================
 // Codegen state
@@ -821,7 +821,7 @@ func generateOpenCL(ast) {
 // ============================================================
 
 func generateSPIRV(ast) {
-    return "// SPIR-V generation requires external spirv-tools\n// Use: karkain build --target spirv input.kar\n"
+    return "// SPIR-V generation requires external spirv-tools\n// Use: karkain build --target spirv input.kark\n"
 }
 
 // ============================================================

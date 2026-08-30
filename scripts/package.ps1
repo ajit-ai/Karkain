@@ -30,7 +30,7 @@ New-Item -ItemType Directory -Path "$tempDir\bin" -Force | Out-Null
 Copy-Item "bin\karkain.exe" "$tempDir\bin\" -Force
 
 New-Item -ItemType Directory -Path "$tempDir\compiler" -Force | Out-Null
-Copy-Item "compiler\*.kar" "$tempDir\compiler\" -Force
+Copy-Item "compiler\*.kark" "$tempDir\compiler\" -Force
 
 if (Test-Path "std") {
     Copy-Item "std" "$tempDir\" -Recurse -Force
@@ -55,7 +55,7 @@ if (Test-Path "runtime") {
 }
 
 New-Item -ItemType Directory -Path "$tempDir\examples" -Force | Out-Null
-Copy-Item "examples\*.kar" "$tempDir\examples\" -Force
+Copy-Item "examples\*.kark" "$tempDir\examples\" -Force
 
 New-Item -ItemType Directory -Path "$tempDir\scripts" -Force | Out-Null
 Copy-Item "scripts\*.ps1" "$tempDir\scripts\" -Force
@@ -101,17 +101,17 @@ Expand-Archive -Path $packagePath -DestinationPath $verifyDir -Force
 
 $files = @(
     "$verifyDir\bin\karkain.exe",
-    "$verifyDir\compiler\lexer.kar",
-    "$verifyDir\compiler\ast.kar",
-    "$verifyDir\compiler\parser.kar",
-    "$verifyDir\compiler\codegen.kar",
-    "$verifyDir\compiler\main.kar",
-    "$verifyDir\examples\phase1_test.kar",
-    "$verifyDir\examples\phase11_test.kar",
-    "$verifyDir\examples\phase14_test.kar",
-    "$verifyDir\examples\phase15_test.kar",
-    "$verifyDir\examples\phase16_test.kar",
-    "$verifyDir\examples\self_host_codegen_test.kar",
+    "$verifyDir\compiler\lexer.kark",
+    "$verifyDir\compiler\ast.kark",
+    "$verifyDir\compiler\parser.kark",
+    "$verifyDir\compiler\codegen.kark",
+    "$verifyDir\compiler\main.kark",
+    "$verifyDir\examples\phase1_test.kark",
+    "$verifyDir\examples\phase11_test.kark",
+    "$verifyDir\examples\phase14_test.kark",
+    "$verifyDir\examples\phase15_test.kark",
+    "$verifyDir\examples\phase16_test.kark",
+    "$verifyDir\examples\self_host_codegen_test.kark",
     "$verifyDir\pkg\stdlib\http.go",
     "$verifyDir\pkg\stdlib\actor.go",
     "$verifyDir\pkg\stdlib\rpc.go",

@@ -1,23 +1,23 @@
 # Karkain Language Specification
 
 **Version:** 0.14.0
-**Status:** Working draft — extracted from the reference compiler (`pkg/lexer`, `pkg/parser`, `pkg/sema`, `pkg/codegen`, `pkg/ir/ssa`)
+**Status:** Working draft Ã¢â‚¬â€ extracted from the reference compiler (`pkg/lexer`, `pkg/parser`, `pkg/sema`, `pkg/codegen`, `pkg/ir/ssa`)
 **Date:** 2026-08-29
 
 > This document is the **single source of truth** for the Karkain programming
 > language. It is derived from the working Go compiler, and the Phase 56
-> self-hosted compiler (`src/compiler/*.kar`) must conform to it. Where this
+> self-hosted compiler (`src/compiler/*.kark`) must conform to it. Where this
 > spec and the reference compiler disagree, the reference compiler wins until
-> the spec is corrected — both must eventually converge.
+> the spec is corrected Ã¢â‚¬â€ both must eventually converge.
 
 ## Section Status Legend
 
 | Badge | Meaning |
 |-------|---------|
-| ✅ **Implemented & tested** | Compiles via the Go reference compiler; covered by unit/E2E tests |
-| 🟡 **Partial / unstable** | Syntax parsed; codegen or semantics incomplete |
-| 📝 **Draft** | Declared in AST/parser, not implemented or unstable |
-| 🚫 **Declared only** | In roadmap/README, not yet present in the compiler |
+| Ã¢Å“â€¦ **Implemented & tested** | Compiles via the Go reference compiler; covered by unit/E2E tests |
+| Ã°Å¸Å¸Â¡ **Partial / unstable** | Syntax parsed; codegen or semantics incomplete |
+| Ã°Å¸â€œÂ **Draft** | Declared in AST/parser, not implemented or unstable |
+| Ã°Å¸Å¡Â« **Declared only** | In roadmap/README, not yet present in the compiler |
 
 ---
 
@@ -26,11 +26,11 @@
 - Karkain follows semantic versioning for the **language spec itself**.
 - A **conforming implementation** must accept every program accepted by the
   reference compiler (`cmd/karkain`) and reject programs it rejects, for all
-  features marked ✅.
-- Features marked 🟡 / 📝 / 🚫 are informational and not conformance-bound until
-  they reach ✅.
-- Conformance test corpus: `examples/*.kar` (E2E) + `pkg/*/*_test.go` (unit).
-  One pre-existing known failure: `self_host_parser_test.kar`.
+  features marked Ã¢Å“â€¦.
+- Features marked Ã°Å¸Å¸Â¡ / Ã°Å¸â€œÂ / Ã°Å¸Å¡Â« are informational and not conformance-bound until
+  they reach Ã¢Å“â€¦.
+- Conformance test corpus: `examples/*.kark` (E2E) + `pkg/*/*_test.go` (unit).
+  One pre-existing known failure: `self_host_parser_test.kark`.
 
 ### Version history
 
@@ -76,7 +76,7 @@ yet defined in the lexer.)
 
 ## 2. Types
 
-### 2.1 Primitive types ✅
+### 2.1 Primitive types Ã¢Å“â€¦
 
 | Type | Description |
 |------|-------------|
@@ -91,17 +91,17 @@ yet defined in the lexer.)
 
 | Type | Status | Syntax | Description |
 |------|--------|--------|-------------|
-| Array | ✅ | `[v1, v2, v3]` | Homogeneous list |
-| Map | ✅ | `{k1: v1, k2: v2}` | Key-value store |
-| Slice | ✅ | `arr[start:end]` | View over an array (open-ended with nil end) |
-| Struct | ✅ | `struct Name { f: T, ... }` | Named field record |
-| Enum | 🟡 | `enum Name { A, B(int) }` | Algebraic data type with payload variants |
-| Matrix | ✅ | `matrix Name[rows, cols] of float64` | Continuous row-major 2D array, AVX2-optimized |
-| Tensor | 📝 | `Tensor<f32, [32, 3]>` | Parametric N-D tensor with shape |
-| Pointer | ✅ | `*T` | Raw C pointer |
-| Reference | ✅ | `&T` / `&mut T` | Safe immutable/mutable borrow |
+| Array | Ã¢Å“â€¦ | `[v1, v2, v3]` | Homogeneous list |
+| Map | Ã¢Å“â€¦ | `{k1: v1, k2: v2}` | Key-value store |
+| Slice | Ã¢Å“â€¦ | `arr[start:end]` | View over an array (open-ended with nil end) |
+| Struct | Ã¢Å“â€¦ | `struct Name { f: T, ... }` | Named field record |
+| Enum | Ã°Å¸Å¸Â¡ | `enum Name { A, B(int) }` | Algebraic data type with payload variants |
+| Matrix | Ã¢Å“â€¦ | `matrix Name[rows, cols] of float64` | Continuous row-major 2D array, AVX2-optimized |
+| Tensor | Ã°Å¸â€œÂ | `Tensor<f32, [32, 3]>` | Parametric N-D tensor with shape |
+| Pointer | Ã¢Å“â€¦ | `*T` | Raw C pointer |
+| Reference | Ã¢Å“â€¦ | `&T` / `&mut T` | Safe immutable/mutable borrow |
 
-### 2.3 Option / Result ✅
+### 2.3 Option / Result Ã¢Å“â€¦
 
 | Type | Constructors | Purpose |
 |------|--------------|---------|
@@ -110,7 +110,7 @@ yet defined in the lexer.)
 
 Exhaustive `match` is required; the compiler rejects incomplete patterns.
 
-### 2.4 Linear & packed types 🟡
+### 2.4 Linear & packed types Ã°Å¸Å¸Â¡
 
 | Modifier | Example | Meaning |
 |----------|---------|---------|
@@ -121,7 +121,7 @@ Exhaustive `match` is required; the compiler rejects incomplete patterns.
 
 ## 3. Grammar (concrete syntax)
 
-### 3.1 Program structure ✅
+### 3.1 Program structure Ã¢Å“â€¦
 
 ```
 program    := statement*
@@ -135,7 +135,7 @@ statement  := funcDecl | varDecl | print | return | if | while | for
 `func` / `fn` both declare functions; `fn` also introduces lambdas and there is
 a `TokenFn` for function-pointer expressions.
 
-### 3.2 Functions ✅
+### 3.2 Functions Ã¢Å“â€¦
 
 ```
 func name(p1: T1, p2: T2) -> R { stmt* }
@@ -145,7 +145,7 @@ fn   name(p1: T1, p2: T2) -> R { stmt* }
 Parameter types are optional. `-> R` return type. Function bodies are statement
 lists.
 
-### 3.3 Variables ✅
+### 3.3 Variables Ã¢Å“â€¦
 
 ```
 let  x = expr          // inferred type
@@ -154,7 +154,7 @@ var  x = expr          // alternative to `let`
 matrix M[rows, cols] of T   // matrix variable
 ```
 
-### 3.4 Control flow ✅
+### 3.4 Control flow Ã¢Å“â€¦
 
 ```
 if cond { ... } else { ... }
@@ -169,7 +169,7 @@ return expr
 
 `for-in` iterates arrays (element) and maps (key/value) by iterable type.
 
-### 3.5 Match ✅
+### 3.5 Match Ã¢Å“â€¦
 
 ```
 match value {
@@ -182,7 +182,7 @@ match value {
 Patterns: `Some(binding)`, `None`, `Ok(binding)`, `Err(binding)`, literals,
 and wildcard. Arms are comma-separated.
 
-### 3.6 Error propagation 🟡
+### 3.6 Error propagation Ã°Å¸Å¸Â¡
 
 ```
 func mayFail() -> Result<int, string> { ... }
@@ -191,7 +191,7 @@ let v = mayFail()?    // unwraps Ok(v), or returns Err(e) early
 
 `?` desugars to `match expr { Ok(v) => v, Err(e) => return Err(e) }`.
 
-### 3.7 Lambdas & closures ✅
+### 3.7 Lambdas & closures Ã¢Å“â€¦
 
 ```
 fn(a, b) { return a + b }      // lambda
@@ -205,7 +205,7 @@ are recorded on the AST and lowered with the SSA backend.
 
 ## 4. Expressions
 
-### 4.1 Operator precedence ✅
+### 4.1 Operator precedence Ã¢Å“â€¦
 
 | Precedence | Operators | Associativity |
 |-----------|-----------|---------------|
@@ -215,9 +215,9 @@ are recorded on the AST and lowered with the SSA backend.
 | 2 | `== != < <= > >=` | left |
 | 3 | `+ -` | left |
 | 4 | `* / %` | left |
-| unary | `- ! & @` | — |
+| unary | `- ! & @` | Ã¢â‚¬â€ |
 
-### 4.2 Expression forms ✅
+### 4.2 Expression forms Ã¢Å“â€¦
 
 - Primary: literals, identifiers, parenthesized expressions
 - Call: `name(args...)`, `C.func(args)` C interop, `ops.*` tensor ops, `qpu.*` quantum ops
@@ -234,21 +234,21 @@ are recorded on the AST and lowered with the SSA backend.
 - Enum variant: `Color.Red`, `Ok(42)`
 - Match (expression)
 
-### 4.3 GPU expressions 📝
+### 4.3 GPU expressions Ã°Å¸â€œÂ
 
-- `global_id(0|1|2)` — thread index per dimension
-- `barrier()` — thread-block sync
+- `global_id(0|1|2)` Ã¢â‚¬â€ thread index per dimension
+- `barrier()` Ã¢â‚¬â€ thread-block sync
 - `ops.*` tensor operations: `matmul`, `relu`, `softmax`, `conv2d`, `transpose`
-- `shape_of(x)` — query tensor shape
+- `shape_of(x)` Ã¢â‚¬â€ query tensor shape
 
-### 4.4 Quantum expressions 📝
+### 4.4 Quantum expressions Ã°Å¸â€œÂ
 
 - `measure q[i]`
 - `qpu.h(q[i])`, `qpu.cx(q[i], q[j])`, `qpu.rx(theta, q[i])`
 
-### 4.5 Coroutine/async expressions 📝
+### 4.5 Coroutine/async expressions Ã°Å¸â€œÂ
 
-- `co name(params) { ... }` — coroutine declaration
+- `co name(params) { ... }` Ã¢â‚¬â€ coroutine declaration
 - `async { ... }`, `await(expr)`, `yield(value)`
 - `ch <- value` (send), `<-ch` (receive), `chan<T>(bufsize)` (create)
 - `select { case ... }`
@@ -256,38 +256,38 @@ are recorded on the AST and lowered with the SSA backend.
 
 ---
 
-## 5. Memory Model, Ownership & Borrowing ✅
+## 5. Memory Model, Ownership & Borrowing Ã¢Å“â€¦
 
 Karkain targets **safe by default, unsafe with `@raw`**.
 
 ### 5.1 Ownership rules
 - Every value has exactly one owner at a time.
 - Copying a value into a function parameter or return transfers ownership
-  (move semantics) — the source binding becomes unusable.
+  (move semantics) Ã¢â‚¬â€ the source binding becomes unusable.
 - Escape analysis (`pkg/parser/escape.go`, Phase 49) marks variables that
   escape their scope (passed to funcs, returned, or captured by a lambda).
 
 ### 5.2 Borrowing
-- `&x` — immutable borrow; multiple immutable borrows allowed, no mutation.
-- `&mut x` — exclusive mutable borrow; no other borrows while active.
+- `&x` Ã¢â‚¬â€ immutable borrow; multiple immutable borrows allowed, no mutation.
+- `&mut x` Ã¢â‚¬â€ exclusive mutable borrow; no other borrows while active.
 - The borrow checker (`pkg/sema/borrow_checker.go`, Phase 51) enforces lexical
   scoping of borrows.
 
 ### 5.3 Raw memory
-- `@raw(addr)` read, `@raw(addr, val)` write — escapes safety checks, target of
+- `@raw(addr)` read, `@raw(addr, val)` write Ã¢â‚¬â€ escapes safety checks, target of
   hardware/FFI access.
-- `alloc<T>(n)` / `free(ptr)` — manual heap management.
+- `alloc<T>(n)` / `free(ptr)` Ã¢â‚¬â€ manual heap management.
 - `addr`, `*T` pointer types for C interop.
 
-### 5.4 Linear types 🟡
-Values of `linear` types must be consumed exactly once — resource safety
+### 5.4 Linear types Ã°Å¸Å¸Â¡
+Values of `linear` types must be consumed exactly once Ã¢â‚¬â€ resource safety
 (file handles, allocations).
 
 ---
 
 ## 6. Functions & Standard Builtins
 
-### 6.1 Builtin callables ✅ (`pkg/codegen/lower.go`)
+### 6.1 Builtin callables Ã¢Å“â€¦ (`pkg/codegen/lower.go`)
 
 | Builtin | Description |
 |---------|-------------|
@@ -302,7 +302,7 @@ Values of `linear` types must be consumed exactly once — resource safety
 | `appendArray(arr, x)` / `push(arr, x)` | Append (mutating) |
 | `delete(map, k)` | Delete key (mutating) |
 
-### 6.2 Runtime functions (`.kar` runtime supported) ✅
+### 6.2 Runtime functions (`.kark` runtime supported) Ã¢Å“â€¦
 `getArgs`, `openFile`, `readLine`, `closeFile`, `createFile`, `writeToFile`,
 `system`, `removeFile`, `substr`, `replaceExtension` (self-hosted compiler uses
 these; runtime provided by `runtime.c` supporting the compiler itself).
@@ -314,47 +314,47 @@ these; runtime provided by `runtime.c` supporting the compiler itself).
 
 ## 7. Heterogeneous Backends
 
-### 7.1 Compiler pipeline ✅
+### 7.1 Compiler pipeline Ã¢Å“â€¦
 
 ```
-.kar → lexer → parser (AST) → SSA IR → optimizer → verifier → C23 → GCC/Clang/MSVC → binary
+.kark Ã¢â€ â€™ lexer Ã¢â€ â€™ parser (AST) Ã¢â€ â€™ SSA IR Ã¢â€ â€™ optimizer Ã¢â€ â€™ verifier Ã¢â€ â€™ C23 Ã¢â€ â€™ GCC/Clang/MSVC Ã¢â€ â€™ binary
 ```
 
-- **Primary path (SSA):** `pkg/ir/ssa` — block-param CFG (no phis), variable
+- **Primary path (SSA):** `pkg/ir/ssa` Ã¢â‚¬â€ block-param CFG (no phis), variable
   memory cells, ops `{Const, BinOp, UnOp, Call, CallVoid, Br, Jmp, Ret,
   IndexGet, IndexSet, Print, RawC, OpLoad, OpStore}`.
-- **Fallback path:** legacy direct AST → C (`pkg/codegen/codegen.go`) used when
+- **Fallback path:** legacy direct AST Ã¢â€ â€™ C (`pkg/codegen/codegen.go`) used when
   SSA lowering fails (safety net).
 - Verified by `pkg/ir/ssa/verify.go`.
 
-### 7.2 GPU kernel → WGSL/OpenCL/SPIR-V 📝
+### 7.2 GPU kernel Ã¢â€ â€™ WGSL/OpenCL/SPIR-V Ã°Å¸â€œÂ
 
 - `kernel` functions, `global_id`, `barrier` emit through
   `pkg/codegen/{wgsl,gpu,spirv}.go`.
 - Host launcher auto-generation via `gpu_host.go`.
 - Tensor ops emit to WGSL (`tensor_wgsl.go`).
 
-### 7.3 Quantum → OpenQASM 3 / QIR 📝
+### 7.3 Quantum Ã¢â€ â€™ OpenQASM 3 / QIR Ã°Å¸â€œÂ
 
-- Bare gate syntax: `H q[0]`, `CNOT q[0], q[1]`, `Rx(θ) q[2]`
+- Bare gate syntax: `H q[0]`, `CNOT q[0], q[1]`, `Rx(ÃŽÂ¸) q[2]`
 - Emitters: `pkg/codegen/{qasm,qir,openpulse}.go`
 - Safety analysis: `pkg/sema/quantum.go` (no-cloning theorem, measurement
   collapse, gate-after-measurement).
 - Noise simulation, error correction, distribution planner present in sema.
 
-### 7.4 Actor distributed concurrency 📝
+### 7.4 Actor distributed concurrency Ã°Å¸â€œÂ
 
 - `actor`/`spawn`/`receive`/`channel`/`send` (phases 16/37), runtime
   `pkg/runtime/actor_system.go`.
 
-### 7.5 Coroutine / green-thread scheduler 🟡
+### 7.5 Coroutine / green-thread scheduler Ã°Å¸Å¸Â¡
 
 - `co` declarations, `async`/`await`/`yield`, channels, `select`, `gospawn`
   (Phase 38), runtime `pkg/runtime/coroutine.go`.
 
 ---
 
-## 8. Macros & Metaprogramming 🟡
+## 8. Macros & Metaprogramming Ã°Å¸Å¸Â¡
 
 | Form | Syntax | Notes |
 |------|--------|-------|
@@ -376,18 +376,18 @@ GPU kernel auto-generics (Phase 26) and tensor autodiff
 
 | Feature | Status | Syntax |
 |---------|--------|--------|
-| Monomorphized generics | 🟡 | `func max<T: Numeric>(a: T, b: T) -> T` |
-| Generic parameters | 🟡 | `T: Constraint` |
-| Trait declarations | 📝 | `trait Numeric { fn add(self, other: T) -> T; }` |
-| Trait impls | 📝 | `impl Numeric for int { ... }` |
-| Struct generics | 🟡 | `struct Vector<T> { ... }` |
-| Kernel generics | 📝 | `kernel k<T>(...)` |
+| Monomorphized generics | Ã°Å¸Å¸Â¡ | `func max<T: Numeric>(a: T, b: T) -> T` |
+| Generic parameters | Ã°Å¸Å¸Â¡ | `T: Constraint` |
+| Trait declarations | Ã°Å¸â€œÂ | `trait Numeric { fn add(self, other: T) -> T; }` |
+| Trait impls | Ã°Å¸â€œÂ | `impl Numeric for int { ... }` |
+| Struct generics | Ã°Å¸Å¸Â¡ | `struct Vector<T> { ... }` |
+| Kernel generics | Ã°Å¸â€œÂ | `kernel k<T>(...)` |
 
 Instantiation is monomorphic (compile-time per concrete type argument).
 
 ---
 
-## 10. Package Manager (KPM) ✅
+## 10. Package Manager (KPM) Ã¢Å“â€¦
 
 `karkain pkg ...` subcommands (all in the single `karkain.exe` binary):
 
@@ -414,10 +414,10 @@ math = { version = "^1.0.0", source = "registry" }
 default = ["std"]
 ```
 
-### 10.2 Version syntax (semver) ✅
+### 10.2 Version syntax (semver) Ã¢Å“â€¦
 
-`1.2.3` exact · `^1.2.3` compatible · `~1.2.3` patch · `>=1.0 <2.0` range ·
-`1.2.x` wildcard · `*` any.
+`1.2.3` exact Ã‚Â· `^1.2.3` compatible Ã‚Â· `~1.2.3` patch Ã‚Â· `>=1.0 <2.0` range Ã‚Â·
+`1.2.x` wildcard Ã‚Â· `*` any.
 
 Lock file `karkain.lock`, SHA-256 integrity checks (`pkg/pm/integrity.go`),
 auth token at `~/.karkain/auth.json`. Registry endpoint:
@@ -425,7 +425,7 @@ auth token at `~/.karkain/auth.json`. Registry endpoint:
 
 ---
 
-## 11. C Interop ✅
+## 11. C Interop Ã¢Å“â€¦
 
 ```
 import { <raw C code> }
@@ -441,16 +441,16 @@ function calls use the `C.` prefix (`C.sqrt(...)`). FFI package
 
 | Tool | Status | Notes |
 |------|--------|-------|
-| `run` | ✅ | Compile & execute |
-| `build` | ✅ | Native executable |
-| `transpile` | ✅ | Emit C (keeps `.c`) |
-| `check` | ✅ | Parse + semantic validation |
-| `test` | ✅ | Discover/run `*_test.kar` |
-| `lsp` | 🟡 | Go-based LSP server (`pkg/lsp`) |
-| `jit` | 🟡 | `pkg/jit` JIT/FFI |
-| Debug mode | ✅ | `-g` emits `#line` + `-line N "file.kar"` directives |
-| Verbose | ✅ | `--verbose` pipeline logging |
-| Targets | 🟡 | native, wasm32-wasi |
+| `run` | Ã¢Å“â€¦ | Compile & execute |
+| `build` | Ã¢Å“â€¦ | Native executable |
+| `transpile` | Ã¢Å“â€¦ | Emit C (keeps `.c`) |
+| `check` | Ã¢Å“â€¦ | Parse + semantic validation |
+| `test` | Ã¢Å“â€¦ | Discover/run `*_test.kark` |
+| `lsp` | Ã°Å¸Å¸Â¡ | Go-based LSP server (`pkg/lsp`) |
+| `jit` | Ã°Å¸Å¸Â¡ | `pkg/jit` JIT/FFI |
+| Debug mode | Ã¢Å“â€¦ | `-g` emits `#line` + `-line N "file.kark"` directives |
+| Verbose | Ã¢Å“â€¦ | `--verbose` pipeline logging |
+| Targets | Ã°Å¸Å¸Â¡ | native, wasm32-wasi |
 
 ---
 
@@ -458,14 +458,14 @@ function calls use the `C.` prefix (`C.sqrt(...)`). FFI package
 
 | Area | Gap | Tracking |
 |------|-----|----------|
-| Self-hosted compiler | `self_host_parser_test.kar` fails; `src/compiler/*.kar` incomplete | Phase 56 |
+| Self-hosted compiler | `self_host_parser_test.kark` fails; `src/compiler/*.kark` incomplete | Phase 56 |
 | Enum payload variants | Enums parse but payload handling unstable | BUG-7 |
 | Struct codegen | Certain codegen paths incomplete | BUG-1 |
 | Option/Result match arms | Codegen edge cases | BUG-2 |
 | Index assignment | Specific patterns | BUG-3 |
 | GPU/quantum backends | Parsers exist; full emitters not conformance-tested | Phases 58-59 |
 | Concurrency stdlib | Actor/coroutine runtimes partial | Phases 57, 63 |
-| wasm32-wasi | Compile-only, no runtime execution | — |
+| wasm32-wasi | Compile-only, no runtime execution | Ã¢â‚¬â€ |
 
 ---
 
@@ -511,10 +511,10 @@ go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1
 and the E2E corpus:
 
 ```
-for f in examples/*.kar; do ./karkain run "$f"; done
+for f in examples/*.kark; do ./karkain run "$f"; done
 ```
 
 ---
 
-*This is a living document. Sections transition from 📝→🟡→✅ as the compiler
+*This is a living document. Sections transition from Ã°Å¸â€œÂÃ¢â€ â€™Ã°Å¸Å¸Â¡Ã¢â€ â€™Ã¢Å“â€¦ as the compiler
 implements them, and conformance tests are added.*

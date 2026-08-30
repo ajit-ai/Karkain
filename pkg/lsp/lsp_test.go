@@ -209,7 +209,7 @@ func TestLSP_RealtimeDiagnostics(t *testing.T) {
 }`
 	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
 		TextDocument: TextDocumentItem{
-			URI:        "file:///workspace/test.kar",
+			URI:        "file:///workspace/test.kark",
 			LanguageID: "karkain",
 			Version:    1,
 			Text:       validCode,
@@ -217,7 +217,7 @@ func TestLSP_RealtimeDiagnostics(t *testing.T) {
 	})
 
 	// The server should have sent diagnostics (may be empty for valid code)
-	diags := tc.server.diagnostics["file:///workspace/test.kar"]
+	diags := tc.server.diagnostics["file:///workspace/test.kark"]
 	// Valid code should have no parser errors
 	if len(diags) > 0 {
 		for _, d := range diags {
@@ -233,7 +233,7 @@ func TestLSP_RealtimeDiagnostics(t *testing.T) {
 }`
 	tc.sendNotification(MethodTextDocumentDidChange, DidChangeTextDocumentParams{
 		TextDocument: VersionedTextDocumentIdentifier{
-			URI:     "file:///workspace/test.kar",
+			URI:     "file:///workspace/test.kark",
 			Version: 2,
 		},
 		ContentChanges: []TextDocumentContentChangeEvent{
@@ -242,7 +242,7 @@ func TestLSP_RealtimeDiagnostics(t *testing.T) {
 	})
 
 	// Check diagnostics from server
-	diags = tc.server.diagnostics["file:///workspace/test.kar"]
+	diags = tc.server.diagnostics["file:///workspace/test.kark"]
 	// The parser should detect some issue with the invalid syntax
 	t.Logf("Diagnostics for invalid code: %d", len(diags))
 	for _, d := range diags {
@@ -251,13 +251,13 @@ func TestLSP_RealtimeDiagnostics(t *testing.T) {
 
 	// Save document
 	tc.sendNotification(MethodTextDocumentDidSave, DidSaveTextDocumentParams{
-		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kar"},
+		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kark"},
 		Text:         validCode,
 	})
 
 	// Close document
 	tc.sendNotification(MethodTextDocumentDidClose, DidCloseTextDocumentParams{
-		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kar"},
+		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kark"},
 	})
 }
 
@@ -285,7 +285,7 @@ func main() {
 }`
 	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
 		TextDocument: TextDocumentItem{
-			URI:        "file:///workspace/test.kar",
+			URI:        "file:///workspace/test.kark",
 			LanguageID: "karkain",
 			Version:    1,
 			Text:       code,
@@ -294,7 +294,7 @@ func main() {
 
 	// Test completion at position 0,0 (should return keywords)
 	resp := tc.sendRequest(2, MethodTextDocumentCompletion, CompletionParams{
-		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kar"},
+		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kark"},
 		Position:     Position{Line: 0, Character: 0},
 	})
 
@@ -345,7 +345,7 @@ func main() {
 
 	// Test hover on "func" keyword at line 0
 	resp = tc.sendRequest(3, MethodTextDocumentHover, HoverParams{
-		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kar"},
+		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kark"},
 		Position:     Position{Line: 0, Character: 2},
 	})
 
@@ -369,7 +369,7 @@ func main() {
 
 	// Test hover on "func"
 	resp = tc.sendRequest(4, MethodTextDocumentHover, HoverParams{
-		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kar"},
+		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kark"},
 		Position:     Position{Line: 2, Character: 2}, // "func" at col 2
 	})
 
@@ -386,7 +386,7 @@ func main() {
 
 	// Test dot-trigger completion
 	resp = tc.sendRequest(5, MethodTextDocumentCompletion, CompletionParams{
-		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kar"},
+		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kark"},
 		Position:     Position{Line: 3, Character: 12},
 	})
 
@@ -424,7 +424,7 @@ func main() {
 }`
 	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
 		TextDocument: TextDocumentItem{
-			URI:        "file:///workspace/main.kar",
+			URI:        "file:///workspace/main.kark",
 			LanguageID: "karkain",
 			Version:    1,
 			Text:       code,
@@ -433,7 +433,7 @@ func main() {
 
 	// Go-to-definition on "helper" at line 5, col 2 (the call site)
 	resp := tc.sendRequest(2, MethodTextDocumentDefinition, DefinitionParams{
-		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/main.kar"},
+		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/main.kark"},
 		Position:     Position{Line: 5, Character: 2},
 	})
 
@@ -451,8 +451,8 @@ func main() {
 		t.Fatalf("failed to unmarshal location: %v", err)
 	}
 
-	if loc.URI != "file:///workspace/main.kar" {
-		t.Errorf("expected URI 'file:///workspace/main.kar', got '%s'", loc.URI)
+	if loc.URI != "file:///workspace/main.kark" {
+		t.Errorf("expected URI 'file:///workspace/main.kark', got '%s'", loc.URI)
 	}
 	// Definition should map back to the function declaration
 	if loc.Range.Start.Line != 0 {
@@ -461,7 +461,7 @@ func main() {
 
 	// Test go-to-definition on "func" keyword (no definition expected)
 	resp = tc.sendRequest(3, MethodTextDocumentDefinition, DefinitionParams{
-		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/main.kar"},
+		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/main.kark"},
 		Position:     Position{Line: 0, Character: 1}, // "func" keyword
 	})
 
@@ -501,7 +501,7 @@ func compute(a i32) {
 }`
 	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
 		TextDocument: TextDocumentItem{
-			URI:        "file:///workspace/symbols.kar",
+			URI:        "file:///workspace/symbols.kark",
 			LanguageID: "karkain",
 			Version:    1,
 			Text:       code,
@@ -510,7 +510,7 @@ func compute(a i32) {
 
 	// Request document symbols
 	resp := tc.sendRequest(2, MethodTextDocumentDocumentSym, DocumentSymbolParams{
-		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/symbols.kar"},
+		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/symbols.kark"},
 	})
 
 	if resp == nil {

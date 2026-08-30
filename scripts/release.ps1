@@ -143,7 +143,7 @@ foreach ($target in $targets) {
         Write-Host "    std/ copied" -ForegroundColor Green
     }
 
-    # Copy compiler/ directory (self-hosting .kar sources)
+    # Copy compiler/ directory (self-hosting .kark sources)
     if (Test-Path (Join-Path $ProjectRoot "compiler")) {
         Copy-Item (Join-Path $ProjectRoot "compiler") (Join-Path $pkgDir "compiler") -Recurse -Force
         Write-Host "    compiler/ copied" -ForegroundColor Green

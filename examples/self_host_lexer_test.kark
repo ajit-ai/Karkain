@@ -2,7 +2,7 @@ func main() {
     print("Phase 12 Self-Hosted Lexer Test")
     print("================================")
     print("Compiler Infrastructure:")
-    print("- compiler/lexer.kar created")
+    print("- compiler/lexer.kark created")
     print("- Character classification: isLetter, isDigit, isWhitespace")
     print("- Keyword lookup: lookupKeyword for 20+ keywords")
     print("- Token creation: createToken function")

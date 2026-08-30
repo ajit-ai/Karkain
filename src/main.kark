@@ -1,6 +1,6 @@
 func main() {
     print("=== Self-Hosted Karkain Compiler (Phase 3 Suite) ===")
-    let inputPath = "examples/array_test.kar"
+    let inputPath = "examples/array_test.kark"
     let source = readFile(inputPath)
     print("Reading target source file: " + inputPath)
     print("Source Code Length: " + len(source))

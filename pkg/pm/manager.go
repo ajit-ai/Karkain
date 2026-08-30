@@ -210,8 +210,8 @@ func InitProject(projectDir string, name string) (*InitResult, error) {
 	result.Manifest = manifestPath
 	result.Created = append(result.Created, manifestPath)
 
-	// Create main.kar entry point
-	mainKar := filepath.Join(projectDir, "src", "main.kar")
+	// Create main.kark entry point
+	mainKar := filepath.Join(projectDir, "src", "main.kark")
 	mainContent := fmt.Sprintf(`// %s - Main entry point
 
 func main() {
@@ -219,12 +219,12 @@ func main() {
 }
 `, name, name)
 	if err := os.WriteFile(mainKar, []byte(mainContent), 0644); err != nil {
-		return nil, fmt.Errorf("cannot write main.kar: %w", err)
+		return nil, fmt.Errorf("cannot write main.kark: %w", err)
 	}
 	result.Created = append(result.Created, mainKar)
 
 	// Create example test file
-	testKar := filepath.Join(projectDir, "tests", "main_test.kar")
+	testKar := filepath.Join(projectDir, "tests", "main_test.kark")
 	testContent := `// Test file for the project
 
 func test_basic() {
@@ -296,22 +296,22 @@ func RemoveDependency(projectDir, name string) error {
 // Module Resolution and Fetching
 // ============================================================
 
-// ResolveModule finds the .kar file for a given import path.
+// ResolveModule finds the .kark file for a given import path.
 func ResolveModule(projectDir, importPath string) (string, error) {
 	// 1. Check local project src/ directory
-	localPath := filepath.Join(projectDir, "src", importPath+".kar")
+	localPath := filepath.Join(projectDir, "src", importPath+".kark")
 	if _, err := os.Stat(localPath); err == nil {
 		return localPath, nil
 	}
 
-	// 2. Check for subpath (e.g., "io/io" -> "io/io.kar")
-	localSub := filepath.Join(projectDir, "src", importPath, filepath.Base(importPath)+".kar")
+	// 2. Check for subpath (e.g., "io/io" -> "io/io.kark")
+	localSub := filepath.Join(projectDir, "src", importPath, filepath.Base(importPath)+".kark")
 	if _, err := os.Stat(localSub); err == nil {
 		return localSub, nil
 	}
 
-	// 3. Check project root for .kar file
-	rootKar := filepath.Join(projectDir, importPath+".kar")
+	// 3. Check project root for .kark file
+	rootKar := filepath.Join(projectDir, importPath+".kark")
 	if _, err := os.Stat(rootKar); err == nil {
 		return rootKar, nil
 	}
@@ -323,7 +323,7 @@ func ResolveModule(projectDir, importPath string) (string, error) {
 	}
 
 	// 5. Check .karkain/cache
-	cachePath := filepath.Join(projectDir, CacheModules, importPath+".kar")
+	cachePath := filepath.Join(projectDir, CacheModules, importPath+".kark")
 	if _, err := os.Stat(cachePath); err == nil {
 		return cachePath, nil
 	}
@@ -502,12 +502,12 @@ func splitTopLevel(s string, sep rune) []string {
 
 func findStdlib(projectDir, importPath string) string {
 	candidates := []string{
-		filepath.Join(projectDir, "stdlib", importPath+".kar"),
-		filepath.Join(projectDir, "stdlib", importPath, filepath.Base(importPath)+".kar"),
-		filepath.Join(projectDir, "std", importPath+".kar"),
-		filepath.Join("stdlib", importPath+".kar"),
-		filepath.Join("stdlib", importPath, filepath.Base(importPath)+".kar"),
-		filepath.Join("std", importPath+".kar"),
+		filepath.Join(projectDir, "stdlib", importPath+".kark"),
+		filepath.Join(projectDir, "stdlib", importPath, filepath.Base(importPath)+".kark"),
+		filepath.Join(projectDir, "std", importPath+".kark"),
+		filepath.Join("stdlib", importPath+".kark"),
+		filepath.Join("stdlib", importPath, filepath.Base(importPath)+".kark"),
+		filepath.Join("std", importPath+".kark"),
 	}
 
 	for _, c := range candidates {
@@ -523,8 +523,8 @@ func findStdlibNested(projectDir, importPath string) string {
 	parts := strings.Split(importPath, "/")
 	if len(parts) == 2 && parts[0] == parts[1] {
 		candidates := []string{
-			filepath.Join(projectDir, "stdlib", parts[0], parts[0]+".kar"),
-			filepath.Join("stdlib", parts[0], parts[0]+".kar"),
+			filepath.Join(projectDir, "stdlib", parts[0], parts[0]+".kark"),
+			filepath.Join("stdlib", parts[0], parts[0]+".kark"),
 		}
 		for _, candidate := range candidates {
 			if _, err := os.Stat(candidate); err == nil {

@@ -23,14 +23,14 @@ func printHelp() {
 	fmt.Println(`Karkain Programming Language Toolchain
 
 Usage:
-  karkain [command] [options] <file.kar>
+  karkain [command] [options] <file.kark>
 
 COMPILER COMMANDS:
-  run <file.kar>          Compile and run (default)
-  build <file.kar>        Compile to native executable
-  transpile <file.kar>    Generate C or other backend output
-  check <file.kar>        Validate syntax and semantics
-  test <path>             Discover and run *_test.kar files
+  run <file.kark>          Compile and run (default)
+  build <file.kark>        Compile to native executable
+  transpile <file.kark>    Generate C or other backend output
+  check <file.kark>        Validate syntax and semantics
+  test <path>             Discover and run *_test.kark files
   lsp                     Start Language Server Protocol server
 
 PACKAGE MANAGEMENT:
@@ -73,8 +73,8 @@ OPTIONS:
   -h, --help              Show this help
 
 Examples:
-  karkain run examples/array_test.kar
-  karkain build examples/compiler_test.kar -o bin/app.exe
+  karkain run examples/array_test.kark
+  karkain build examples/compiler_test.kark -o bin/app.exe
   karkain pkg init my_project
   karkain pkg add stdlib ^0.14.0
   karkain pkg add utils --source git --url https://github.com/bob/utils.git
@@ -364,9 +364,9 @@ func handlePackageCommand(args []string) {
 		if treeMode {
 			fmt.Printf("%s@%s\n", manifest.Name, manifest.Version)
 			for name, dep := range manifest.Dependencies {
-				connector := "├── "
+				connector := "Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ "
 				if name == lastDepKey(manifest.Dependencies) {
-					connector = "└── "
+					connector = "Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ "
 				}
 				fmt.Printf("%s%s %s@%s (%s)\n", connector, name, name, dep.Version, dep.Source)
 			}
@@ -523,7 +523,7 @@ func handlePackageCommand(args []string) {
 		} else {
 			for _, v := range vulns {
 				fmt.Printf("  WARN  %s@%s: %s\n", v.Name, v.Version, v.Advisory)
-				fmt.Printf("        → %s\n", v.Fix)
+				fmt.Printf("        Ã¢â€ â€™ %s\n", v.Fix)
 			}
 			fmt.Printf("\n%d issues found\n", len(vulns))
 		}
@@ -781,7 +781,7 @@ func main() {
 	}
 
 	if targetFile == "" {
-		fmt.Println("Error: No input .kar file specified")
+		fmt.Println("Error: No input .kark file specified")
 		printHelp()
 		os.Exit(1)
 	}
