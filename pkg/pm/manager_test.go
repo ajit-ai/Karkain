@@ -45,7 +45,7 @@ func TestPackageManager_Init(t *testing.T) {
 		}
 	}
 
-	expectedFiles := []string{"src/main.kar", "tests/main_test.kar", ".gitignore", "karkain.toml"}
+	expectedFiles := []string{"src/main.kark", "tests/main_test.kark", ".gitignore", "karkain.toml"}
 	for _, f := range expectedFiles {
 		fullPath := filepath.Join(projectDir, f)
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
@@ -53,16 +53,16 @@ func TestPackageManager_Init(t *testing.T) {
 		}
 	}
 
-	mainKar := filepath.Join(projectDir, "src", "main.kar")
+	mainKar := filepath.Join(projectDir, "src", "main.kark")
 	data, err := os.ReadFile(mainKar)
 	if err != nil {
-		t.Fatalf("cannot read main.kar: %v", err)
+		t.Fatalf("cannot read main.kark: %v", err)
 	}
 	if !strings.Contains(string(data), "func main()") {
-		t.Error("main.kar should contain func main()")
+		t.Error("main.kark should contain func main()")
 	}
 	if !strings.Contains(string(data), "test_project") {
-		t.Error("main.kar should reference the project name")
+		t.Error("main.kark should reference the project name")
 	}
 }
 
@@ -322,7 +322,7 @@ func TestPackageManager_ResolveModule(t *testing.T) {
 		t.Fatalf("InitProject failed: %v", err)
 	}
 
-	localMod := filepath.Join(projectDir, "src", "mymod.kar")
+	localMod := filepath.Join(projectDir, "src", "mymod.kark")
 	if err := os.WriteFile(localMod, []byte("func hello() {}"), 0644); err != nil {
 		t.Fatalf("cannot create module: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestPackageManager_ResolveModule(t *testing.T) {
 	if err := os.MkdirAll(stdlibDir, 0755); err != nil {
 		t.Fatalf("cannot create stdlib dir: %v", err)
 	}
-	stdlibMod := filepath.Join(stdlibDir, "io.kar")
+	stdlibMod := filepath.Join(stdlibDir, "io.kark")
 	if err := os.WriteFile(stdlibMod, []byte("// io module"), 0644); err != nil {
 		t.Fatalf("cannot create stdlib module: %v", err)
 	}
@@ -340,8 +340,8 @@ func TestPackageManager_ResolveModule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveModule for local module failed: %v", err)
 	}
-	if filepath.Base(resolved) != "mymod.kar" {
-		t.Errorf("expected mymod.kar, got %s", filepath.Base(resolved))
+	if filepath.Base(resolved) != "mymod.kark" {
+		t.Errorf("expected mymod.kark, got %s", filepath.Base(resolved))
 	}
 
 	resolved, err = ResolveModule(projectDir, "io")
@@ -403,10 +403,10 @@ func TestPackageManager_ValidateManifest(t *testing.T) {
 
 func TestStdlib_ModuleImport(t *testing.T) {
 	stdlibModules := []string{
-		"../../stdlib/io/io.kar",
-		"../../stdlib/math/math.kar",
-		"../../stdlib/gpu/gpu.kar",
-		"../../stdlib/async/actor.kar",
+		"../../stdlib/io/io.kark",
+		"../../stdlib/math/math.kark",
+		"../../stdlib/gpu/gpu.kark",
+		"../../stdlib/async/actor.kark",
 	}
 
 	for _, mod := range stdlibModules {
@@ -435,7 +435,7 @@ func TestStdlib_ModuleImport(t *testing.T) {
 
 func TestPackageManager_FetchLocal(t *testing.T) {
 	srcDir := t.TempDir()
-	srcFile := filepath.Join(srcDir, "lib.kar")
+	srcFile := filepath.Join(srcDir, "lib.kark")
 	if err := os.WriteFile(srcFile, []byte("func lib_func() {}"), 0644); err != nil {
 		t.Fatalf("cannot create source file: %v", err)
 	}
@@ -455,7 +455,7 @@ func TestPackageManager_FetchLocal(t *testing.T) {
 		t.Fatalf("FetchModule failed: %v", err)
 	}
 
-	cachedPath := filepath.Join(projectDir, CacheModules, "local_lib", "lib.kar")
+	cachedPath := filepath.Join(projectDir, CacheModules, "local_lib", "lib.kark")
 	data, err := os.ReadFile(cachedPath)
 	if err != nil {
 		t.Fatalf("cached file not found: %v", err)

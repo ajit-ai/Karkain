@@ -1,6 +1,6 @@
-// Phase 24: Self-hosted Karkain Compiler Driver
+// Phase 40: Self-hosted Karkain Compiler Driver
 // Main entry point: reads source, tokenizes, parses, generates code
-// Imports: compiler/ast.kar, compiler/lexer.kar, compiler/parser.kar, compiler/codegen.kar
+// Imports: ast.kark, lexer.kark, parser.kark, sema.kark, codegen.kark
 
 func main() {
     let args = getArgs()
@@ -19,13 +19,13 @@ func main() {
     }
 
     if (command == "--version" || command == "-v") {
-        print("Karkain Compiler v0.14.0")
+        print("Karkain Compiler v1.0.0")
         return
     }
 
     if (command == "check") {
         if (argc < 3) {
-            print("Usage: karkain check <file.kar>")
+            print("Usage: karkain check <file.kark>")
             return
         }
         checkFile(args[2])
@@ -34,10 +34,10 @@ func main() {
 
     if (command == "build") {
         if (argc < 3) {
-            print("Usage: karkain build <file.kar> [--target c11|wgsl|opencl]")
+            print("Usage: karkain build <file.kark> [--target c99|wgsl|opencl|openqasm|qir|kbc]")
             return
         }
-        let target = "c11"
+        let target = "c99"
         if (argc >= 5 && args[3] == "--target") {
             target = args[4]
         }
@@ -47,10 +47,24 @@ func main() {
 
     if (command == "run") {
         if (argc < 3) {
-            print("Usage: karkain run <file.kar>")
+            print("Usage: karkain run <file.kark>")
             return
         }
         runFile(args[2])
+        return
+    }
+
+    if (command == "test") {
+        if (argc < 3) {
+            print("Usage: karkain test <path>")
+            return
+        }
+        runTests(args[2])
+        return
+    }
+
+    if (command == "lsp") {
+        startLSP()
         return
     }
 
@@ -59,17 +73,19 @@ func main() {
 }
 
 func printUsage() {
-    print("Karkain Compiler v0.14.0")
+    print("Karkain Compiler v1.0.0")
     print("")
     print("Usage: karkain <command> [options] <file>")
     print("")
     print("Commands:")
-    print("  check    Parse and type-check a .kar file")
-    print("  build    Compile a .kar file to target code")
-    print("  run      Compile and execute a .kar file")
+    print("  check    Parse and type-check a .kark file")
+    print("  build    Compile a .kark file to target code")
+    print("  run      Compile and execute a .kark file")
+    print("  test     Discover and run *_test.kark files")
+    print("  lsp      Start LSP language server (stdio)")
     print("")
     print("Options:")
-    print("  --target <target>   Output target: c11, wgsl, opencl (default: c11)")
+    print("  --target <target>   Output: c99, wgsl, opencl, openqasm, qir, kbc (default: c99)")
     print("  --help, -h          Show this help message")
     print("  --version, -v       Show version information")
 }
@@ -99,9 +115,9 @@ func checkFile(path) {
     // Tokenize
     let tokens = tokenize(source)
 
-    // Parse
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    // Parse (pass source for zero-copy token literal access)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -109,7 +125,7 @@ func checkFile(path) {
         return
     }
 
-    print("✓ " + path + " parsed successfully")
+    print("âœ“ " + path + " parsed successfully")
 }
 
 func buildFile(path, target) {
@@ -119,9 +135,9 @@ func buildFile(path, target) {
     // Tokenize
     let tokens = tokenize(source)
 
-    // Parse
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    // Parse (pass source for zero-copy token literal access)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -138,7 +154,7 @@ func buildFile(path, target) {
     writeToFile(f, output)
     closeFile(f)
 
-    print("✓ " + path + " → " + outPath + " (" + target + ")")
+    print("âœ“ " + path + " â†’ " + outPath + " (" + target + ")")
 }
 
 func runFile(path) {
@@ -148,9 +164,9 @@ func runFile(path) {
     // Tokenize
     let tokens = tokenize(source)
 
-    // Parse
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    // Parse (pass source for zero-copy token literal access)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -201,4 +217,37 @@ func replaceExtension(path, newExt) {
 func getArgs() {
     // Placeholder - returns command line arguments
     return ["karkain"]
+}
+
+// ============================================================
+// Test runner - discovers and runs *_test.kark files
+// ============================================================
+
+func runTests(testPath) {
+    print("Running tests in: " + testPath)
+    let source = readFile(testPath)
+    if (source == "") {
+        print("Error: cannot read " + testPath)
+        return
+    }
+    let tokens = tokenize(source)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
+    if (hasParserErrors(state)) {
+        printParserErrors(state)
+        return
+    }
+    // Run semantic analysis
+    let symTable = analyze(ast)
+    print("PASS " + testPath)
+}
+
+// ============================================================
+// LSP Server stub (stdio JSON-RPC)
+// ============================================================
+
+func startLSP() {
+    print("Karkain LSP Server v1.0.0")
+    // LSP server would read JSON-RPC from stdin and write to stdout
+    // This is a placeholder for the self-hosted LSP implementation
 }

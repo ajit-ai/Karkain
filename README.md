@@ -2,17 +2,17 @@
 
 **Fast. Safe. Heterogeneous.**
 
-Karkain is a statically typed, high-performance systems programming language designed for heterogeneous CPU/GPU/quantum computing, native actor concurrency, and compile-time memory safety. It compiles to C23 and delegates to GCC/Clang/MSVC for final machine code — giving you portability without sacrificing speed.
+Karkain is a statically typed, high-performance systems programming language designed for heterogeneous CPU/GPU/quantum computing, native actor concurrency, and compile-time memory safety. It compiles to C23 and delegates to GCC/Clang/MSVC for final machine code Ã¢â‚¬â€ giving you portability without sacrificing speed.
 
 > **Language specification:** see [`SPEC.md`](SPEC.md) for the authoritative,
 > versioned spec of the Karkain language (keywords, grammar, types, memory model,
 > and conformance status).
 
 ```
-.kar source → Lexer → Parser → SSA IR → Optimizer → Verifier → C23 → GCC/Clang → Binary
-                                    ↓
+.kark source Ã¢â€ â€™ Lexer Ã¢â€ â€™ Parser Ã¢â€ â€™ SSA IR Ã¢â€ â€™ Optimizer Ã¢â€ â€™ Verifier Ã¢â€ â€™ C23 Ã¢â€ â€™ GCC/Clang Ã¢â€ â€™ Binary
+                                    Ã¢â€ â€œ
                               GPU Shaders (WGSL, SPIR-V, OpenCL)
-                                    ↓
+                                    Ã¢â€ â€œ
                               Quantum Circuits (OpenQASM 3.0, QIR)
 ```
 
@@ -41,13 +41,13 @@ Karkain is a statically typed, high-performance systems programming language des
 
 Karkain is built on four non-negotiable principles:
 
-1. **Speed** — Zero-cost abstractions, value semantics, no garbage collector. Compiles to C23, optimized by mature C compilers (GCC, Clang, MSVC).
+1. **Speed** Ã¢â‚¬â€ Zero-cost abstractions, value semantics, no garbage collector. Compiles to C23, optimized by mature C compilers (GCC, Clang, MSVC).
 
-2. **Safety** — Compile-time ownership and borrow checking. No null pointers, no use-after-free, no data races. Option/Result types replace exceptions.
+2. **Safety** Ã¢â‚¬â€ Compile-time ownership and borrow checking. No null pointers, no use-after-free, no data races. Option/Result types replace exceptions.
 
-3. **Heterogeneous** — Write CPU code and GPU compute kernels in the same `.kar` file. Quantum circuits compile to OpenQASM/QIR. One language, all hardware.
+3. **Heterogeneous** Ã¢â‚¬â€ Write CPU code and GPU compute kernels in the same `.kark` file. Quantum circuits compile to OpenQASM/QIR. One language, all hardware.
 
-4. **Independence** — The ultimate goal: `karkain` compiles itself. No dependency on Go, Rust, or any other toolchain for day-to-day development.
+4. **Independence** Ã¢â‚¬â€ The ultimate goal: `karkain` compiles itself. No dependency on Go, Rust, or any other toolchain for day-to-day development.
 
 ### What Karkain is NOT
 
@@ -173,63 +173,63 @@ Compiles to OpenQASM 3.0, QIR (LLVM IR), and OpenPulse pulse schedules.
 ## Compiler Pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     COMPILER PIPELINE                       │
-│                                                             │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐              │
-│  │  Lexer   │───→│  Parser  │───→│ Macro    │              │
-│  │ (tokens) │    │  (AST)   │    │ Expand   │              │
-│  └──────────┘    └──────────┘    └────┬─────┘              │
-│                                       │                     │
-│                                       ▼                     │
-│                              ┌────────────────┐             │
-│                              │ Semantic       │             │
-│                              │ Analysis       │             │
-│                              │ • borrow check │             │
-│                              │ • type check   │             │
-│                              │ • quantum safe │             │
-│                              └───────┬────────┘             │
-│                                      │                      │
-│                                      ▼                      │
-│  ┌──────────────────────────────────────────────────┐      │
-│  │                SSA IR Pipeline                    │      │
-│  │                                                   │      │
-│  │  AST → SSA → Constant Fold → DCE → Verify → C23 │      │
-│  └──────────────────────┬───────────────────────────┘      │
-│                         │                                   │
-│              ┌──────────┼──────────┐                       │
-│              ▼          ▼          ▼                        │
-│         ┌────────┐ ┌────────┐ ┌──────────┐                │
-│         │  C23   │ │  WGSL  │ │OpenQASM 3│                │
-│         │ (CPU)  │ │ (GPU)  │ │ (Quantum)│                │
-│         └───┬────┘ └───┬────┘ └────┬─────┘                │
-│             │          │           │                        │
-│             ▼          ▼           ▼                        │
-│         ┌────────┐ ┌────────┐ ┌──────────┐                │
-│         │ GCC/   │ │ WebGPU │ │ IBM/     │                │
-│         │ Clang  │ │ Runtime│ │ Azure Q  │                │
-│         └────────┘ └────────┘ └──────────┘                │
-└─────────────────────────────────────────────────────────────┘
+Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â
+Ã¢â€â€š                     COMPILER PIPELINE                       Ã¢â€â€š
+Ã¢â€â€š                                                             Ã¢â€â€š
+Ã¢â€â€š  Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â    Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â    Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â              Ã¢â€â€š
+Ã¢â€â€š  Ã¢â€â€š  Lexer   Ã¢â€â€šÃ¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€ â€™Ã¢â€â€š  Parser  Ã¢â€â€šÃ¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€ â€™Ã¢â€â€š Macro    Ã¢â€â€š              Ã¢â€â€š
+Ã¢â€â€š  Ã¢â€â€š (tokens) Ã¢â€â€š    Ã¢â€â€š  (AST)   Ã¢â€â€š    Ã¢â€â€š Expand   Ã¢â€â€š              Ã¢â€â€š
+Ã¢â€â€š  Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ    Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ    Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ              Ã¢â€â€š
+Ã¢â€â€š                                       Ã¢â€â€š                     Ã¢â€â€š
+Ã¢â€â€š                                       Ã¢â€“Â¼                     Ã¢â€â€š
+Ã¢â€â€š                              Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â             Ã¢â€â€š
+Ã¢â€â€š                              Ã¢â€â€š Semantic       Ã¢â€â€š             Ã¢â€â€š
+Ã¢â€â€š                              Ã¢â€â€š Analysis       Ã¢â€â€š             Ã¢â€â€š
+Ã¢â€â€š                              Ã¢â€â€š Ã¢â‚¬Â¢ borrow check Ã¢â€â€š             Ã¢â€â€š
+Ã¢â€â€š                              Ã¢â€â€š Ã¢â‚¬Â¢ type check   Ã¢â€â€š             Ã¢â€â€š
+Ã¢â€â€š                              Ã¢â€â€š Ã¢â‚¬Â¢ quantum safe Ã¢â€â€š             Ã¢â€â€š
+Ã¢â€â€š                              Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ             Ã¢â€â€š
+Ã¢â€â€š                                      Ã¢â€â€š                      Ã¢â€â€š
+Ã¢â€â€š                                      Ã¢â€“Â¼                      Ã¢â€â€š
+Ã¢â€â€š  Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â      Ã¢â€â€š
+Ã¢â€â€š  Ã¢â€â€š                SSA IR Pipeline                    Ã¢â€â€š      Ã¢â€â€š
+Ã¢â€â€š  Ã¢â€â€š                                                   Ã¢â€â€š      Ã¢â€â€š
+Ã¢â€â€š  Ã¢â€â€š  AST Ã¢â€ â€™ SSA Ã¢â€ â€™ Constant Fold Ã¢â€ â€™ DCE Ã¢â€ â€™ Verify Ã¢â€ â€™ C23 Ã¢â€â€š      Ã¢â€â€š
+Ã¢â€â€š  Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ      Ã¢â€â€š
+Ã¢â€â€š                         Ã¢â€â€š                                   Ã¢â€â€š
+Ã¢â€â€š              Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â¼Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â                       Ã¢â€â€š
+Ã¢â€â€š              Ã¢â€“Â¼          Ã¢â€“Â¼          Ã¢â€“Â¼                        Ã¢â€â€š
+Ã¢â€â€š         Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â                Ã¢â€â€š
+Ã¢â€â€š         Ã¢â€â€š  C23   Ã¢â€â€š Ã¢â€â€š  WGSL  Ã¢â€â€š Ã¢â€â€šOpenQASM 3Ã¢â€â€š                Ã¢â€â€š
+Ã¢â€â€š         Ã¢â€â€š (CPU)  Ã¢â€â€š Ã¢â€â€š (GPU)  Ã¢â€â€š Ã¢â€â€š (Quantum)Ã¢â€â€š                Ã¢â€â€š
+Ã¢â€â€š         Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ                Ã¢â€â€š
+Ã¢â€â€š             Ã¢â€â€š          Ã¢â€â€š           Ã¢â€â€š                        Ã¢â€â€š
+Ã¢â€â€š             Ã¢â€“Â¼          Ã¢â€“Â¼           Ã¢â€“Â¼                        Ã¢â€â€š
+Ã¢â€â€š         Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â Ã¢â€Å’Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Â                Ã¢â€â€š
+Ã¢â€â€š         Ã¢â€â€š GCC/   Ã¢â€â€š Ã¢â€â€š WebGPU Ã¢â€â€š Ã¢â€â€š IBM/     Ã¢â€â€š                Ã¢â€â€š
+Ã¢â€â€š         Ã¢â€â€š Clang  Ã¢â€â€š Ã¢â€â€š RuntimeÃ¢â€â€š Ã¢â€â€š Azure Q  Ã¢â€â€š                Ã¢â€â€š
+Ã¢â€â€š         Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ                Ã¢â€â€š
+Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€Ëœ
 ```
 
 ### Compiler Stages
 
 | Stage | Package | What it does |
 |-------|---------|-------------|
-| **Lexer** | `pkg/lexer/` | Tokenizes `.kar` source into token stream |
+| **Lexer** | `pkg/lexer/` | Tokenizes `.kark` source into token stream |
 | **Parser** | `pkg/parser/` | Builds AST with arena allocation, line tracking |
 | **Macro Expander** | `pkg/sema/macro.go` | Hygienic macro expansion, `@derive`, `@unroll`, `@target_guard` |
 | **Borrow Checker** | `pkg/sema/borrow_checker.go` | Ownership, borrowing, move semantics, linear types |
 | **Type Checker** | `pkg/sema/` | Generics, traits, monomorphization |
 | **Quantum Safety** | `pkg/sema/quantum.go` | No-cloning theorem, measurement collapse, gate-after-measurement |
 | **Autodiff** | `pkg/sema/autodiff.go` | Tensor shape checking, computation graph, reverse-mode differentiation |
-| **SSA Lowering** | `pkg/codegen/lower.go` | AST → SSA IR with variable cells, CFG |
+| **SSA Lowering** | `pkg/codegen/lower.go` | AST Ã¢â€ â€™ SSA IR with variable cells, CFG |
 | **SSA Optimizer** | `pkg/ir/ssa/opt.go` | Constant folding, dead code elimination |
 | **SSA Verifier** | `pkg/ir/ssa/verify.go` | Type checking, control flow validation |
-| **C Emitter** | `pkg/codegen/emit_ir.go` | SSA IR → C23 source code |
-| **Legacy Emitter** | `pkg/codegen/codegen.go` | Direct AST → C99 (fallback when SSA fails) |
-| **GPU Emitter** | `pkg/codegen/wgsl.go`, `gpu.go`, `spirv.go` | Kernel → WGSL, OpenCL, SPIR-V |
-| **Quantum Emitter** | `pkg/codegen/qasm.go`, `qir.go` | Circuit → OpenQASM, QIR |
+| **C Emitter** | `pkg/codegen/emit_ir.go` | SSA IR Ã¢â€ â€™ C23 source code |
+| **Legacy Emitter** | `pkg/codegen/codegen.go` | Direct AST Ã¢â€ â€™ C99 (fallback when SSA fails) |
+| **GPU Emitter** | `pkg/codegen/wgsl.go`, `gpu.go`, `spirv.go` | Kernel Ã¢â€ â€™ WGSL, OpenCL, SPIR-V |
+| **Quantum Emitter** | `pkg/codegen/qasm.go`, `qir.go` | Circuit Ã¢â€ â€™ OpenQASM, QIR |
 
 ---
 
@@ -237,35 +237,35 @@ Compiles to OpenQASM 3.0, QIR (LLVM IR), and OpenPulse pulse schedules.
 
 ### Compile-Time Safety
 
-- **Ownership & Borrow Checking** — Values have single owners. Borrows are tracked at compile time. No use-after-free, no data races.
-- **Option/Result Types** — No null pointers. `Option<T>` forces explicit handling of missing values. `Result<T, E>` replaces exceptions.
-- **Exhaustive Match** — `match` must cover all variants. The compiler rejects incomplete pattern matches.
-- **Linear Types** — Types marked `linear` must be used exactly once. Prevents resource leaks.
-- **Quantum Safety** — The no-cloning theorem is enforced at compile time. Measurement collapse is tracked.
+- **Ownership & Borrow Checking** Ã¢â‚¬â€ Values have single owners. Borrows are tracked at compile time. No use-after-free, no data races.
+- **Option/Result Types** Ã¢â‚¬â€ No null pointers. `Option<T>` forces explicit handling of missing values. `Result<T, E>` replaces exceptions.
+- **Exhaustive Match** Ã¢â‚¬â€ `match` must cover all variants. The compiler rejects incomplete pattern matches.
+- **Linear Types** Ã¢â‚¬â€ Types marked `linear` must be used exactly once. Prevents resource leaks.
+- **Quantum Safety** Ã¢â‚¬â€ The no-cloning theorem is enforced at compile time. Measurement collapse is tracked.
 
 ### Performance
 
-- **Value Semantics** — Structs are stack-allocated by default. No hidden boxing, no pointer chasing.
-- **No Garbage Collector** — Manual allocation when needed, automatic scope-based deallocation otherwise.
-- **Checked Arithmetic** — `add_checked`, `sub_checked`, `mul_checked` return `Option<int>` on overflow.
-- **SIMD Support** — `@simd_add`, `@simd_mul` intrinsics with AVX2 auto-detection at runtime.
-- **Matrix Operations** — 64-byte aligned contiguous arrays with AVX2-optimized multiplication.
-- **SSA Optimization** — Constant folding, dead code elimination on the IR before C emission.
+- **Value Semantics** Ã¢â‚¬â€ Structs are stack-allocated by default. No hidden boxing, no pointer chasing.
+- **No Garbage Collector** Ã¢â‚¬â€ Manual allocation when needed, automatic scope-based deallocation otherwise.
+- **Checked Arithmetic** Ã¢â‚¬â€ `add_checked`, `sub_checked`, `mul_checked` return `Option<int>` on overflow.
+- **SIMD Support** Ã¢â‚¬â€ `@simd_add`, `@simd_mul` intrinsics with AVX2 auto-detection at runtime.
+- **Matrix Operations** Ã¢â‚¬â€ 64-byte aligned contiguous arrays with AVX2-optimized multiplication.
+- **SSA Optimization** Ã¢â‚¬â€ Constant folding, dead code elimination on the IR before C emission.
 
 ### Heterogeneous Computing
 
-- **CPU** — Compiles to C23, linked with GCC/Clang/MSVC. Full platform support.
-- **GPU** — `kernel` keyword emits WGSL, OpenCL C, and SPIR-V. Host launcher auto-generated.
-- **Quantum** — Gate syntax compiles to OpenQASM 3.0, QIR, OpenPulse. Noise simulation built in.
-- **WASM** — Target `wasm32-wasi` for web deployment.
+- **CPU** Ã¢â‚¬â€ Compiles to C23, linked with GCC/Clang/MSVC. Full platform support.
+- **GPU** Ã¢â‚¬â€ `kernel` keyword emits WGSL, OpenCL C, and SPIR-V. Host launcher auto-generated.
+- **Quantum** Ã¢â‚¬â€ Gate syntax compiles to OpenQASM 3.0, QIR, OpenPulse. Noise simulation built in.
+- **WASM** Ã¢â‚¬â€ Target `wasm32-wasi` for web deployment.
 
 ### Developer Experience
 
-- **Package Manager** — `karkain pkg add`, semver resolution, lock files, registry.
-- **LSP Server** — Hover, go-to-definition for IDE integration.
-- **Debug Mode** — `--debug` emits `#line` directives for GDB/LLDB source mapping.
-- **Verbose Mode** — `--verbose` shows token stream, AST, generated C, compiler invocation.
-- **Test Framework** — `*_test.kar` files with `test_*` functions, auto-discovered and isolated.
+- **Package Manager** Ã¢â‚¬â€ `karkain pkg add`, semver resolution, lock files, registry.
+- **LSP Server** Ã¢â‚¬â€ Hover, go-to-definition for IDE integration.
+- **Debug Mode** Ã¢â‚¬â€ `--debug` emits `#line` directives for GDB/LLDB source mapping.
+- **Verbose Mode** Ã¢â‚¬â€ `--verbose` shows token stream, AST, generated C, compiler invocation.
+- **Test Framework** Ã¢â‚¬â€ `*_test.kark` files with `test_*` functions, auto-discovered and isolated.
 
 ---
 
@@ -408,7 +408,7 @@ doas mv karkain /usr/local/bin/
 docker build -t karkain .
 
 # Run
-docker run --rm -v $(pwd):/src karkain run /src/main.kar
+docker run --rm -v $(pwd):/src karkain run /src/main.kark
 ```
 
 ### Verify Installation
@@ -429,21 +429,21 @@ karkain --help
 karkain pkg init hello
 cd hello
 
-# Edit src/main.kar
-cat > src/main.kar << 'EOF'
+# Edit src/main.kark
+cat > src/main.kark << 'EOF'
 fn main() {
     print("Hello, World!")
 }
 EOF
 
 # Run it
-karkain run src/main.kar
+karkain run src/main.kark
 ```
 
 ### Variables and Functions
 
 ```karkain
-// src/main.kar
+// src/main.kark
 fn add(a: int, b: int) -> int {
     return a + b
 }
@@ -494,11 +494,11 @@ fn main() {
 
 | Command | Description |
 |---------|-------------|
-| `karkain run <file.kar>` | Compile and run (default) |
-| `karkain build <file.kar>` | Compile to native executable |
-| `karkain transpile <file.kar>` | Generate C source (keeps .c file) |
-| `karkain check <file.kar>` | Validate syntax and semantics |
-| `karkain test <path>` | Discover and run `*_test.kar` files |
+| `karkain run <file.kark>` | Compile and run (default) |
+| `karkain build <file.kark>` | Compile to native executable |
+| `karkain transpile <file.kark>` | Generate C source (keeps .c file) |
+| `karkain check <file.kark>` | Validate syntax and semantics |
+| `karkain test <path>` | Discover and run `*_test.kark` files |
 | `karkain lsp` | Start Language Server Protocol server |
 
 ### Compiler Options
@@ -556,15 +556,15 @@ Karkain includes a built-in package manager accessed via `karkain pkg`.
 
 ```
 my-project/
-├── karkain.toml              # Manifest (name, version, dependencies)
-├── karkain.lock              # Lock file (pinned versions, checksums)
-├── src/
-│   ├── main.kar              # Entry point
-│   └── lib.kar               # Library modules
-├── tests/
-│   └── main_test.kar         # Test files
-└── .karkain/
-    └── cache/                # Downloaded packages
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ karkain.toml              # Manifest (name, version, dependencies)
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ karkain.lock              # Lock file (pinned versions, checksums)
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ src/
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ main.kark              # Entry point
+Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ lib.kark               # Library modules
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ tests/
+Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ main_test.kark         # Test files
+Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ .karkain/
+    Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ cache/                # Downloaded packages
 ```
 
 ### Manifest Format (karkain.toml)
@@ -604,30 +604,30 @@ gpu = ["math/gpu"]
 
 ```
 Karkain/
-├── cmd/karkain/              # CLI entry point (main.go)
-├── pkg/
-│   ├── lexer/                # Tokenizer
-│   ├── parser/               # AST + arena allocator
-│   ├── codegen/              # C code generation + GPU/quantum emitters
-│   ├── ir/ssa/               # SSA intermediate representation
-│   ├── sema/                 # Semantic analysis (types, borrow, quantum safety)
-│   ├── pm/                   # Package manager (KPM)
-│   ├── cli/                  # CLI command handlers
-│   ├── jit/                  # JIT compilation engine + FFI
-│   ├── lsp/                  # Language Server Protocol
-│   ├── bootstrap/            # Self-hosting bootstrap
-│   ├── diagnostics/          # Error reporting
-│   ├── runtime/              # Runtime support (actors, coroutines, GPU)
-│   └── stdlib/               # Standard library (Go)
-├── src/compiler/             # Self-hosted compiler (written in .kar)
-├── stdlib/                   # Karkain standard library source
-├── std/                      # Alternative stdlib location
-├── examples/                 # Example programs (25 E2E tests)
-├── scripts/                  # Build, release, bootstrap scripts
-├── editors/                  # Editor integrations
-├── .github/workflows/        # CI/CD (GitHub Actions)
-├── go.mod                    # Go module definition
-└── README.md                 # This file
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ cmd/karkain/              # CLI entry point (main.go)
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ pkg/
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ lexer/                # Tokenizer
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ parser/               # AST + arena allocator
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ codegen/              # C code generation + GPU/quantum emitters
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ ir/ssa/               # SSA intermediate representation
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ sema/                 # Semantic analysis (types, borrow, quantum safety)
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ pm/                   # Package manager (KPM)
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ cli/                  # CLI command handlers
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ jit/                  # JIT compilation engine + FFI
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ lsp/                  # Language Server Protocol
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ bootstrap/            # Self-hosting bootstrap
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ diagnostics/          # Error reporting
+Ã¢â€â€š   Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ runtime/              # Runtime support (actors, coroutines, GPU)
+Ã¢â€â€š   Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ stdlib/               # Standard library (Go)
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ src/compiler/             # Self-hosted compiler (written in .kark)
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ stdlib/                   # Karkain standard library source
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ std/                      # Alternative stdlib location
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ examples/                 # Example programs (25 E2E tests)
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ scripts/                  # Build, release, bootstrap scripts
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ editors/                  # Editor integrations
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ .github/workflows/        # CI/CD (GitHub Actions)
+Ã¢â€Å“Ã¢â€â‚¬Ã¢â€â‚¬ go.mod                    # Go module definition
+Ã¢â€â€Ã¢â€â‚¬Ã¢â€â‚¬ README.md                 # This file
 ```
 
 ---
@@ -662,7 +662,7 @@ go build -ldflags="-s -w" -o karkain ./cmd/karkain
 go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1
 
 # Run E2E tests
-for f in examples/*.kar; do karkain run "$f"; done
+for f in examples/*.kark; do karkain run "$f"; done
 ```
 
 ### Using Build Scripts
@@ -792,10 +792,10 @@ Karkain runs wherever Go and a C compiler are available.
 
 ### INDEPENDENCE Milestone
 
-The ultimate goal: `karkain` compiles `.kar` source including its own compiler source, with zero dependency on any other language's toolchain.
+The ultimate goal: `karkain` compiles `.kark` source including its own compiler source, with zero dependency on any other language's toolchain.
 
 ```
-karkain build src/compiler/main.kar  # Karkain compiles itself
+karkain build src/compiler/main.kark  # Karkain compiles itself
 ```
 
 ---
@@ -806,7 +806,7 @@ karkain build src/compiler/main.kar  # Karkain compiles itself
 2. Create a feature branch
 3. Make changes
 4. Run tests: `go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1`
-5. Ensure E2E passes: `for f in examples/*.kar; do karkain run "$f"; done`
+5. Ensure E2E passes: `for f in examples/*.kark; do karkain run "$f"; done`
 6. Submit a pull request
 
 ---

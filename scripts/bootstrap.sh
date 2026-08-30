@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Karkain Self-Hosting Bootstrap Script (POSIX)
-# 3-Stage Pipeline: Go Source → Stage 0 → Stage 1 → Stage 2
+# 3-Stage Pipeline: Go Source Ã¢â€ â€™ Stage 0 Ã¢â€ â€™ Stage 1 Ã¢â€ â€™ Stage 2
 # Verifies deterministic identity via SHA-256 hash parity
 
 set -euo pipefail
@@ -67,10 +67,10 @@ ok "  Duration:  ${STAGE0_DURATION}s"
 echo ""
 
 # ============================================
-# Stage 1: Use Stage 0 to compile compiler/*.kar
+# Stage 1: Use Stage 0 to compile compiler/*.kark
 # ============================================
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Stage 1: Compile compiler/*.kar using Stage 0${NC}"
+echo -e "${GREEN}Stage 1: Compile compiler/*.kark using Stage 0${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 STAGE1_START=$(date +%s)
@@ -78,13 +78,13 @@ STAGE1_START=$(date +%s)
 rm -f bin/karkain_v1
 
 # Run Stage 0 compiler with check command to validate compiler sources
-./bin/karkain check compiler/main.kar 2>&1 || true
+./bin/karkain check compiler/main.kark 2>&1 || true
 
-# Stage 1: transpile compiler/main.kar → C, compile with gcc
-./bin/karkain build compiler/main.kar --target c11 2>&1 || true
+# Stage 1: transpile compiler/main.kark Ã¢â€ â€™ C, compile with gcc
+./bin/karkain build compiler/main.kark --target c11 2>&1 || true
 
 # Placeholder: Stage 1 binary = Stage 0 binary (self-hosting pipeline placeholder)
-# Full self-hosting would: transpile compiler/*.kar → C → gcc → karkain_v1
+# Full self-hosting would: transpile compiler/*.kark Ã¢â€ â€™ C Ã¢â€ â€™ gcc Ã¢â€ â€™ karkain_v1
 cp bin/karkain bin/karkain_v1
 
 STAGE1_END=$(date +%s)
@@ -100,17 +100,17 @@ ok "  Duration:  ${STAGE1_DURATION}s"
 echo ""
 
 # ============================================
-# Stage 2: Use Stage 1 to compile compiler/*.kar again
+# Stage 2: Use Stage 1 to compile compiler/*.kark again
 # ============================================
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Stage 2: Re-compile compiler/*.kar using Stage 1${NC}"
+echo -e "${GREEN}Stage 2: Re-compile compiler/*.kark using Stage 1${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 STAGE2_START=$(date +%s)
 
 rm -f bin/karkain_v2
 
-./bin/karkain_v1 build compiler/main.kar --target c11 2>&1 || true
+./bin/karkain_v1 build compiler/main.kark --target c11 2>&1 || true
 
 # Placeholder: Stage 2 binary
 cp bin/karkain_v1 bin/karkain_v2
@@ -158,7 +158,7 @@ fi
 echo ""
 warn "Functional equivalence test..."
 
-TEST_FILE="compiler/main.kar"
+TEST_FILE="compiler/main.kark"
 if [ -f "$TEST_FILE" ]; then
     OUT0=$(./bin/karkain check "$TEST_FILE" 2>&1 || true)
     OUT1=$(./bin/karkain_v1 check "$TEST_FILE" 2>&1 || true)

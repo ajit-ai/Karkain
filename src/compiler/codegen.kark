@@ -1,6 +1,6 @@
 // Phase 40: Self-hosted Karkain Code Generator
 // Generates C99, WGSL, OpenCL, OpenQASM 3.0, QIR, and .kbc bytecode target code
-// Imports: ast.kar
+// Imports: ast.kark
 
 // ============================================================
 // Codegen state
@@ -821,7 +821,7 @@ func generateOpenCL(ast) {
 // ============================================================
 
 func generateSPIRV(ast) {
-    return "// SPIR-V generation requires external spirv-tools\n// Use: karkain build --target spirv input.kar\n"
+    return "// SPIR-V generation requires external spirv-tools\n// Use: karkain build --target spirv input.kark\n"
 }
 
 // ============================================================

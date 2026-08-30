@@ -571,7 +571,7 @@ Value* appendArray(Value* arr, Value* elem) {
  * All functions take Value* args and return Value*, except main.
  * ============================================================ */
 
-/* ast.kar */
+/* ast.kark */
 Value* createLocation(Value* line, Value* col, Value* offset);
 Value* locLine(Value* loc);
 Value* locCol(Value* loc);
@@ -650,23 +650,23 @@ Value* arrayElements(Value* node);
 Value* mapKeys(Value* node);
 Value* mapValues(Value* node);
 
-/* lexer.kar */
+/* lexer.kark */
 Value* tokenize(Value* source);
 
-/* parser.kar */
+/* parser.kark */
 Value* createParserState(Value* tokens);
 Value* hasParserErrors(Value* state);
 Value* printParserErrors(Value* state);
 Value* parse(Value* tokens);
 
-/* sema.kar */
+/* sema.kark */
 Value* analyze(Value* ast);
 
-/* codegen.kar */
+/* codegen.kark */
 Value* generate(Value* ast, Value* target);
 Value* generateForwardDecls(Value* ast);
 
-/* main.kar */
+/* main.kark */
 Value* readFile(Value* path);
 Value* checkFile(Value* path);
 Value* buildFile(Value* path, Value* target);

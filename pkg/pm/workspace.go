@@ -67,12 +67,12 @@ func WorkspaceBuild(rootDir string) error {
 
 	for _, member := range ws.Members {
 		memberDir := filepath.Join(rootDir, member)
-		mainKar := filepath.Join(memberDir, "src", "main.kar")
+		mainKar := filepath.Join(memberDir, "src", "main.kark")
 		if _, err := os.Stat(mainKar); os.IsNotExist(err) {
-			// Try memberDir/main.kar
-			mainKar = filepath.Join(memberDir, "main.kar")
+			// Try memberDir/main.kark
+			mainKar = filepath.Join(memberDir, "main.kark")
 			if _, err := os.Stat(mainKar); os.IsNotExist(err) {
-				fmt.Printf("  SKIP  %s (no main.kar found)\n", member)
+				fmt.Printf("  SKIP  %s (no main.kark found)\n", member)
 				continue
 			}
 		}

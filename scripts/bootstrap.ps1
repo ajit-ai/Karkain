@@ -1,5 +1,5 @@
 # Karkain Self-Hosting Bootstrap Script
-# 3-Stage Pipeline: Go Source → Stage 0 → Stage 1 → Stage 2
+# 3-Stage Pipeline: Go Source Ã¢â€ â€™ Stage 0 Ã¢â€ â€™ Stage 1 Ã¢â€ â€™ Stage 2
 # Verifies deterministic identity via SHA-256 hash parity
 
 $ErrorActionPreference = "Stop"
@@ -57,10 +57,10 @@ try {
 Write-Host ""
 
 # ============================================
-# Stage 1: Use Stage 0 to compile compiler/*.kar
+# Stage 1: Use Stage 0 to compile compiler/*.kark
 # ============================================
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "Stage 1: Compile compiler/*.kar using Stage 0" -ForegroundColor Green
+Write-Host "Stage 1: Compile compiler/*.kark using Stage 0" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 
 $stage1Start = Get-Date
@@ -69,15 +69,15 @@ try {
     if (Test-Path "bin/karkain_v1.exe") { Remove-Item "bin/karkain_v1.exe" -Force }
 
     # Run Stage 0 compiler with check command to validate compiler sources
-    $checkResult = & .\bin\karkain.exe check compiler\main.kar 2>&1
+    $checkResult = & .\bin\karkain.exe check compiler\main.kark 2>&1
     $checkExit = $LASTEXITCODE
 
-    # Stage 1: transpile compiler/main.kar → C, compile with gcc
-    $buildResult = & .\bin\karkain.exe build compiler\main.kar --target c11 2>&1
+    # Stage 1: transpile compiler/main.kark Ã¢â€ â€™ C, compile with gcc
+    $buildResult = & .\bin\karkain.exe build compiler\main.kark --target c11 2>&1
     $buildExit = $LASTEXITCODE
 
     # For now, Stage 1 binary = Stage 0 binary (self-hosting pipeline placeholder)
-    # Full self-hosting would: transpile compiler/*.kar → C → gcc → karkain_v1.exe
+    # Full self-hosting would: transpile compiler/*.kark Ã¢â€ â€™ C Ã¢â€ â€™ gcc Ã¢â€ â€™ karkain_v1.exe
     Copy-Item "bin/karkain.exe" "bin/karkain_v1.exe" -Force
 
     $stage1End = Get-Date
@@ -102,10 +102,10 @@ try {
 Write-Host ""
 
 # ============================================
-# Stage 2: Use Stage 1 to compile compiler/*.kar again
+# Stage 2: Use Stage 1 to compile compiler/*.kark again
 # ============================================
 Write-Host "========================================" -ForegroundColor Green
-Write-Host "Stage 2: Re-compile compiler/*.kar using Stage 1" -ForegroundColor Green
+Write-Host "Stage 2: Re-compile compiler/*.kark using Stage 1" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 
 $stage2Start = Get-Date
@@ -113,7 +113,7 @@ $stage2Start = Get-Date
 try {
     if (Test-Path "bin/karkain_v2.exe") { Remove-Item "bin/karkain_v2.exe" -Force }
 
-    $buildResult2 = & .\bin\karkain_v1.exe build compiler\main.kar --target c11 2>&1
+    $buildResult2 = & .\bin\karkain_v1.exe build compiler\main.kark --target c11 2>&1
     $buildExit2 = $LASTEXITCODE
 
     # Stage 2 binary placeholder
@@ -172,7 +172,7 @@ try {
     Write-Host ""
     Write-Host "Functional equivalence test..." -ForegroundColor Yellow
 
-    $testFile = "compiler\main.kar"
+    $testFile = "compiler\main.kark"
     if (Test-Path $testFile) {
         $out0 = & .\bin\karkain.exe check $testFile 2>&1 | Out-String
         $out1 = & .\bin\karkain_v1.exe check $testFile 2>&1 | Out-String

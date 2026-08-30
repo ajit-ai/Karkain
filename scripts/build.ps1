@@ -67,7 +67,7 @@ if ($LASTEXITCODE -eq 0) {
 # Check if a source file was provided
 if ($args.Count -eq 0) {
     Write-Host "No source file provided. Build complete." -ForegroundColor Yellow
-    Write-Host "Usage: .\scripts\build.ps1 <file.kar>" -ForegroundColor Yellow
+    Write-Host "Usage: .\scripts\build.ps1 <file.kark>" -ForegroundColor Yellow
     exit 0
 }
 
@@ -79,9 +79,9 @@ if (-not (Test-Path $SourceFile)) {
     exit 1
 }
 
-# Check if source file has .kar extension
-if ($SourceFile -notmatch '\.kar$') {
-    Write-Host "Error: Source file must have .kar extension" -ForegroundColor Red
+# Check if source file has .kark extension
+if ($SourceFile -notmatch '\.kark$') {
+    Write-Host "Error: Source file must have .kark extension" -ForegroundColor Red
     exit 1
 }
 

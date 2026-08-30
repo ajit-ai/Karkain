@@ -61,17 +61,17 @@ echo "========================================"
 go build -o bin/karkain ./cmd/karkain
 
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✓ Go build successful${NC}"
+    echo -e "${GREEN}Ã¢Å“â€œ Go build successful${NC}"
     echo "Output: bin/karkain"
 else
-    echo -e "${RED}✗ Go build failed${NC}"
+    echo -e "${RED}Ã¢Å“â€” Go build failed${NC}"
     exit 1
 fi
 
 # Check if a source file was provided
 if [ $# -eq 0 ]; then
     echo -e "${YELLOW}No source file provided. Build complete.${NC}"
-    echo "Usage: $0 <file.kar>"
+    echo "Usage: $0 <file.kark>"
     exit 0
 fi
 
@@ -83,9 +83,9 @@ if [ ! -f "$SOURCE_FILE" ]; then
     exit 1
 fi
 
-# Check if source file has .kar extension
-if [[ "$SOURCE_FILE" != *.kar ]]; then
-    echo -e "${RED}Error: Source file must have .kar extension${NC}"
+# Check if source file has .kark extension
+if [[ "$SOURCE_FILE" != *.kark ]]; then
+    echo -e "${RED}Error: Source file must have .kark extension${NC}"
     exit 1
 fi
 
@@ -101,9 +101,9 @@ echo "Using C compiler: $CC"
 CC=$CC ./bin/karkain run "$SOURCE_FILE"
 
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✓ Compilation and execution successful${NC}"
+    echo -e "${GREEN}Ã¢Å“â€œ Compilation and execution successful${NC}"
 else
-    echo -e "${RED}✗ Compilation or execution failed${NC}"
+    echo -e "${RED}Ã¢Å“â€” Compilation or execution failed${NC}"
     exit 1
 fi
 

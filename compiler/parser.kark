@@ -1,24 +1,22 @@
-// Phase 40: Self-hosted Karkain Recursive-Descent Parser
+// Phase 24: Self-hosted Karkain Recursive-Descent Parser
 // Pratt parser for expressions, recursive descent for statements
-// Imports: ast.kar, lexer.kar
+// Imports: compiler/ast.kark, compiler/lexer.kark
 
 // ============================================================
 // Parser state
 // ============================================================
 
-func createParserState(tokens, source) {
+func createParserState(tokens) {
     let state = []
     state = appendArray(state, tokens)      // 0: token list
     state = appendArray(state, 0)           // 1: current index
     state = appendArray(state, [])          // 2: errors
-    state = appendArray(state, source)      // 3: source text for zero-copy token access
     return state
 }
 
 func parserTokens(state) { return state[0] }
 func parserPos(state) { return state[1] }
 func parserErrors(state) { return state[2] }
-func parserSource(state) { return state[3] }
 
 func setParserPos(state, pos) { state[1] = pos }
 func addParserError(state, msg) { state[2] = appendArray(state[2], msg) }
@@ -35,7 +33,7 @@ func peekTokenKind(state) {
 }
 
 func peekTokenLiteral(state) {
-    return tokenLiteral(currentToken(state), parserSource(state))
+    return tokenLiteral(currentToken(state))
 }
 
 func advanceToken(state) {
@@ -47,9 +45,9 @@ func advanceToken(state) {
 func expectToken(state, kind) {
     let tok = currentToken(state)
     if (tokenKind(tok) != kind) {
-        let msg = "Line " + str(locLine(tokenLoc(tok))) + ": expected " + tokenKindName(kind) + " but got " + tokenKindName(tokenKind(tok)) + " '" + tokenLiteral(tok, parserSource(state)) + "'"
+        let msg = "Line " + str(locLine(tokenLoc(tok))) + ": expected " + tokenKindName(kind) + " but got " + tokenKindName(tokenKind(tok)) + " '" + tokenLiteral(tok) + "'"
         addParserError(state, msg)
-        return createToken(kind, 0, 0, tokenLoc(tok))
+        return createToken(kind, "", tokenLoc(tok))
     }
     advanceToken(state)
     return tok
@@ -57,8 +55,8 @@ func expectToken(state, kind) {
 
 func expectLiteral(state, expectedLiteral) {
     let tok = currentToken(state)
-    if (tokenLiteral(tok, parserSource(state)) != expectedLiteral) {
-        let msg = "Line " + str(locLine(tokenLoc(tok))) + ": expected '" + expectedLiteral + "' but got '" + tokenLiteral(tok, parserSource(state)) + "'"
+    if (tokenLiteral(tok) != expectedLiteral) {
+        let msg = "Line " + str(locLine(tokenLoc(tok))) + ": expected '" + expectedLiteral + "' but got '" + tokenLiteral(tok) + "'"
         addParserError(state, msg)
     }
     advanceToken(state)
@@ -212,10 +210,10 @@ func parsePrefix(state) {
     if (kind == TK_MINUS() || kind == TK_NOT() || kind == TK_STAR() || kind == TK_ADDR() || kind == TK_DEREF()) {
         let opTok = advanceToken(state)
         let operand = parsePrefix(state)
-        return createUnaryExprNode(tokenLiteral(opTok, parserSource(state)), operand, loc)
+        return createUnaryExprNode(tokenLiteral(opTok), operand, loc)
     }
 
-    let msg = "Line " + str(locLine(loc)) + ": unexpected token '" + tokenLiteral(currentToken(state), parserSource(state)) + "' in expression"
+    let msg = "Line " + str(locLine(loc)) + ": unexpected token '" + tokenLiteral(currentToken(state)) + "' in expression"
     addParserError(state, msg)
     advanceToken(state)
     return createIntLiteralNode("0", loc)
@@ -234,7 +232,7 @@ func parseInfix(state, left, opTok) {
     // Member access: foo.bar
     if (kind == TK_DOT()) {
         let member = advanceToken(state)
-        return createMemberNode(left, tokenLiteral(member, parserSource(state)), loc)
+        return createMemberNode(left, tokenLiteral(member), loc)
     }
 
     // Index access: foo[i]
@@ -248,7 +246,7 @@ func parseInfix(state, left, opTok) {
     // Regular infix
     let rbp = infixBindingPower(kind)
     let right = parseExpr(state, rbp)
-    return createBinaryExprNode(tokenLiteral(opTok, parserSource(state)), left, right, loc)
+    return createBinaryExprNode(tokenLiteral(opTok), left, right, loc)
 }
 
 func parseExpr(state, rbp) {
@@ -320,10 +318,6 @@ func parseBlock(state) {
 
     while (peekTokenKind(state) != TK_RBRACE() && peekTokenKind(state) != TK_EOF()) {
         stmts = appendArray(stmts, parseStatement(state))
-        // Ensure progress even on errors
-        if (len(stmts) == 0) {
-            advanceToken(state)
-        }
     }
 
     expectToken(state, TK_RBRACE())
@@ -626,8 +620,8 @@ func parseStatement(state) {
 // Main parse function
 // ============================================================
 
-func parse(tokens, source) {
-    let state = createParserState(tokens, source)
+func parse(tokens) {
+    let state = createParserState(tokens)
     let statements = []
 
     while (peekTokenKind(state) != TK_EOF()) {

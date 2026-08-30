@@ -7,7 +7,7 @@ import (
 )
 
 func TestSourceMap_JSONGeneration(t *testing.T) {
-	sm := NewSourceMap("example.kar")
+	sm := NewSourceMap("example.kark")
 	sm.AddMapping(1, 0, 3, 5, "main")
 	sm.AddMapping(2, 10, 4, 8, "add")
 	sm.AddMapping(5, 0, 10, 0, "multiply")
@@ -23,8 +23,8 @@ func TestSourceMap_JSONGeneration(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v", err)
 	}
 
-	if parsed.SourceFile != "example.kar" {
-		t.Errorf("expected sourceFile 'example.kar', got '%s'", parsed.SourceFile)
+	if parsed.SourceFile != "example.kark" {
+		t.Errorf("expected sourceFile 'example.kark', got '%s'", parsed.SourceFile)
 	}
 	if len(parsed.Mappings) != 3 {
 		t.Fatalf("expected 3 mappings, got %d", len(parsed.Mappings))
@@ -61,12 +61,12 @@ func main() {
     let x = add(1, 2)
     let y = sub(3, 4)
 }`
-	reporter := NewReporter(source, "main.kar")
+	reporter := NewReporter(source, "main.kark")
 
 	output := reporter.Report(SeverityError, 7, 12, "undefined function 'sub'")
 
 	// Verify file path in output
-	if !strings.Contains(output, "main.kar:7:12") {
+	if !strings.Contains(output, "main.kark:7:12") {
 		t.Errorf("output missing file path and location, got:\n%s", output)
 	}
 
@@ -88,7 +88,7 @@ func main() {
 
 func TestReporter_SeverityLevels(t *testing.T) {
 	source := `let x = 5`
-	reporter := NewReporter(source, "test.kar")
+	reporter := NewReporter(source, "test.kark")
 
 	errorOutput := reporter.Report(SeverityError, 1, 5, "type mismatch")
 	warningOutput := reporter.Report(SeverityWarning, 1, 5, "unused variable")
