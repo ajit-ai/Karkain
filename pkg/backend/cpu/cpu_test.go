@@ -184,3 +184,72 @@ func TestBackendInterface(t *testing.T) {
 		t.Errorf("expected cpu, got %s", bk.Name())
 	}
 }
+
+// ============================================================
+// Autodiff integration end-to-end
+// ============================================================
+
+func TestExecuteGradientBackwardGraph(t *testing.T) {
+	skipIfNoGCC(t)
+
+	// Forward: y = x^2 (x*x), backward: dy/dx = 2x
+	x := tensor.NewNode("x", tensor.OpCreate, tensor.NewShape(1), tensor.ElemF32)
+	y := tensor.NewNode("y", tensor.OpMul, tensor.NewShape(1), tensor.ElemF32, "x", "x")
+
+	fwd := tensor.NewGraph()
+	fwd.AddNode(x)
+	fwd.AddNode(y)
+	fwd.AddInput(x)
+	fwd.AddOutput(y)
+
+	// Build gradient graph
+	grad, err := tensor.BuildGradient(fwd)
+	if err != nil {
+		t.Fatalf("gradient build failed: %v", err)
+	}
+
+	// Execute backward graph on CPU backend
+	bk := New()
+	result, err := bk.Execute(grad.BackwardGraph, map[string][]float64{
+		"x": {3.0},
+	})
+	if err != nil {
+		t.Fatalf("gradient execute failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected result")
+	}
+}
+
+func TestExecuteGradientMatMulBackward(t *testing.T) {
+	skipIfNoGCC(t)
+
+	a := tensor.NewNode("A", tensor.OpCreate, tensor.NewShape(2, 3), tensor.ElemF32)
+	b := tensor.NewNode("B", tensor.OpCreate, tensor.NewShape(3, 4), tensor.ElemF32)
+	y := tensor.NewNode("y", tensor.OpMatMul, tensor.NewShape(2, 4), tensor.ElemF32, "A", "B")
+
+	fwd := tensor.NewGraph()
+	fwd.AddNode(a)
+	fwd.AddNode(b)
+	fwd.AddNode(y)
+	fwd.AddInput(a)
+	fwd.AddInput(b)
+	fwd.AddOutput(y)
+
+	grad, err := tensor.BuildGradient(fwd)
+	if err != nil {
+		t.Fatalf("gradient build failed: %v", err)
+	}
+
+	bk := New()
+	result, err := bk.Execute(grad.BackwardGraph, map[string][]float64{
+		"A": {1, 2, 3, 4, 5, 6},
+		"B": {7, 8, 9, 10, 11, 12},
+	})
+	if err != nil {
+		t.Fatalf("gradient execute failed: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected result")
+	}
+}
