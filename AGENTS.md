@@ -12,15 +12,18 @@ NEVER skip this step. This is a hard rule, not optional.
 
 ## Roadmap
 
-See `ROADMAP.md` for the complete development plan (Phases 50–78).
-Current phase: **post-70** — All Phases 70–78 complete.
+See `ROADMAP.md` for the complete development plan (Phases 50–79+).
+Current phase: **post-79** — Phases 50–79 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
-Last completed: **70** — SIMD Vector Types & Atomics [closes G7]
-(lane types `[N]f32`/`[N]f64`/`[N]i32`/`[N]i64`, `@simd_splat`/`@simd_load`/`@simd_store`,
-`@atomic_*` + memory orderings, `@aligned(N)`, `<stdatomic.h>`/`<immintrin.h>` preamble).
-Prior completed: **78** — NPU Optimization (fusion, memory planning, INT8/INT4 quantization, MLIR codegen).
+Last completed: **79** — Compiler Integrity, IR Architecture & Self-Hosting
+Readiness Audit (evidence-based audit: pipeline, dependency map, Math/Tensor/SSA
+IR, CPU/GPU/NPU parity, determinism, optimization boundaries, tests,
+BUG-1..8 regression, self-hosting readiness; Phase 80 gate = READY WITH
+PREREQUISITES; docs under `docs/audit/PHASE-79-*`).
+Prior completed: **78** — NPU Optimization (fusion, memory planning, INT8/INT4 quantization, MLIR codegen);
+**70-78** Math/Tensor/NPU chain (see below); **52-69** value/SSA/closures/slices/self-hosting/actors/GPU/quantum/stdlib/borrow/optimizer.
 
 ### Completed: Math/Tensor/NPU Chain (Phases 71–78)
 

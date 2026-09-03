@@ -413,14 +413,17 @@ Total tracked items: **38** (8 bugs, 20 placeholders, 15 gaps, 6 dead code issue
 
 | ID | Issue | Status |
 |---|---|---|
-| BUG-1 | Struct codegen broken â€” raw field types, boxed assignments | OPEN |
-| BUG-2 | Option/Result match arms always compile to `1` | OPEN |
-| BUG-3 | Index assignment `m[k] = v` generates assignment to rvalue | OPEN |
-| BUG-4 | `?` error propagation is a no-op | OPEN |
-| BUG-5 | Borrow checker lacks lexical scoping | OPEN |
+| BUG-1 | Struct codegen broken â€” raw field types, boxed assignments | FIXED |
+| BUG-2 | Option/Result match arms always compile to `1` | FIXED |
+| BUG-3 | Index assignment `m[k] = v` generates assignment to rvalue | FIXED |
+| BUG-4 | `?` error propagation is a no-op | FIXED |
+| BUG-5 | Borrow checker lacks lexical scoping | FIXED |
 | BUG-6 | `make_int` pool mutable shared state | FIXED |
-| BUG-7 | Enum variants with payloads emit undefined `_make` | OPEN |
-| BUG-8 | Typed declarations mix `char*` vs `Value*` | OPEN |
+| BUG-7 | Enum variants with payloads emit undefined `_make` | FIXED |
+| BUG-8 | Typed declarations mix `char*` vs `Value*` | FIXED |
+
+Audited in PHASE 79: all BUG-1..8 fixed with regression coverage.
+Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_test.go` Phase 51 Groups A-I + `TestBorrowCheck_*` (BUG-5), `pkg/codegen/phase19_test.go` (BUG-1/2/3), `pkg/codegen/codegen.go:572` value-by-value pool (BUG-6).
 
 ### Placeholders (emit only comments or dummy values)
 
