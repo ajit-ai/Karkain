@@ -59,8 +59,32 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 	var sb strings.Builder
 	isMain := fn.Name == "main"
 
+	// Karkain argument API: getArgs() is an intrinsic whose body is supplied by
+	// the codegen, returning the argc/argv captured by the generated C entry
+	// point. Both the Go bootstrap backend and the self-hosted emitC11 backend
+	// must emit this same canonical implementation for parity. The function is
+	// still declared in Karkain source (so the parser/self-hosted driver can
+	// dispatch on it), but the lowered placeholder body is replaced here.
+	if fn.Name == "getArgs" {
+		sb.WriteString("Value getArgs(void) {\n")
+		sb.WriteString("\tValue _args = make_array();\n")
+		sb.WriteString("\tint _i;\n")
+		sb.WriteString("\tfor (_i = 0; _i < _karkain_gargc; _i++) {\n")
+		sb.WriteString("\t\tarray_push(&_args, make_string(_karkain_gargv[_i]));\n")
+		sb.WriteString("\t}\n")
+		sb.WriteString("\treturn _args;\n")
+		sb.WriteString("}\n")
+		return sb.String()
+	}
+
 	if isMain {
-		sb.WriteString("int main(void) {\n")
+		// Generated C entry point receives real argv so Karkain's getArgs() can
+		// expose the actual process arguments (not a placeholder). Entry
+		// parameter names (_karkain_argc/_karkain_argv) and the backing globals
+		// (_karkain_gargc/_karkain_gargv) are distinct to avoid colliding with
+		// Karkain identifiers such as "argc"/"argv" and to avoid self-assignment.
+		sb.WriteString("int main(int _karkain_argc, char** _karkain_argv) {\n")
+		sb.WriteString("\t_karkain_gargc = _karkain_argc; _karkain_gargv = _karkain_argv;\n")
 	} else {
 		params := make([]string, len(fn.Params))
 		for i, p := range fn.Params {

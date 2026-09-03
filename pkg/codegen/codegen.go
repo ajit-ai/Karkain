@@ -106,9 +106,10 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		}
 		retType := "Value"
 		if fn.Name == "main" {
-				retType = "int"
-			}
-			fmt.Fprintf(&sb, "%s %s(%s);\n", retType, fn.Name, strings.Join(params, ", "))
+			retType = "int"
+			params = []string{"int _karkain_argc", "char** _karkain_argv"}
+		}
+		fmt.Fprintf(&sb, "%s %s(%s);\n", retType, fn.Name, strings.Join(params, ", "))
 		}
 	}
 	sb.WriteByte('\n')
@@ -611,6 +612,11 @@ Value make_bigfloat_from_double(double v) {
     mpf_set_d(val.bigFloatVal, v);
     return val;
 }
+
+// Karkain argument API (getArgs) backing store. Populated by the generated C
+// entry point from argc/argv so Karkain code can read real process arguments.
+static int _karkain_gargc = 0;
+static char** _karkain_gargv = NULL;
 
 Value make_string(const char* s) {
     Value val;
@@ -1444,6 +1450,25 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		retType = "int"
 	}
 
+	// Karkain argument API: getArgs() is an intrinsic whose body is supplied by
+	// the codegen, returning the argc/argv captured by the generated C entry
+	// point. Both the Go bootstrap backend and the self-hosted emitC11 backend
+	// must emit this same canonical implementation for parity. The function is
+	// still declared in Karkain source (so the parser/self-hosted driver can
+	// dispatch on it), but the declared body is replaced here at emission.
+	if fnName == "getArgs" {
+		var gb strings.Builder
+		gb.WriteString("Value getArgs(void) {\n")
+		gb.WriteString("\tValue _args = make_array();\n")
+		gb.WriteString("\tint _i;\n")
+		gb.WriteString("\tfor (_i = 0; _i < _karkain_gargc; _i++) {\n")
+		gb.WriteString("\t\tarray_push(&_args, make_string(_karkain_gargv[_i]));\n")
+		gb.WriteString("\t}\n")
+		gb.WriteString("\treturn _args;\n")
+		gb.WriteString("}\n\n")
+		return gb.String()
+	}
+
 	// Phase 48: Generate body first to collect any lambda definitions
 	g.lambdaBuf.Reset()
 	var bodySb strings.Builder
@@ -1457,10 +1482,17 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		sb.WriteString(g.lambdaBuf.String())
 		g.lambdaBuf.Reset()
 	}
-	fmt.Fprintf(&sb, "%s %s(%s) {\n", retType, fnName, strings.Join(params, ", "))
+	// Generated C entry point receives real argv so Karkain's getArgs() can
+	// expose the actual process arguments (not a placeholder).
+	sig := strings.Join(params, ", ")
+	if fnName == "main" && sig == "" {
+		sig = "int _karkain_argc, char** _karkain_argv"
+	}
+	fmt.Fprintf(&sb, "%s %s(%s) {\n", retType, fnName, sig)
 
 	// Phase 14: Initialize quantum runtime in main
 	if fnName == "main" {
+		sb.WriteString("\t_karkain_gargc = _karkain_argc; _karkain_gargv = _karkain_argv;\n")
 		sb.WriteString("\tquantum_init();\n")
 	}
 
