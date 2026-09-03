@@ -1844,7 +1844,7 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 func (g *Generator) genExpr(node parser.Node) string {
 	switch n := node.(type) {
 	case *parser.StringLiteral:
-		return fmt.Sprintf("make_string(%q)", n.Value)
+		return fmt.Sprintf("make_string(%q)", unescapeKarkain(n.Value))
 	case *parser.IntLiteral:
 		return fmt.Sprintf("make_int(%s)", n.Value)
 	case *parser.BigIntLiteral:

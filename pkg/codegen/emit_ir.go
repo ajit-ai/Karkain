@@ -11,6 +11,44 @@ import (
 
 // Phase 53: SSA -> C23 emission and pipeline integration.
 
+// unescapeKarkain translates the raw escape sequences stored in Karkain string
+// literals into their actual byte values. The lexer intentionally keeps escapes
+// un-unescaped in the token/AST value (e.g. "\n" is stored as the two characters
+// backslash+'n'), so codegen must decode them before quoting so that the emitted C
+// string literal denotes the right value. Without this, a literal "\n" would be
+// emitted as backslash+'n' instead of a real newline.
+func unescapeKarkain(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c != '\\' || i+1 >= len(s) {
+			b.WriteByte(c)
+			continue
+		}
+		i++
+		switch s[i] {
+		case 'n':
+			b.WriteByte('\n')
+		case 't':
+			b.WriteByte('\t')
+		case 'r':
+			b.WriteByte('\r')
+		case '0':
+			b.WriteByte(0)
+		case '\\':
+			b.WriteByte('\\')
+		case '"':
+			b.WriteByte('"')
+		case '\'':
+			b.WriteByte('\'')
+		default:
+			b.WriteByte('\\')
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
 func sanitizeC(id string) string {
 	var b strings.Builder
 	for _, r := range id {
@@ -42,7 +80,7 @@ func operandC(op ssa.Operand) string {
 		}
 		return "make_bool(0)"
 	case ssa.Str:
-		return "make_string(" + strconv.Quote(op.StrVal) + ")"
+		return "make_string(" + strconv.Quote(unescapeKarkain(op.StrVal)) + ")"
 	}
 	return "mk_nil()"
 }
