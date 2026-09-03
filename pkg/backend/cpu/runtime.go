@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"karkain/pkg/backend"
@@ -15,13 +14,11 @@ import (
 )
 
 // CPUBackend implements the Backend interface for CPU execution.
-type CPUBackend struct {
-	workdir string
-}
+type CPUBackend struct{}
 
 // New creates a new CPU backend.
 func New() *CPUBackend {
-	return &CPUBackend{workdir: ""}
+	return &CPUBackend{}
 }
 
 // Name returns the backend name.
@@ -70,20 +67,41 @@ func (b *CPUBackend) Execute(graph *tensor.TensorGraph, inputs map[string][]floa
 	// Generate C program
 	cCode := generateCProgram(graph, inputs)
 
-	// Write to temp file
-	cFile := filepath.Join(tempDir, "kernel.c")
-	exeFile := filepath.Join(tempDir, "kernel.exe")
-	os.WriteFile(cFile, []byte(cCode), 0644)
+	// Write to unique temp files so concurrent invocations (parallel tests,
+	// multi-goroutine dispatch) never collide on the same path, which on
+	// Windows surfaces as "Permission denied / being used by another process".
+	cFile, err := os.CreateTemp(tempDir, "kernel-*.c")
+	if err != nil {
+		return nil, fmt.Errorf("create temp c file: %w", err)
+	}
+	cPath := cFile.Name()
+	defer os.Remove(cPath)
+	if _, err := cFile.WriteString(cCode); err != nil {
+		cFile.Close()
+		return nil, fmt.Errorf("write temp c file: %w", err)
+	}
+	if err := cFile.Close(); err != nil {
+		return nil, fmt.Errorf("close temp c file: %w", err)
+	}
+
+	exeFile, err := os.CreateTemp(tempDir, "kernel-*.exe")
+	if err != nil {
+		return nil, fmt.Errorf("create temp exe file: %w", err)
+	}
+	exePath := exeFile.Name()
+	exeFile.Close()
+	os.Remove(exePath) // gcc -o requires the target to not exist/locked
+	defer os.Remove(exePath)
 
 	// Compile with gcc
-	cmd := exec.Command("gcc", "-std=c2x", "-O2", "-lm", cFile, "-o", exeFile)
+	cmd := exec.Command("gcc", "-std=c2x", "-O2", "-lm", cPath, "-o", exePath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("gcc compile failed: %v\n%s", err, out)
 	}
 
 	// Run
-	runCmd := exec.Command(exeFile)
+	runCmd := exec.Command(exePath)
 	runOut, err := runCmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("execution failed: %v\n%s", err, runOut)
@@ -92,11 +110,6 @@ func (b *CPUBackend) Execute(graph *tensor.TensorGraph, inputs map[string][]floa
 	// Parse output
 	result := parseOutput(string(runOut), graph)
 	return result, nil
-}
-
-// SetWorkdir overrides the temporary working directory (for tests).
-func (b *CPUBackend) SetWorkdir(dir string) {
-	b.workdir = dir
 }
 
 // ============================================================
@@ -273,12 +286,4 @@ func parseOutput(output string, graph *tensor.TensorGraph) *backend.Result {
 	}
 
 	return result
-}
-
-// TempDir returns the working dir for CPU backend compilation (for platform).
-func TempDir() string {
-	if runtime.GOOS == "windows" {
-		return filepath.Join(os.Getenv("TEMP"), "karkain-npu")
-	}
-	return "/tmp/karkain-npu"
 }
