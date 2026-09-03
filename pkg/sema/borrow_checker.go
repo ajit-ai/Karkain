@@ -20,11 +20,21 @@ type varEntry struct {
 	ownership VarOwnership
 	typeName  string
 	line      uint16
+	// Phase 51: the declaring scope. Lets borrow reversion resolve the exact
+	// binding that was borrowed even when the name is shadowed in nested scopes.
+	declScope *scope
+	// Phase 51: set when the variable escapes its declaring scope (Phase 49
+	// escape analysis). Escaping values are heap-backed and outlive the scope;
+	// non-escaping values may die with the scope.
+	escapes bool
 }
 
 type borrowRecord struct {
 	name     string
 	prev     VarOwnership
+	// Phase 51: exact declaring scope of the borrowed binding. If nil, the
+	// record is resolved by name within the current scope on pop.
+	declScope *scope
 }
 
 type scope struct {
@@ -32,6 +42,12 @@ type scope struct {
 	vars      map[string]*varEntry
 	usage     map[string]int
 	borrows   []borrowRecord
+	// Phase 51: names introduced by this scope. Used to mark them as dead
+	// (lifetime ended) when the scope exits.
+	decls []string
+	// Phase 51: names whose binding lifetime ended at this scope. An identifier
+	// resolving to a dead name (with no live shadow) is a use-after-scope-end.
+	dead map[string]bool
 }
 
 func (s *scope) lookup(name string) (*varEntry, *scope) {
@@ -68,6 +84,7 @@ func (bc *BorrowChecker) pushScope() {
 		parent: bc.scope,
 		vars:   make(map[string]*varEntry),
 		usage:  make(map[string]int),
+		dead:   make(map[string]bool),
 	}
 }
 
@@ -75,17 +92,27 @@ func (bc *BorrowChecker) popScope() {
 	if bc.scope == nil {
 		return
 	}
-	// Revert borrows that were initiated in this scope
+	// Revert borrows that were initiated in this scope. Resolve each borrowed
+	// binding to its exact declaring scope so a shadowed name never reverts the
+	// wrong (outer/restored) binding.
 	for i := len(bc.scope.borrows) - 1; i >= 0; i-- {
 		rec := bc.scope.borrows[i]
-		entry, _ := bc.scope.lookup(rec.name)
+		var entry *varEntry
+		if rec.declScope != nil {
+			entry = rec.declScope.lookupOwn(rec.name)
+		}
 		if entry != nil {
 			entry.ownership = rec.prev
 		}
 	}
-	// Propagate usage counts to parent for linear type checking
+	// Mark every binding introduced in this scope as dead in the parent. Any
+	// later reference to these names (with no live shadow) is a use-after-scope.
 	parent := bc.scope.parent
 	if parent != nil {
+		for _, name := range bc.scope.decls {
+			parent.dead[name] = true
+		}
+		// Propagate usage counts to parent for linear type checking
 		for name, count := range bc.scope.usage {
 			parent.usage[name] += count
 		}
@@ -98,7 +125,9 @@ func (bc *BorrowChecker) declare(name string, typeName string, line uint16) {
 		ownership: Owned,
 		typeName:  typeName,
 		line:      line,
+		declScope: bc.scope,
 	}
+	bc.scope.decls = append(bc.scope.decls, name)
 }
 
 func (bc *BorrowChecker) lookup(name string) *varEntry {
@@ -339,6 +368,13 @@ func (bc *BorrowChecker) checkVarDecl(n *parser.VarDeclStmt) {
 		typeName = bc.inferMatchType(n.Value)
 	}
 	bc.declare(n.Name, typeName, 0)
+	// Phase 49 escape analysis marks n.Escapes; capture it so the borrow
+	// checker records whether the value outlives its declaring scope.
+	if bc.scope != nil {
+		if e := bc.scope.lookupOwn(n.Name); e != nil {
+			e.escapes = n.Escapes
+		}
+	}
 }
 
 func (bc *BorrowChecker) checkIfStmt(n *parser.IfStmt) {
@@ -369,6 +405,14 @@ func (bc *BorrowChecker) checkMatchExpr(n *parser.MatchExpr) {
 func (bc *BorrowChecker) checkIdentifierUse(n *parser.Identifier) {
 	entry := bc.lookup(n.Name)
 	if entry == nil {
+		// Phase 51: a reference to a name whose binding lifetime already ended
+		// (no live shadow exists) is a use-after-scope-end diagnostic.
+		if bc.isDeadName(n.Name) {
+			bc.errors = append(bc.errors, BorrowError{
+				Message: "use of value '" + n.Name + "' after its scope has ended",
+				Line:    uint16(n.Line),
+			})
+		}
 		return
 	}
 	switch entry.ownership {
@@ -382,6 +426,17 @@ func (bc *BorrowChecker) checkIdentifierUse(n *parser.Identifier) {
 		})
 	}
 	bc.trackUsage(n.Name)
+}
+
+// isDeadName reports whether name refers to a binding whose lexical scope has
+// already ended, with no live shadow binding covering it.
+func (bc *BorrowChecker) isDeadName(name string) bool {
+	for s := bc.scope; s != nil; s = s.parent {
+		if s.dead[name] {
+			return true
+		}
+	}
+	return false
 }
 
 func (bc *BorrowChecker) checkBorrow(n *parser.BorrowExpr) {
@@ -410,7 +465,7 @@ func (bc *BorrowChecker) checkBorrow(n *parser.BorrowExpr) {
 		}
 		prev := entry.ownership
 		entry.ownership = BorrowedMut
-		bc.scope.borrows = append(bc.scope.borrows, borrowRecord{name: name, prev: prev})
+		bc.scope.borrows = append(bc.scope.borrows, borrowRecord{name: name, prev: prev, declScope: entry.declScope})
 	} else {
 		if entry.ownership == BorrowedMut {
 			bc.errors = append(bc.errors, BorrowError{
@@ -420,7 +475,7 @@ func (bc *BorrowChecker) checkBorrow(n *parser.BorrowExpr) {
 		}
 		prev := entry.ownership
 		entry.ownership = Borrowed
-		bc.scope.borrows = append(bc.scope.borrows, borrowRecord{name: name, prev: prev})
+		bc.scope.borrows = append(bc.scope.borrows, borrowRecord{name: name, prev: prev, declScope: entry.declScope})
 	}
 }
 
