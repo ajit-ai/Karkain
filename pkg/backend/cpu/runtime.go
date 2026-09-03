@@ -111,21 +111,35 @@ func generateCProgram(graph *tensor.TensorGraph, inputs map[string][]float64) st
 	sb.WriteString(TensorCRuntime)
 	sb.WriteString("\nint main(void) {\n")
 
-	// Assign input data
-	inputShapes := make(map[string]tensor.Shape)
-	for _, node := range graph.Nodes {
-		if node.Op == tensor.OpCreate {
-			inputShapes[node.ID] = node.Shape
+	// C-legal variable name for each node ID
+	sanitize := func(id string) string {
+		var b strings.Builder
+		for _, r := range id {
+			if r == '-' || r == ':' {
+				b.WriteByte('_')
+			} else if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+				b.WriteRune(r)
+			} else {
+				b.WriteByte('_')
+			}
 		}
+		return b.String()
 	}
-	for name, data := range inputs {
-		shape, ok := inputShapes[name]
-		if !ok {
-			shape = tensor.NewShape(len(data))
+	varName := make(map[string]string)
+	for _, node := range graph.Nodes {
+		varName[node.ID] = sanitize(node.ID)
+	}
+
+	// Declare resolved node types for those that are Create (may hold data)
+	// First: emit all Create nodes as tensor_create, and fill inputs.
+	for _, node := range graph.Nodes {
+		if node.Op != tensor.OpCreate {
+			continue
 		}
+		v := varName[node.ID]
 		// Emit shape array
-		sb.WriteString(fmt.Sprintf("    int %s_shape[] = {", name))
-		for i, d := range shape {
+		sb.WriteString(fmt.Sprintf("    int %s_shape[] = {", v))
+		for i, d := range node.Shape {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
@@ -136,69 +150,75 @@ func generateCProgram(graph *tensor.TensorGraph, inputs map[string][]float64) st
 			}
 		}
 		sb.WriteString("};\n")
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_create(%d, %s_shape, 0);\n", name, shape.Rank(), name))
-		for i, v := range data {
-			sb.WriteString(fmt.Sprintf("    %s->data[%d] = %g;\n", name, i, v))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_create(%d, %s_shape, 0);\n", v, node.Shape.Rank(), v))
+
+		// Fill input data
+		if data, ok := inputs[node.ID]; ok {
+			for i, val := range data {
+				sb.WriteString(fmt.Sprintf("    %s->data[%d] = %g;\n", v, i, val))
+			}
 		}
 	}
 
-	// Execute graph ops
-	counter := 0
-	outputVars := make(map[string]string)
+	// Emit all non-Create ops, resolving args by node ID to their variable names
 	for _, node := range graph.Nodes {
 		switch node.Op {
 		case tensor.OpAdd, tensor.OpSub, tensor.OpMul, tensor.OpDiv,
 			tensor.OpMatMul, tensor.OpRelu, tensor.OpSigmoid, tensor.OpTanh,
 			tensor.OpSoftmax, tensor.OpTranspose:
-			next := counter
-			emitOp(&sb, node, &counter)
-			outputVars[node.ID] = fmt.Sprintf("var%d", next+1)
+			emitOpNamed(&sb, node, varName)
 		}
 	}
 
 	// Print graph outputs for verification
+	outputUses := make(map[string]bool)
 	for _, out := range graph.Outputs {
-		varName, ok := outputVars[out.ID]
-		if !ok {
+		outputUses[out.ID] = true
+	}
+	for _, node := range graph.Nodes {
+		if !outputUses[node.ID] {
 			continue
 		}
-		sb.WriteString(fmt.Sprintf("    printf(\"RESULT %s\", \"\");\n", out.ID))
-		sb.WriteString(fmt.Sprintf("    for (int i = 0; i < %s->ndim; i++) printf(\"%%d,\", %s->shape[i]);\n", varName, varName))
-		sb.WriteString(fmt.Sprintf("    printf(\"|%%zu|\", tensor_numel(%s));\n", varName))
-		sb.WriteString(fmt.Sprintf("    for (size_t i = 0; i < tensor_numel(%s); i++) printf(\"%%g \", %s->data[i]);\n", varName, varName))
-		sb.WriteString("    printf(\"\\n\");\n")
+		v := varName[node.ID]
+		if node.Op == tensor.OpCreate {
+			// Create outputs directly print their data
+			sb.WriteString(fmt.Sprintf("    printf(\"RESULT %s\", \"\");\n", node.ID))
+			sb.WriteString(fmt.Sprintf("    for (int i = 0; i < %s->ndim; i++) printf(\"%%d,\", %s->shape[i]);\n", v, v))
+			sb.WriteString(fmt.Sprintf("    printf(\"|%%zu|\", tensor_numel(%s));\n", v))
+			sb.WriteString(fmt.Sprintf("    for (size_t i = 0; i < tensor_numel(%s); i++) printf(\"%%g \", %s->data[i]);\n", v, v))
+			sb.WriteString("    printf(\"\\n\");\n")
+		}
 	}
 
 	sb.WriteString("\n    return 0;\n}\n")
 	return sb.String()
 }
 
-func emitOp(sb *strings.Builder, node *tensor.TensorNode, counter *int) {
-	*counter++
-	tmp := fmt.Sprintf("var%d", *counter)
+func emitOpNamed(sb *strings.Builder, node *tensor.TensorNode, varName map[string]string) {
+	target := varName[node.ID]
+	arg := func(idx int) string { return varName[node.Args[idx].(string)] }
 	switch node.Op {
 	case tensor.OpAdd:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_add(%s, %s);\n", tmp, node.Args[0], node.Args[1]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_add(%s, %s);\n", target, arg(0), arg(1)))
 	case tensor.OpSub:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_sub(%s, %s);\n", tmp, node.Args[0], node.Args[1]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_sub(%s, %s);\n", target, arg(0), arg(1)))
 	case tensor.OpMul:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_mul(%s, %s);\n", tmp, node.Args[0], node.Args[1]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_mul(%s, %s);\n", target, arg(0), arg(1)))
 	case tensor.OpDiv:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_div(%s, %s);\n", tmp, node.Args[0], node.Args[1]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_div(%s, %s);\n", target, arg(0), arg(1)))
 	case tensor.OpMatMul:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_matmul(%s, %s);\n", tmp, node.Args[0], node.Args[1]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_matmul(%s, %s);\n", target, arg(0), arg(1)))
 	case tensor.OpRelu:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_relu(%s);\n", tmp, node.Args[0]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_relu(%s);\n", target, arg(0)))
 	case tensor.OpSigmoid:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_sigmoid(%s);\n", tmp, node.Args[0]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_sigmoid(%s);\n", target, arg(0)))
 	case tensor.OpTanh:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_tanh(%s);\n", tmp, node.Args[0]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_tanh(%s);\n", target, arg(0)))
 	case tensor.OpSoftmax:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_softmax(%s);\n", tmp, node.Args[0]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_softmax(%s);\n", target, arg(0)))
 	case tensor.OpTranspose:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_transpose(%s);\n", tmp, node.Args[0]))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_transpose(%s);\n", target, arg(0)))
 	}
-	node.Args = append(node.Args, "output_var") // placeholder
 }
 
 // parseOutput parses the C program output, extracting RESULT lines.
