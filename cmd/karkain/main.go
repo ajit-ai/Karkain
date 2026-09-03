@@ -33,7 +33,17 @@ COMPILER COMMANDS:
   test <path>             Discover and run *_test.kark files
   lsp                     Start Language Server Protocol server
 
-PACKAGE MANAGEMENT:
+PACKAGE MANAGEMENT (top-level):
+  karkain init [name]                Create new project (in current dir)
+  karkain new <name>                 Create a new project directory
+  karkain add <pkg> [version]        Add dependency
+  karkain remove <pkg>               Remove dependency
+  karkain fetch                      Fetch resolved dependencies (lockfile)
+  karkain update [pkg]               Re-resolve versions, write karkain.lock
+  karkain list                       List direct + transitive dependencies
+  karkain tree                       Show recursive dependency graph
+
+PACKAGE MANAGEMENT (detailed):
   karkain pkg init [name]                Create new project
   karkain pkg add <pkg> [version]        Add dependency
   karkain pkg add <pkg> --source git --url <url>
@@ -41,10 +51,12 @@ PACKAGE MANAGEMENT:
   karkain pkg remove <pkg>               Remove dependency
   karkain pkg update [pkg]               Re-resolve versions
   karkain pkg upgrade                    Update all to latest compatible
-  karkain pkg fetch                      Download all dependencies
+  karkain pkg fetch                      Fetch resolved dependencies (lockfile)
   karkain pkg deps                       List dependencies
   karkain pkg deps --tree                Show dependency tree
   karkain pkg deps --outdated            Check for newer versions
+  karkain pkg list                       List direct + transitive dependencies
+  karkain pkg tree                       Show recursive dependency graph
   karkain pkg search <query>             Search package registry
   karkain pkg info <pkg>                 Show package details
   karkain pkg publish                    Publish to registry
@@ -80,7 +92,12 @@ Examples:
   karkain pkg add utils --source git --url https://github.com/bob/utils.git
   karkain pkg fetch
   karkain pkg deps --tree
-  karkain pkg search quantum`)
+  karkain pkg search quantum
+  karkain new my_app && cd my_app
+  karkain add ./deps/libs
+  karkain update
+  karkain list
+  karkain tree`)
 }
 
 // LSP message types
@@ -184,6 +201,25 @@ func handlePackageCommand(args []string) {
 		}
 		fmt.Printf("\nNext steps:\n  cd %s\n  karkain pkg add <dependency>\n  karkain run\n", name)
 
+	// --- NEW PROJECT (distinct from init: requires a name, creates a dir) ---
+	case "new":
+		if len(rest) < 1 || strings.HasPrefix(rest[0], "-") {
+			fmt.Fprintln(os.Stderr, "Error: project name required\n  Usage: karkain new <name>")
+			os.Exit(1)
+		}
+		name := rest[0]
+		result, err := kpkg.NewProject(cwd, name)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Created new project '%s' in %s\n", name, result.ProjectDir)
+		fmt.Println("Created:")
+		for _, f := range result.Created {
+			fmt.Printf("  %s\n", f)
+		}
+		fmt.Printf("\nNext steps:\n  cd %s\n  karkain add <dependency>\n  karkain run\n", name)
+
 	// --- ADD DEPENDENCY ---
 	case "add":
 		if len(rest) < 1 {
@@ -250,15 +286,20 @@ func handlePackageCommand(args []string) {
 
 	// --- FETCH ---
 	case "fetch":
-		projectDir, err := kpkg.FindProjectRoot(cwd)
-		if err != nil {
+		projectDir, _ := kpkg.FindProjectRoot(cwd)
+		if projectDir == "" {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
 			os.Exit(1)
 		}
 		fmt.Println("Fetching dependencies...")
-		err = kpkg.FetchAll(projectDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		// Resolve (writes karkain.lock) then fetch exactly the locked versions.
+		_, rerr := kpkg.ResolveAndLock(projectDir)
+		if rerr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", rerr)
+			os.Exit(1)
+		}
+		if _, ferr := kpkg.FetchLocked(projectDir); ferr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", ferr)
 			os.Exit(1)
 		}
 		deps, _ := kpkg.ListDependencies(projectDir)
@@ -296,13 +337,16 @@ func handlePackageCommand(args []string) {
 			}
 			fmt.Printf("Updated %s\n", rest[0])
 		} else {
-			fmt.Println("Updating all dependencies...")
-			err = kpkg.FetchAll(projectDir)
-			if err != nil {
+			// update = re-resolve versions within manifest constraints, then
+			// rewrite karkain.lock. This is distinct from fetch (which only
+			// retrieves already-resolved versions).
+			fmt.Println("Resolving dependencies...")
+			if _, err := kpkg.ResolveAndLock(projectDir); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Println("All dependencies updated")
+			deps, _ := kpkg.ListDependencies(projectDir)
+			fmt.Printf("Updated %d dependencies (karkain.lock written)\n", len(deps))
 		}
 
 	// --- UPGRADE ---
@@ -392,6 +436,64 @@ func handlePackageCommand(args []string) {
 		fmt.Printf("%-20s %-8s %-10s %s\n", "PACKAGE", "VERSION", "SOURCE", "URL")
 		for name, dep := range manifest.Dependencies {
 			fmt.Printf("%-20s %-8s %-10s %s\n", name, dep.Version, dep.Source, dep.URL)
+		}
+
+	// --- LIST (direct + transitive, resolved/versioned) ---
+	case "list":
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			os.Exit(1)
+		}
+		details, derr := kpkg.ResolvedDetails(projectDir)
+		if derr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", derr)
+			os.Exit(1)
+		}
+		if len(details) == 0 {
+			fmt.Println("Karkain Dependencies\n\n  (none)")
+			return
+		}
+		fmt.Println("Karkain Dependencies")
+		direct, transitive := 0, 0
+		fmt.Println("\nDirect:")
+		for _, d := range details {
+			if d.Direct {
+				direct++
+				label := d.Resolved
+				if label == "" {
+					label = d.Version
+				}
+				fmt.Printf("  %-20s %s\n", d.Name, label)
+			}
+		}
+		fmt.Println("\nTransitive:")
+		for _, d := range details {
+			if !d.Direct {
+				transitive++
+				label := d.Resolved
+				if label == "" {
+					label = d.Version
+				}
+				fmt.Printf("  %-20s %s\n", d.Name, label)
+			}
+		}
+		fmt.Printf("\n%d direct, %d transitive\n", direct, transitive)
+
+	// --- TREE (recursive dependency graph) ---
+	case "tree":
+		projectDir, err := kpkg.FindProjectRoot(cwd)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			os.Exit(1)
+		}
+		lines, terr := kpkg.TreeLines(projectDir)
+		if terr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", terr)
+			os.Exit(1)
+		}
+		for _, l := range lines {
+			fmt.Println(l)
 		}
 
 	// --- SEARCH ---
@@ -688,6 +790,15 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Package-management commands take their own flags (e.g. add --source
+	// --url) that do not belong to the global/compiler flag parser. Dispatch
+	// them to the package command handler unconditionally, before parsing.
+	switch args[0] {
+	case "init", "new", "add", "remove", "rm", "update", "list", "tree", "fetch":
+		handlePackageCommand(args)
+		return
+	}
+
 	command := ""
 	targetFile := ""
 	outputPath := ""
@@ -740,7 +851,7 @@ func main() {
 				fmt.Println("Error: -o flag requires an output file path")
 				os.Exit(1)
 			}
-		case "build", "run", "check", "transpile", "test", "lsp", "init", "add", "fetch":
+		case "build", "run", "check", "transpile", "test", "lsp":
 			command = arg
 		case "pkg":
 			// Collect all remaining args and hand off to package manager
@@ -762,11 +873,6 @@ func main() {
 
 	if command == "lsp" {
 		handleLSP()
-		return
-	}
-
-	if command == "init" || command == "add" || command == "fetch" {
-		handlePackageCommand(append([]string{command}, append([]string{targetFile}, extraArgs...)...))
 		return
 	}
 

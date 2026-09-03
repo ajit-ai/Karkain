@@ -25,6 +25,20 @@ PREREQUISITES; docs under `docs/audit/PHASE-79-*`).
 Prior completed: **78** — NPU Optimization (fusion, memory planning, INT8/INT4 quantization, MLIR codegen);
 **70-78** Math/Tensor/NPU chain (see below); **52-69** value/SSA/closures/slices/self-hosting/actors/GPU/quantum/stdlib/borrow/optimizer.
 
+### Completed: Package Manager Hardening (P0)
+Deterministic resolver (`pkg/pm/resolver.go`), lockfile-integrated workflows
+(`pkg/pm/flow.go`: `ResolveAndLock`, `FetchLocked`, `ResolvedDetails`,
+`TreeLines`, `NewProject`), fetch cache safety (atomic temp→rename + checksum in
+`FetchModule`). CLI wiring under single `karkain.exe`: top-level
+`new/remove/update/list/tree/fetch` (incl. `karkain pkg ...` aliases);
+`update` now re-resolves and writes `karkain.lock`; `fetch` uses the lockfile.
+Registry/git fetching remain explicit "not available" errors (not faked).
+Tests: `pkg/pm/resolver_test.go`, `pkg/cli/package_cli_test.go` (E2E). Audit:
+`docs/audit/PACKAGE-MANAGER-AUDIT.md`,
+`docs/audit/PACKAGE-MANAGER-IMPLEMENTATION.md`. Deferred recommended next step:
+wire manifest dep resolution into build/run/check (avoided to keep compiler
+pipeline stable).
+
 ### Completed: Math/Tensor/NPU Chain (Phases 71–78)
 
 ```

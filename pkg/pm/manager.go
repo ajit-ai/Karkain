@@ -338,24 +338,39 @@ func ResolveModule(projectDir, importPath string) (string, error) {
 }
 
 // FetchModule downloads/resolves a dependency into the local cache.
+// It fetches into a temporary directory first and atomically renames it into
+// place so a partial or failed download never leaves a corrupt package marked
+// as valid in the cache. On success it writes a checksum record for the
+// fetched package.
 func FetchModule(projectDir string, dep Dependency) error {
 	cacheDir := filepath.Join(projectDir, CacheModules, dep.Name)
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(projectDir, CacheModules), 0755); err != nil {
 		return fmt.Errorf("cannot create cache dir: %w", err)
 	}
+
+	// Fetch into a temp sibling dir, then rename into place.
+	tmpDir, err := os.MkdirTemp(filepath.Dir(cacheDir), ".tmp-"+dep.Name+"-*")
+	if err != nil {
+		return fmt.Errorf("cannot create temp fetch dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir) // clean up on any failure
 
 	switch dep.Source {
 	case "local":
 		if dep.URL == "" {
 			return fmt.Errorf("local dependency %q requires a url (path)", dep.Name)
 		}
-		return fetchLocal(dep.URL, cacheDir)
+		if err := fetchLocal(dep.URL, tmpDir); err != nil {
+			return err
+		}
 
 	case "git":
 		if dep.URL == "" {
 			return fmt.Errorf("git dependency %q requires a url", dep.Name)
 		}
-		return fetchGit(dep.URL, dep.Version, cacheDir)
+		if err := fetchGit(dep.URL, dep.Version, tmpDir); err != nil {
+			return err
+		}
 
 	case "registry", "":
 		return fmt.Errorf("registry fetching not yet implemented for %q", dep.Name)
@@ -363,6 +378,42 @@ func FetchModule(projectDir string, dep Dependency) error {
 	default:
 		return fmt.Errorf("unknown source type %q for dependency %q", dep.Source, dep.Name)
 	}
+
+	// Verify the temp result is non-empty before promoting.
+	if err := validateFetched(tmpDir); err != nil {
+		return err
+	}
+
+	// Promote: remove any existing stale cache dir, then rename.
+	_ = os.RemoveAll(cacheDir)
+	if err := os.Rename(tmpDir, cacheDir); err != nil {
+		return fmt.Errorf("cannot move fetched package into cache: %w", err)
+	}
+
+	// Record integrity checksum for the cached package.
+	if err := WriteChecksumFile(cacheDir); err != nil {
+		return fmt.Errorf("cannot write checksum for cached package: %w", err)
+	}
+	return nil
+}
+
+// validateFetched ensures a fetched temp dir actually contains content,
+// guarding against silently landing an empty or partial package.
+func validateFetched(dir string) error {
+	files := 0
+	_ = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			files++
+		}
+		return nil
+	})
+	if files == 0 {
+		return fmt.Errorf("fetched package is empty")
+	}
+	return nil
 }
 
 // FetchAll fetches all dependencies listed in the manifest.
@@ -479,7 +530,7 @@ func splitTopLevel(s string, sep rune) []string {
 
 	for _, ch := range s {
 		switch ch {
-		case '(', ')', '{', '}', '[', ']' :
+		case '(', ')', '{', '}', '[', ']':
 			if ch == '(' || ch == '{' || ch == '[' {
 				depth++
 			} else {
