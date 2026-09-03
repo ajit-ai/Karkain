@@ -39,6 +39,20 @@ func (p *Parser) nextToken() {
 	p.peekToken = p.l.NextToken()
 }
 
+// advanceIfStalled forces forward progress when parsing did not consume the current
+// token. parsePrimaryExpr returns nil without calling nextToken() for unexpected tokens
+// (see its fall-through), which otherwise lets collection/argument loops append forever
+// and exhaust memory. Recording curToken.Start (monotonically increasing source offset)
+// detects a genuine stall; when one occurs we report an error and consume a token to
+// guarantee every loop terminates.
+func (p *Parser) advanceIfStalled(start uint32, context string) {
+	if p.curToken.Type == lexer.TokenEOF || p.curToken.Start != start {
+		return
+	}
+	p.addError(fmt.Sprintf("unexpected token '%s' in %s", p.curToken.Literal(p.src), context))
+	p.nextToken()
+}
+
 func (p *Parser) ParseProgram() *Program {
 	prog := p.arena.AllocProgram([]Node{}, []*CImportBlock{})
 	for p.curToken.Type != lexer.TokenEOF {
@@ -227,12 +241,13 @@ func (p *Parser) parsePrint() *PrintStmt {
 func (p *Parser) parseBlock() []Node {
 	stmts := []Node{}
 	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
+		start := p.curToken.Start
 		stmt := p.parseStatement()
 		if stmt != nil {
 			stmts = append(stmts, stmt)
 		}
-		// Ensure progress even on errors
-		if len(stmts) == 0 {
+		// Ensure progress even on errors / stalled parses
+		if p.curToken.Start == start {
 			p.nextToken()
 		}
 	}
@@ -599,10 +614,12 @@ func (p *Parser) parseIdentStatement() Node {
 		p.nextToken() // consume '('
 		args := []Node{}
 		for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+			start := p.curToken.Start
 			args = append(args, p.parseExpr())
 			if p.curToken.Type == lexer.TokenComma {
 				p.nextToken()
 			}
+			p.advanceIfStalled(start, "function call arguments")
 		}
 		p.nextToken() // consume ')'
 		return p.exprStmtAt(&CallExpr{Function: ident, Args: args}, line)
@@ -617,10 +634,12 @@ func (p *Parser) parseIdentStatement() Node {
 			p.nextToken() // consume '('
 			args := []Node{}
 			for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+				start := p.curToken.Start
 				args = append(args, p.parseExpr())
 				if p.curToken.Type == lexer.TokenComma {
 					p.nextToken()
 				}
+				p.advanceIfStalled(start, "function call arguments")
 			}
 		p.nextToken() // consume ')'
 		return p.exprStmtAt(&CallExpr{
@@ -907,7 +926,9 @@ func (p *Parser) parsePrimaryExpr() Node {
 					args = append(args, p.parseExpr())
 					for p.curToken.Type == lexer.TokenComma {
 						p.nextToken() // consume ','
+						start := p.curToken.Start
 						args = append(args, p.parseExpr())
+						p.advanceIfStalled(start, "simd builtin arguments")
 					}
 				}
 				p.nextToken() // consume ')'
@@ -1101,7 +1122,9 @@ func (p *Parser) parseArrayLiteral() *ArrayLiteral {
 		elements = append(elements, p.parseExpr())
 		for p.curToken.Type == lexer.TokenComma {
 			p.nextToken() // consume ','
+			start := p.curToken.Start
 			elements = append(elements, p.parseExpr())
+			p.advanceIfStalled(start, "array literal")
 		}
 	}
 	p.nextToken() // consume ']'
@@ -1120,9 +1143,11 @@ func (p *Parser) parseMapLiteral() *MapLiteral {
 		values = append(values, val)
 		for p.curToken.Type == lexer.TokenComma {
 			p.nextToken() // consume ','
+			start := p.curToken.Start
 			key = p.parseExpr()
 			p.nextToken() // consume ':'
 			val = p.parseExpr()
+			p.advanceIfStalled(start, "map literal")
 			keys = append(keys, key)
 			values = append(values, val)
 		}
@@ -1146,10 +1171,12 @@ func (p *Parser) parseIdentExpr() Node {
 			p.nextToken() // consume '('
 			args := []Node{}
 			for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+				start := p.curToken.Start
 				args = append(args, p.parseExpr())
 				if p.curToken.Type == lexer.TokenComma {
 					p.nextToken()
 				}
+				p.advanceIfStalled(start, "function call arguments")
 			}
 			p.nextToken() // consume ')'
 
@@ -1188,10 +1215,12 @@ func (p *Parser) parseIdentExpr() Node {
 		p.nextToken() // consume '('
 		args := []Node{}
 		for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+			start := p.curToken.Start
 			args = append(args, p.parseExpr())
 			if p.curToken.Type == lexer.TokenComma {
 				p.nextToken()
 			}
+			p.advanceIfStalled(start, "function call arguments")
 		}
 		p.nextToken() // consume ')'
 
@@ -1610,10 +1639,12 @@ func (p *Parser) parseSpawn() *SpawnExpr {
 	if p.curToken.Type == lexer.TokenLParen {
 		p.nextToken() // consume '('
 		for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+			start := p.curToken.Start
 			args = append(args, p.parseExpr())
 			if p.curToken.Type == lexer.TokenComma {
 				p.nextToken() // consume ','
 			}
+			p.advanceIfStalled(start, "spawn arguments")
 		}
 		p.nextToken() // consume ')'
 	}
