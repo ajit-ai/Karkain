@@ -399,8 +399,15 @@ func (l *Lexer) scanString() Token {
 			break
 		}
 		if l.Ch == '\\' {
-			l.readChar() // skip escaped character
+			// Consume both the backslash and the escaped character as string
+			// content. The escaped character must be included in the token span
+			// even when it is a quote ("\"" -> \" ) or another backslash.
+			l.readChar() // advance past the backslash
 			l.Col++
+			if l.Ch != 0 {
+				l.readChar() // consume the escaped character itself
+				l.Col++
+			}
 			continue
 		}
 		if l.Ch == '"' {

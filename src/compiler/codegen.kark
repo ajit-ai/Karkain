@@ -155,7 +155,7 @@ func emitC11Stmt(state, node) {
 
     if (nt == "VarDecl") {
         let vtype = emitC11Type(varDeclType(node))
-        emitLine(state, vtype + " " + varDeclName(node) + " = ";)
+        emitLine(state, vtype + " " + varDeclName(node) + " = ")
         emitC11Expr(state, varDeclValue(node))
         emit(state, ";")
     }
@@ -407,7 +407,7 @@ func emitWGSLStmt(state, node) {
     if (nt == "VarDecl") {
         let vtype = emitWGSLType(varDeclType(node))
         emit(state, "var " + varDeclName(node) + " : " + vtype + " = ")
-        emitWGSLExpr(state, varDeclValue(state, varDeclValue(node)))
+        emitWGSLExpr(state, varDeclValue(node))
         emitLine(state, ";")
     }
 

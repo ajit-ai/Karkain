@@ -244,7 +244,12 @@ func findGeneratedCFile(projectRoot, karSource string) string {
 	return ""
 }
 
-// compileWithGCC compiles a C source file with runtime.c into an output binary.
+// compileWithGCC compiles a self-contained C source file (with an embedded
+// by-value runtime emitted by the codegen preamble) into an output binary.
+// IMPORTANT: the stale pointer-based src/compiler/runtime.c is deliberately NOT
+// linked here — the generated main.c (and compiler2/compiler3 outputs) already
+// define every runtime helper by-value, and linking runtime.c causes duplicate
+// symbol errors.
 func compileWithGCC(cFile, runtimeFile, outputBinary string) error {
 	args := []string{
 		"-std=c2x",
@@ -252,11 +257,6 @@ func compileWithGCC(cFile, runtimeFile, outputBinary string) error {
 		cFile,
 		"-lm",
 		"-lgmp",
-	}
-
-	// Include runtime.c if it exists
-	if _, err := os.Stat(runtimeFile); err == nil {
-		args = append(args, runtimeFile)
 	}
 
 	return runCmd(filepath.Dir(outputBinary), "gcc", args...)

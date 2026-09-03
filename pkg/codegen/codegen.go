@@ -711,6 +711,126 @@ Value karkain_slice(Value v, Value s, Value e) {
     return make_int(0);
 }
 
+// By-value helpers for the self-hosted compiler (replaces stale pointer-based
+// runtime.c versions so main.c is fully self-contained).
+Value karkain_substr(Value str, Value start, Value length) {
+    if (str.type != TYPE_STRING || start.type != TYPE_INT || length.type != TYPE_INT) return make_string("");
+    int s = (int)start.intVal;
+    int l = (int)length.intVal;
+    int slen = (int)strlen(str.strVal);
+    if (s < 0) s = 0;
+    if (s >= slen) return make_string("");
+    if (s + l > slen) l = slen - s;
+    if (l < 0) l = 0;
+    char* buf = (char*)malloc(l + 1);
+    memcpy(buf, str.strVal + s, (size_t)l);
+    buf[l] = '\0';
+    Value r = make_string(buf);
+    free(buf);
+    return r;
+}
+
+Value karkain_str(Value v) {
+    if (v.type == TYPE_STRING) return make_string(v.strVal);
+    if (v.type == TYPE_INT) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%lld", v.intVal);
+        return make_string(buf);
+    }
+    if (v.type == TYPE_FLOAT64) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%g", v.floatVal);
+        return make_string(buf);
+    }
+    if (v.type == TYPE_BOOL) return make_string(v.intVal ? "true" : "false");
+    if (v.type == TYPE_ARRAY) return make_string("[array]");
+    if (v.type == TYPE_MAP) return make_string("[map]");
+    return make_string("");
+}
+
+Value karkain_int(Value v) {
+    if (v.type == TYPE_INT) return make_int(v.intVal);
+    if (v.type == TYPE_FLOAT64) return make_int((long long)v.floatVal);
+    if (v.type == TYPE_STRING) return make_int(atoll(v.strVal));
+    if (v.type == TYPE_BOOL) return make_int(v.intVal);
+    return make_int(0);
+}
+
+Value karkain_system(Value cmd) {
+    if (cmd.type != TYPE_STRING) return make_int(-1);
+    int result = system(cmd.strVal);
+    return make_int(result);
+}
+
+Value karkain_removeFile(Value path) {
+    if (path.type != TYPE_STRING) return make_int(0);
+    int result = remove(path.strVal);
+    return make_int(result == 0 ? 1 : 0);
+}
+
+static FILE* _karkain_files[256];
+static int _karkain_file_count = 0;
+
+Value openFile(Value path) {
+    if (path.type != TYPE_STRING) return make_string("");
+    FILE* f = fopen(path.strVal, "rb");
+    if (!f) return make_string("");
+    fclose(f);
+    return make_string(path.strVal);
+}
+
+Value readLine(Value handle) {
+    if (handle.type != TYPE_STRING || strlen(handle.strVal) == 0) return make_string("");
+    int idx = -1;
+    int i;
+    for (i = 0; i < _karkain_file_count; i++) {
+        if (_karkain_files[i] != NULL) { idx = i; break; }
+    }
+    if (idx == -1) {
+        if (_karkain_file_count >= 256) return make_string("");
+        idx = _karkain_file_count;
+        _karkain_files[idx] = fopen(handle.strVal, "rb");
+        _karkain_file_count++;
+    } else if (_karkain_files[idx] == NULL) {
+        _karkain_files[idx] = fopen(handle.strVal, "rb");
+    }
+    if (!_karkain_files[idx]) return make_string("");
+    char buf[4096];
+    if (fgets(buf, sizeof(buf), _karkain_files[idx]) == NULL) return make_string("");
+    int len = (int)strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) buf[--len] = '\0';
+    return make_string(buf);
+}
+
+Value closeFile(Value handle) {
+    (void)handle;
+    int i;
+    for (i = 0; i < _karkain_file_count; i++) {
+        if (_karkain_files[i] != NULL) { fclose(_karkain_files[i]); _karkain_files[i] = NULL; break; }
+    }
+    return make_int(1);
+}
+
+Value createFile(Value path) {
+    if (path.type != TYPE_STRING) return make_string("");
+    FILE* f = fopen(path.strVal, "wb");
+    if (f) fclose(f);
+    return make_string(path.strVal);
+}
+
+Value writeToFile(Value handle, Value content) {
+    if (handle.type != TYPE_STRING || content.type != TYPE_STRING) return make_int(0);
+    FILE* f = fopen(handle.strVal, "wb");
+    if (!f) return make_int(0);
+    fputs(content.strVal, f);
+    fclose(f);
+    return make_int(1);
+}
+
+Value removeFile(Value path) {
+    return karkain_removeFile(path);
+}
+
 // Phase 55: formatting â€” fmt("x={} y={}", a, b); {} consumes next arg in order
 #include <stdarg.h>
 Value karkain_fmt(Value fstr, int count, ...) {
@@ -1830,6 +1950,36 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Function == "http.get" {
 			g.needsHTTP = true
 			return fmt.Sprintf("http_get(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "substr" {
+			return fmt.Sprintf("karkain_substr(%s, %s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]), g.genExpr(n.Args[2]))
+		}
+		if n.Function == "str" {
+			return fmt.Sprintf("karkain_str(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "int" {
+			return fmt.Sprintf("karkain_int(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "system" {
+			return fmt.Sprintf("karkain_system(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "openFile" {
+			return fmt.Sprintf("openFile(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "readLine" {
+			return fmt.Sprintf("readLine(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "closeFile" {
+			return fmt.Sprintf("closeFile(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "createFile" {
+			return fmt.Sprintf("createFile(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "writeToFile" {
+			return fmt.Sprintf("writeToFile(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "removeFile" {
+			return fmt.Sprintf("removeFile(%s)", g.genExpr(n.Args[0]))
 		}
 		if n.Function == "trim" {
 			return fmt.Sprintf("karkain_trim(%s)", g.genExpr(n.Args[0]))

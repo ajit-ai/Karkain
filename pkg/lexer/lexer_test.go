@@ -146,6 +146,25 @@ func TestStringTokenWithEscapes(t *testing.T) {
 	}
 }
 
+// TestStringTokenEscapedQuote guards the Phase 56-C fix: the lexer used to drop an
+// escaped character from the token length, so a string like `"\""` tokenized only
+// `\` instead of the full `\"` content. This mis-tokenization corrupted the
+// self-hosted compiler's emitted C (e.g. a lone `\"` made a whole call argument
+// vanish), which caused the Stage2 gcc failures.
+func TestStringTokenEscapedQuote(t *testing.T) {
+	input := `"\""`
+	l := New(input)
+	tok := l.NextToken()
+
+	if tok.Type != TokenString {
+		t.Fatalf("expected TokenString, got %s", tok.Type)
+	}
+	got := tok.Literal(input)
+	if got != `\"` {
+		t.Errorf("expected raw '\\\"' content, got %q", got)
+	}
+}
+
 func TestFloatToken(t *testing.T) {
 	input := "3.14159"
 	l := New(input)
