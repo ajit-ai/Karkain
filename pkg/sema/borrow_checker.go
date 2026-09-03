@@ -355,6 +355,18 @@ func (bc *BorrowChecker) checkBlock(block []parser.Node) {
 
 func (bc *BorrowChecker) checkFuncDecl(n *parser.FuncDecl) {
 	bc.pushScope()
+	// Declare every owned function parameter as a live binding in the
+	// function's scope. A parameter is alive for the entire function body.
+	// Without this, a reference to a parameter would be treated as an unknown
+	// name; if that name had been marked dead by an earlier (independent)
+	// function's scope exit, it would be a false "use after scope has ended".
+	for i, name := range n.Params {
+		var typ string
+		if i < len(n.ParamTypes) {
+			typ = n.ParamTypes[i]
+		}
+		bc.declare(name, typ, uint16(n.Line))
+	}
 	for _, stmt := range n.Body {
 		bc.checkNode(stmt)
 	}

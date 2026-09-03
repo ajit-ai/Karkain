@@ -16,6 +16,47 @@ func parseAndCheck(t *testing.T, input string) []BorrowError {
 	return checker.Check(prog)
 }
 
+// Regression: function parameters must be declared as live bindings in the
+// function scope. Previously checkFuncDecl never declared parameters, so a
+// value used in a later function whose name had been marked dead by an earlier
+// (independent) function's scope exit was falsely reported as "use after its
+// scope has ended". This is the bug that blocked self-hosting (src/compiler).
+func TestBorrowCheck_FunctionParameterIsLive(t *testing.T) {
+	t.Run("param on first statement", func(t *testing.T) {
+		input := `func codegenTarget(state) {
+  return state[0]
+}`
+		errs := parseAndCheck(t, input)
+		if len(errs) > 0 {
+			t.Errorf("expected no errors using a function parameter, got %d: %v", len(errs), errs)
+		}
+	})
+	t.Run("shared param name across independent functions", func(t *testing.T) {
+		input := `func first(state) {
+  return state
+}
+func second(state) {
+  return state + 1
+}`
+		errs := parseAndCheck(t, input)
+		if len(errs) > 0 {
+			t.Errorf("expected no errors reusing a param name in an independent function, got %d: %v", len(errs), errs)
+		}
+	})
+	t.Run("param used in body after branch", func(t *testing.T) {
+		input := `func check(n) {
+  if (n > 0) {
+    print(n)
+  }
+  return n
+}`
+		errs := parseAndCheck(t, input)
+		if len(errs) > 0 {
+			t.Errorf("expected no errors using param after an if, got %d: %v", len(errs), errs)
+		}
+	})
+}
+
 func TestBorrowCheck_ValidProgram(t *testing.T) {
 	input := `func main() {
   let x = 42
