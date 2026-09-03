@@ -12,9 +12,30 @@ NEVER skip this step. This is a hard rule, not optional.
 
 ## Roadmap
 
-See `ROADMAP.md` for the complete development plan (Phases 50–62).
-Current phase: **56** — Self-Hosting Compiler Completion.
-Last completed: **55d** — KPM Package Manager (semver, lock file, integrity, registry stub, auth, cache, workspace, audit — all integrated into karkain.exe).
+See `ROADMAP.md` for the complete development plan (Phases 50–78).
+Current phase: **71** — Math IR Foundation (Karkain-owned mathematical IR).
+Last completed: **56** — Self-Hosting Compiler (Stage 2/3 compile successfully).
+
+### Phase Dependency Chain (Math/Tensor/NPU)
+
+```
+71 (Math IR) → 72 (Tensor IR) → 73 (CPU Backend)
+                                      ↓
+                                 74 (Autodiff Integration)
+                                      ↓
+                                 75 (Backend Abstraction)
+                                    ↓        ↓
+                               76 (GPU)   77 (NPU) → 78 (NPU Opt)
+```
+
+### Key Design Decisions
+
+1. **No Tensor keyword** — NPU/math ops work on existing `array` types
+2. **No Google TPU** — NPU targets Intel/Qualcomm/Apple/AMD/Arm only
+3. **Math IR is Karkain-owned** — not ONNX, not MLIR, not vendor-specific
+4. **Tensor IR is Karkain-owned** — not NumPy, not PyTorch
+5. **CPU is reference backend** — correctness oracle before any accelerator
+6. **NPU is a backend** — not the foundation, not the language
 
 ## Guiding Principles
 
