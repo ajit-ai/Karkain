@@ -23,8 +23,10 @@ type FuncDecl struct {
 type VarDeclStmt struct {
 	Name     string
 	Value    Node
-	Type     string // Optional type information (e.g., "*int")
+	Type     string // Optional type information (e.g., "*int", "[4]f32")
 	IsMatrix bool   // True if this is a matrix declaration
+	IsSIMD   bool   // True if this is a fixed-lane SIMD vector ([4]f32)
+	Align    int    // Cache-line alignment attribute (0 = none)
 	Escapes  bool   // Phase 49: true if variable escapes current scope (passed to func, returned, captured by lambda)
 	Line     int
 }
@@ -215,9 +217,73 @@ type MatchPattern struct {
 
 // SIMDBuiltinExpr represents SIMD intrinsics: @simd_add(a, b), @simd_mul(a, b)
 type SIMDBuiltinExpr struct {
-	Op   string // "add", "mul", "sub", "div", "min", "max", "sqrt"
+	Op   string // "add", "mul", "sub", "div", "min", "max", "sqrt", "splat", "load"
 	Args []Node
 	Line int
+}
+
+// SIMDVectorType represents an explicit lane vector type: [4]f32, [8]f32, etc.
+// It is stored in VarDeclStmt.Type as a structured, machine-checkable form.
+type SIMDVectorType struct {
+	Elem  string // "f32", "f64", "i32", "i64"
+	Lanes int    // 4, 8, 16, ...
+	Line  int
+}
+
+// LaneCount returns the number of SIMD lanes for a lane-vector type string
+// like "[4]f32". Returns 0 if the string is not a valid lane-vector type.
+func LaneCount(typeStr string) int {
+	l, _, ok := ParseSIMDVectorType(typeStr)
+	if !ok {
+		return 0
+	}
+	return l
+}
+
+// ParseSIMDVectorType parses a "[N]T" type string into (lanes, elem). ok is
+// false when the string is not a lane-vector type.
+func ParseSIMDVectorType(typeStr string) (lanes int, elem string, ok bool) {
+	if len(typeStr) < 5 || typeStr[0] != '[' {
+		return 0, "", false
+	}
+	closeIdx := -1
+	for i := 1; i < len(typeStr); i++ {
+		if typeStr[i] == ']' {
+			closeIdx = i
+			break
+		}
+	}
+	if closeIdx <= 1 {
+		return 0, "", false
+	}
+	n := 0
+	for i := 1; i < closeIdx; i++ {
+		c := typeStr[i]
+		if c < '0' || c > '9' {
+			return 0, "", false
+		}
+		n = n*10 + int(c-'0')
+	}
+	elem = typeStr[closeIdx+1:]
+	switch elem {
+	case "f32", "float32", "f64", "float64", "i32", "int32", "i64", "int64":
+		return n, elem, true
+	}
+	return 0, "", false
+}
+
+// AtomicOp represents an atomic builtin: @atomic_load/store/fetch_add/cas.
+type AtomicOp struct {
+	Op      string // "load", "store", "fetch_add", "fetch_sub", "cas", "exchange"
+	Args    []Node
+	Order   string // "relaxed", "acquire", "release", "acq_rel", "seq_cst"
+	Line    int
+}
+
+// AlignmentAttr represents a cache-line/alignment attribute: @aligned(64).
+type AlignmentAttr struct {
+	Alignment int
+	Line      int
 }
 
 // LinearTypeDecl marks a type as linear (must be used exactly once):

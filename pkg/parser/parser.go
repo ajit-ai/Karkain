@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"karkain/pkg/lexer"
+	"strconv"
 	"strings"
 )
 
@@ -156,6 +157,7 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 
 	// Check for type annotation (e.g., `var x int = 42`, `let p &int = &x`)
 	var typeName string
+	isSIMD := false
 	if p.curToken.Type == lexer.TokenAmp {
 		// Reference type: &T or &mut T
 		p.nextToken() // consume '&'
@@ -178,6 +180,13 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 			typeName += p.curToken.Literal(p.src)
 			p.nextToken() // consume base type
 		}
+	} else if p.curToken.Type == lexer.TokenLBracket {
+		// Phase 70: [4]f32 fixed-lane SIMD vector type
+		laneType := p.parseSIMDVectorType()
+		if laneType != "" {
+			typeName = laneType
+			isSIMD = true
+		}
 	} else if p.curToken.Type == lexer.TokenIdent {
 		typeName = p.curToken.Literal(p.src)
 		p.nextToken() // consume type name
@@ -190,6 +199,13 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 	} else if p.curToken.Type == lexer.TokenBigFloat {
 		typeName = "bigfloat"
 		p.nextToken() // consume bigfloat type
+	}
+
+	align := 0
+	if p.curToken.Type == lexer.TokenAt {
+		// Phase 70: cache-line alignment attribute between type and value,
+		// e.g. `let v [4]f32 @aligned(64) = @simd_splat(1.0, 4)`.
+		align = p.tryParseAlignAttr()
 	}
 
 	p.nextToken() // consume '='
@@ -217,14 +233,85 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 
 	// If we have a type, store it in the variable declaration
 	if typeName != "" {
-		node := &VarDeclStmt{Name: name, Value: val, Type: typeName}
+		node := &VarDeclStmt{Name: name, Value: val, Type: typeName, IsSIMD: isSIMD, Align: align}
 		setNodeLine(node, line)
 		return node
 	}
 
-	node := &VarDeclStmt{Name: name, Value: val}
+	node := &VarDeclStmt{Name: name, Value: val, Align: align}
 	setNodeLine(node, line)
 	return node
+}
+
+// parseSIMDVectorType parses a "[N]T" type after a '[' token and consumes
+// through the ']' and element-type identifier. Returns the canonical type
+// string (e.g. "[4]f32") or "" if the bracket is not a SIMD vector type.
+func (p *Parser) parseSIMDVectorType() string {
+	// curToken is '['
+	p.nextToken() // consume '['
+	if p.curToken.Type != lexer.TokenInt {
+		return ""
+	}
+	lanes, err := strconv.Atoi(p.curToken.Literal(p.src))
+	if err != nil || lanes <= 0 || lanes > 64 {
+		return ""
+	}
+	p.nextToken() // consume lane count
+	if p.curToken.Type != lexer.TokenRBracket {
+		return ""
+	}
+	p.nextToken() // consume ']'
+	if p.curToken.Type != lexer.TokenIdent {
+		return ""
+	}
+	elem := p.curToken.Literal(p.src)
+	switch elem {
+	case "f32", "float32", "f64", "float64", "i32", "int32", "i64", "int64":
+	default:
+		return ""
+	}
+	p.nextToken() // consume element type
+	return fmt.Sprintf("[%d]%s", lanes, elem)
+}
+
+// tryParseAlignAttr attempts to parse an `@aligned(N)` suffix. Returns the
+// alignment or 0 if absent (leaving the cursor unchanged on failure).
+func (p *Parser) tryParseAlignAttr() int {
+	if p.curToken.Type != lexer.TokenAt {
+		return 0
+	}
+	if p.peekToken.Type != lexer.TokenIdent || p.peekToken.Literal(p.src) != "aligned" {
+		return 0
+	}
+	// consume '@'
+	p.nextToken()
+	p.nextToken() // consume 'aligned'
+	if p.curToken.Type != lexer.TokenLParen {
+		return 0
+	}
+	p.nextToken() // consume '('
+	if p.curToken.Type != lexer.TokenInt {
+		return 0
+	}
+	align, err := strconv.Atoi(p.curToken.Literal(p.src))
+	if err != nil || align <= 0 {
+		return 0
+	}
+	p.nextToken() // consume N
+	if p.curToken.Type == lexer.TokenRParen {
+		p.nextToken() // consume ')'
+	}
+	return align
+}
+
+// normalizeOrdering canonicalizes a memory-ordering name to one of
+// relaxed/acquire/release/acq_rel/seq_cst. ok is false for unknown strings.
+func normalizeOrdering(s string) (string, bool) {
+	switch s {
+	case "relaxed", "acquire", "release", "acq_rel", "seq_cst":
+		return s, true
+	}
+	return "", false
 }
 
 func (p *Parser) parsePrint() *PrintStmt {
@@ -938,6 +1025,32 @@ func (p *Parser) parsePrimaryExpr() Node {
 				p.nextToken() // consume ')'
 				return &SIMDBuiltinExpr{Op: simdOp, Args: args}
 			}
+			if strings.HasPrefix(op, "atomic_") {
+				atomicOp := strings.TrimPrefix(op, "atomic_")
+				// @atomic_load(ptr, ordering), @atomic_store(ptr, v, ordering), etc.
+				p.nextToken() // consume '('
+				args := []Node{}
+				if p.curToken.Type != lexer.TokenRParen {
+					args = append(args, p.parseExpr())
+					for p.curToken.Type == lexer.TokenComma {
+						p.nextToken() // consume ','
+						args = append(args, p.parseExpr())
+					}
+				}
+				p.nextToken() // consume ')'
+				// Last argument may be a memory-ordering string literal.
+				order := "seq_cst"
+				if n := len(args); n >= 2 {
+					if lit, isStr := args[n-1].(*StringLiteral); isStr {
+						if o, ok := normalizeOrdering(lit.Value); ok {
+							order = o
+							args = args[:n-1]
+						}
+					}
+				}
+				return &AtomicOp{Op: atomicOp, Args: args, Order: order}
+			}
+			return nil
 		}
 		return nil
 	case lexer.TokenSome:

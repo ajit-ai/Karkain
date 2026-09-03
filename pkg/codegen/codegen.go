@@ -230,6 +230,19 @@ func (g *Generator) generateCHeader() string {
 #include <time.h>
 #include <gmp.h>
 
+// Phase 70: Atomics (memory orderings, atomic load/store/rmw).
+#include <stdatomic.h>
+// Phase 70: Portable SIMD intrinsics surface (vector lane types).
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+#include <immintrin.h>
+#define KARKAIN_SIMD_SSE 1
+#else
+#define KARKAIN_SIMD_SSE 0
+typedef float float4 __attribute__((vector_size(16)));
+typedef float float8 __attribute__((vector_size(32)));
+typedef double double4 __attribute__((vector_size(32)));
+#endif
+
 // Phase 15: WASI compatibility and HTTP Runtime (cross-platform socket abstraction)
 #ifdef __wasi__
 #include <unistd.h>
@@ -1335,6 +1348,13 @@ Value karkain_mod(Value a, Value b) {
     return make_int(0);
 }
 
+// Phase 70: atomic compare-and-swap helper.
+//   int karkain_atomic_cas(_Atomic int* p, int expected, int desired, memory_order o)
+//   returns 1 if the exchange occurred, else 0 (and no swap).
+int karkain_atomic_cas(volatile _Atomic(int)* p, int expected, int desired, memory_order o) {
+    return atomic_compare_exchange_strong_explicit(p, &expected, desired, o, memory_order_relaxed);
+}
+
 // Phase 19: Negate unary operator
 Value karkain_negate(Value v) {
     if (v.type == TYPE_INT) return make_int(-v.intVal);
@@ -1686,13 +1706,49 @@ func (g *Generator) genStatementTo(sb *strings.Builder, stmt parser.Node) {
 
 // Phase 42: SIMD intrinsic codegen
 func (g *Generator) genSIMDExpr(node *parser.SIMDBuiltinExpr) string {
+	var left, right string
+	if len(node.Args) >= 1 {
+		left = g.genExpr(node.Args[0])
+	}
+	if len(node.Args) >= 2 {
+		right = g.genExpr(node.Args[1])
+	}
+
+	// Phase 70: lane-vector construction / load intrinsics operate on real C
+	// SIMD types (not the scalar Value union).
+	switch node.Op {
+	case "splat":
+		// @simd_splat(v, lanes) → broadcast scalar into a lane vector.
+		arg := left
+		if arg == "" {
+			return "make_int(0)"
+		}
+		if KarkainSIMDSSE() {
+			return fmt.Sprintf("_mm_set1_ps((float)(%s))", arg)
+		}
+		return fmt.Sprintf("(float4){(%s),(%s),(%s),(%s)}", arg, arg, arg, arg)
+	case "load":
+		// @simd_load(arr, offset) → load 4 consecutive f32 from a buffer.
+		if left == "" || right == "" {
+			return "make_int(0)"
+		}
+		if KarkainSIMDSSE() {
+			return fmt.Sprintf("_mm_loadu_ps((const float*)&(%s)[%s])", left, right)
+		}
+		return fmt.Sprintf("(*(float4*)&(%s)[%s])", left, right)
+	case "store":
+		// @simd_store(arr, offset, v) → store a lane vector back to a buffer.
+		third := ""
+		if len(node.Args) >= 3 {
+			third = g.genExpr(node.Args[2])
+		}
+		return fmt.Sprintf("(*((float4*)&(%s)[%s]) = (%s))", left, right, third)
+	}
+
+	// Scalar fallback for the legacy @simd_add/mul/sub/div ops.
 	if len(node.Args) < 2 {
 		return "make_int(0)"
 	}
-	left := g.genExpr(node.Args[0])
-	right := g.genExpr(node.Args[1])
-
-	// For Value*-wrapped types, extract and operate
 	switch node.Op {
 	case "add":
 		return fmt.Sprintf("binary_op(%s, \"+\", %s)", left, right)
@@ -1704,6 +1760,112 @@ func (g *Generator) genSIMDExpr(node *parser.SIMDBuiltinExpr) string {
 		return fmt.Sprintf("binary_op(%s, \"/\", %s)", left, right)
 	default:
 		return fmt.Sprintf("binary_op(%s, \"%s\", %s)", left, node.Op, right)
+	}
+}
+
+// KarkainSIMDSSE reports whether the generated C can use _mm_* intrinsics.
+func KarkainSIMDSSE() bool { return true }
+
+// simdVectorCType maps a "[N]f32"-style lane-vector type to a C type.
+//   [4]f32 -> __m128 (SSE)
+//   [8]f32 -> __m256 (AVX)
+//   [2]f64 -> __m128d
+//   [4]f64 -> __m256d
+// Unknown combos fall back to an aligned float array so code still compiles.
+func simdVectorCType(typeStr string) string {
+	lanes, elem, ok := parser.ParseSIMDVectorType(typeStr)
+	if !ok || lanes <= 0 {
+		return "void*"
+	}
+	switch elem {
+	case "f32", "float32":
+		switch lanes {
+		case 2:
+			return "__m64"
+		case 4:
+			return "__m128"
+		case 8:
+			return "__m256"
+		}
+		return fmt.Sprintf("float[%d]", lanes)
+	case "f64", "float64":
+		switch lanes {
+		case 2:
+			return "__m128d"
+		case 4:
+			return "__m256d"
+		}
+		return fmt.Sprintf("double[%d]", lanes)
+	case "i32", "int32":
+		switch lanes {
+		case 4:
+			return "__m128i"
+		case 8:
+			return "__m256i"
+		}
+		return fmt.Sprintf("int32_t[%d]", lanes)
+	case "i64", "int64":
+		switch lanes {
+		case 2:
+			return "__m128i"
+		case 4:
+			return "__m256i"
+		}
+		return fmt.Sprintf("int64_t[%d]", lanes)
+	}
+	return fmt.Sprintf("%s[%d]", elem, lanes)
+}
+
+// memoryOrderC maps a Karkain ordering name to a C memory_order_* value.
+func memoryOrderC(order string) string {
+	switch order {
+	case "relaxed":
+		return "memory_order_relaxed"
+	case "acquire":
+		return "memory_order_acquire"
+	case "release":
+		return "memory_order_release"
+	case "acq_rel":
+		return "memory_order_acq_rel"
+	default:
+		return "memory_order_seq_cst"
+	}
+}
+
+// genAtomicExpr emits C11 stdatomic operations with explicit memory orderings.
+// Surface (ordering defaults to seq_cst when the trailing string is omitted):
+//   @atomic_load(ptr, [order])        -> atomic_load(ptr, order)
+//   @atomic_store(ptr, v, [order])    -> atomic_store(ptr, v, order)
+//   @atomic_fetch_add(ptr, v, [order])-> atomic_fetch_add(ptr, v, order)
+//   @atomic_fetch_sub(ptr, v, [order])-> atomic_fetch_sub(ptr, v, order)
+//   @atomic_cas(ptr, cmp, v, [order]) -> atomic_compare_exchange...
+func (g *Generator) genAtomicExpr(node *parser.AtomicOp) string {
+	order := memoryOrderC(node.Order)
+	n := len(node.Args)
+	gen := func(i int) string {
+		if i < n {
+			return g.genExpr(node.Args[i])
+		}
+		return "0"
+	}
+	ptr := gen(0)
+	switch node.Op {
+	case "load":
+		return fmt.Sprintf("atomic_load_explicit((volatile _Atomic(int)*(%s)), %s)", ptr, order)
+	case "store":
+		return fmt.Sprintf("atomic_store_explicit((volatile _Atomic(int)*(%s)), (int)(%s), %s)", ptr, gen(1), order)
+	case "fetch_add":
+		return fmt.Sprintf("atomic_fetch_add_explicit((volatile _Atomic(int)*(%s)), (int)(%s), %s)", ptr, gen(1), order)
+	case "fetch_sub":
+		return fmt.Sprintf("atomic_fetch_sub_explicit((volatile _Atomic(int)*(%s)), (int)(%s), %s)", ptr, gen(1), order)
+	case "exchange":
+		return fmt.Sprintf("atomic_exchange_explicit((volatile _Atomic(int)*(%s)), (int)(%s), %s)", ptr, gen(1), order)
+	case "cas":
+		// cmp is a Value holding a pointer to expected; simplify to a known
+		// comparison helper used by the runtime.
+		return fmt.Sprintf("karkain_atomic_cas((volatile _Atomic(int)*(%s)), (int)(%s), (int)(%s), %s)", ptr, gen(1), gen(2), order)
+	default:
+		return "0"
 	}
 }
 
@@ -1740,6 +1902,19 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 		if fn, ok := node.Value.(*parser.FuncDecl); ok {
 			out := g.genFuncDecl(fn)
 			return out + g.lastClosureInit // Phase 54: env instance init after closure def
+		}
+		// Phase 70: `let x [N]f32 = ...` â€” fixed-lane SIMD vector variable.
+		if node.IsSIMD {
+			cType := simdVectorCType(node.Type)
+			alignAttr := ""
+			if node.Align > 0 {
+				alignAttr = fmt.Sprintf(" _Alignas(%d)", node.Align)
+			}
+			return fmt.Sprintf("\t%s%s %s = %s;\n", cType, alignAttr, node.Name, g.genExpr(node.Value))
+		}
+		// Phase 70: cache-line alignment attribute on a plain scalar/Value var.
+		if node.Align > 0 {
+			return fmt.Sprintf("\t_Alignas(%d) Value %s = %s;\n", node.Align, node.Name, g.genExpr(node.Value))
 		}
 		// Check if this is a typed declaration
 		if node.Type != "" {
@@ -2227,6 +2402,8 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return g.genMatchExpr(n)
 	case *parser.SIMDBuiltinExpr:
 		return g.genSIMDExpr(n)
+	case *parser.AtomicOp:
+		return g.genAtomicExpr(n)
 	case *parser.AllocExpr:
 		countExpr := g.genExpr(n.Count)
 		cType := g.mapKarkainTypeToC(n.Type)

@@ -273,6 +273,10 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 		for _, arg := range n.Args {
 			bc.checkNode(arg)
 		}
+	case *parser.AtomicOp:
+		for _, arg := range n.Args {
+			bc.checkNode(arg)
+		}
 	case *parser.StructLiteral:
 		for _, field := range n.Fields {
 			bc.checkNode(field)
