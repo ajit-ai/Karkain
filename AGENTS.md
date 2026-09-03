@@ -13,8 +13,27 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–78).
-Current phase: **71** — Math IR Foundation (Karkain-owned mathematical IR).
-Last completed: **56** — Self-Hosting Compiler (Stage 2/3 compile successfully).
+Current phase: **post-70** — All Phases 70–78 complete.
+Last completed: **70** — SIMD Vector Types & Atomics [closes G7]
+(lane types `[N]f32`/`[N]f64`/`[N]i32`/`[N]i64`, `@simd_splat`/`@simd_load`/`@simd_store`,
+`@atomic_*` + memory orderings, `@aligned(N)`, `<stdatomic.h>`/`<immintrin.h>` preamble).
+Prior completed: **78** — NPU Optimization (fusion, memory planning, INT8/INT4 quantization, MLIR codegen).
+
+### Completed: Math/Tensor/NPU Chain (Phases 71–78)
+
+```
+71 (Math IR) → 72 (Tensor IR) → 73 (CPU Backend)
+                                      ↓
+                                 74 (Autodiff Integration)
+                                      ↓
+                                 75 (Backend Abstraction)
+                                    ↓        ↓
+                               76 (GPU)   77 (NPU) → 78 (NPU Opt)
+```
+All 8 phases built, tested (full suite green), committed and pushed to `main`.
+Backends: CPU reference (`pkg/backend/cpu`, embedded C23 runtime, correct GCC E2E),
+GPU/WGSL (`pkg/backend/gpu`), NPU abstraction + 5 vendor adapters (`pkg/npu/*`).
+NPU optimization passes: fusion, memory planning, quantization, Karkain-owned MLIR dialect.
 
 ### Phase Dependency Chain (Math/Tensor/NPU)
 
