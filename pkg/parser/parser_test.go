@@ -109,3 +109,73 @@ func TestParseMatch(t *testing.T) {
 		t.Fatalf("expected 2 body statements, got %d", len(body))
 	}
 }
+
+// exprStmtCall unwraps the ExprStmt at index i and returns the inner CallExpr
+// (used by the chained-index / postfix-operator regression tests).
+func exprStmtCall(body []Node, i int) *CallExpr {
+	if i >= len(body) {
+		return nil
+	}
+	es, ok := body[i].(*ExprStmt)
+	if !ok {
+		return nil
+	}
+	call, ok := es.Expression.(*CallExpr)
+	if !ok {
+		return nil
+	}
+	return call
+}
+
+// TestChainedIndexBindsToSameLeft guards the Phase 56-C fix: `params[i][0]` used to
+// leak the trailing [0] out as a separate expression and get mis-parsed.
+func TestChainedIndexBindsToSameLeft(t *testing.T) {
+	prog := parseSource(t, `func main() { emitC11Type(fields[i][0]) }`)
+	call := exprStmtCall(findFuncBody(prog), 0)
+	if call == nil {
+		t.Fatal("expected a CallExpr statement")
+	}
+	if len(call.Args) != 1 {
+		t.Fatalf("expected 1 call arg, got %d", len(call.Args))
+	}
+	outer, ok := call.Args[0].(*IndexExpr)
+	if !ok {
+		t.Fatalf("expected outer IndexExpr, got %T", call.Args[0])
+	}
+	inner, ok := outer.Left.(*IndexExpr)
+	if !ok {
+		t.Fatalf("expected inner IndexExpr under outer.Left, got %T", outer.Left)
+	}
+	ident, ok := inner.Left.(*Identifier)
+	if !ok || ident.Name != "fields" {
+		t.Fatalf("innermost left should be identifier 'fields', got %T", inner.Left)
+	}
+}
+
+// TestIndexThenOperator guards the Phase 56-C fix: `a[i] + b` used to leave the `+`
+// unconsumed so it leaked out as a spurious extra call argument (a[i], then a nil
+// binary-op arg). It must now parse as a single binary argument of the call.
+func TestIndexThenOperator(t *testing.T) {
+	prog := parseSource(t, `func main() { emitLine(state, params[i][1] + ": " + name) }`)
+	call := exprStmtCall(findFuncBody(prog), 0)
+	if call == nil {
+		t.Fatal("expected a CallExpr statement")
+	}
+	if len(call.Args) != 2 {
+		t.Fatalf("expected 2 call args (state + expr), got %d", len(call.Args))
+	}
+	bin, ok := call.Args[1].(*BinaryExpr)
+	if !ok {
+		t.Fatalf("expected BinaryExpr as 2nd arg, got %T", call.Args[1])
+	}
+	if bin.Operator != "+" {
+		t.Fatalf("expected outer '+' operator, got %q", bin.Operator)
+	}
+	leftBin, ok := bin.Left.(*BinaryExpr)
+	if !ok || leftBin.Operator != "+" {
+		t.Fatalf("expected inner BinaryExpr '+' as left, got %T", bin.Left)
+	}
+	if _, ok := leftBin.Left.(*IndexExpr); !ok {
+		t.Fatalf("expected IndexExpr at left of inner binary, got %T", leftBin.Left)
+	}
+}

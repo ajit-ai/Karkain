@@ -714,6 +714,76 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 	}
 
 	for {
+		// Apply postfix operators (index/matrix/slice, @derive/@tag, ?) before
+		// considering a binary operator, and re-check operators afterwards, so
+		// that a[i][j] + b and a[i] parse correctly. Postfix binds tighter than
+		// binary operators.
+		for p.curToken.Type == lexer.TokenLBracket {
+			p.nextToken() // consume '['
+			var first Node
+			if p.curToken.Type == lexer.TokenColon { // Phase 55: open start [:n]
+				first = &IntLiteral{Value: "0"}
+			} else {
+				first = p.parseExpr()
+			}
+			if p.curToken.Type == lexer.TokenComma {
+				// Matrix index: [row, col]
+				p.nextToken() // consume ','
+				col := p.parseExpr()
+				p.nextToken() // consume ']'
+				left = p.arena.AllocMatrixIndexExpr(left, first, col)
+			} else if p.curToken.Type == lexer.TokenColon { // Phase 55: slice [a:b]
+				p.nextToken() // consume ':'
+				var end Node
+				if p.curToken.Type != lexer.TokenRBracket {
+					end = p.parseExpr()
+				}
+				p.nextToken() // consume ']'
+				left = &SliceExpr{Target: left, Start: first, End: end}
+			} else {
+				// Array/map index: [index]
+				p.nextToken() // consume ']'
+				left = p.arena.AllocIndexExpr(left, first)
+			}
+		}
+
+		// Phase 19: Handle @derive(Trait) and @tag(name, value) as postfix operators
+		if p.curToken.Type == lexer.TokenAt {
+			p.nextToken() // consume '@'
+			ident := p.curToken.Literal(p.src)
+			p.nextToken() // consume identifier
+			if ident == "derive" && p.curToken.Type == lexer.TokenLParen {
+				p.nextToken() // consume '('
+				trait := p.curToken.Literal(p.src)
+				p.nextToken() // consume trait name
+				p.nextToken() // consume ')'
+				left = &DeriveExpr{Trait: trait, Target: left}
+			} else if ident == "tag" && p.curToken.Type == lexer.TokenLParen {
+				p.nextToken() // consume '('
+				tagName := p.curToken.Literal(p.src)
+				p.nextToken() // consume tag name
+				p.nextToken() // consume ','
+				tagValue := p.curToken.Literal(p.src)
+				p.nextToken() // consume tag value
+				p.nextToken() // consume ')'
+				left = &TagExpr{Target: left, TagName: tagName, TagValue: tagValue}
+			}
+		}
+
+		// Phase 44: Handle ? postfix operator for error propagation
+		if p.curToken.Type == lexer.TokenQuestion {
+			p.nextToken() // consume '?'
+			left = &PropagateExpr{Operand: left}
+		}
+
+		// Handle assignment: ident = expr (bind loosest, only at min precedence 0)
+		if p.curToken.Type == lexer.TokenAssign && minPrec == 0 && left != nil {
+			p.nextToken() // consume '='
+			right := p.parseExpr()
+			left = p.arena.AllocBinaryExpr(left, "=", right)
+			continue
+		}
+
 		op := ""
 		switch p.curToken.Type {
 		case lexer.TokenPlus:
@@ -751,72 +821,6 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 		p.nextToken() // consume operator
 		right := p.parseBinaryExpr(nil, precedence(op)+1)
 		left = p.arena.AllocBinaryExpr(left, op, right)
-	}
-
-	// Handle assignment: ident = expr (only at precedence 0)
-	if p.curToken.Type == lexer.TokenAssign && left != nil {
-		p.nextToken() // consume '='
-		right := p.parseExpr()
-		return p.arena.AllocBinaryExpr(left, "=", right)
-	}
-
-	// Handle index / matrix / slice postfix
-	if p.curToken.Type == lexer.TokenLBracket {
-		p.nextToken() // consume '['
-		var first Node
-		if p.curToken.Type == lexer.TokenColon { // Phase 55: open start [:n]
-			first = &IntLiteral{Value: "0"}
-		} else {
-			first = p.parseExpr()
-		}
-		if p.curToken.Type == lexer.TokenComma {
-			// Matrix index: [row, col]
-			p.nextToken() // consume ','
-			col := p.parseExpr()
-			p.nextToken() // consume ']'
-			left = p.arena.AllocMatrixIndexExpr(left, first, col)
-		} else if p.curToken.Type == lexer.TokenColon { // Phase 55: slice [a:b]
-			p.nextToken() // consume ':'
-			var end Node
-			if p.curToken.Type != lexer.TokenRBracket {
-				end = p.parseExpr()
-			}
-			p.nextToken() // consume ']'
-			left = &SliceExpr{Target: left, Start: first, End: end}
-		} else {
-			// Array/map index: [index]
-			p.nextToken() // consume ']'
-			left = p.arena.AllocIndexExpr(left, first)
-		}
-	}
-
-	// Phase 19: Handle @derive(Trait) and @tag(name, value) as postfix operators
-	if p.curToken.Type == lexer.TokenAt {
-		p.nextToken() // consume '@'
-		ident := p.curToken.Literal(p.src)
-		p.nextToken() // consume identifier
-		if ident == "derive" && p.curToken.Type == lexer.TokenLParen {
-			p.nextToken() // consume '('
-			trait := p.curToken.Literal(p.src)
-			p.nextToken() // consume trait name
-			p.nextToken() // consume ')'
-			left = &DeriveExpr{Trait: trait, Target: left}
-		} else if ident == "tag" && p.curToken.Type == lexer.TokenLParen {
-			p.nextToken() // consume '('
-			tagName := p.curToken.Literal(p.src)
-			p.nextToken() // consume tag name
-			p.nextToken() // consume ','
-			tagValue := p.curToken.Literal(p.src)
-			p.nextToken() // consume tag value
-			p.nextToken() // consume ')'
-			left = &TagExpr{Target: left, TagName: tagName, TagValue: tagValue}
-		}
-	}
-
-	// Phase 44: Handle ? postfix operator for error propagation
-	if p.curToken.Type == lexer.TokenQuestion {
-		p.nextToken() // consume '?'
-		left = &PropagateExpr{Operand: left}
 	}
 
 	return left
