@@ -80,6 +80,7 @@ func prefixBindingPower(kind) {
 }
 
 func infixBindingPower(kind) {
+    if (kind == TK_ASSIGN()) { return 1 }
     if (kind == TK_OR()) { return 1 }
     if (kind == TK_AND()) { return 2 }
     if (kind == TK_EQ()) { return 3 }
@@ -225,9 +226,11 @@ func parseInfix(state, left, opTok) {
     let kind = tokenKind(opTok)
     let loc = tokenLoc(opTok)
 
-    // Assignment
+    // Assignment — lowest precedence, right-associative (C semantics):
+    // a = b = c  →  a = (b = c)
+    // a = b || c  →  a = (b || c)
     if (kind == TK_ASSIGN()) {
-        let right = parseExpr(state, 1)
+        let right = parseExpr(state, 0)
         return createBinaryExprNode("=", left, right, loc)
     }
 
@@ -237,9 +240,8 @@ func parseInfix(state, left, opTok) {
         return createMemberNode(left, tokenLiteral(member, parserSource(state)), loc)
     }
 
-    // Index access: foo[i]
+    // Index access: foo[i]  ('[' already consumed by parseExpr)
     if (kind == TK_LBRACKET()) {
-        advanceToken(state) // skip [
         let index = parseExpr(state, 0)
         expectToken(state, TK_RBRACKET())
         return createIndexNode(left, index, loc)
@@ -459,12 +461,23 @@ func parseFuncDecl(state) {
     expectToken(state, TK_LPAREN())
     let params = []
     if (peekTokenKind(state) != TK_RPAREN()) {
-        // Parse: type name, type name, ...
+        // Each param: name [type], comma-separated (type optional).
+        // Mirrors the Go parser: name first, optional trailing type.
+        // Examples:
+        //   func f(a, b)          -> [["", "a"], ["", "b"]]
+        //   func add(int a, int b)-> [["int", "a"], ["int", "b"]]
         while (1) {
-            let paramType = peekTokenLiteral(state)
-            advanceToken(state) // type
             let paramName = peekTokenLiteral(state)
             advanceToken(state) // name
+            let paramType = ""
+            // Optional type: an ident immediately following the name.
+            // Only absorb it as a type if it is not followed by ',' or ')'.
+            let after = peekTokenKind(state)
+            if (after == TK_IDENT()) {
+                let nxt = peekTokenLiteral(state)
+                paramType = nxt
+                advanceToken(state) // type
+            }
             let param = []
             param = appendArray(param, paramType)
             param = appendArray(param, paramName)

@@ -254,6 +254,12 @@ func compileWithGCC(cFile, runtimeFile, outputBinary string) error {
 	args := []string{
 		"-std=c2x",
 		"-o", outputBinary,
+		// The karkain compiler writes generated C with a target extension such
+		// as ".c23", which gcc does not recognize as a C source by extension.
+		// Force the input to be treated as C so gcc compiles it (instead of
+		// handing an unknown file straight to the linker -> "file format not
+		// recognized").
+		"-x", "c",
 		cFile,
 		"-lm",
 		"-lgmp",

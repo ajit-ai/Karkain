@@ -381,10 +381,10 @@ func createMatrixDeclNode(name, rows, cols, elemType, loc) {
 }
 
 // --- MatrixIndex ---
-func createMatrixIndexNode(matrix, row, col, loc) {
+func createMatrixIndexNode(mat, row, col, loc) {
     let node = []
     node = appendArray(node, "MatrixIndex")
-    node = appendArray(node, matrix)
+    node = appendArray(node, mat)
     node = appendArray(node, row)
     node = appendArray(node, col)
     node = appendArray(node, loc)
@@ -419,20 +419,20 @@ func createSpawnNode(actorName, args, loc) {
 }
 
 // --- SendExpr ---
-func createSendNode(channel, message, loc) {
+func createSendNode(chan, message, loc) {
     let node = []
     node = appendArray(node, "Send")
-    node = appendArray(node, channel)
+    node = appendArray(node, chan)
     node = appendArray(node, message)
     node = appendArray(node, loc)
     return node
 }
 
 // --- ReceiveStmt ---
-func createReceiveNode(channel, varName, loc) {
+func createReceiveNode(chan, varName, loc) {
     let node = []
     node = appendArray(node, "Receive")
-    node = appendArray(node, channel)
+    node = appendArray(node, chan)
     node = appendArray(node, varName)
     node = appendArray(node, loc)
     return node
