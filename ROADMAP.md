@@ -1,4 +1,4 @@
-# Karkain Roadmap Ã¢â‚¬â€ Complete Development Plan
+﻿# Karkain Roadmap Ã¢â‚¬â€ Complete Development Plan
 
 ## Vision
 
@@ -290,20 +290,23 @@ Phases 60Ã¢â‚¬â€œ62 complete the ecosystem.
 
 ## Explicitly Out of Scope (Decision Record)
 
-**NPU, DSP, and FPGA backend targets Ã¢â‚¬â€ REMOVED from roadmap (decision: 2026-08).**
+**DSP and FPGA backend targets Ã¢â‚¬â€ REMOVED from roadmap (decision: 2026-08, revisited 2026-09 for NPU).**
 
-Rationale: pursuing these targets risks degrading the three non-negotiable properties
-of Karkain Ã¢â‚¬â€ **speed, multithreading, memory safety**:
+Rationale for DSP/FPGA removal: these targets fragment portability and cannot be CI-tested
+without hardware. Karkain's differentiator remains: **compile-time ownership safety + performance
+on CPU/GPU/NPU/quantum**, not breadth of all hardware targets.
 
-- Vendor-specific lowering paths fragment portability and cannot be CI-tested without hardware
-- Device execution models (async NPU graphs, FPGA pipelines, real-time DSP) complicate the
-  concurrency story and introduce cross-device data races
-- Escape-hatch pressure from DMA/ring-buffer/quantization paths erodes borrow-checker guarantees
-- Optimization effort splits across incompatible pass pipelines, threatening the "fastest" goal
+**NPU support Ã¢â‚¬â€ RE-ADDED (decision: 2026-09).**
 
-Karkain's differentiator remains: **compile-time ownership safety + performance on CPU/GPU/quantum**,
-not breadth of hardware targets. This decision may be revisited only after Phases 53Ã¢â‚¬â€œ62 are
-complete AND a portable-fallback + golden-test strategy exists per target.
+NPU is a first-class target because:
+- Every major CPU vendor ships NPU silicon (Intel, Qualcomm, Apple, AMD, Arm)
+- ONNX provides a universal interchange format with vendor runtime support
+- MLIR provides a standards-based lowering path for kernel-level NPU control
+- NPU inference is the dominant deployment path for edge AI/ML workloads
+- Karkain's tensor pipeline + autodiff engine + WGSL codegen provide the foundation
+
+Design principle: ONNX export for portability (all NPUs), MLIR for performance (custom fusion).
+Both paths are implemented; ONNX first (faster to market), MLIR second (deeper optimization).
 
 
 ---
@@ -349,16 +352,46 @@ PHASE 70: SIMD Vector Types & Atomics            [closes G7]
           explicit lane types ([4]f32), portable intrinsics surface,
           atomics + memory orderings (seq_cst/acq_rel/relaxed),
           cache-line alignment attributes; freestanding mode candidate
+PHASE 71: Math IR Foundation                      [Karkain-owned mathematical IR]
+          Math IR data model, node taxonomy, type metadata, builder/factory,
+          validation, printer, basic lowering from AST, extensible function registry
+PHASE 72: Tensor IR Foundation                    [Karkain-owned tensor IR]
+          Tensor IR in SSA pipeline, shape types (static/dynamic/symbolic),
+          core ops (create, reshape, transpose, matmul, add, mul, slice, reduce),
+          compile-time shape validation, broadcasting rules
+PHASE 73: CPU Reference Backend                   [correctness oracle]
+          CPU execution of Tensor IR, elementwise ops, matmul, reshape,
+          transpose, broadcasting, reductions — the semantic reference
+PHASE 74: Autodiff Integration                    [gradient computation]
+          Wire existing autodiff engine to Tensor IR, gradient propagation,
+          reverse-mode AD through tensor ops, CPU gradient execution
+PHASE 75: Backend Abstraction                     [execution planner]
+          Backend interface (CPU/GPU/NPU/Future), capability model,
+          cost-based backend selection, fallback dispatch
+PHASE 76: GPU/WGSL Integration                    [existing codegen wiring]
+          Wire existing tensor_wgsl.go to execution planner, Tensor IR →
+          GPU lowering → WGSL → WebGPU, optional backend
+PHASE 77: NPU Abstraction + Backends              [vendor-neutral NPU]
+          NPU capability model, vendor-neutral interface, Intel (OpenVINO),
+          Qualcomm (QNN), Apple (CoreML) adapters, graceful fallback
+PHASE 78: NPU Optimization                        [fusion + memory planning]
+          Operator fusion (Conv+Relu+BN), DDR<->TCM tiling, INT8/INT4
+          quantization, memory planning, MLIR codegen for kernel control
 ```
 
 ### Ordering Rules
 
 1. Phase 63 before 64: optimizer may assume verified ownership semantics
 2. Phase 68 requires 60 (stdlib) and 65 (kpm): self-hosted build must fetch deps
-3. Phase 70 atomics depend on the threading model from Phase 57 Ã¢â‚¬â€ land the
+3. Phase 70 atomics depend on the threading model from Phase 57 — land the
    atomics portion with or after 57, not before
 4. INDEPENDENCE is declared only when CI builds karkain-from-karkain green
    for three consecutive releases
+5. Phase 71 (Math IR) before 72: Tensor IR builds on Math IR foundation
+6. Phase 72 (Tensor IR) before 73-74: CPU backend and autodiff need Tensor IR
+7. Phase 73 (CPU backend) before 74: autodiff gradient execution needs reference backend
+8. Phase 75 (Backend abstraction) before 76-78: GPU/NPU backends need abstraction layer
+9. Phase 76 (GPU/WGSL) independent of 77-78: GPU and NPU are separate backends
 
 ### SSA Pipeline Positioning (context for G2)
 
@@ -433,7 +466,7 @@ Total tracked items: **38** (8 bugs, 20 placeholders, 15 gaps, 6 dead code issue
 
 ### Unified Execution Order
 
-```
+``
 55b: Tooling & Dead Code Cleanup + deep equality + checked arithmetic
 56:  Self-Hosting Completion
 57:  Actor & Concurrency Runtime (P1-P4)
@@ -443,9 +476,38 @@ Total tracked items: **38** (8 bugs, 20 placeholders, 15 gaps, 6 dead code issue
 63:  Full Borrow Checker + Ownership (BUG-5, G1-G3, G8)
 64:  IR Optimizer Depth I (G9, M2)
 65:  Package Manager + Modules (P11-P12, G11)
-66:  Toolchain â€” LSP/fmt/REPL (P10)
+66:  Toolchain - LSP/fmt/REPL (P10)
 67:  IR Optimizer Depth II
 68:  Self-Hosting Completion (INDEPENDENCE)
 69:  Ecosystem Hardening + v1.0
 70:  SIMD Vector Types + Atomics
-```
+71:  Math IR Foundation (Karkain-owned mathematical IR)
+72:  Tensor IR Foundation (Karkain-owned tensor IR, shape system)
+73:  CPU Reference Backend (correctness oracle for tensor ops)
+74:  Autodiff Integration (wire existing autodiff to Tensor IR)
+75:  Backend Abstraction (execution planner, CPU/GPU/NPU dispatch)
+76:  GPU/WGSL Integration (wire existing WGSL codegen)
+77:  NPU Abstraction + Backends (Intel/Qualcomm/Apple adapters)
+78:  NPU Optimization (fusion, memory planning, INT8/INT4 quantization)
+``
+
+### Math/Tensor/NPU Phase Dependency Graph
+
+``
+71 (Math IR)
+  |
+  v
+72 (Tensor IR)
+  |
+  v
+73 (CPU Backend) <-- 74 (Autodiff) depends on this
+  |
+  v
+75 (Backend Abstraction)
+  |          |
+  v          v
+76 (GPU)    77 (NPU)
+             |
+             v
+           78 (NPU Optimization)
+``
