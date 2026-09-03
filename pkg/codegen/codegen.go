@@ -247,6 +247,10 @@ func (g *Generator) generateCHeader() string {
 #endif
 #endif
 
+// Phase 14: Self-hosting directory listing (POSIX dir iteration, available in
+// MinGW and all POSIX toolchains).
+#include <dirent.h>
+
 // Phase 14: Quantum Runtime (inline for single-file compilation)
 typedef struct {
     double real;
@@ -1241,6 +1245,56 @@ Value make_bool(int v) {
     return v ? (Value){ .type = TYPE_BOOL, .intVal = 1 } : (Value){ .type = TYPE_BOOL, .intVal = 0 };
 }
 
+// readLineEOF reads one line and returns [line, eof] as a two-element array.
+// This lets callers distinguish a genuinely empty line from end-of-file
+// (readLine alone collapses both to ""). Shares the same handle table as
+// readLine/closeFile so a single openFile handle can be consumed by either.
+Value readLineEOF(Value handle) {
+    Value r = make_array();
+    if (handle.type != TYPE_STRING || strlen(handle.strVal) == 0) {
+        array_push(&r, make_string("")); array_push(&r, make_bool(1)); return r;
+    }
+    int idx = -1;
+    int i;
+    for (i = 0; i < _karkain_file_count; i++) {
+        if (_karkain_files[i] != NULL) { idx = i; break; }
+    }
+    if (idx == -1) {
+        if (_karkain_file_count >= 256) { array_push(&r, make_string("")); array_push(&r, make_bool(1)); return r; }
+        idx = _karkain_file_count;
+        _karkain_files[idx] = fopen(handle.strVal, "rb");
+        _karkain_file_count++;
+    } else if (_karkain_files[idx] == NULL) {
+        _karkain_files[idx] = fopen(handle.strVal, "rb");
+    }
+    if (!_karkain_files[idx]) { array_push(&r, make_string("")); array_push(&r, make_bool(1)); return r; }
+    char buf[4096];
+    if (fgets(buf, sizeof(buf), _karkain_files[idx]) == NULL) {
+        array_push(&r, make_string("")); array_push(&r, make_bool(1)); return r;
+    }
+    int len = (int)strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) buf[--len] = '\0';
+    array_push(&r, make_string(buf));
+    array_push(&r, make_bool(0));
+    return r;
+}
+
+// listFiles returns the names of entries in a directory as a Value array.
+// Mirrors Go's os.ReadDir for the self-hosted compiler's sibling gathering.
+Value karkain_listFiles(Value dir) {
+    Value arr = make_array();
+    const char* dname = dir.type == TYPE_STRING ? (dir.strVal ? dir.strVal : "") : "";
+    DIR* d = opendir(dname);
+    if (!d) return arr;
+    struct dirent* e;
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue; // skip "." and ".."
+        array_push(&arr, make_string(e->d_name));
+    }
+    closedir(d);
+    return arr;
+}
+
 // Phase 19: Map hasKey and delete
 Value karkain_hasKey(Value m, Value k) {
     if (m.type != TYPE_MAP) return make_int(0);
@@ -2000,6 +2054,9 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "readLine" {
 			return fmt.Sprintf("readLine(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "listFiles" {
+			return fmt.Sprintf("karkain_listFiles(%s)", g.genExpr(n.Args[0]))
 		}
 		if n.Function == "closeFile" {
 			return fmt.Sprintf("closeFile(%s)", g.genExpr(n.Args[0]))

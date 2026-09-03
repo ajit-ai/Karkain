@@ -99,10 +99,16 @@ func readFile(path) {
         return ""
     }
     let content = ""
-    while (1) {
-        let line = readLine(f)
-        if (line == "") { break }
-        content = content + line + "\n"
+    let done = false
+    while (done == false) {
+        let result = readLineEOF(f)
+        let line = result[0]
+        let eof = result[1]
+        if (eof == true) {
+            done = true
+        } else {
+            content = content + line + "\n"
+        }
     }
     closeFile(f)
     return content
@@ -129,7 +135,7 @@ func checkFile(path) {
 }
 
 func buildFile(path, target) {
-    let source = readFile(path)
+    let source = loadSourceWithSiblings(path)
     if (source == "") { return }
 
     // Tokenize
@@ -212,6 +218,65 @@ func replaceExtension(path, newExt) {
         return path + newExt
     }
     return substr(path, 0, lastDot) + newExt
+}
+
+// Return the directory portion of a path (up to the last '/' or '\').
+func dirName(path) {
+    let i = len(path) - 1
+    while (i >= 0) {
+        let ch = substr(path, i, 1)
+        if (ch == "/" || ch == "\\") {
+            return substr(path, 0, i)
+        }
+        i = i - 1
+    }
+    return "."
+}
+
+// Return the basename of a path (after the last '/' or '\').
+func baseName(path) {
+    let i = len(path) - 1
+    while (i >= 0) {
+        let ch = substr(path, i, 1)
+        if (ch == "/" || ch == "\\") {
+            return substr(path, i + 1, len(path) - i - 1)
+        }
+        i = i - 1
+    }
+    return path
+}
+
+func endsWith(s, suffix) {
+    let sl = len(s)
+    let ol = len(suffix)
+    if (ol > sl) { return false }
+    return substr(s, sl - ol, ol) == suffix
+}
+
+// Concatenate all sibling .kark files (excluding the target and any file that
+// defines its own main) with the target file, mirroring the Go CLI's
+// loadSourceWithSiblings. This makes the self-hosted compiler emit a fully
+// self-contained program that can compile the compiler source tree.
+func loadSourceWithSiblings(path) {
+    let dir = dirName(path)
+    let target = baseName(path)
+    let files = listFiles(dir)
+    let content = ""
+    let n = len(files)
+    let i = 0
+    while (i < n) {
+        let name = files[i]
+        let isKark = endsWith(name, ".kark")
+        if (isKark == true && name != target) {
+            let fsrc = readFile(dir + "/" + name)
+            if (contains(fsrc, "func main(") == 0) {
+                content = content + fsrc + "\n\n"
+            }
+        }
+        i = i + 1
+    }
+    content = content + readFile(path)
+    return content
 }
 
 func getArgs() {

@@ -249,7 +249,10 @@ func scanString(state) {
         advanceChar(state)
     }
 
-    let resultLen = lexerPos(state) - resultStart
+    // The closing quote is consumed by the scan loop above, so subtract 1 to
+    // exclude it — otherwise tokenLiteral() re-slices the content plus a
+    // trailing '"' (e.g. a "Hello" string would carry an extra quote).
+    let resultLen = lexerPos(state) - resultStart - 1
     // Scan the content again to build the unescaped result
     let savePos = lexerPos(state)
     setLexerPos(state, resultStart)

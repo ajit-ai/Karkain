@@ -38,7 +38,7 @@ func mutatingBuiltin(name string) bool {
 func callableBuiltin(name string) bool {
 	switch name {
 	case "len", "sqrt", "pow", "hasKey", "readFile", "writeFile",
-		"trim", "contains", "split":
+		"trim", "contains", "split", "listFiles":
 		return true
 	}
 	return false
