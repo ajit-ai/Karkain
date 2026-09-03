@@ -779,16 +779,26 @@ Karkain runs wherever Go and a C compiler are available.
 | 55b: Deep equality, checked arithmetic | Done |
 | 55c: HTTP ifdef, AST line tracking, `#line` | Done |
 | 55d: KPM package manager | Done |
-| 56: Self-Hosting Compiler | **Next** |
-| 57: Actor & Concurrency Runtime | Planned |
-| 58: GPU Kernel Integration | Planned |
-| 59: Quantum Pipeline | Planned |
-| 60: Standard Library | Planned |
-| 63: Full Borrow Checker + Ownership | Planned |
-| 64-67: IR Optimizer + Toolchain | Planned |
-| 68: Self-Hosting Completion (INDEPENDENCE) | Goal |
-| 69: Ecosystem Hardening + v1.0 | Goal |
-| 70: SIMD Vector Types & Atomics | Planned |
+| 56: Self-Hosting Compiler | In Progress |
+| 57: Actor & Concurrency Runtime | Done |
+| 58: GPU Kernel Integration | Done |
+| 59: Quantum Pipeline | Done |
+| 60: Standard Library | Done |
+| 62: Diagnostics | Done |
+| 63: Full Borrow Checker + Ownership | Done |
+| 64-67: IR Optimizer + Toolchain | Done |
+| 68: Self-Hosting Completion (INDEPENDENCE) | In Progress |
+| 69: Ecosystem Hardening + v1.0 | Done |
+| 70: SIMD Vector Types & Atomics | Done |
+| 71: Math IR Foundation | Done |
+| 72: Tensor IR Foundation | Done |
+| 73: CPU Reference Backend | Done |
+| 74: Autodiff Integration | Done |
+| 75: Backend Abstraction | Done |
+| 76: GPU/WGSL Backend | Done |
+| 77: NPU Abstraction + Vendor Adapters | Done |
+| 78: NPU Optimization | Done |
+| 79: Compiler Integrity / IR Architecture / Self-Hosting Readiness Audit | Done |
 
 ### INDEPENDENCE Milestone
 
