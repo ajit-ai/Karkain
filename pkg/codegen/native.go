@@ -217,7 +217,7 @@ func (g *NativeGenerator) genNativeExpr(node parser.Node) string {
 	case *parser.Float64Literal:
 		return n.Value
 	case *parser.StringLiteral:
-		return fmt.Sprintf("make_string(%q)", n.Value)
+		return fmt.Sprintf("make_string(%q)", unescapeKarkain(n.Value))
 	case *parser.BoolLiteral:
 		if n.Value {
 			return "1"

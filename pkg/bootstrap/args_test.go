@@ -118,11 +118,11 @@ func TestArgs_PathWithSpaces(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	out, code := runCompiler1(t, "build", path, "--target", "c99")
+	out, code := runCompiler1(t, "build", path, "--target", "c23")
 	if code != 0 {
 		t.Fatalf("build with spaces path failed (%d): %s", code, out)
 	}
-	cPath := strings.TrimSuffix(path, ".kark") + ".c99"
+	cPath := strings.TrimSuffix(path, ".kark") + ".c23"
 	if _, err := os.Stat(cPath); err != nil {
 		t.Fatalf("expected generated %s, got error: %v (out=%s)", cPath, err, out)
 	}
@@ -132,11 +132,11 @@ func TestArgs_PathWithSpaces(t *testing.T) {
 func TestArgs_BuildFile(t *testing.T) {
 	path := writeFixture(t, "hello.kark", helloKar)
 
-	out, code := runCompiler1(t, "build", path, "--target", "c99")
+	out, code := runCompiler1(t, "build", path, "--target", "c23")
 	if code != 0 {
 		t.Fatalf("build failed (%d): %s", code, out)
 	}
-	cPath := strings.TrimSuffix(path, ".kark") + ".c99"
+	cPath := strings.TrimSuffix(path, ".kark") + ".c23"
 	data, err := os.ReadFile(cPath)
 	if err != nil {
 		t.Fatalf("expected generated %s: %v (out=%s)", cPath, err, out)

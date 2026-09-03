@@ -34,10 +34,10 @@ func main() {
 
     if (command == "build") {
         if (argc < 3) {
-            print("Usage: karkain build <file.kark> [--target c99|wgsl|opencl|openqasm|qir|kbc]")
+            print("Usage: karkain build <file.kark> [--target c23|wgsl|opencl|openqasm|qir|kbc]")
             return
         }
-        let target = "c99"
+        let target = "c23"
         if (argc >= 5 && args[3] == "--target") {
             target = args[4]
         }
@@ -85,7 +85,7 @@ func printUsage() {
     print("  lsp      Start LSP language server (stdio)")
     print("")
     print("Options:")
-    print("  --target <target>   Output: c99, wgsl, opencl, openqasm, qir, kbc (default: c99)")
+    print("  --target <target>   Output: c23, wgsl, opencl, openqasm, qir, kbc (default: c23)")
     print("  --help, -h          Show this help message")
     print("  --version, -v       Show version information")
 }
@@ -174,8 +174,8 @@ func runFile(path) {
         return
     }
 
-    // Generate C11 code
-    let cCode = generate(ast, "c11")
+    // Generate C23 code
+    let cCode = generate(ast, "c23")
 
     // Write to temp file
     let tempPath = "karkain_temp.c"

@@ -1,5 +1,5 @@
 // Phase 40: Self-hosted Karkain Code Generator
-// Generates C99, WGSL, OpenCL, OpenQASM 3.0, QIR, and .kbc bytecode target code
+// Generates C23, WGSL, OpenCL, OpenQASM 3.0, QIR, and .kbc bytecode target code
 // Imports: ast.kark
 
 // ============================================================
@@ -8,7 +8,7 @@
 
 func createCodegenState(target) {
     let state = []
-    state = appendArray(state, target)   // 0: target ("c11", "wgsl", "opencl", "spirv")
+    state = appendArray(state, target)   // 0: target ("c23", "wgsl", "opencl", "spirv")
     state = appendArray(state, "")       // 1: output buffer
     state = appendArray(state, 0)        // 2: indent level
     state = appendArray(state, [])       // 3: errors
@@ -1161,8 +1161,9 @@ func generateForwardDecls(ast) {
 // ============================================================
 
 func generate(ast, target) {
+    if (target == "c23") { return generateC11(ast) }
     if (target == "c11") { return generateC11(ast) }
-    if (target == "c99") { return generateC11(ast) }
+    if (target == "c99") { return generateC11(ast) } // legacy alias
     if (target == "wgsl") { return generateWGSL(ast) }
     if (target == "opencl") { return generateOpenCL(ast) }
     if (target == "openqasm") { return generateOpenQASM(ast) }
