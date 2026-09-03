@@ -14,6 +14,9 @@ NEVER skip this step. This is a hard rule, not optional.
 
 See `ROADMAP.md` for the complete development plan (Phases 50–78).
 Current phase: **post-70** — All Phases 70–78 complete.
+Also completed: **51** — Borrow Checker Lexical Scoping
+(scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
+use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
 Last completed: **70** — SIMD Vector Types & Atomics [closes G7]
 (lane types `[N]f32`/`[N]f64`/`[N]i32`/`[N]i64`, `@simd_splat`/`@simd_load`/`@simd_store`,
 `@atomic_*` + memory orderings, `@aligned(N)`, `<stdatomic.h>`/`<immintrin.h>` preamble).
