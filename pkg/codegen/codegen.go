@@ -102,14 +102,14 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
 			params := []string{}
 			for _, p := range fn.Params {
-			params = append(params, "Value "+p)
-		}
-		retType := "Value"
-		if fn.Name == "main" {
-			retType = "int"
-			params = []string{"int _karkain_argc", "char** _karkain_argv"}
-		}
-		fmt.Fprintf(&sb, "%s %s(%s);\n", retType, fn.Name, strings.Join(params, ", "))
+				params = append(params, "Value "+p)
+			}
+			retType := "Value"
+			if fn.Name == "main" {
+				retType = "int"
+				params = []string{"int _karkain_argc", "char** _karkain_argv"}
+			}
+			fmt.Fprintf(&sb, "%s %s(%s);\n", retType, fn.Name, strings.Join(params, ", "))
 		}
 	}
 	sb.WriteByte('\n')
@@ -2316,16 +2316,16 @@ func (g *Generator) genExpr(node parser.Node) string {
 			args = append(args, g.genExpr(arg))
 		}
 		// Phase 54: closure variables carry an implicit env argument
-	if g.closureVars[n.Function] {
-		return fmt.Sprintf("%s(_genv_%s%s)", n.Function, sanitizeC(n.Function),
-			func() string {
-				if len(args) > 0 {
-					return ", " + strings.Join(args, ", ")
-				}
-				return ""
-			}())
-	}
-	return fmt.Sprintf("%s(%s)", n.Function, strings.Join(args, ", "))
+		if g.closureVars[n.Function] {
+			return fmt.Sprintf("%s(_genv_%s%s)", n.Function, sanitizeC(n.Function),
+				func() string {
+					if len(args) > 0 {
+						return ", " + strings.Join(args, ", ")
+					}
+					return ""
+				}())
+		}
+		return fmt.Sprintf("%s(%s)", n.Function, strings.Join(args, ", "))
 	case *parser.MatrixIndexExpr:
 		// Generate row-major offset calculation: (row * cols + col)
 		matrixExpr := g.genExpr(n.Matrix)
@@ -2369,10 +2369,11 @@ func (g *Generator) genExpr(node parser.Node) string {
 		// Move semantics are enforced at compile time, zero cost at runtime
 		return g.genExpr(n.Operand)
 	case *parser.PropagateExpr:
-		// Phase 50: expr? â€” error propagation operator
-		// Desugar to: if result is Err, return Err; otherwise unwrap Ok value
+		// Phase 50: expr? — error/option propagation operator
+		// If the operand is Result Err or Option None, propagate it as the
+		// function's return value; otherwise unwrap the Ok/Some payload.
 		operand := g.genExpr(n.Operand)
-		return fmt.Sprintf("(({Value _r = %s; if (_r.type == TYPE_RESULT && _r.resVal.tag == 1) return _r; _r.type == TYPE_RESULT ? *_r.resVal.okVal : _r; }))", operand)
+		return fmt.Sprintf("(({Value _r = %s; if (_r.type == TYPE_RESULT && _r.resVal.tag == 1) return _r; if (_r.type == TYPE_OPTION && _r.optVal.tag == 0) return _r; (_r.type == TYPE_RESULT ? *_r.resVal.okVal : (_r.type == TYPE_OPTION ? *_r.optVal.inner : _r)); }))", operand)
 	case *parser.EnumVariantExpr:
 		// Phase 45: EnumName.Variant or EnumName.Variant(payload)
 		if n.Value != nil {
@@ -2630,11 +2631,13 @@ func (g *Generator) genStructDecl(node *parser.StructDeclStmt) string {
 func (g *Generator) genEnumDecl(node *parser.EnumDecl) string {
 	var sb strings.Builder
 
-	// Phase 50: Enum variant constructors â€” all variants use integer tags
 	for i, v := range node.Variants {
 		if v.Payload != "" {
-			// Payload variant: generate a constructor function
-			sb.WriteString(fmt.Sprintf("Value %s_%s_make(Value payload) {\n", node.Name, v.Name))
+			// Payload variant — generate a constructor function.
+			// Naming must match the call site `genEnumVariantExpr` which emits
+			// `%s_make_%s(%s)` (e.g. `Color_make_Red(payload)`), consistent with
+			// the built-in Result constructors `Result_make_Ok`/`Result_make_Err`.
+			sb.WriteString(fmt.Sprintf("Value %s_make_%s(Value payload) {\n", node.Name, v.Name))
 			sb.WriteString(fmt.Sprintf("    (void)payload;\n"))
 			sb.WriteString(fmt.Sprintf("    return make_int(%d);\n", i+1))
 			sb.WriteString(fmt.Sprintf("}\n"))
@@ -2824,4 +2827,3 @@ void matrix_mul_scalar(double* A, double* B, double* C, int64_t rowsA, int64_t c
 }
 `
 }
-

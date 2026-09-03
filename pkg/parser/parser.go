@@ -18,9 +18,9 @@ type Parser struct {
 	l         *lexer.Lexer
 	curToken  lexer.Token
 	peekToken lexer.Token
-	src       string   // Source text for zero-copy token literal access
-	arena     *Arena   // Arena allocator for AST nodes — batch allocation
-	Errors    []string // Phase 19: Parser error tracking
+	src       string          // Source text for zero-copy token literal access
+	arena     *Arena          // Arena allocator for AST nodes — batch allocation
+	Errors    []string        // Phase 19: Parser error tracking
 	enumNames map[string]bool // Phase 45: known enum type names
 }
 
@@ -199,6 +199,43 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 	} else if p.curToken.Type == lexer.TokenBigFloat {
 		typeName = "bigfloat"
 		p.nextToken() // consume bigfloat type
+	} else if p.curToken.Type == lexer.TokenColon {
+		// Colon type annotation: `let n: int = 7` — consume ':' then parse the
+		// type name so the annotation lands in VarDeclStmt.Type instead of being
+		// mis-parsed as the left operand of `int = 7`.
+		p.nextToken() // consume ':'
+		switch {
+		case p.curToken.Type == lexer.TokenAmp:
+			p.nextToken()
+			base := p.curToken.Literal(p.src)
+			p.nextToken()
+			typeName = "&" + base
+		case p.curToken.Type == lexer.TokenStar:
+			p.nextToken()
+			typeName = "*" + p.curToken.Literal(p.src)
+			p.nextToken()
+		case p.curToken.Type == lexer.TokenLBracket:
+			laneType := p.parseSIMDVectorType()
+			if laneType != "" {
+				typeName = laneType
+				isSIMD = true
+			}
+		case p.curToken.Type == lexer.TokenIdent:
+			typeName = p.curToken.Literal(p.src)
+			p.nextToken()
+		case p.curToken.Type == lexer.TokenBool:
+			typeName = p.curToken.Literal(p.src)
+			p.nextToken()
+		case p.curToken.Type == lexer.TokenBigInt:
+			typeName = "bigint"
+			p.nextToken()
+		case p.curToken.Type == lexer.TokenBigFloat:
+			typeName = "bigfloat"
+			p.nextToken()
+		default:
+			typeName = p.curToken.Literal(p.src)
+			p.nextToken()
+		}
 	}
 
 	align := 0
@@ -360,23 +397,33 @@ func (p *Parser) parseStatement() Node {
 	case lexer.TokenMatrix:
 		return p.parseMatrixDecl()
 	case lexer.TokenAlloc:
-		node := &ExprStmt{Expression: p.parseAlloc()}; setNodeLine(node, line); return node
+		node := &ExprStmt{Expression: p.parseAlloc()}
+		setNodeLine(node, line)
+		return node
 	case lexer.TokenFree:
-		node := &ExprStmt{Expression: p.parseFree()}; setNodeLine(node, line); return node
+		node := &ExprStmt{Expression: p.parseFree()}
+		setNodeLine(node, line)
+		return node
 	case lexer.TokenAddr:
-		node := &ExprStmt{Expression: p.parseAddrOf()}; setNodeLine(node, line); return node
+		node := &ExprStmt{Expression: p.parseAddrOf()}
+		setNodeLine(node, line)
+		return node
 	case lexer.TokenQReg:
 		return p.parseQRegDecl()
 	case lexer.TokenGate:
 		return p.parseGateApply()
 	case lexer.TokenMeasure:
-		node := &ExprStmt{Expression: p.parseMeasure()}; setNodeLine(node, line); return node
+		node := &ExprStmt{Expression: p.parseMeasure()}
+		setNodeLine(node, line)
+		return node
 	case lexer.TokenMacro:
 		return p.parseMacro()
 	case lexer.TokenComptime:
 		return p.parseComptimeStmt()
 	case lexer.TokenSpawn:
-		node := &ExprStmt{Expression: p.parseSpawn()}; setNodeLine(node, line); return node
+		node := &ExprStmt{Expression: p.parseSpawn()}
+		setNodeLine(node, line)
+		return node
 	case lexer.TokenReceive:
 		return p.parseReceive()
 	case lexer.TokenBarrier:
@@ -388,23 +435,31 @@ func (p *Parser) parseStatement() Node {
 		p.nextToken() // consume 'continue'
 		return p.arena.AllocContinueStmt()
 	case lexer.TokenFn:
-		node := &ExprStmt{Expression: p.parseLambda()}; setNodeLine(node, line); return node
+		node := &ExprStmt{Expression: p.parseLambda()}
+		setNodeLine(node, line)
+		return node
 	case lexer.TokenIdent:
 		return p.parseIdentStatement()
 	case lexer.TokenImport:
 		cImport := p.parseCImport()
 		if cImport != nil {
-			node := &ExprStmt{Expression: &StringLiteral{Value: cImport.Content}}; setNodeLine(node, line); return node
+			node := &ExprStmt{Expression: &StringLiteral{Value: cImport.Content}}
+			setNodeLine(node, line)
+			return node
 		}
 		return nil
 	case lexer.TokenAt, lexer.TokenAmp, lexer.TokenMove:
 		expr := p.parsePrimaryExpr()
 		if expr != nil {
-			node := &ExprStmt{Expression: expr}; setNodeLine(node, line); return node
+			node := &ExprStmt{Expression: expr}
+			setNodeLine(node, line)
+			return node
 		}
 		return nil
 	case lexer.TokenMatch:
-		node := &ExprStmt{Expression: p.parseMatchExpr()}; setNodeLine(node, line); return node
+		node := &ExprStmt{Expression: p.parseMatchExpr()}
+		setNodeLine(node, line)
+		return node
 	case lexer.TokenLBrace:
 		p.nextToken() // consume '{'
 		stmts := p.parseBlock()
@@ -416,7 +471,9 @@ func (p *Parser) parseStatement() Node {
 		lexer.TokenTrue, lexer.TokenFalse:
 		expr := p.parseExpr()
 		if expr != nil {
-			node := &ExprStmt{Expression: expr}; setNodeLine(node, line); return node
+			node := &ExprStmt{Expression: expr}
+			setNodeLine(node, line)
+			return node
 		}
 		return nil
 	default:
@@ -728,12 +785,12 @@ func (p *Parser) parseIdentStatement() Node {
 				}
 				p.advanceIfStalled(start, "function call arguments")
 			}
-		p.nextToken() // consume ')'
-		return p.exprStmtAt(&CallExpr{
-			Function: ident + "." + rightIdent,
-			Args:     args,
-			IsCFunc:  ident == "C",
-		}, line)
+			p.nextToken() // consume ')'
+			return p.exprStmtAt(&CallExpr{
+				Function: ident + "." + rightIdent,
+				Args:     args,
+				IsCFunc:  ident == "C",
+			}, line)
 		}
 		dotExpr := &DotExpr{Left: left, Right: rightIdent}
 		// Phase 52: Chain nested field access — a.b.c
@@ -1413,8 +1470,8 @@ func (p *Parser) parseEnumDecl() *EnumDecl {
 	p.nextToken() // consume 'enum'
 	name := p.curToken.Literal(p.src)
 	p.enumNames[name] = true // register enum name
-	p.nextToken() // consume enum name
-	p.nextToken() // consume '{'
+	p.nextToken()            // consume enum name
+	p.nextToken()            // consume '{'
 
 	variants := []EnumVariant{}
 	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
@@ -1714,7 +1771,7 @@ func (p *Parser) parseMatrixDecl() *VarDeclStmt {
 	p.nextToken() // consume ']'
 
 	dataType := p.curToken.Literal(p.src) // e.g., "float64"
-	p.nextToken()                  // consume type
+	p.nextToken()                         // consume type
 
 	// Variable name should come next
 	name := p.curToken.Literal(p.src)
@@ -1804,7 +1861,7 @@ func (p *Parser) parseMatrixDeclInternal() *MatrixDecl {
 	p.nextToken() // consume ']'
 
 	dataType := p.curToken.Literal(p.src) // e.g., "float64"
-	p.nextToken()                  // consume type
+	p.nextToken()                         // consume type
 
 	return &MatrixDecl{
 		Rows:     rows,
