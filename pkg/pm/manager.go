@@ -411,7 +411,19 @@ func FetchModule(projectDir string, dep Dependency) error {
 		}
 
 	case "registry", "":
-		return fmt.Errorf("registry fetching not yet implemented for %q", dep.Name)
+		if dep.Name == "" {
+			return fmt.Errorf("registry dependency requires a name")
+		}
+		// Resolve the version constraint to an exact published version, then
+		// download from the registry into the temp dir.
+		c := NewRegistryClient()
+		resolved, err := c.ResolveVersion(dep.Name, dep.Version)
+		if err != nil {
+			return err
+		}
+		if err := FetchFromRegistry(dep.Name, resolved, tmpDir); err != nil {
+			return err
+		}
 
 	default:
 		return fmt.Errorf("unknown source type %q for dependency %q", dep.Source, dep.Name)
