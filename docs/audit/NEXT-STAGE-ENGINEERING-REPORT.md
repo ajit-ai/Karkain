@@ -81,14 +81,47 @@ Production compile pipeline (what `karkain build/run/check/test` actually run):
 3. **No fake features:** registry publish, Git fetch, NPU execution, GPU execution remain explicit stubs/errors, not faked.
 4. **Do not weaken correctness:** the borrow-checker fix restores correct treatment of function parameters; genuine ownership violations (e.g. move-then-use of a parameter) are still rejected (regression-tested).
 
+## D2. PM→compiler integration: project-aware source resolution (added subsequent pass)
+
+The package manager and the compiler were disconnected: `build`/`run` joined only
+same-directory sibling `.kark` files and ignored `karkain.toml`/deps. This pass
+wired the compiler to the package graph *without changing the language grammar*:
+
+- New `resolveSources` (used by `RunCommand` and `BuildCommand`): if the root
+  file is inside a project (`karkain.toml` found), it emits, in deterministic
+  order, the sources of resolved **local** dependencies (upstream), then the
+  project's own sibling modules, then the root file last, deduplicating by path.
+- Non-project builds fall back to the classic sibling-join — byte-identical to
+  prior behaviour (verified by test).
+- `projectSourceFiles` refuses `go.mod`-only roots (so Go-tree dirs are not
+  misread as Karkain projects).
+- Registry/git dependencies keep their existing "not yet available" semantics
+  and contribute no sources (their module layout is not yet formalized).
+
+E2E verified: a temp project `main` → `helper` (sibling) → `lib_add` (local dep)
+compiles and runs, printing `42`.
+
+### Bonus fix: UTF-8 BOM handling (found while verifying)
+
+Concatenating sibling files that started with a UTF-8 BOM (common on Windows
+editors) silently **dropped the first declaration** — the lexer treated the
+BOM-prefixed `func` as an unknown identifier, so the first function never made
+it into `prog.Statements`. `lexer.New` now strips a leading BOM. Regression
+tests added. This was a latent pre-existing bug, exposed by the new project
+assembler feeding scope-checked files.
+
 ## E. Implemented Changes
 
 | File | Purpose | Architectural reason |
 |------|---------|----------------------|
 | `pkg/sema/borrow_checker.go` | `checkFuncDecl` now declares each function parameter as an owned live binding in the function scope | Correct ownership semantics: a param is alive for its body; previously params were never declared, so referencing a param whose name an earlier function had marked dead produced false "use after scope has ended". This was the self-hosting blocker. |
 | `pkg/sema/borrow_checker_test.go` | Regression tests: param live on first statement, across independent functions, after branches; plus genuine param-move still rejected | Protect the fix from regression without weakening ownership checking. |
+| `pkg/cli/commands.go` | `resolveSources` + `projectSourceFiles`: project-aware, deterministic, deduplicated source assembly wired into `build`/`run` | Closes the package-manager→compiler gap without changing grammar; pulls local dependency sources upstream; non-project builds stay byte-identical. |
+| `pkg/cli/module_resolve_test.go` | Unit tests for `resolveSources`: non-project fallback parity, project dep/sibling/main ordering, single-root dedup | Lock in deterministic project-aware assembly and backward compatibility. |
+| `pkg/lexer/lexer.go` | Strip a leading UTF-8 BOM in `New` | A BOM-prefixed first line corrupted the first token and silently dropped the first declaration when sibling files were concatenated. |
+| `pkg/lexer/lexer_test.go` | BOM regression tests (`TestLeadingBOMSkipped`, `TestBOMDoesNotDropLeadingFunc`) | Guard the BOM fix. |
 
-No other source changes. No fake implementations introduced.
+No fake implementations introduced.
 
 ## F. Tests
 
@@ -136,17 +169,17 @@ resolver        PASS (implemented)
 lockfile        PASS (implemented)
 fetch           PASS (implemented, atomic)
 cache           PASS (implemented, checksum)
-build integration MISSING (see I)
-run integration MISSING (see I)
-check integration MISSING (see I)
+build integration NOW WIRED (local deps + sibling modules, see D2)
+run integration  NOW WIRED (same resolver as build)
+check integration PARTIAL (still single-file; see I)
 test integration MISSING (see I)
 ```
 
 ## I. Remaining Blockers (ranked)
 
 - **P0:** (resolved) borrow-checker param false-positive → fixed.
-- **P0/P1:** **Module + import system.** Karkain has no language-level module import. Until it exists, the package manager's resolved dependency graph cannot be consumed by `build/run/check/test`. This is a language-design decision, not a wiring change. (Design-gated — do not invent syntax speculatively.)
-- **P1:** Express `src/compiler` self-hosting as a first-class build; formalize the C ABI spec doc.
+- **P0:** (resolved) PM→compiler gap partially closed — `build`/`run` now include local dependency + sibling sources via `resolveSources`. Registry/git deps and a full **pub/private module/import language** still require a language-design decision (whole-program name-resolution pass is a V1 MUST-HAVE that is not yet implemented; full module/visibility is a V1 SHOULD-HAVE gated behind it). Deferred with this evidence, not invented speculatively.
+- **P1:** Wire `check`/`test` to the same project-aware resolver; formalize the C ABI spec doc; consider registry/git module layout.
 - **P2:** Registry/JSON + publish tarball; Git fetch; workspace build/test (currently stubs).
 - **P3:** Math IR wiring or explicit retirement; SIMD arithmetic vectorization + optimizer; GPU/NPU real execution.
 - **P4:** async/await, defer, const, pub, methods/overloading, macros expansion runtime.

@@ -7,11 +7,13 @@ import (
 	"karkain/pkg/diagnostics"
 	"karkain/pkg/lexer"
 	"karkain/pkg/parser"
+	"karkain/pkg/pm"
 	"karkain/pkg/sema"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -29,7 +31,7 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 		return CommandResult{ExitCode: 1, Message: err.Error()}
 	}
 
-	sourceText, err := loadSourceWithSiblings(targetFile)
+	sourceText, err := resolveSources(targetFile)
 	if err != nil {
 		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error reading file: %v", err)}
 	}
@@ -68,7 +70,7 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 		return CommandResult{ExitCode: 1, Message: err.Error()}
 	}
 
-	sourceText, err := loadSourceWithSiblings(targetFile)
+	sourceText, err := resolveSources(targetFile)
 	if err != nil {
 		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error reading file: %v", err)}
 	}
@@ -283,6 +285,138 @@ func loadSourceWithSiblings(targetFile string) (string, error) {
 	}
 	fullContent.WriteString(string(content))
 	return fullContent.String(), nil
+}
+
+// resolveSources builds the concatenated Karkain source for a root file.
+//
+// Non-project builds behave exactly like loadSourceWithSiblings: the root file
+// plus its same-directory sibling modules (without `func main`) joined in
+// sorted, deterministic order.
+//
+// Project builds (a karkain.toml is found at or above the root file) also pull
+// in the sources of resolved *local* dependencies, mirroring the endorsed
+// project layout. Local dependency sources are emitted BEFORE the project's own
+// modules and the root file, so dependencies are defined upstream of what
+// consumes them. Each source file is included at most once. Registry and git
+// dependencies keep their existing "not yet available" semantics and do not
+// contribute sources (their module layout is not yet formalized).
+func resolveSources(targetFile string) (string, error) {
+	cleanPath := filepath.Clean(targetFile)
+	if info, err := os.Stat(cleanPath); err == nil && info.IsDir() {
+		cleanPath = filepath.Join(cleanPath, "main.kark")
+	}
+
+	files, err := projectSourceFiles(cleanPath)
+	if err != nil {
+		// Not (or not fully) inside a resolvable Karkain project: fall back to
+		// the classic sibling-join, which is also the deterministic order for
+		// the non-project case.
+		return loadSourceWithSiblings(cleanPath)
+	}
+
+	funcMainRegex := regexp.MustCompile(`(?m)^\s*func\s+main\s*\(`)
+	var sb strings.Builder
+	seen := map[string]bool{}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		if funcMainRegex.Match(data) {
+			continue // keep only the root file as the entry point
+		}
+		absp, _ := filepath.Abs(f)
+		if seen[absp] {
+			continue
+		}
+		seen[absp] = true
+		sb.Write(data)
+		sb.WriteString("\n\n")
+	}
+
+	// The root file is the entry point and is appended last, always.
+	rp, _ := filepath.Abs(cleanPath)
+	if !seen[rp] {
+		if data, err := os.ReadFile(cleanPath); err == nil {
+			sb.Write(data)
+		}
+	}
+	return sb.String(), nil
+}
+
+// projectSourceFiles returns the deterministic, deduplicated list of module
+// source files to compile for the given root file inside a project: local
+// dependency sources (upstream) then the project's sibling modules (root file
+// excluded; added separately). It returns an error when the file is not inside
+// a resolvable Karkain project.
+func projectSourceFiles(rootFile string) ([]string, error) {
+	projectDir, err := pm.FindProjectRoot(filepath.Dir(rootFile))
+	if err != nil {
+		return nil, err
+	}
+	// Only a Karkain project (karkain.toml) drives project-aware assembly. A
+	// go.mod-rooted directory (FindProjectRoot also matches go.mod) must not be
+	// treated as a Karkain project.
+	manifestPath := filepath.Join(projectDir, pm.ManifestFile)
+	if _, serr := os.Stat(manifestPath); serr != nil {
+		return nil, fmt.Errorf("not a Karkain project: %w", serr)
+	}
+
+	var order []string
+	added := map[string]bool{}
+
+	addSortedKark := func(dir string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		names := []string{}
+		for _, e := range entries {
+			if !e.IsDir() && filepath.Ext(e.Name()) == ".kark" {
+				names = append(names, e.Name())
+			}
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			p := filepath.Join(dir, n)
+			ap, _ := filepath.Abs(p)
+			if added[ap] {
+				continue
+			}
+			added[ap] = true
+			order = append(order, p)
+		}
+	}
+
+	// 1. Local dependency sources, upstream.
+	if m, merr := pm.ParseManifest(manifestPath); merr == nil {
+		depNames := make([]string, 0, len(m.Dependencies))
+		for name := range m.Dependencies {
+			depNames = append(depNames, name)
+		}
+		sort.Strings(depNames)
+		for _, name := range depNames {
+			dep := m.Dependencies[name]
+			if dep.Source != "local" {
+				continue
+			}
+			depRoot := dep.URL
+			if !filepath.IsAbs(depRoot) {
+				depRoot = filepath.Join(projectDir, depRoot)
+			}
+			if info, ierr := os.Stat(depRoot); ierr == nil && info.IsDir() {
+				// Mirror the endorsed project layout: sources live at the
+				// dependency root and/or its src/ subdirectory.
+				addSortedKark(depRoot)
+				addSortedKark(filepath.Join(depRoot, "src"))
+			}
+		}
+	}
+
+	// 2. Project sibling modules (target file's directory), root excluded.
+	addSortedKark(filepath.Dir(rootFile))
+
+	return order, nil
 }
 
 func parseSource(sourceText string, verbose bool) *parser.Program {

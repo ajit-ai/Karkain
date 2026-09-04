@@ -182,7 +182,15 @@ func (l *Lexer) GetInputBytes() []byte {
 }
 
 func New(input string) *Lexer {
-	l := &Lexer{Input: []byte(input), Line: 1, Col: 1}
+	// Strip a leading UTF-8 byte-order mark (EF BB BF) if present. A BOM is
+	// not a token; without skipping it, the first token of a file would be
+	// corrupted (e.g. a `func` becoming an unknown identifier), silently
+	// dropping the first declaration when sibling .kark files are concatenated.
+	b := []byte(input)
+	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
+		b = b[3:]
+	}
+	l := &Lexer{Input: b, Line: 1, Col: 1}
 	l.readChar()
 	return l
 }
