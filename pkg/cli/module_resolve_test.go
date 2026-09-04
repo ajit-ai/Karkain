@@ -117,3 +117,53 @@ func TestResolveSources_ProjectSkipsRootSibling(t *testing.T) {
 		t.Errorf("expected single main, got %q", got)
 	}
 }
+
+// TestResolveSources_RegistryDepAssemblesFromCache verifies a registry
+// dependency that has been fetch()ed into the project cache contributes its
+// .kark sources to project build/run/check assembly.
+func TestResolveSources_RegistryDepAssemblesFromCache(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifestContent := "[dependencies]\nrlib = { version = \"3.0.0\", source = \"registry\" }\n"
+	if err := os.WriteFile(filepath.Join(root, "karkain.toml"), []byte(manifestContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainFile := filepath.Join(root, "src", "main.kark")
+	if err := os.WriteFile(mainFile, []byte("func main() {\n  print(1)\n}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Not yet fetched -> assembled source contains only main.
+	got, err := resolveSources(mainFile)
+	if err != nil {
+		t.Fatalf("resolveSources: %v", err)
+	}
+	if strings.Contains(got, "rlib_internal_helper") {
+		t.Fatalf("unfetched registry dep should not contribute source, got marker:\n%q", got)
+	}
+
+	// Seed the fetched cache at the source-aware identity name@version.
+	cacheDir := filepath.Join(root, ".karkain", "cache", "rlib@3.0.0")
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "rlib.kark"), []byte("func rlib_internal_helper(x) { return x }\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now the registry dep source must be assembled, upstream of main.
+	got, err = resolveSources(mainFile)
+	if err != nil {
+		t.Fatalf("resolveSources after fetch: %v", err)
+	}
+	depIdx := strings.Index(got, "rlib_internal_helper")
+	mainIdx := strings.Index(got, "func main")
+	if depIdx == -1 {
+		t.Fatalf("fetched registry dep should contribute source, got:\n%q", got)
+	}
+	if depIdx > mainIdx {
+		t.Errorf("registry dep source must appear before main, depIdx=%d mainIdx=%d", depIdx, mainIdx)
+	}
+}

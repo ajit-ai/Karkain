@@ -472,28 +472,24 @@ func projectSourceFiles(rootFile string) ([]string, error) {
 		}
 	}
 
-	// 1. Local dependency sources, upstream.
-	if m, merr := pm.ParseManifest(manifestPath); merr == nil {
-		depNames := make([]string, 0, len(m.Dependencies))
-		for name := range m.Dependencies {
-			depNames = append(depNames, name)
+	// 1. Dependency sources, upstream (deterministic, sorted-by-name).
+	//    Local/workspace deps resolve to their canonical source path; registry
+	//    and git deps to their fetched cache dir. Dev-dependencies are
+	//    excluded. Sources are only included when the dependency is present on
+	//    disk (a registry/git dep must first be `fetch`ed / `update`n).
+	for _, ds := range pm.DependencySources(projectDir) {
+		if !ds.Cached && ds.Source != string(pm.SourceLocal) && ds.Source != string(pm.SourceWorkspace) {
+			continue // registry/git dep not fetched; nothing to assemble
 		}
-		sort.Strings(depNames)
-		for _, name := range depNames {
-			dep := m.Dependencies[name]
-			if dep.Source != "local" {
-				continue
-			}
-			depRoot := dep.URL
-			if !filepath.IsAbs(depRoot) {
-				depRoot = filepath.Join(projectDir, depRoot)
-			}
-			if info, ierr := os.Stat(depRoot); ierr == nil && info.IsDir() {
-				// Mirror the endorsed project layout: sources live at the
-				// dependency root and/or its src/ subdirectory.
-				addSortedKark(depRoot)
-				addSortedKark(filepath.Join(depRoot, "src"))
-			}
+		depRoot := ds.Dir
+		if depRoot == "" {
+			continue
+		}
+		if info, ierr := os.Stat(depRoot); ierr == nil && info.IsDir() {
+			// Mirror the endorsed project layout: sources live at the
+			// dependency root and/or its src/ subdirectory.
+			addSortedKark(depRoot)
+			addSortedKark(filepath.Join(depRoot, "src"))
 		}
 	}
 
