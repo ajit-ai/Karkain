@@ -12,9 +12,10 @@ import (
 type GraphNode struct {
 	Name     string
 	Version  string
-	Source   string // "registry", "git", "local"
+	Source   string // "registry", "git", "local", "workspace"
 	URL      string
-	Direct   bool // true if a direct dependency of the root project
+	Rev      string // resolved immutable git commit (Source == "git" only)
+	Direct   bool   // true if a direct dependency of the root project
 	Children []string
 }
 
