@@ -21,14 +21,14 @@ const (
 
 // Manifest represents a parsed karkain.toml project manifest.
 type Manifest struct {
-	Name           string
-	Version        string
-	Author         string
-	Description    string
-	License        string
-	Repository     string
-	Targets        []string
-	Dependencies   map[string]Dependency
+	Name            string
+	Version         string
+	Author          string
+	Description     string
+	License         string
+	Repository      string
+	Targets         []string
+	Dependencies    map[string]Dependency
 	DevDependencies map[string]Dependency
 }
 
@@ -70,7 +70,7 @@ func ParseManifest(path string) (*Manifest, error) {
 	defer f.Close()
 
 	m := &Manifest{
-		Dependencies:   make(map[string]Dependency),
+		Dependencies:    make(map[string]Dependency),
 		DevDependencies: make(map[string]Dependency),
 	}
 
@@ -373,7 +373,20 @@ func ResolveModule(projectDir, importPath string) (string, error) {
 // as valid in the cache. On success it writes a checksum record for the
 // fetched package.
 func FetchModule(projectDir string, dep Dependency) error {
-	cacheDir := filepath.Join(projectDir, CacheModules, dep.Name)
+	// Resolve a git revision up front so the cache identity is source+rev aware.
+	rev := ""
+	if dep.Source == "git" {
+		if dep.URL == "" {
+			return fmt.Errorf("git dependency %q requires a url", dep.Name)
+		}
+		res, _, err := ResolveGitRevision(dep.URL, dep.Version, "")
+		if err != nil {
+			return err
+		}
+		rev = res.SHA
+	}
+
+	cacheDir := filepath.Join(projectDir, CacheModules, cacheDirName(dep, rev))
 	if err := os.MkdirAll(filepath.Join(projectDir, CacheModules), 0755); err != nil {
 		return fmt.Errorf("cannot create cache dir: %w", err)
 	}
@@ -395,18 +408,11 @@ func FetchModule(projectDir string, dep Dependency) error {
 		}
 
 	case "git":
-		if dep.URL == "" {
-			return fmt.Errorf("git dependency %q requires a url", dep.Name)
-		}
-		res, _, err := ResolveGitRevision(dep.URL, dep.Version, "")
-		if err != nil {
-			return err
-		}
-		if err := fetchGitAt(dep.URL, dep.Version, "", tmpDir); err != nil {
+		if err := cloneAtRev(dep.URL, rev, "", tmpDir); err != nil {
 			return err
 		}
 		// Record the resolved immutable commit for the cached package.
-		if err := WriteRevFile(tmpDir, res.SHA); err != nil {
+		if err := WriteRevFile(tmpDir, rev); err != nil {
 			return err
 		}
 
@@ -429,20 +435,10 @@ func FetchModule(projectDir string, dep Dependency) error {
 		return fmt.Errorf("unknown source type %q for dependency %q", dep.Source, dep.Name)
 	}
 
-	// Verify the temp result is non-empty before promoting.
-	if err := validateFetched(tmpDir); err != nil {
+	// Verify the temp result is non-empty before promoting, atomically moves it
+	// into the cache, and records a checksum.
+	if err := writeChecksumAndPromote(projectDir, tmpDir, cacheDir); err != nil {
 		return err
-	}
-
-	// Promote: remove any existing stale cache dir, then rename.
-	_ = os.RemoveAll(cacheDir)
-	if err := os.Rename(tmpDir, cacheDir); err != nil {
-		return fmt.Errorf("cannot move fetched package into cache: %w", err)
-	}
-
-	// Record integrity checksum for the cached package.
-	if err := WriteChecksumFile(cacheDir); err != nil {
-		return fmt.Errorf("cannot write checksum for cached package: %w", err)
 	}
 	return nil
 }
