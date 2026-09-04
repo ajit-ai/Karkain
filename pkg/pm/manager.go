@@ -21,13 +21,15 @@ const (
 
 // Manifest represents a parsed karkain.toml project manifest.
 type Manifest struct {
-	Name         string
-	Version      string
-	Author       string
-	Description  string
-	License      string
-	Targets      []string
-	Dependencies map[string]Dependency
+	Name           string
+	Version        string
+	Author         string
+	Description    string
+	License        string
+	Repository     string
+	Targets        []string
+	Dependencies   map[string]Dependency
+	DevDependencies map[string]Dependency
 }
 
 // Dependency represents a single dependency entry.
@@ -68,7 +70,8 @@ func ParseManifest(path string) (*Manifest, error) {
 	defer f.Close()
 
 	m := &Manifest{
-		Dependencies: make(map[string]Dependency),
+		Dependencies:   make(map[string]Dependency),
+		DevDependencies: make(map[string]Dependency),
 	}
 
 	section := "" // current section header, e.g. "[dependencies]"
@@ -111,6 +114,8 @@ func ParseManifest(path string) (*Manifest, error) {
 				m.Description = val
 			case "license":
 				m.License = val
+			case "repository":
+				m.Repository = val
 			case "targets":
 				m.Targets = parseStringArray(val)
 			}
@@ -118,6 +123,9 @@ func ParseManifest(path string) (*Manifest, error) {
 		case section == "dependencies":
 			dep := parseDependency(key, val)
 			m.Dependencies[key] = dep
+		case section == "dev-dependencies":
+			dep := parseDependency(key, val)
+			m.DevDependencies[key] = dep
 		}
 	}
 
@@ -143,6 +151,9 @@ func WriteManifest(path string, m *Manifest) error {
 	if m.License != "" {
 		sb.WriteString(fmt.Sprintf("license = %q\n", m.License))
 	}
+	if m.Repository != "" {
+		sb.WriteString(fmt.Sprintf("repository = %q\n", m.Repository))
+	}
 	if len(m.Targets) > 0 {
 		sb.WriteString(fmt.Sprintf("targets = [%s]\n", formatStringArray(m.Targets)))
 	}
@@ -157,6 +168,25 @@ func WriteManifest(path string, m *Manifest) error {
 		sort.Strings(keys)
 		for _, k := range keys {
 			dep := m.Dependencies[k]
+			if dep.URL != "" {
+				sb.WriteString(fmt.Sprintf("%s = { version = %q, source = %q, url = %q }\n",
+					k, dep.Version, dep.Source, dep.URL))
+			} else {
+				sb.WriteString(fmt.Sprintf("%s = { version = %q, source = %q }\n",
+					k, dep.Version, dep.Source))
+			}
+		}
+	}
+
+	if len(m.DevDependencies) > 0 {
+		sb.WriteString("\n[dev-dependencies]\n")
+		keys := make([]string, 0, len(m.DevDependencies))
+		for k := range m.DevDependencies {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			dep := m.DevDependencies[k]
 			if dep.URL != "" {
 				sb.WriteString(fmt.Sprintf("%s = { version = %q, source = %q, url = %q }\n",
 					k, dep.Version, dep.Source, dep.URL))
@@ -658,11 +688,36 @@ func FindProjectRoot(startDir string) (string, error) {
 }
 
 // ValidateManifest checks a manifest for common issues.
+// validPackageName reports whether name is a valid Karkain package identifier:
+// lowercase alphanumeric plus '-' or '_', non-empty, must not start or end with
+// a separator, and must be a valid file basename. This is the package identity
+// rule — separate from file/module naming.
+func validPackageName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	if name[0] == '-' || name[0] == '_' || name[len(name)-1] == '-' || name[len(name)-1] == '_' {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// ValidateManifest reports validation issues for a manifest. It is additive and
+// backward compatible: manifests that previously validated still validate unless
+// they actually violate a package-identity or dependency rule.
 func ValidateManifest(m *Manifest) []string {
 	var issues []string
 
 	if m.Name == "" {
 		issues = append(issues, "project name is required")
+	} else if !validPackageName(m.Name) {
+		issues = append(issues, fmt.Sprintf("project name %q is not a valid package name (lowercase alphanumeric plus '-' or '_')", m.Name))
 	}
 	if m.Version == "" {
 		issues = append(issues, "project version is required (e.g., \"0.1.0\")")
@@ -673,11 +728,34 @@ func ValidateManifest(m *Manifest) []string {
 			issues = append(issues, fmt.Sprintf("version %q does not follow semver (expected X.Y.Z)", m.Version))
 		}
 	}
-	for name, dep := range m.Dependencies {
-		if dep.Source != "registry" && dep.Source != "git" && dep.Source != "local" {
-			issues = append(issues, fmt.Sprintf("dependency %q has unknown source %q", name, dep.Source))
+
+	validateDeps := func(deps map[string]Dependency, class string) {
+		seen := make(map[string]bool)
+		for name, dep := range deps {
+			if !validPackageName(name) {
+				issues = append(issues, fmt.Sprintf("%s dependency %q is not a valid package name", class, name))
+			}
+			if seen[name] {
+				issues = append(issues, fmt.Sprintf("duplicate %s dependency %q", class, name))
+			}
+			seen[name] = true
+			if dep.Source != "registry" && dep.Source != "git" && dep.Source != "local" && dep.Source != "workspace" {
+				issues = append(issues, fmt.Sprintf("%s dependency %q has unknown source %q (expected registry, git, local, or workspace)", class, name, dep.Source))
+			}
+			if dep.Source == "git" && dep.URL == "" {
+				issues = append(issues, fmt.Sprintf("%s dependency %q with source \"git\" requires a url", class, name))
+			}
+			if dep.Source == "local" && dep.URL == "" {
+				issues = append(issues, fmt.Sprintf("%s dependency %q with source \"local\" requires a url (path)", class, name))
+			}
+			if dep.Version == "" {
+				issues = append(issues, fmt.Sprintf("%s dependency %q is missing a version", class, name))
+			}
 		}
 	}
+
+	validateDeps(m.Dependencies, "production")
+	validateDeps(m.DevDependencies, "dev")
 
 	return issues
 }
