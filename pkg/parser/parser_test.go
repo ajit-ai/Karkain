@@ -176,6 +176,76 @@ func TestIndexThenOperator(t *testing.T) {
 		t.Fatalf("expected inner BinaryExpr '+' as left, got %T", bin.Left)
 	}
 	if _, ok := leftBin.Left.(*IndexExpr); !ok {
-		t.Fatalf("expected IndexExpr at left of inner binary, got %T", leftBin.Left)
+		t.Fatalf("expected IndexExpr at left of inner binary, got %T", bin.Left)
+	}
+}
+
+func TestParser_PublicModifier(t *testing.T) {
+	prog := parseSource(t, "public func foo() {\n  print(1)\n}\nfunc bar() {\n  print(2)\n}\n")
+	if len(prog.Statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(prog.Statements))
+	}
+	fn0, ok := prog.Statements[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	if !fn0.Public {
+		t.Error("expected foo to be Public")
+	}
+	fn1, ok := prog.Statements[1].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[1])
+	}
+	if fn1.Public {
+		t.Error("expected bar to NOT be Public")
+	}
+}
+
+func TestParser_PublicStruct(t *testing.T) {
+	prog := parseSource(t, "public type Foo {\n  x: int\n}\ntype Bar {\n  y: int\n}\n")
+	if len(prog.Statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(prog.Statements))
+	}
+	s0, ok := prog.Statements[0].(*StructDeclStmt)
+	if !ok {
+		t.Fatalf("expected StructDeclStmt, got %T", prog.Statements[0])
+	}
+	if !s0.Public {
+		t.Error("expected Foo to be Public")
+	}
+	s1, ok := prog.Statements[1].(*StructDeclStmt)
+	if !ok {
+		t.Fatalf("expected StructDeclStmt, got %T", prog.Statements[1])
+	}
+	if s1.Public {
+		t.Error("expected Bar to NOT be Public")
+	}
+}
+
+func TestParser_PublicEnum(t *testing.T) {
+	prog := parseSource(t, "public enum Color {\n  Red\n  Blue\n}\nenum Shape {\n  Circle\n}\n")
+	if len(prog.Statements) != 2 {
+		t.Fatalf("expected 2 statements, got %d", len(prog.Statements))
+	}
+	e0, ok := prog.Statements[0].(*EnumDecl)
+	if !ok {
+		t.Fatalf("expected EnumDecl, got %T", prog.Statements[0])
+	}
+	if !e0.Public {
+		t.Error("expected Color to be Public")
+	}
+	e1, ok := prog.Statements[1].(*EnumDecl)
+	if !ok {
+		t.Fatalf("expected EnumDecl, got %T", prog.Statements[1])
+	}
+	if e1.Public {
+		t.Error("expected Shape to NOT be Public")
+	}
+}
+
+func TestParser_PublicErrorOnInvalidTarget(t *testing.T) {
+	prog := parseSource(t, "public let x = 1\n")
+	if len(prog.Statements) != 0 {
+		t.Errorf("expected 0 valid statements after public error, got %d", len(prog.Statements))
 	}
 }

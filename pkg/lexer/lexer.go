@@ -120,6 +120,7 @@ const (
 	TokenSIMD   TokenType = "SIMD"
 	TokenEnum   TokenType = "ENUM"
 	TokenFn     TokenType = "FN" // Phase 48: lambda/function pointers
+	TokenPub    TokenType = "PUB" // Phase 80: visibility modifiers
 )
 
 var keywords = map[string]TokenType{
@@ -569,6 +570,8 @@ func lookupIdent(ident string) TokenType {
 		return TokenEnum
 	case "fn":
 		return TokenFn
+	case "public":
+		return TokenPub
 	case "in":
 		return TokenIn
 	case "break":

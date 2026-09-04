@@ -212,6 +212,13 @@ test integration NOW WIRED (project-aware module scope, see D2)
   false positives across the full test suite + self-hosting stages. Design doc:
   `docs/audit/NAME-RESOLUTION-DESIGN.md`. Full pub/private/import module system
   (Option A) deferred as a separate sign-off.
+- **P1:** (done) `public` visibility modifier (Phase 7 — Option A foundation).
+  Adds `TokenPub` lexer token, `Public bool` on `FuncDecl`/`StructDeclStmt`/`EnumDecl`,
+  parser grammar for `public func`/`public struct`/`public enum`, and a
+  SourceMap-aware resolver that enforces visibility (private names inaccessible
+  from different source files) only when any declaration carries `public`.
+  Opt-in: existing code without `public` compiles identically. Parser also now
+  populates the `Line` field on top-level declarations (previously always 0).
 - **P1:** (doc-written) `docs/audit/C-ABI.md` formalizes the three-runtime boundary; legacy `src/compiler/runtime.c` confirmed dead/unlinked and the misleading bootstrap param removed.
 - **P2:** Registry/JSON + publish tarball; Git fetch; workspace build/test (currently stubs).
 - **P3:** Math IR wiring or explicit retirement; SIMD arithmetic vectorization + optimizer; GPU/NPU real execution.
