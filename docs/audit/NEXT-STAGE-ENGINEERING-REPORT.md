@@ -105,9 +105,29 @@ Results: PASS (all). Borrow-checker regression suite (incl. new param tests): PA
 Stage 1 (Go compiler → main.kark → C → gcc):   PASS
 Stage 2 (self-hosted stage1 builds stage2):     PASS
 Argument propagation (run karkain build/run):   PASS
-Bitwise identity:                               (in progress / see report tail)
+Bitwise identity (stage2 == stage3, byte-identical): PASS
 ```
 Self-hosting was unblocked by fixing the borrow checker, not by weakening it.
+Determinism was completed by making the gcc/MinGW link step reproducible.
+
+### Bitwise-identity root cause & fix (added subsequent pass)
+
+The bitwise-identity test (`pkg/bootstrap`) asserts stage2 and stage3 are byte
+identical. After the borrow-checker fix, all stages built and the generated C
+reached a **fixed point** (stage2-C == stage3-C), but the **binaries differed**.
+
+Root cause (empirically proven): the failure was NOT in Karkain codegen. gcc on
+MSYS2/MinGW (GNU ld, binutils >= 2.40) embeds the wall-clock time into the PE
+TimeDateStamp of each linked binary unless `SOURCE_DATE_EPOCH` is set, so
+compiling the *identical* C file twice (default and `-O0`) produced
+byte-different executables. Karkain's codegen was already a deterministic fixed
+point.
+
+Fix (`pkg/bootstrap/bootstrap.go`): inject a fixed `SOURCE_DATE_EPOCH`
+(`1072915200` = 2004-01-01) into every child process (gcc link, go build) unless
+the caller already exports one. Result: stage2 SHA == stage3 SHA
+(`4fb8ec32dee06982`), and the full bootstrap suite (args, Stage 1, Stage 2,
+Bitwise Identity) is green.
 
 ## H. Package Manager
 
