@@ -398,7 +398,15 @@ func FetchModule(projectDir string, dep Dependency) error {
 		if dep.URL == "" {
 			return fmt.Errorf("git dependency %q requires a url", dep.Name)
 		}
-		if err := fetchGit(dep.URL, dep.Version, tmpDir); err != nil {
+		res, _, err := ResolveGitRevision(dep.URL, dep.Version, "")
+		if err != nil {
+			return err
+		}
+		if err := fetchGitAt(dep.URL, dep.Version, "", tmpDir); err != nil {
+			return err
+		}
+		// Record the resolved immutable commit for the cached package.
+		if err := WriteRevFile(tmpDir, res.SHA); err != nil {
 			return err
 		}
 
@@ -634,10 +642,6 @@ func fetchLocal(srcPath, destDir string) error {
 
 	destFile := filepath.Join(destDir, filepath.Base(srcPath))
 	return os.WriteFile(destFile, data, 0644)
-}
-
-func fetchGit(url, version, destDir string) error {
-	return fmt.Errorf("git fetch not yet implemented (would clone %s @ %s)", url, version)
 }
 
 func copyDir(src, dst string) error {
