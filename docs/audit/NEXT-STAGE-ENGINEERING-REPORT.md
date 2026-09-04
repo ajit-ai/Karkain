@@ -178,8 +178,9 @@ test integration MISSING (see I)
 ## I. Remaining Blockers (ranked)
 
 - **P0:** (resolved) borrow-checker param false-positive → fixed.
-- **P0:** (resolved) PM→compiler gap partially closed — `build`/`run` now include local dependency + sibling sources via `resolveSources`. Registry/git deps and a full **pub/private module/import language** still require a language-design decision (whole-program name-resolution pass is a V1 MUST-HAVE that is not yet implemented; full module/visibility is a V1 SHOULD-HAVE gated behind it). Deferred with this evidence, not invented speculatively.
-- **P1:** Wire `check`/`test` to the same project-aware resolver; formalize the C ABI spec doc; consider registry/git module layout.
+- **P0:** (resolved) PM→compiler gap partially closed — `build`/`run` now include local dependency + sibling sources via `resolveSources`; `check` now validates the same project-aware compile unit. Registry/git deps and a full **pub/private module/import language** still require a language-design decision (whole-program name-resolution pass is a V1 MUST-HAVE that is not yet implemented; full module/visibility is a V1 SHOULD-HAVE gated behind it). Deferred with this evidence, not invented speculatively.
+- **P1:** Wire `test`'s per-file runner to a mechanism for test-only sibling/dependency sources (orthogonal to `check`; discovery is per-file); consider registry/git module layout.
+- **P1:** (doc-written) `docs/audit/C-ABI.md` formalizes the three-runtime boundary; legacy `src/compiler/runtime.c` confirmed dead/unlinked and the misleading bootstrap param removed.
 - **P2:** Registry/JSON + publish tarball; Git fetch; workspace build/test (currently stubs).
 - **P3:** Math IR wiring or explicit retirement; SIMD arithmetic vectorization + optimizer; GPU/NPU real execution.
 - **P4:** async/await, defer, const, pub, methods/overloading, macros expansion runtime.

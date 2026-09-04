@@ -116,12 +116,12 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 		return CommandResult{ExitCode: 1, Message: err.Error()}
 	}
 
-	sourceText, err := os.ReadFile(targetFile)
+	sourceText, err := resolveSources(targetFile)
 	if err != nil {
 		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error reading file: %v", err)}
 	}
 
-	src := string(sourceText)
+	src := sourceText
 	l := lexer.New(src)
 	p := parser.New(l)
 	prog := p.ParseProgram()
