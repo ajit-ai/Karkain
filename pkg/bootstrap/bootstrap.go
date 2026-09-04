@@ -48,6 +48,16 @@ func fileHash(path string) (string, int64, error) {
 	return fmt.Sprintf("%x", h), int64(len(data)), nil
 }
 
+// reproducibleEpoch is a fixed SOURCE_DATE_EPOCH injected into child processes.
+// GNU ld (binutils >= 2.40, as shipped with MSYS2/MinGW gcc 14.x) embeds the
+// current wall-clock time into the PE TimeDateStamp of produced binaries unless
+// SOURCE_DATE_EPOCH is set, which makes identical-input compiles produce
+// byte-different executables. Fixing it to a constant makes the link step fully
+// reproducible (stage2 == stage3 bitwise), which is exactly the deterministic
+// self-hosting proof the bootstrap pipeline asserts. It is left untouched if the
+// caller already exports one.
+const reproducibleEpoch = "1072915200" // 2004-01-01T00:00:00Z
+
 func runCmd(dir, name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -55,6 +65,7 @@ func runCmd(dir, name string, args ...string) error {
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	setSourceDateEpoch(cmd)
 	return cmd.Run()
 }
 
@@ -63,7 +74,20 @@ func runCmdOutput(dir, name string, args ...string) ([]byte, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	setSourceDateEpoch(cmd)
 	return cmd.CombinedOutput()
+}
+
+// setSourceDateEpoch injects a fixed SOURCE_DATE_EPOCH into the child process
+// environment unless one is already present. This guarantees reproducible
+// binaries from gcc/go regardless of the host wall-clock.
+func setSourceDateEpoch(cmd *exec.Cmd) {
+	for _, kv := range cmd.Env {
+		if len(kv) >= 17 && kv[:17] == "SOURCE_DATE_EPOCH=" {
+			return
+		}
+	}
+	cmd.Env = append(os.Environ(), "SOURCE_DATE_EPOCH="+reproducibleEpoch)
 }
 
 // RunBootstrap executes the 3-stage bootstrap pipeline.
