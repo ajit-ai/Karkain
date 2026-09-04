@@ -706,12 +706,14 @@ func handlePackageCommand(args []string) {
 			}
 			fmt.Printf("Added %s to workspace\n", wsArgs[1])
 		case "build":
-			if err := kpkg.WorkspaceBuild(cwd); err != nil {
+			wscfg := codegen.NewConfig()
+			if err := cli.WorkspaceBuild(cwd, wscfg, false); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
 		case "test":
-			if err := kpkg.WorkspaceTest(cwd); err != nil {
+			wscfg := codegen.NewConfig()
+			if err := cli.WorkspaceTest(cwd, wscfg, false); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
