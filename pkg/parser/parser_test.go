@@ -249,3 +249,23 @@ func TestParser_PublicErrorOnInvalidTarget(t *testing.T) {
 		t.Errorf("expected 0 valid statements after public error, got %d", len(prog.Statements))
 	}
 }
+
+func TestParser_ModuleImport(t *testing.T) {
+	prog := parseSource(t, "import math\nimport utils\nfunc main() { print(1) }\n")
+	if len(prog.Imports) != 2 {
+		t.Fatalf("expected 2 imports, got %d", len(prog.Imports))
+	}
+	if prog.Imports[0].Name != "math" {
+		t.Errorf("expected import name 'math', got '%s'", prog.Imports[0].Name)
+	}
+	if prog.Imports[1].Name != "utils" {
+		t.Errorf("expected import name 'utils', got '%s'", prog.Imports[1].Name)
+	}
+}
+
+func TestParser_CImportSkippedGracefully(t *testing.T) {
+	prog := parseSource(t, "import \"C\" {\n  int strlen(const char *s);\n}\nfunc main() { print(1) }\n")
+	if len(prog.Statements) != 1 {
+		t.Fatalf("expected 1 statement (func main), got %d", len(prog.Statements))
+	}
+}

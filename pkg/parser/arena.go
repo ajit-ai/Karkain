@@ -314,7 +314,7 @@ func (a *Arena) AllocKernelDeclStmt(name string, params []Parameter, body []Node
 
 func (a *Arena) AllocProgram(statements []Node, cImports []*CImportBlock) *Program {
 	id := a.Alloc(func() Node {
-		return &Program{Statements: statements, CImports: cImports}
+		return &Program{Statements: statements, CImports: cImports, Imports: []*ModuleImport{}}
 	})
 	return a.Get(id).(*Program)
 }

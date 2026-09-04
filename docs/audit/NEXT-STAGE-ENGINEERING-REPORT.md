@@ -219,6 +219,13 @@ test integration NOW WIRED (project-aware module scope, see D2)
   from different source files) only when any declaration carries `public`.
   Opt-in: existing code without `public` compiles identically. Parser also now
   populates the `Line` field on top-level declarations (previously always 0).
+- **P1:** (done) Module system steps A–C completed. (A) Resolver now properly
+  distinguishes public vs private: only non-public functions trigger cross-file
+  visibility errors. (B) `import <module>` syntax added to parser (AST node
+  `ModuleImport`, stored on `Program.Imports`); C imports (`import "C" { ... }`)
+  coexist via peek-based dispatch. (C) Resolver validates that each import
+  references a source file in the compile unit (file basename = module name).
+  Step D (self-hosting adoption) N/A — compiler is C, not Karkain `.kark`.
 - **P1:** (doc-written) `docs/audit/C-ABI.md` formalizes the three-runtime boundary; legacy `src/compiler/runtime.c` confirmed dead/unlinked and the misleading bootstrap param removed.
 - **P2:** Registry/JSON + publish tarball; Git fetch; workspace build/test (currently stubs).
 - **P3:** Math IR wiring or explicit retirement; SIMD arithmetic vectorization + optimizer; GPU/NPU real execution.
