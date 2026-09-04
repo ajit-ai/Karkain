@@ -116,7 +116,7 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 		return CommandResult{ExitCode: 1, Message: err.Error()}
 	}
 
-	sourceText, err := resolveSources(targetFile)
+	sourceText, srcMap, err := resolveSourcesWithMap(targetFile)
 	if err != nil {
 		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error reading file: %v", err)}
 	}
@@ -143,7 +143,7 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 	// top-level definitions and undefined bare function references at the
 	// Karkain level. This pass is purely additive (it never changes emitted
 	// output), so build/run are unaffected.
-	resolver := sema.NewResolver(prog)
+	resolver := sema.NewResolver(prog, srcMap)
 	if resolveErrs := resolver.Resolve(); len(resolveErrs) > 0 {
 		reporter := diagnostics.NewReporter(src, targetFile)
 		for _, re := range resolveErrs {
@@ -355,6 +355,77 @@ func resolveSources(targetFile string) (string, error) {
 		}
 	}
 	return sb.String(), nil
+}
+
+// resolveSourcesWithMap returns both the concatenated source text and a
+// SourceMap (line number → source file path) for visibility enforcement.
+func resolveSourcesWithMap(targetFile string) (string, sema.SourceMap, error) {
+	cleanPath := filepath.Clean(targetFile)
+	if info, err := os.Stat(cleanPath); err == nil && info.IsDir() {
+		cleanPath = filepath.Join(cleanPath, "main.kark")
+	}
+
+	files, err := projectSourceFiles(cleanPath)
+	if err != nil {
+		data, readErr := os.ReadFile(cleanPath)
+		if readErr != nil {
+			return "", nil, readErr
+		}
+		sm := sema.SourceMap{}
+		line := 1
+		for i := 1; i < len(data); i++ {
+			if data[i] == '\n' {
+				sm[line] = cleanPath
+				line++
+			}
+		}
+		sm[line] = cleanPath
+		return string(data), sm, nil
+	}
+
+	funcMainRegex := regexp.MustCompile(`(?m)^\s*func\s+main\s*\(`)
+	var sb strings.Builder
+	sm := sema.SourceMap{}
+	curLine := 1
+	seen := map[string]bool{}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		if funcMainRegex.Match(data) {
+			continue
+		}
+		absp, _ := filepath.Abs(f)
+		if seen[absp] {
+			continue
+		}
+		seen[absp] = true
+		src := string(data)
+		lines := strings.Count(src, "\n") + 1
+		for i := 1; i <= lines; i++ {
+			sm[curLine] = f
+			curLine++
+		}
+		sb.WriteString(src)
+		sb.WriteString("\n\n")
+		curLine++ // the \n
+		curLine++ // the extra \n
+	}
+
+	rp, _ := filepath.Abs(cleanPath)
+	if !seen[rp] {
+		if data, err := os.ReadFile(cleanPath); err == nil {
+			src := string(data)
+			lines := strings.Count(src, "\n") + 1
+			for i := 1; i <= lines; i++ {
+				sm[curLine] = cleanPath
+				curLine++
+			}
+			sb.WriteString(src)
+		}
+	}
+	return sb.String(), sm, nil
 }
 
 // projectSourceFiles returns the deterministic, deduplicated list of module

@@ -57,7 +57,29 @@ func (p *Parser) advanceIfStalled(start uint32, context string) {
 func (p *Parser) ParseProgram() *Program {
 	prog := p.arena.AllocProgram([]Node{}, []*CImportBlock{})
 	for p.curToken.Type != lexer.TokenEOF {
-		if p.curToken.Type == lexer.TokenFunc {
+		if p.curToken.Type == lexer.TokenPub {
+			// public modifier: consume it, parse the next decl, mark as public.
+			p.nextToken()
+			if p.curToken.Type == lexer.TokenFunc {
+				if stmt := p.parseFunc(); stmt != nil {
+					stmt.Public = true
+					prog.Statements = append(prog.Statements, stmt)
+				}
+			} else if p.curToken.Type == lexer.TokenTypeDef {
+				if stmt := p.parseStructDecl(); stmt != nil {
+					stmt.Public = true
+					prog.Statements = append(prog.Statements, stmt)
+				}
+			} else if p.curToken.Type == lexer.TokenEnum {
+				if stmt := p.parseEnumDecl(); stmt != nil {
+					stmt.Public = true
+					prog.Statements = append(prog.Statements, stmt)
+				}
+			} else {
+				p.addError(fmt.Sprintf("unexpected token '%s' after 'public' modifier (expected func/type/enum)", p.curToken.Literal(p.src)))
+				p.nextToken()
+			}
+		} else if p.curToken.Type == lexer.TokenFunc {
 			if stmt := p.parseFunc(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
@@ -108,6 +130,7 @@ func (p *Parser) ParseProgram() *Program {
 func (p *Parser) parseFunc() *FuncDecl {
 	p.nextToken() // consume 'func'
 	fn := p.arena.AllocFuncDecl(p.curToken.Literal(p.src), nil, nil, nil)
+	fn.Line = int(p.curToken.Line)
 	fn.Params = []string{}
 
 	p.nextToken() // consume fn name
@@ -1445,6 +1468,7 @@ func (p *Parser) parseStructLiteral(typeName string) *StructLiteral {
 func (p *Parser) parseStructDecl() *StructDeclStmt {
 	p.nextToken() // consume 'type'
 	name := p.curToken.Literal(p.src)
+	nameLine := int(p.curToken.Line)
 	p.nextToken() // consume struct name
 	p.nextToken() // consume 'struct'
 	p.nextToken() // consume '{'
@@ -1462,13 +1486,14 @@ func (p *Parser) parseStructDecl() *StructDeclStmt {
 	}
 	p.nextToken() // consume '}'
 
-	return &StructDeclStmt{Name: name, Fields: fields}
+	return &StructDeclStmt{Name: name, Fields: fields, Line: nameLine}
 }
 
 // Phase 45: enum declaration parsing: enum Name { Variant, Variant(payload), ... }
 func (p *Parser) parseEnumDecl() *EnumDecl {
 	p.nextToken() // consume 'enum'
 	name := p.curToken.Literal(p.src)
+	nameLine := int(p.curToken.Line)
 	p.enumNames[name] = true // register enum name
 	p.nextToken()            // consume enum name
 	p.nextToken()            // consume '{'
@@ -1493,7 +1518,7 @@ func (p *Parser) parseEnumDecl() *EnumDecl {
 	}
 	p.nextToken() // consume '}'
 
-	return &EnumDecl{Name: name, Variants: variants}
+	return &EnumDecl{Name: name, Variants: variants, Line: nameLine}
 }
 
 // Phase 45: linear type declaration parsing

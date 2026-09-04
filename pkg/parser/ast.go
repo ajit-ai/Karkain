@@ -17,6 +17,7 @@ type FuncDecl struct {
 	Body          []Node
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 	Captures      []string           // Phase 54: free variables captured from enclosing scope (lambdas only)
+	Public        bool               // Phase 80: visibility modifier (public decl usable across files/modules)
 	Line          int
 }
 
@@ -310,6 +311,7 @@ type PackedStructDecl struct {
 type EnumDecl struct {
 	Name     string
 	Variants []EnumVariant
+	Public   bool          // Phase 80: visibility modifier
 	Line     int
 }
 
@@ -546,6 +548,7 @@ type StructDeclStmt struct {
 	Name          string
 	Fields        []StructField
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
+	Public        bool               // Phase 80: visibility modifier
 	Line          int
 }
 
