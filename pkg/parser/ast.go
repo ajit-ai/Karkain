@@ -6,8 +6,19 @@ type Node interface{}
 
 type Program struct {
 	Statements []Node
-	CImports   []*CImportBlock // C import blocks for codegen
+	CImports   []*CImportBlock   // C import blocks for codegen
+	Imports    []*ModuleImport   // Karkain module imports
 	Line       int
+}
+
+// ModuleImport represents a top-level `import <name>` declaration that
+// imports another Karkain module's public symbols into the current compile
+// unit. The concatenated source model means all symbols are already flat; this
+// declaration is used by the resolver to validate that the referenced module
+// exists in the project and to document explicit dependency edges.
+type ModuleImport struct {
+	Name string
+	Line int
 }
 
 type FuncDecl struct {

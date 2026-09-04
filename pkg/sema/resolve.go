@@ -2,6 +2,7 @@ package sema
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"karkain/pkg/parser"
@@ -42,6 +43,7 @@ type Resolver struct {
 	// visibility tracking (populated when any Public declaration is present)
 	anyPublic        bool
 	declFile         map[string]string // name → source file path
+	publicFuncs      map[string]bool   // name → true if declared public
 	callerFile       map[string]string // caller func name → source file path
 	callerBodyOffset map[string]int    // caller func name → line of its body start
 }
@@ -66,17 +68,44 @@ var builtinNames = map[string]bool{
 
 // NewResolver creates a Resolver over the given program. If sourceMap is
 // non-nil, the resolver tracks source-file boundaries and can enforce visibility
-// (public/private) when any declaration carries Public=true.
+// (public/private) when any declaration carries Public=true. It also validates
+// that each module import references a source file present in the compile unit.
 func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 	r := &Resolver{
-		funcs:   make(map[string]bool),
-		types:   make(map[string]bool),
-		builtin: builtinNames,
+		funcs:      make(map[string]bool),
+		types:      make(map[string]bool),
+		builtin:    builtinNames,
 		declFile:   make(map[string]string),
+		publicFuncs: make(map[string]bool),
 		callerFile: make(map[string]string),
 	}
 	r.collectDefs(prog.Statements, sm)
+	if sm != nil && len(prog.Imports) > 0 {
+		r.validateImports(prog.Imports, sm)
+	}
 	return r
+}
+
+// validateImports checks that each import <name> matches a source file in the
+// compile unit (a file whose basename, minus the .kark extension, equals name).
+func (r *Resolver) validateImports(imports []*parser.ModuleImport, sm SourceMap) {
+	// Build a set of known module names from file paths in the SourceMap.
+	knownModules := make(map[string]bool)
+	for _, fpath := range sm {
+		base := filepath.Base(fpath)
+		name := strings.TrimSuffix(base, ".kark")
+		if name != "" && name != base {
+			knownModules[name] = true
+		}
+	}
+	for _, imp := range imports {
+		if !knownModules[imp.Name] {
+			r.errors = append(r.errors, ResolveError{
+				Line: imp.Line,
+				Msg:  fmt.Sprintf("module '%s' not found in compile unit", imp.Name),
+			})
+		}
+	}
 }
 
 // Resolve runs both passes and returns any diagnostics.
@@ -89,6 +118,7 @@ func (r *Resolver) Resolve() []ResolveError {
 func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 	seen := make(map[string]bool)
 	declFile := make(map[string]string)
+	publicFuncs := make(map[string]bool)
 	anyPublic := false
 	for _, s := range stmts {
 		switch n := s.(type) {
@@ -110,6 +140,7 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 			}
 			if n.Public {
 				anyPublic = true
+				publicFuncs[n.Name] = true
 			}
 		case *parser.StructDeclStmt:
 			if n.Name != "" {
@@ -135,6 +166,7 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 	}
 	r.anyPublic = anyPublic
 	r.declFile = declFile
+	r.publicFuncs = publicFuncs
 	// Pass 2: walk function bodies to check calls.
 	for _, s := range stmts {
 		if fn, ok := s.(*parser.FuncDecl); ok {
@@ -305,13 +337,11 @@ func (r *Resolver) checkCallExpr(n *parser.CallExpr, locals map[string]bool, cal
 	if r.builtin[name] || r.funcs[name] || r.types[name] || locals[name] {
 		// When any declaration is public, enforce visibility: a private name
 		// must be called from the same source file it is defined in.
-		if r.anyPublic && sm != nil && r.funcs[name] {
+		// Public names are callable from any file.
+		if r.anyPublic && sm != nil && r.funcs[name] && !r.publicFuncs[name] {
 			callerFile := r.callerFile[callerName]
 			declFile := r.declFile[name]
 			if callerFile != "" && declFile != "" && callerFile != declFile {
-				// Only report if the target is NOT public (need to check actual Pub flag).
-				// Since the resolver doesn't track Pub per name, we rely on the AST.
-				// For now, visibility enforcement is limited to cross-file private calls.
 				r.errors = append(r.errors, ResolveError{
 					Line: n.Line,
 					Msg:  fmt.Sprintf("private function '%s' is not accessible from file '%s' (defined in '%s')", name, callerFile, declFile),

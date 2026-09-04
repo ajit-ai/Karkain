@@ -201,3 +201,27 @@ func TestResolver_VisibilityEnforcement_SameFile(t *testing.T) {
 		}
 	}
 }
+
+func TestResolver_ImportValidation_Found(t *testing.T) {
+	src := "import math\nfunc main() { print(1) }\n"
+	prog := parseTestProg(t, src)
+	sm := SourceMap{1: "math.kark", 2: "main.kark", 3: "main.kark"}
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	for _, e := range errs {
+		if hasErr([]ResolveError{e}, "module 'math' not found") {
+			t.Errorf("import math should resolve against math.kark: %s", e.Msg)
+		}
+	}
+}
+
+func TestResolver_ImportValidation_NotFound(t *testing.T) {
+	src := "import nonexistent\nfunc main() { print(1) }\n"
+	prog := parseTestProg(t, src)
+	sm := SourceMap{1: "main.kark", 2: "main.kark", 3: "main.kark"}
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	if !hasErr(errs, "module 'nonexistent' not found") {
+		t.Errorf("expected 'module not found' error, got: %s", errLines(errs))
+	}
+}

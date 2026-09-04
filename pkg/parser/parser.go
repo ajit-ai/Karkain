@@ -57,7 +57,9 @@ func (p *Parser) advanceIfStalled(start uint32, context string) {
 func (p *Parser) ParseProgram() *Program {
 	prog := p.arena.AllocProgram([]Node{}, []*CImportBlock{})
 	for p.curToken.Type != lexer.TokenEOF {
+		progressed := false
 		if p.curToken.Type == lexer.TokenPub {
+			progressed = true
 			// public modifier: consume it, parse the next decl, mark as public.
 			p.nextToken()
 			if p.curToken.Type == lexer.TokenFunc {
@@ -80,47 +82,70 @@ func (p *Parser) ParseProgram() *Program {
 				p.nextToken()
 			}
 		} else if p.curToken.Type == lexer.TokenFunc {
+			progressed = true
 			if stmt := p.parseFunc(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenActor {
+			progressed = true
 			if stmt := p.parseActor(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenMacro {
+			progressed = true
 			if stmt := p.parseMacro(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenKernel {
+			progressed = true
 			if stmt := p.parseKernel(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenTypeDef {
+			progressed = true
 			if stmt := p.parseStructDecl(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenLinear {
+			progressed = true
 			if stmt := p.parseLinearTypeDecl(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenPacked {
+			progressed = true
 			if stmt := p.parsePackedStructDecl(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenEnum {
+			progressed = true
 			if stmt := p.parseEnumDecl(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
 		} else if p.curToken.Type == lexer.TokenImport {
-			if cImport := p.parseCImport(); cImport != nil {
-				prog.CImports = append(prog.CImports, cImport)
+			progressed = true
+			// Peek at next token to distinguish C imports from module imports.
+			// C import: import "C" { ... }   → TokenString
+			// Module:   import <name>         → TokenIdent
+			if p.peekToken.Type == lexer.TokenString {
+				if cImport := p.parseCImport(); cImport != nil {
+					prog.CImports = append(prog.CImports, cImport)
+				}
+			} else if p.peekToken.Type == lexer.TokenIdent {
+				if modImp := p.parseModuleImport(); modImp != nil {
+					prog.Imports = append(prog.Imports, modImp)
+				}
+			} else {
+				p.addError(fmt.Sprintf("expected module name or \"C\" after 'import', got '%s'", p.peekToken.Literal(p.src)))
+				p.nextToken()
 			}
 		} else {
 			p.addError(fmt.Sprintf("unexpected token '%s' at top level", p.curToken.Literal(p.src)))
 			p.nextToken()
 		}
-		// Ensure progress even on errors
-		if len(prog.Statements) == 0 && len(prog.CImports) == 0 {
+		// Ensure progress even on errors — only fire when no known-top-level
+		// token was handled above (prevents double-advancing past C-import
+		// tokens, which the main dispatch already consumed).
+		if !progressed {
 			p.nextToken()
 		}
 	}
@@ -1624,6 +1649,15 @@ func (p *Parser) parseCImport() *CImportBlock {
 	content = strings.TrimSpace(content)
 
 	return &CImportBlock{Content: content}
+}
+
+// parseModuleImport parses `import <module_name>` at the top level.
+func (p *Parser) parseModuleImport() *ModuleImport {
+	p.nextToken() // consume 'import'
+	name := p.curToken.Literal(p.src)
+	line := int(p.curToken.Line)
+	p.nextToken() // consume module name
+	return &ModuleImport{Name: name, Line: line}
 }
 
 // Phase 11: Pointer operations parsing
