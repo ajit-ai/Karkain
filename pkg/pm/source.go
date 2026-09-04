@@ -117,11 +117,18 @@ type PkgError struct {
 	Code    ErrCode
 	Package string
 	Message string
+	Cause   error
 }
 
 func (e *PkgError) Error() string {
-	if e.Package != "" {
-		return fmt.Sprintf("error[%s]: %s\n  package: %s", e.Code, e.Message, e.Package)
+	msg := e.Message
+	if e.Cause != nil {
+		msg = fmt.Sprintf("%s: %v", msg, e.Cause)
 	}
-	return fmt.Sprintf("error[%s]: %s", e.Code, e.Message)
+	if e.Package != "" {
+		return fmt.Sprintf("error[%s]: %s\n  package: %s", e.Code, msg, e.Package)
+	}
+	return fmt.Sprintf("error[%s]: %s", e.Code, msg)
 }
+
+func (e *PkgError) Unwrap() error { return e.Cause }
