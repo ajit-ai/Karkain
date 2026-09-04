@@ -273,3 +273,45 @@ func TestBigIntLargeNumber(t *testing.T) {
 		t.Errorf("expected large bigint literal, got %q", got)
 	}
 }
+
+// A leading UTF-8 byte-order mark must be skipped and must not corrupt the
+// first token. Files saved with a BOM (common on Windows editors) concatenated
+// with siblings used to silently drop their first declaration.
+func TestLeadingBOMSkipped(t *testing.T) {
+	input := "\xEF\xBB\xBFabc123"
+	l := New(input)
+	tok := l.NextToken()
+	if tok.Type == TokenIllegal {
+		t.Fatalf("expected a valid first token after BOM, got %s", tok.Type)
+	}
+	// Offsets are relative to the BOM-stripped buffer; the first identifier
+	// token must begin at the very start of the stripped source.
+	if tok.Start != 0 {
+		t.Errorf("expected first token offset 0, got %d", tok.Start)
+	}
+	got := string(tok.LiteralBytes(l.GetInputBytes()))
+	if got != "abc123" {
+		t.Errorf("expected literal %q sans BOM, got %q", "abc123", got)
+	}
+}
+
+// The BOM fix must keep the leading `func` of a concatenated first file intact
+// so a sibling function is not silently dropped before `main`.
+func TestBOMDoesNotDropLeadingFunc(t *testing.T) {
+	input := "\xEF\xBB\xBFfunc lib_add(a) { return a }\nfunc main() {}\n"
+	l := New(input)
+	types := []TokenType{}
+	for {
+		tok := l.NextToken()
+		if tok.Type == TokenEOF {
+			break
+		}
+		types = append(types, tok.Type)
+	}
+	if len(types) == 0 {
+		t.Fatal("expected tokens")
+	}
+	if types[0] != TokenFunc {
+		t.Fatalf("expected first token TokenFunc, got %s", types[0])
+	}
+}
