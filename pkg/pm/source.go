@@ -154,6 +154,8 @@ const (
 	ErrLock           ErrCode = "E-PKG-LOCK"
 	ErrWorkspace      ErrCode = "E-PKG-WORKSPACE"
 	ErrManifest       ErrCode = "E-PKG-MANIFEST"
+	ErrLocal          ErrCode = "E-PKG-LOCAL"
+	ErrSource         ErrCode = "E-PKG-SOURCE"
 )
 
 // PkgError is an actionable package diagnostic carrying a stable code.

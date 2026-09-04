@@ -7,6 +7,26 @@ recent completed stage at the top of the "Stage Log" section.
 
 ## Stage Log
 
+### Stage: P2 Follow-up - Manifest Dependency Resolution in build/run/check (COMPLETE)
+Date: 2026-09-04
+
+Closed the P2-deferred item: build/run/check/test now resolve manifest
+dependencies of ALL kinds (local/workspace/registry/git) into source assembly,
+dev-deps excluded, offline-safe (never auto-fetches), backward compatible.
+
+- `pkg/pm/depsrc.go` (new): `DependencySources()` - deterministic source dirs
+  per dep; local->canonical path, registry->`<name>@<version>` cache, git->
+  `<name>@<rev>` cache (lock rev). New codes E-PKG-LOCAL, E-PKG-SOURCE.
+- `pkg/cli/commands.go`: `projectSourceFiles` assembles all dep kinds upstream.
+- 8 new tests; full suite green.
+Report: `docs/audit/P2-DEPSRC-RESOLUTION-REPORT.md`.
+
+Remaining deferred (priority order):
+1. Public registry deployment (protocol v1 defined; no production server yet).
+2. Transitive registry/git dependency expansion behind real host access.
+
+---
+
 ### Stage: Phase P2 - Package Ecosystem Maturity (COMPLETE)
 Date: 2026-09-04
 
