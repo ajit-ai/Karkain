@@ -110,14 +110,32 @@ it into `prog.Statements`. `lexer.New` now strips a leading BOM. Regression
 tests added. This was a latent pre-existing bug, exposed by the new project
 assembler feeding scope-checked files.
 
+## D3. Test runner: project-aware module scope (added subsequent pass)
+
+The `test` runner compiles each `test_*` function as a standalone mini-program
+(function + synthetic `main`). Previously that mini-program contained *only* the
+test function, so a test that called a sibling-module or local-dependency helper
+failed to link. `runSingleTestFile` now prepends the **project module scope**
+(non-`main` local-dependency + sibling module sources, assembled via a new
+`projectModuleSources`) to every mini-program. Flat/non-project builds get an
+empty scope and behave byte-identically to before. Discovery is unchanged
+(`test_` prefix); module code is never auto-discovered.
+
+E2E: a project `tests/main_test.kark` calling `helper_double` (sibling module)
+and `lib_add` (local dependency) now compiles and runs; linking would fail
+without the scope.
+
 ## E. Implemented Changes
 
 | File | Purpose | Architectural reason |
 |------|---------|----------------------|
 | `pkg/sema/borrow_checker.go` | `checkFuncDecl` now declares each function parameter as an owned live binding in the function scope | Correct ownership semantics: a param is alive for its body; previously params were never declared, so referencing a param whose name an earlier function had marked dead produced false "use after scope has ended". This was the self-hosting blocker. |
 | `pkg/sema/borrow_checker_test.go` | Regression tests: param live on first statement, across independent functions, after branches; plus genuine param-move still rejected | Protect the fix from regression without weakening ownership checking. |
-| `pkg/cli/commands.go` | `resolveSources` + `projectSourceFiles`: project-aware, deterministic, deduplicated source assembly wired into `build`/`run` | Closes the package-manager→compiler gap without changing grammar; pulls local dependency sources upstream; non-project builds stay byte-identical. |
+| `pkg/cli/commands.go` | `resolveSources` + `projectSourceFiles` (wired into `build`/`run`/`check`); `projectModuleSources` + module-scope injection (wired into `test`); project-aware, deterministic, deduplicated source assembly | Closes the package-manager→compiler gap without changing grammar; pulls local dependency sources upstream; non-project builds stay byte-identical; tests gain the project module scope. |
 | `pkg/cli/module_resolve_test.go` | Unit tests for `resolveSources`: non-project fallback parity, project dep/sibling/main ordering, single-root dedup | Lock in deterministic project-aware assembly and backward compatibility. |
+| `pkg/cli/pm_test_runner_test.go` | E2E that a project `tests/*_test.kark` can call a sibling module + local dependency; flat runner unchanged | Prove the test runner's project-aware scope and preserve flat behavior. |
+| `pkg/bootstrap/bootstrap.go` | Removed the dead `runtimeFile` parameter of `compileWithGCC` (only ever received never-linked `runtime.c`) | Eliminated a correctness trap (a maintainer "fixing" it would relink legacy runtime.c and hit duplicate-symbol errors); behavior-neutral, bootstrapping suite re-verified. |
+| `docs/audit/C-ABI.md` | Authoritative three-runtime boundary spec (codegen scalar preamble / CPU tensor oracle / legacy self-hosting Value runtime), each ABI + std flag + ownership + determinism + change rules | Prevents silent drift and mis-linking between runtimes that serve different ABIs and must not be merged. |
 | `pkg/lexer/lexer.go` | Strip a leading UTF-8 BOM in `New` | A BOM-prefixed first line corrupted the first token and silently dropped the first declaration when sibling files were concatenated. |
 | `pkg/lexer/lexer_test.go` | BOM regression tests (`TestLeadingBOMSkipped`, `TestBOMDoesNotDropLeadingFunc`) | Guard the BOM fix. |
 
@@ -171,15 +189,22 @@ fetch           PASS (implemented, atomic)
 cache           PASS (implemented, checksum)
 build integration NOW WIRED (local deps + sibling modules, see D2)
 run integration  NOW WIRED (same resolver as build)
-check integration PARTIAL (still single-file; see I)
-test integration MISSING (see I)
+check integration NOW WIRED (project-aware compile unit, see D2)
+test integration NOW WIRED (project-aware module scope, see D2)
 ```
 
 ## I. Remaining Blockers (ranked)
 
 - **P0:** (resolved) borrow-checker param false-positive → fixed.
-- **P0:** (resolved) PM→compiler gap partially closed — `build`/`run` now include local dependency + sibling sources via `resolveSources`; `check` now validates the same project-aware compile unit. Registry/git deps and a full **pub/private module/import language** still require a language-design decision (whole-program name-resolution pass is a V1 MUST-HAVE that is not yet implemented; full module/visibility is a V1 SHOULD-HAVE gated behind it). Deferred with this evidence, not invented speculatively.
-- **P1:** Wire `test`'s per-file runner to a mechanism for test-only sibling/dependency sources (orthogonal to `check`; discovery is per-file); consider registry/git module layout.
+- **P0:** (resolved) PM→compiler gap closed for build/run/check/test — all of
+  `build`, `run`, `check` and `test` now assemble the project-aware compile unit.
+  `test` additionally injects the project module scope (deps + sibling modules,
+  no `main`) into each test's mini-program so tests can exercise the code they
+  target. Registry/git deps and a full **pub/private module/import language**
+  still require a language-design decision (whole-program name-resolution pass is
+  a V1 MUST-HAVE that is not yet implemented; full module/visibility is a V1
+  SHOULD-HAVE gated behind it). Deferred with this evidence, not invented
+  speculatively.
 - **P1:** (doc-written) `docs/audit/C-ABI.md` formalizes the three-runtime boundary; legacy `src/compiler/runtime.c` confirmed dead/unlinked and the misleading bootstrap param removed.
 - **P2:** Registry/JSON + publish tarball; Git fetch; workspace build/test (currently stubs).
 - **P3:** Math IR wiring or explicit retirement; SIMD arithmetic vectorization + optimizer; GPU/NPU real execution.
