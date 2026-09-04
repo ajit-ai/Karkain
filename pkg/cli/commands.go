@@ -419,6 +419,53 @@ func projectSourceFiles(rootFile string) ([]string, error) {
 	return order, nil
 }
 
+// projectModuleSources returns only the *non-main* module sources for the
+// project containing nodeFile: local dependency sources then sibling modules
+// (files that define `func main` excluded). This is the shared application
+// scope a test file can exercise. It returns ("", nil) when nodeFile is not
+// inside a Karkain project, so flat/test-only builds are unaffected.
+func projectModuleSources(nodeFile string) (string, error) {
+	clean := filepath.Clean(nodeFile)
+	if info, err := os.Stat(clean); err == nil && info.IsDir() {
+		clean = filepath.Join(clean, "main.kark")
+	}
+	projectDir, err := pm.FindProjectRoot(filepath.Dir(clean))
+	if err != nil {
+		return "", nil
+	}
+	if _, serr := os.Stat(filepath.Join(projectDir, pm.ManifestFile)); serr != nil {
+		return "", nil
+	}
+	root := filepath.Join(projectDir, "src", "main.kark")
+	if _, serr := os.Stat(root); serr != nil {
+		root = clean
+	}
+	files, err := projectSourceFiles(root)
+	if err != nil {
+		return "", err
+	}
+	funcMainRegex := regexp.MustCompile(`(?m)^\s*func\s+main\s*\(`)
+	var sb strings.Builder
+	seen := map[string]bool{}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		if funcMainRegex.Match(data) {
+			continue
+		}
+		absp, _ := filepath.Abs(f)
+		if seen[absp] {
+			continue
+		}
+		seen[absp] = true
+		sb.Write(data)
+		sb.WriteString("\n\n")
+	}
+	return sb.String(), nil
+}
+
 func parseSource(sourceText string, verbose bool) *parser.Program {
 	l := lexer.New(sourceText)
 	p := parser.New(l)
@@ -546,6 +593,23 @@ func runSingleTestFile(testFile string, cfg codegen.Config, verbose bool) Comman
 
 	prog = parser.ApplyMacroExpansion(prog)
 
+	// Project-aware test scope: gather the shared module sources (local deps +
+	// sibling modules, no `func main`) so test functions can call the code they
+	// are testing without a language-level import. Flat builds (no project)
+	// get an empty scope and behave exactly as before.
+	var moduleStmts []parser.Node
+	if modSrc, err := projectModuleSources(testFile); err == nil && modSrc != "" {
+		ml := lexer.New(modSrc)
+		mp := parser.New(ml)
+		mprog := mp.ParseProgram()
+		if len(mp.Errors) == 0 {
+			mprog = parser.ApplyMacroExpansion(mprog)
+			moduleStmts = mprog.Statements
+		} else {
+			return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Module parse errors: %s", strings.Join(mp.Errors, "; "))}
+		}
+	}
+
 	// Discover test functions
 	testFuncs := discoverTestFunctions(prog)
 	if len(testFuncs) == 0 {
@@ -562,28 +626,30 @@ func runSingleTestFile(testFile string, cfg codegen.Config, verbose bool) Comman
 			fmt.Printf("  Running test: %s... ", fn.Name)
 		}
 
-		// Create a mini-program with only this function and a main that calls it
-		miniProg := &parser.Program{
-			Statements: []parser.Node{
-				&parser.FuncDecl{
-					Name:   fn.Name,
-					Params: fn.Params,
-					Body:   fn.Body,
-				},
-				&parser.FuncDecl{
-					Name:   "main",
-					Params: []string{},
-					Body: []parser.Node{
-						&parser.ExprStmt{
-							Expression: &parser.CallExpr{
-								Function: fn.Name,
-								Args:     []parser.Node{},
-							},
+		// Create a mini-program with the project module scope plus this function
+		// and a main that calls it.
+		stmts := make([]parser.Node, 0, len(moduleStmts)+2)
+		stmts = append(stmts, moduleStmts...)
+		stmts = append(stmts,
+			&parser.FuncDecl{
+				Name:   fn.Name,
+				Params: fn.Params,
+				Body:   fn.Body,
+			},
+			&parser.FuncDecl{
+				Name:   "main",
+				Params: []string{},
+				Body: []parser.Node{
+					&parser.ExprStmt{
+						Expression: &parser.CallExpr{
+							Function: fn.Name,
+							Args:     []parser.Node{},
 						},
 					},
 				},
 			},
-		}
+		)
+		miniProg := &parser.Program{Statements: stmts}
 
 		testCfg := cfg
 		testCfg.RunAfter = true
