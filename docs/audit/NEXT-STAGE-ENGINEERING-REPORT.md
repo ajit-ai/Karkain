@@ -205,6 +205,13 @@ test integration NOW WIRED (project-aware module scope, see D2)
   a V1 MUST-HAVE that is not yet implemented; full module/visibility is a V1
   SHOULD-HAVE gated behind it). Deferred with this evidence, not invented
   speculatively.
+- **P0/P1:** (resolved) Whole-program name-resolution pass (Option B) now in
+  `check`: two-pass symbol table collects top-level FuncDecl/Struct/Enum
+  definitions then validates (a) duplicate definitions and (b) undefined bare
+  function references. Diagnostics-only — build/run output is untouched. Zero
+  false positives across the full test suite + self-hosting stages. Design doc:
+  `docs/audit/NAME-RESOLUTION-DESIGN.md`. Full pub/private/import module system
+  (Option A) deferred as a separate sign-off.
 - **P1:** (doc-written) `docs/audit/C-ABI.md` formalizes the three-runtime boundary; legacy `src/compiler/runtime.c` confirmed dead/unlinked and the misleading bootstrap param removed.
 - **P2:** Registry/JSON + publish tarball; Git fetch; workspace build/test (currently stubs).
 - **P3:** Math IR wiring or explicit retirement; SIMD arithmetic vectorization + optimizer; GPU/NPU real execution.

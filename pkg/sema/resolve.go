@@ -1,0 +1,277 @@
+package sema
+
+import (
+	"fmt"
+	"strings"
+
+	"karkain/pkg/parser"
+)
+
+// ResolveError is a single whole-program name-resolution diagnostic.
+type ResolveError struct {
+	Line int
+	Msg  string
+}
+
+func (e *ResolveError) Error() string {
+	return fmt.Sprintf("line %d: %s", e.Line, e.Msg)
+}
+
+// Resolver performs a two-pass, diagnostics-only whole-program name-resolution
+// over a resolved compile unit (the concatenated project + module sources). It
+// never changes emitted output, so it cannot affect codegen determinism or the
+// self-hosting stage2==stage3 byte-identity. It exists to surface, at the
+// Karkain level, the two classes of error that today leak out of the C
+// toolchain as opaque GCC/linker messages:
+//
+//  1. duplicate top-level definitions, and
+//  2. references to functions that are clearly not defined anywhere.
+type Resolver struct {
+	funcs   map[string]bool
+	types   map[string]bool
+	builtin map[string]bool
+	errors  []ResolveError
+}
+
+// builtinNames is the set of language/standard-library functions handled
+// directly by codegen (pkg/codegen/codegen.go "if n.Function == ..."). The
+// resolver whitelists these so valid built-in calls are not flagged.
+var builtinNames = map[string]bool{
+	"print": true, "println": true, "printf": true,
+	"len": true, "fmt": true,
+	"readFile": true, "writeFile": true, "appendArray": true, "push": true,
+	"hasKey": true, "delete": true,
+	"substr": true, "str": true, "int": true,
+	"system": true, "openFile": true, "readLine": true, "listFiles": true,
+	"closeFile": true, "createFile": true, "writeToFile": true, "removeFile": true,
+	"trim": true, "contains": true, "split": true,
+	"sqrt": true, "abs": true, "pow": true, "mod": true,
+	"add_checked": true, "sub_checked": true, "mul_checked": true,
+	"http.get": true,
+	"Some": true, "None": true, "Ok": true, "Err": true,
+}
+
+// NewResolver creates a Resolver over the given program.
+func NewResolver(prog *parser.Program) *Resolver {
+	r := &Resolver{
+		funcs:   make(map[string]bool),
+		types:   make(map[string]bool),
+		builtin: builtinNames,
+	}
+	r.collectDefs(prog.Statements)
+	return r
+}
+
+// Resolve runs both passes and returns any diagnostics.
+func (r *Resolver) Resolve() []ResolveError {
+	return r.errors
+}
+
+// collectDefs records top-level declarations, detects duplicates, then walks
+// function bodies for undefined references.
+func (r *Resolver) collectDefs(stmts []parser.Node) {
+	seen := make(map[string]bool)
+	for _, s := range stmts {
+		switch n := s.(type) {
+		case *parser.FuncDecl:
+			if n.Name == "" {
+				continue
+			}
+			if seen[n.Name] {
+				r.errors = append(r.errors, ResolveError{
+					Line: n.Line,
+					Msg:  fmt.Sprintf("duplicate function definition '%s'", n.Name),
+				})
+			} else {
+				seen[n.Name] = true
+			}
+			r.funcs[n.Name] = true
+		case *parser.StructDeclStmt:
+			if n.Name != "" {
+				r.types[n.Name] = true
+			}
+		case *parser.EnumDecl:
+			if n.Name != "" {
+				r.types[n.Name] = true
+			}
+		}
+	}
+	// Pass 2: walk function bodies to check calls.
+	for _, s := range stmts {
+		if fn, ok := s.(*parser.FuncDecl); ok {
+			r.walkCalls(fn.Body, r.localNames(fn))
+		}
+	}
+}
+
+// localNames returns the set of names declared as local variables/parameters
+// inside a function, so calls to lambda/function-value variables are not flagged.
+func (r *Resolver) localNames(fn *parser.FuncDecl) map[string]bool {
+	m := make(map[string]bool)
+	for _, p := range fn.Params {
+		m[p] = true
+	}
+	r.walkLocalDefs(fn.Body, m)
+	return m
+}
+
+// walkLocalDefs collects VarDeclStmt names in a body (non-recursive into
+// nested funcs; nested functions get their own param scope via localNames).
+func (r *Resolver) walkLocalDefs(body []parser.Node, m map[string]bool) {
+	for _, s := range body {
+		switch n := s.(type) {
+		case *parser.VarDeclStmt:
+			if n.Name != "" {
+				m[n.Name] = true
+			}
+		case *parser.BlockStmt:
+			r.walkLocalDefs(n.Statements, m)
+		case *parser.IfStmt:
+			r.walkLocalDefs(n.Consequence, m)
+			r.walkLocalDefs(n.Alternative, m)
+		case *parser.WhileStmt:
+			r.walkLocalDefs(n.Body, m)
+		case *parser.ForInStmt:
+			if n.VarName != "" {
+				m[n.VarName] = true
+			}
+			r.walkLocalDefs(n.Body, m)
+		}
+	}
+}
+
+// walkCalls walks a list of statements, flagging undefined function calls.
+func (r *Resolver) walkCalls(body []parser.Node, locals map[string]bool) {
+	for _, s := range body {
+		r.checkStmt(s, locals)
+	}
+}
+
+// checkStmt dispatches a statement for call-expression validation.
+func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool) {
+	switch n := s.(type) {
+	case *parser.ExprStmt:
+		r.checkExpr(n.Expression, locals)
+	case *parser.VarDeclStmt:
+		r.checkExpr(n.Value, locals)
+	case *parser.ReturnStmt:
+		r.checkExpr(n.Value, locals)
+	case *parser.PrintStmt:
+		r.checkExpr(n.Value, locals)
+	case *parser.BlockStmt:
+		for _, x := range n.Statements {
+			r.checkStmt(x, locals)
+		}
+	case *parser.IfStmt:
+		r.checkExpr(n.Condition, locals)
+		for _, x := range n.Consequence {
+			r.checkStmt(x, locals)
+		}
+		for _, x := range n.Alternative {
+			r.checkStmt(x, locals)
+		}
+	case *parser.WhileStmt:
+		r.checkExpr(n.Condition, locals)
+		for _, x := range n.Body {
+			r.checkStmt(x, locals)
+		}
+	case *parser.ForInStmt:
+		r.checkExpr(n.Iter, nil)
+		for _, x := range n.Body {
+			r.checkStmt(x, locals)
+		}
+	case *parser.FuncDecl:
+		sub := r.localNames(n)
+		r.walkCalls(n.Body, sub)
+	}
+}
+
+// checkExpr walks an expression tree, flagging undefined calls.
+func (r *Resolver) checkExpr(e parser.Node, locals map[string]bool) {
+	if e == nil {
+		return
+	}
+	switch n := e.(type) {
+	case *parser.CallExpr:
+		r.checkCallExpr(n, locals)
+	case *parser.BinaryExpr:
+		r.checkExpr(n.Left, locals)
+		r.checkExpr(n.Right, locals)
+	case *parser.ArrayLiteral:
+		for _, x := range n.Elements {
+			r.checkExpr(x, locals)
+		}
+	case *parser.MapLiteral:
+		for _, k := range n.Keys {
+			r.checkExpr(k, locals)
+		}
+		for _, v := range n.Values {
+			r.checkExpr(v, locals)
+		}
+	case *parser.IndexExpr:
+		r.checkExpr(n.Left, locals)
+		r.checkExpr(n.Index, locals)
+	case *parser.SliceExpr:
+		r.checkExpr(n.Target, locals)
+		if n.Start != nil {
+			r.checkExpr(n.Start, locals)
+		}
+		if n.End != nil {
+			r.checkExpr(n.End, locals)
+		}
+	case *parser.PropagateExpr:
+		r.checkExpr(n.Operand, locals)
+	case *parser.BorrowExpr:
+		r.checkExpr(n.Operand, locals)
+	case *parser.MoveExpr:
+		r.checkExpr(n.Operand, locals)
+	case *parser.AddressOf:
+		r.checkExpr(n.Operand, locals)
+	case *parser.Dereference:
+		r.checkExpr(n.Operand, locals)
+	case *parser.RawAccessExpr:
+		r.checkExpr(n.Address, locals)
+		if n.Value != nil {
+			r.checkExpr(n.Value, locals)
+		}
+	case *parser.EnumVariantExpr:
+		r.checkExpr(n.Value, locals)
+	case *parser.LambdaExpr:
+		sub := make(map[string]bool)
+		for _, p := range n.Params {
+			sub[p] = true
+		}
+		for k := range locals {
+			sub[k] = true
+		}
+		r.walkCalls(n.Body, sub)
+	}
+}
+
+// checkCallExpr validates a single call against the defined codebase.
+func (r *Resolver) checkCallExpr(n *parser.CallExpr, locals map[string]bool) {
+	if n == nil {
+		return
+	}
+	name := n.Function
+	// Method calls (obj.method / Some/Enum constructors), C imports, and
+	// dynamic receiver calls are outside the flat-name model: skip.
+	if strings.Contains(name, ".") {
+		return
+	}
+	if n.IsCFunc {
+		return
+	}
+	if r.builtin[name] || r.funcs[name] || r.types[name] || locals[name] {
+		return
+	}
+	// Unknown bare function reference.
+	r.errors = append(r.errors, ResolveError{
+		Line: n.Line,
+		Msg:  fmt.Sprintf("undefined function '%s'", name),
+	})
+	// Still recurse into args to find nested undefined calls.
+	for _, a := range n.Args {
+		r.checkExpr(a, locals)
+	}
+}
