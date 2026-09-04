@@ -165,9 +165,8 @@ func RunStage1(projectRoot string) (*StageResult, error) {
 	// stale artifact cannot shadow a freshly generated file in later stages/tests.
 	defer os.Remove(cFile)
 
-	runtimeC := filepath.Join(projectRoot, "src", "compiler", "runtime.c")
 	fmt.Printf("[Stage 1] Compiling C -> %s\n", compiler1Binary)
-	if err := compileWithGCC(cFile, runtimeC, compiler1Binary); err != nil {
+	if err := compileWithGCC(cFile, compiler1Binary); err != nil {
 		return nil, fmt.Errorf("gcc compilation failed: %w", err)
 	}
 
@@ -230,9 +229,8 @@ func runCompileStage(projectRoot string, stage int, outputName, compilerBinary s
 	defer os.Remove(cFile)
 
 	// Step c: Compile with gcc
-	runtimeC := filepath.Join(projectRoot, "src", "compiler", "runtime.c")
 	fmt.Printf("[Stage %d] Compiling C -> %s\n", stage, outputBinary)
-	if err := compileWithGCC(cFile, runtimeC, outputBinary); err != nil {
+	if err := compileWithGCC(cFile, outputBinary); err != nil {
 		return nil, fmt.Errorf("gcc compilation failed: %w", err)
 	}
 
@@ -270,11 +268,12 @@ func findGeneratedCFile(projectRoot, karSource string) string {
 
 // compileWithGCC compiles a self-contained C source file (with an embedded
 // by-value runtime emitted by the codegen preamble) into an output binary.
-// IMPORTANT: the stale pointer-based src/compiler/runtime.c is deliberately NOT
-// linked here — the generated main.c (and compiler2/compiler3 outputs) already
+// IMPORTANT: the legacy pointer-based src/compiler/runtime.c is deliberately
+// NOT linked — the generated main.c (and compiler2/compiler3 outputs) already
 // define every runtime helper by-value, and linking runtime.c causes duplicate
-// symbol errors.
-func compileWithGCC(cFile, runtimeFile, outputBinary string) error {
+// symbol errors. The runtimeFile parameter was removed to make this explicit
+// (see docs/audit/C-ABI.md).
+func compileWithGCC(cFile, outputBinary string) error {
 	args := []string{
 		"-std=c2x",
 		"-o", outputBinary,
