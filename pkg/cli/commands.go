@@ -139,6 +139,19 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 	// Apply macro expansion
 	prog = parser.ApplyMacroExpansion(prog)
 
+	// Whole-program name-resolution diagnostics (Option B): report duplicate
+	// top-level definitions and undefined bare function references at the
+	// Karkain level. This pass is purely additive (it never changes emitted
+	// output), so build/run are unaffected.
+	resolver := sema.NewResolver(prog)
+	if resolveErrs := resolver.Resolve(); len(resolveErrs) > 0 {
+		reporter := diagnostics.NewReporter(src, targetFile)
+		for _, re := range resolveErrs {
+			fmt.Fprint(os.Stderr, reporter.Report(diagnostics.SeverityError, re.Line, 1, re.Msg))
+		}
+		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("%d name-resolution error(s) found", len(resolveErrs))}
+	}
+
 	// Run kernel analyzer for semantic checks
 	analyzer := sema.NewKernelAnalyzer()
 	errorCount := 0
