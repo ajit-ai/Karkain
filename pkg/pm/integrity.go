@@ -58,8 +58,13 @@ func ComputeDirChecksum(dirPath string) (string, error) {
 		if err != nil {
 			return err
 		}
-		// normalize to forward slashes for cross-platform determinism
+		// Normalize to forward slashes for cross-platform determinism.
 		rel = filepath.ToSlash(rel)
+		// Exclude the checksum file itself so the recorded hash is stable and
+		// self-consistent: the checksum is computed over package content only.
+		if rel == ChecksumFile {
+			return nil
+		}
 		files = append(files, fileInfo{relPath: rel, absPath: path})
 		return nil
 	})

@@ -83,7 +83,8 @@ func VerifyIntegrity(projectDir string) []VerifyResult {
 	}
 
 	for _, pkg := range lockfile.Packages {
-		cacheDir := filepath.Join(projectDir, CacheModules, pkg.Name+"@"+pkg.Version)
+		dep := Dependency{Name: pkg.Name, Version: pkg.Version, Source: pkg.Source, URL: pkg.URL}
+		cacheDir := filepath.Join(projectDir, CacheModules, cacheDirName(dep, pkg.Rev))
 		if _, err := os.Stat(cacheDir); os.IsNotExist(err) {
 			results = append(results, VerifyResult{
 				Name:    pkg.Name,

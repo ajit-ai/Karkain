@@ -210,7 +210,7 @@ func TestFetchModule_Git_ProducesCache(t *testing.T) {
 	if err := FetchModule(proj, dep); err != nil {
 		t.Fatalf("FetchModule: %v", err)
 	}
-	cacheDir := filepath.Join(proj, CacheModules, "libf")
+	cacheDir := filepath.Join(proj, CacheModules, cacheDirName(dep, gitHead(t, repo)))
 	if _, err := os.Stat(filepath.Join(cacheDir, ManifestFile)); err != nil {
 		t.Errorf("cached package should contain karkain.toml: %v", err)
 	}

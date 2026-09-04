@@ -223,7 +223,7 @@ func TestRegistryFetchModule_Path(t *testing.T) {
 	if err := FetchModule(proj, m.Dependencies["rlib"]); err != nil {
 		t.Fatalf("FetchModule: %v", err)
 	}
-	cacheDir := filepath.Join(proj, CacheModules, "rlib")
+	cacheDir := filepath.Join(proj, CacheModules, "rlib@3.0.0")
 	if _, err := os.Stat(filepath.Join(cacheDir, "src", "p.kark")); err != nil {
 		t.Errorf("expected cached src/p.kark: %v", err)
 	}

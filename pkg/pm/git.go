@@ -248,6 +248,59 @@ func fetchGitAt(url, version, subdir, destDir string) error {
 	return nil
 }
 
+// cloneAtRev clones a repository and checks out the given already-resolved
+// immutable commit, then copies the package files into destDir. Unlike
+// fetchGitAt it does NOT re-resolve the reference (assumes rev is a full 40-hex
+// SHA). This is the cache-first / lock-pinned path (P2.9): no ref resolution,
+// just materialize the pinned commit.
+func cloneAtRev(url, rev, subdir, destDir string) error {
+	if !gitAvailable() {
+		return &ErrGit{Code: ErrGitNotFound, URL: url, Ref: rev,
+			Message: "git executable not found on PATH; cannot fetch git dependency"}
+	}
+	tmpDir, err := os.MkdirTemp("", "karkain-git-*")
+	if err != nil {
+		return &ErrGit{Code: ErrGitClone, URL: url, Ref: rev,
+			Message: "cannot create temp dir for clone", Cause: err}
+	}
+	defer os.RemoveAll(tmpDir)
+
+	if out, err := runGit("", "clone", "--quiet", url, tmpDir); err != nil {
+		return &ErrGit{Code: ErrGitClone, URL: url, Ref: rev,
+			Message: "failed to clone repository", Cause: fmt.Errorf("%s", strings.TrimSpace(out))}
+	}
+	if out, err := runGit(tmpDir, "checkout", "--quiet", rev); err != nil {
+		// The pinned commit may not be reachable from the default clone head;
+		// fetch it explicitly before retrying.
+		runGit(tmpDir, "fetch", "--quiet", "origin", rev)
+		if out2, err2 := runGit(tmpDir, "checkout", "--quiet", rev); err2 != nil {
+			return &ErrGit{Code: ErrGitRevision, URL: url, Ref: rev,
+				Message: "cannot check out pinned commit", Cause: fmt.Errorf("%s", strings.TrimSpace(out+out2))}
+		}
+		_ = out
+	}
+
+	srcDir := tmpDir
+	if subdir != "" {
+		srcDir = filepath.Join(tmpDir, filepath.FromSlash(subdir))
+		clean := filepath.Clean(srcDir)
+		if !withinDir(clean, filepath.Clean(tmpDir)) {
+			return &ErrGit{Code: ErrGitSubdir, URL: url, Ref: rev,
+				Message: fmt.Sprintf("subdir %q escapes repository root (path traversal)", subdir)}
+		}
+		if st, e := os.Stat(clean); e != nil || !st.IsDir() {
+			return &ErrGit{Code: ErrGitSubdir, URL: url, Ref: rev,
+				Message: fmt.Sprintf("package subdir %q does not exist in repository", subdir)}
+		}
+	}
+
+	if err := copyDir(srcDir, destDir); err != nil {
+		return &ErrGit{Code: ErrGitClone, URL: url, Ref: rev,
+			Message: "failed to copy pinned package into cache", Cause: err}
+	}
+	return nil
+}
+
 // revFile is the name of the file recording a resolved immutable git commit for
 // a cached package.
 const revFile = ".rev"

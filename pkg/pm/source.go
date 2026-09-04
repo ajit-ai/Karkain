@@ -69,6 +69,50 @@ func CacheIdentityKey(name, version, rev, source, url string) string {
 	return sb.String()
 }
 
+// LateBoundCacheKey returns a placeholder cache key usable before the resolved
+// identity (e.g. git rev) is known, so a package can be looked up by name and
+// then reconciled against the actual resolved identity.
+func LateBoundCacheKey(name string) string {
+	return SanitizeCacheComponent(name) + "@*"
+}
+
+// cacheDirName computes the cache directory name for a dependency given its
+// resolved git revision. It is the source-aware identity used on disk.
+//
+// Backward-compatibility rules (preserving VerifyIntegrity's `name@version`
+// layout):
+//   - registry (no rev, no url): `name@version` (legacy layout)
+//   - git with resolved rev:     `name@<rev>` (source-aware, rev is the identity)
+//   - local/workspace or others: source-aware `CacheIdentityKey` form.
+//
+// Local deps are not copied to the cache by policy (canonical source path), so
+// this function is only invoked for sources that are actually cached.
+func cacheDirName(dep Dependency, rev string) string {
+	switch dep.Source {
+	case string(SourceLocal), string(SourceWorkspace):
+		// Local/workspace deps keep the legacy `name` cache folder (canonical
+		// source path semantics; existing tooling expects `name`).
+		return SanitizeCacheComponent(dep.Name)
+	case string(SourceGit):
+		id := rev
+		if id == "" {
+			id = dep.Version
+			if id == "" {
+				id = "head"
+			}
+		}
+		return SanitizeCacheComponent(dep.Name) + "@" + SanitizeCacheComponent(id)
+	case string(SourceRegistry), "":
+		if dep.URL == "" {
+			// Legacy registry layout expected by VerifyIntegrity: name@version.
+			return SanitizeCacheComponent(dep.Name) + "@" + SanitizeCacheComponent(dep.Version)
+		}
+		return CacheIdentityKey(dep.Name, dep.Version, rev, dep.Source, dep.URL)
+	default:
+		return CacheIdentityKey(dep.Name, dep.Version, rev, dep.Source, dep.URL)
+	}
+}
+
 // SanitizeCacheComponent replaces characters that are unsafe in a filesystem
 // path with a safe marker, preventing path traversal and ambiguity in cache keys.
 func SanitizeCacheComponent(s string) string {
