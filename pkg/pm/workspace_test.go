@@ -199,3 +199,101 @@ func TestWorkspaceOrder_ExternalDepIgnored(t *testing.T) {
 		t.Errorf("expected member app, got %s", members[0].Name)
 	}
 }
+
+// TestRemoveWorkspaceMember verifies remove drops exactly the requested member
+// (by raw path or absolute path) and errors for unknown members or non-roots.
+func TestRemoveWorkspaceMember(t *testing.T) {
+	root := t.TempDir()
+	if err := InitWorkspace(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"a", "b"} {
+		if err := AddWorkspaceMember(root, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := RemoveWorkspaceMember(root, "a"); err != nil {
+		t.Fatalf("remove a: %v", err)
+	}
+	members, err := WorkspaceOrder(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 1 || members[0].Name != "b" {
+		t.Fatalf("expected only b remaining, got %v", members)
+	}
+
+	if err := RemoveWorkspaceMember(root, "a"); err == nil {
+		t.Fatal("expected error removing non-member a")
+	}
+
+	absB, _ := filepath.Abs(filepath.Join(root, "b"))
+	if err := RemoveWorkspaceMember(root, absB); err != nil {
+		t.Fatalf("remove b by abs path: %v", err)
+	}
+	members, err = WorkspaceOrder(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(members) != 0 {
+		t.Fatalf("expected empty workspace, got %v", members)
+	}
+
+	if err := RemoveWorkspaceMember(t.TempDir(), "a"); err == nil {
+		t.Fatal("expected error removing from non-root dir")
+	}
+}
+
+// TestWorkspaceGraphLines verifies the graph renderer emits deterministic,
+// ordered lines including inter-member edges.
+func TestWorkspaceGraphLines(t *testing.T) {
+	root := t.TempDir()
+	if err := InitWorkspace(root); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"lib", "app"} {
+		if err := AddWorkspaceMember(root, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeMemberMaster(t, filepath.Join(root, "lib"), "lib", nil)
+	writeMemberMaster(t, filepath.Join(root, "app"), "app", map[string]Dependency{
+		"lib": {Name: "lib", Version: "1.0.0", Source: "workspace", URL: "lib"},
+	})
+
+	lines, err := WorkspaceGraphLines(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	wantLib := "member lib: no workspace dependencies"
+	wantApp := "member app -> lib"
+	if len(lines) != 2 || lines[0] != wantLib || lines[1] != wantApp {
+		t.Fatalf("unexpected graph lines:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// TestWorkspaceGraphLines_CycleReportsError verifies a cycle is surfaced rather
+// than rendered as a broken graph.
+func TestWorkspaceGraphLines_CycleReportsError(t *testing.T) {
+	root := t.TempDir()
+	if err := InitWorkspace(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddWorkspaceMember(root, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddWorkspaceMember(root, "b"); err != nil {
+		t.Fatal(err)
+	}
+	writeMemberMaster(t, filepath.Join(root, "a"), "a", map[string]Dependency{
+		"b": {Name: "b", Version: "1.0.0", Source: "workspace", URL: "b"},
+	})
+	writeMemberMaster(t, filepath.Join(root, "b"), "b", map[string]Dependency{
+		"a": {Name: "a", Version: "1.0.0", Source: "workspace", URL: "a"},
+	})
+
+	if _, err := WorkspaceGraphLines(root); err == nil || !strings.Contains(err.Error(), ErrWsCycle) {
+		t.Fatalf("expected cycle code, got: %v", err)
+	}
+}
