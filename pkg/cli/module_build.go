@@ -20,6 +20,16 @@ func moduleErrorResult(de *module.DiagramError) CommandResult {
 	return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("module error: %v", de.Error())}
 }
 
+// sourceLoadResult converts a run/build/check source-loading error into a
+// CommandResult, surfacing module-graph failures as compile-class diagnostics
+// and every other read failure as a plain file error.
+func sourceLoadResult(err error) CommandResult {
+	if de, ok := err.(*module.DiagramError); ok {
+		return moduleErrorResult(de)
+	}
+	return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error reading file: %v", err)}
+}
+
 // detectImports reports whether the given source text contains any top-level
 // module `import <name>` declarations (excluding C imports).
 func detectImports(src string) bool {
@@ -41,6 +51,38 @@ func effectiveRootFile(target string) string {
 		return filepath.Join(clean, "main.kark")
 	}
 	return clean
+}
+
+// resolveSourcesRun is the run/build pipeline's module-aware loader. When the
+// entry file declares module imports it returns the import-driven concatenated
+// unit (deps first, root last); otherwise it preserves the legacy
+// sibling/project assembly exactly. A *module.DiagramError is a compile-class
+// failure (cycle / not-found / malformed import).
+func resolveSourcesRun(targetFile string) (string, error) {
+	cleanPath := effectiveRootFile(targetFile)
+	text, _, ok, merr := assembleModuleUnit(cleanPath)
+	if ok {
+		if merr != nil {
+			return "", merr
+		}
+		return text, nil
+	}
+	return resolveSources(cleanPath)
+}
+
+// resolveSourcesCheck is the check pipeline's module-aware loader. It also
+// returns the SourceMap for visibility enforcement (module assembly provides
+// one; the legacy path keeps its existing behavior).
+func resolveSourcesCheck(targetFile string) (string, sema.SourceMap, error) {
+	cleanPath := effectiveRootFile(targetFile)
+	text, sm, ok, merr := assembleModuleUnit(cleanPath)
+	if ok {
+		if merr != nil {
+			return "", nil, merr
+		}
+		return text, sm, nil
+	}
+	return resolveSourcesWithMap(cleanPath)
 }
 
 // assembleModuleUnit resolves the module graph rooted at targetFile and returns
