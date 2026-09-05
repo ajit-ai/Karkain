@@ -30,8 +30,19 @@ COMPILER COMMANDS:
   build <file.kark>        Compile to native executable
   transpile <file.kark>    Generate C or other backend output
   check <file.kark>        Validate syntax and semantics
-  test <path>             Discover and run *_test.kark files
-  lsp                     Start Language Server Protocol server
+  test <path>              Discover and run *_test.kark files
+  clean [path] [--all]     Remove generated artifacts (sources never touched)
+  lsp                      Start Language Server Protocol server
+
+WORKSPACE COMMANDS:
+  workspace list           List members in dependency order
+  workspace build          Build all members (dependency order)
+  workspace test           Test all members
+  workspace check          Validate all members (no binaries produced)
+  workspace run            Build and run all member entrypoints
+  workspace clean [--all]  Clean generated artifacts from all members
+  workspace init           Initialize workspace root
+  workspace add <path>     Add member package
 
 PACKAGE MANAGEMENT (top-level):
   karkain init [name]                Create new project (in current dir)
@@ -79,14 +90,21 @@ OPTIONS:
   -o <path>               Output binary path (build)
   -c, --compile-only      Keep generated C source
   -g, --debug             Generate debug symbols + #line directives
-  --target <target>       Target architecture (native, wasm32-wasi)
+  --target <target>       Target architecture (native, c23, wasm32-wasi)
+  --filter <pattern>      Run only matching tests (substring of test name)
   --verbose               Emit detailed pipeline logs
   -v, --version           Show version
   -h, --help              Show this help
 
+EXIT CODES:
+  0  success              1  program failure        2  CLI usage error
+  3  compile/type/sema    4  test failure           5  package/dependency
+  6  infrastructure (e.g. no usable C compiler)
+
 Examples:
   karkain run examples/array_test.kark
   karkain build examples/compiler_test.kark -o bin/app.exe
+  karkain clean --all
   karkain pkg init my_project
   karkain pkg add stdlib ^0.14.0
   karkain pkg add utils --source git --url https://github.com/bob/utils.git
@@ -614,13 +632,13 @@ func handlePackageCommand(args []string) int {
 			if len(warnings) == 0 {
 				fmt.Println("All licenses compatible")
 			} else {
-for _, w := range warnings {
-				fmt.Printf("  WARN  %s\n", w)
+				for _, w := range warnings {
+					fmt.Printf("  WARN  %s\n", w)
+				}
 			}
+			return cli.ExitSuccess
 		}
-		return cli.ExitSuccess
-	}
-	fmt.Println("Scanning for vulnerabilities...")
+		fmt.Println("Scanning for vulnerabilities...")
 		vulns := kpkg.AuditDependencies(projectDir)
 		if len(vulns) == 0 {
 			fmt.Println("No known vulnerabilities found")
@@ -687,9 +705,10 @@ for _, w := range warnings {
 	case "workspace", "ws":
 		wsArgs := rest
 		if len(wsArgs) == 0 {
-			fmt.Println("Usage: karkain pkg workspace <init|add|build|test>")
+			fmt.Println("Usage: karkain pkg workspace <init|add|list|build|test|check|run|clean>")
 			return cli.ExitUsage
 		}
+		wscfg := codegen.NewConfig()
 		switch wsArgs[0] {
 		case "init":
 			if err := kpkg.InitWorkspace(cwd); err != nil {
@@ -707,15 +726,39 @@ for _, w := range warnings {
 				return cli.ExitPackage
 			}
 			fmt.Printf("Added %s to workspace\n", wsArgs[1])
+		case "list", "ls":
+			if err := cli.WorkspaceList(cwd); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return cli.ExitPackage
+			}
 		case "build":
-			wscfg := codegen.NewConfig()
 			if err := cli.WorkspaceBuild(cwd, wscfg, false); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				return cli.ExitPackage
 			}
 		case "test":
-			wscfg := codegen.NewConfig()
 			if err := cli.WorkspaceTest(cwd, wscfg, false); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return cli.ExitPackage
+			}
+		case "check":
+			if err := cli.WorkspaceCheck(cwd, false); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return cli.ExitPackage
+			}
+		case "run":
+			if err := cli.WorkspaceRun(cwd, wscfg, false); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return cli.ExitPackage
+			}
+		case "clean":
+			wsAll := false
+			for _, a := range wsArgs[1:] {
+				if a == "--all" {
+					wsAll = true
+				}
+			}
+			if err := cli.WorkspaceClean(cwd, wsAll); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				return cli.ExitPackage
 			}
@@ -725,11 +768,109 @@ for _, w := range warnings {
 		}
 
 	default:
-fmt.Fprintf(os.Stderr, "Unknown pkg command: %s\n", subCmd)
-fmt.Println("Run 'karkain --help' for available commands")
-	return cli.ExitUsage
+		fmt.Fprintf(os.Stderr, "Unknown pkg command: %s\n", subCmd)
+		fmt.Println("Run 'karkain --help' for available commands")
+		return cli.ExitUsage
 	}
 
+	return cli.ExitSuccess
+}
+
+// handleWorkspaceCommand is the top-level `karkain workspace` dispatcher. It
+// shares the pkg/workspace implementation so both spellings behave identically.
+func handleWorkspaceCommand(args []string, verbose bool) int {
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("Error getting current directory: %v\n", err)
+		return cli.ExitEnv
+	}
+
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		fmt.Println("Usage: karkain workspace <list|build|test|check|run|clean|init|add>")
+		return cli.ExitSuccess
+	}
+
+	cfg := codegen.NewConfig()
+	wscfg := cfg
+
+	sub := args[0]
+	tail := args[1:]
+	all := false
+	for i := 0; i < len(tail); i++ {
+		switch tail[i] {
+		case "--all":
+			all = true
+		case "--verbose":
+			verbose = true
+		default:
+			if strings.HasPrefix(tail[i], "-") {
+				fmt.Printf("Error: Unknown flag '%s'\n", tail[i])
+				return cli.ExitUsage
+			}
+		}
+	}
+
+	switch sub {
+	case "list", "ls":
+		if err := cli.WorkspaceList(cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+	case "build":
+		if err := cli.WorkspaceBuild(cwd, wscfg, verbose); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+	case "test":
+		if err := cli.WorkspaceTest(cwd, wscfg, verbose); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+	case "check":
+		if err := cli.WorkspaceCheck(cwd, verbose); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+	case "run":
+		if err := cli.WorkspaceRun(cwd, wscfg, verbose); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+	case "clean":
+		if err := cli.WorkspaceClean(cwd, all); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+	case "init":
+		if err := kpkg.InitWorkspace(cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+		fmt.Println("Initialized workspace")
+	case "add":
+		if len(tail) == 0 {
+			fmt.Fprintln(os.Stderr, "Error: path required")
+			return cli.ExitUsage
+		}
+		path := ""
+		for i := 0; i < len(tail); i++ {
+			if !strings.HasPrefix(tail[i], "-") && path == "" {
+				path = tail[i]
+			}
+		}
+		if path == "" {
+			fmt.Fprintln(os.Stderr, "Error: path required")
+			return cli.ExitUsage
+		}
+		if err := kpkg.AddWorkspaceMember(cwd, path); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+		fmt.Printf("Added %s to workspace\n", path)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown workspace command: %s\n", sub)
+		return cli.ExitUsage
+	}
 	return cli.ExitSuccess
 }
 
@@ -878,6 +1019,32 @@ func main() {
 			}
 		case "build", "run", "check", "transpile", "test", "lsp":
 			command = arg
+		case "workspace", "ws":
+			// top-level workspace family: list|build|test|check|run|clean
+			os.Exit(handleWorkspaceCommand(args[i+1:], verbose))
+		case "clean":
+			// clean [path] [--all]: remove generated artifacts.
+			cleanPath := "."
+			cleanAll := false
+			for j := i + 1; j < len(args); j++ {
+				if args[j] == "--all" {
+					cleanAll = true
+					continue
+				}
+				if strings.HasPrefix(args[j], "-") {
+					fmt.Printf("Error: Unknown flag '%s'\n", args[j])
+					os.Exit(cli.ExitUsage)
+				}
+				if cleanPath == "." {
+					cleanPath = args[j]
+				}
+			}
+			i = len(args) - 1
+			result := cli.CleanCommand(cleanPath, cleanAll)
+			if result.Message != "" {
+				fmt.Println(result.Message)
+			}
+			os.Exit(result.ExitCode)
 		case "pkg":
 			// Collect all remaining args and hand off to package manager
 			os.Exit(handlePackageCommand(args[i+1:]))

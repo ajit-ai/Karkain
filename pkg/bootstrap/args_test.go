@@ -128,7 +128,7 @@ func TestArgs_PathWithSpaces(t *testing.T) {
 	}
 }
 
-// Argument Test 5: compiler build file.kar -> real output produced at real path.
+// Argument Test 5: compiler build file.kark -> real output produced at real path.
 func TestArgs_BuildFile(t *testing.T) {
 	path := writeFixture(t, "hello.kark", helloKar)
 
