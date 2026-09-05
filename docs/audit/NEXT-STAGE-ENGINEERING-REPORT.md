@@ -315,3 +315,41 @@ compile-pass cases.
   suite green (`go test ./... -count=1`), bootstrap path intact.
 
 Report: `docs/audit/KTF-002-REPORT.md`.
+
+### Phase 80 - SIMD / Vector Execution Architecture (COMPLETE)
+
+Established the cross-backend parity baseline and delivered a SIMD CPU
+backend as the first vectorized execution path, per the Phase 79 gate
+(READY WITH PREREQUISITES).
+
+- Prerequisite 1 — Math IR: reconciled as the reference caller-free evaluator
+  (zero importers confirmed); decision record
+  `docs/audit/PHASE-80-MATH-IR-RECONCILIATION.md`.
+- Prerequisite 2 — Self-hosting: `docs/audit/SELF-HOSTING-BLOCKER.md` created
+  (exit criterion + per-phase tracking). Re-measured during Phase 80:
+  `pkg/bootstrap` now GREEN (`ok 283.772s`), status updated; the exit
+  criterion is retained as the standing gate.
+- Prerequisite 3 — Parity baseline: `pkg/backend/parity/parity.go` harness
+  (`Candidate`/`Diff`/`Comparison`/`Report`/`Compare`/`ReportString`). CPU
+  scalar backend is the numeric oracle; GPU/NPU are metadata-only execute
+  stubs recorded as `NoNumericOutput` (structural gap surfaced, never faked).
+- SIMD backend: `pkg/backend/cpu/simd_c.go` (`SimdExtensions` C runtime using
+  GNU vector extensions `double4 __attribute__((vector_size(32)))`, portable
+  gcc/clang without `-march`); `TensorSimdCRuntime = TensorCRuntime +
+  SimdExtensions`; `cpu.NewSimd()` alongside scalar `New()`; SIMD paths for
+  contiguous same-shape add/sub/mul/div, matmul (K-loop in 4-lane blocks),
+  relu; broadcast falls back to scalar; results carry `Metadata["simd"]="true"`.
+- Oracle completeness fix: the CPU backend previously emitted RESULT blocks
+  only for `OpCreate` outputs — op outputs (Add/MatMul/Relu) never produced
+  numeric Values. The C emiter now prints a multi-line RESULT block for every
+  declared output, making `Result.Values` populated for the full graph
+  (pre-existing latent gap, found by parity tests).
+- Verification: `pkg/backend/parity/parity_test.go` — oracle-contract (GPU/NPU
+  ⇒ NoNumericOutput), SIMD-vs-scalar numeric parity (add/relu exact ≤1e-12,
+  matmul tolerance captures FP-order difference), broadcast-fallback parity,
+  injected-divergence detection (harness must fail), dispatcher integration
+  (SIMD backend is first-class). `go vet ./pkg/...` clean; backend/tensor/
+  math/npu suites green.
+- Full suite: `go test ./... -count=1` green including `pkg/bootstrap`.
+
+Report: `docs/audit/PHASE-80-REPORT.md`.

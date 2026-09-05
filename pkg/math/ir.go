@@ -4,6 +4,14 @@
 //
 // Math IR is NOT NumPy, NOT MLIR, NOT SymPy, NOT a vendor format.
 // It is Karkain's own representation of mathematical computation.
+//
+// RECONCILED ROLE (Phase 80, decision record in
+// docs/audit/PHASE-80-MATH-IR-RECONCILIATION.md): Math IR is the REFERENCE
+// CALLER-FREE EVALUATOR — the standalone, dependency-free oracle for scalar
+// mathematical semantics (Eval/Optimize/Validate). It is deliberately NOT
+// wired into the compiler pipeline (no importers); Tensor IR owns the shared
+// graph the execution backends consume, and pkg/math continues to serve as a
+// testable semantic reference rather than second execution path.
 package math
 
 import (
@@ -37,10 +45,10 @@ type IntConst struct {
 	Typ   MathType
 }
 
-func (n *IntConst) Type() MathType     { return n.Typ }
-func (n *IntConst) Op() string         { return "IntConst" }
-func (n *IntConst) Operands() []Node   { return nil }
-func (n *IntConst) NumOperands() int   { return 0 }
+func (n *IntConst) Type() MathType   { return n.Typ }
+func (n *IntConst) Op() string       { return "IntConst" }
+func (n *IntConst) Operands() []Node { return nil }
+func (n *IntConst) NumOperands() int { return 0 }
 
 // FloatConst represents a floating-point constant.
 type FloatConst struct {
@@ -48,30 +56,30 @@ type FloatConst struct {
 	Typ   MathType
 }
 
-func (n *FloatConst) Type() MathType     { return n.Typ }
-func (n *FloatConst) Op() string         { return "FloatConst" }
-func (n *FloatConst) Operands() []Node   { return nil }
-func (n *FloatConst) NumOperands() int   { return 0 }
+func (n *FloatConst) Type() MathType   { return n.Typ }
+func (n *FloatConst) Op() string       { return "FloatConst" }
+func (n *FloatConst) Operands() []Node { return nil }
+func (n *FloatConst) NumOperands() int { return 0 }
 
 // BoolConst represents a boolean constant.
 type BoolConst struct {
 	Value bool
 }
 
-func (n *BoolConst) Type() MathType     { return Bool }
-func (n *BoolConst) Op() string         { return "BoolConst" }
-func (n *BoolConst) Operands() []Node   { return nil }
-func (n *BoolConst) NumOperands() int   { return 0 }
+func (n *BoolConst) Type() MathType   { return Bool }
+func (n *BoolConst) Op() string       { return "BoolConst" }
+func (n *BoolConst) Operands() []Node { return nil }
+func (n *BoolConst) NumOperands() int { return 0 }
 
 // StringConst represents a string constant.
 type StringConst struct {
 	Value string
 }
 
-func (n *StringConst) Type() MathType     { 	return StringType }
-func (n *StringConst) Op() string         { return "StringConst" }
-func (n *StringConst) Operands() []Node   { return nil }
-func (n *StringConst) NumOperands() int   { return 0 }
+func (n *StringConst) Type() MathType   { return StringType }
+func (n *StringConst) Op() string       { return "StringConst" }
+func (n *StringConst) Operands() []Node { return nil }
+func (n *StringConst) NumOperands() int { return 0 }
 
 // ============================================================
 // Variable Nodes
@@ -83,10 +91,10 @@ type Variable struct {
 	Typ  MathType
 }
 
-func (n *Variable) Type() MathType     { return n.Typ }
-func (n *Variable) Op() string         { return "Variable" }
-func (n *Variable) Operands() []Node   { return nil }
-func (n *Variable) NumOperands() int   { return 0 }
+func (n *Variable) Type() MathType   { return n.Typ }
+func (n *Variable) Op() string       { return "Variable" }
+func (n *Variable) Operands() []Node { return nil }
+func (n *Variable) NumOperands() int { return 0 }
 
 // Param represents a function parameter.
 type Param struct {
@@ -94,10 +102,10 @@ type Param struct {
 	Typ  MathType
 }
 
-func (n *Param) Type() MathType     { return n.Typ }
-func (n *Param) Op() string         { return "Param" }
-func (n *Param) Operands() []Node   { return nil }
-func (n *Param) NumOperands() int   { return 0 }
+func (n *Param) Type() MathType   { return n.Typ }
+func (n *Param) Op() string       { return "Param" }
+func (n *Param) Operands() []Node { return nil }
+func (n *Param) NumOperands() int { return 0 }
 
 // ============================================================
 // Arithmetic Nodes

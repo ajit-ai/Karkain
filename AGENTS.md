@@ -13,11 +13,18 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-79** — Phases 50–79 complete.
+Current phase: **post-80** — Phases 50–80 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
-Last completed: **79** — Compiler Integrity, IR Architecture & Self-Hosting
+Last completed: **80** — SIMD / Vector Execution Architecture (cross-backend
+parity baseline `pkg/backend/parity` with CPU scalar oracle; GNU-vector SIMD
+runtime `TensorSimdCRuntime` + `cpu.NewSimd()` for same-shape add/sub/mul/div,
+matmul, relu with scalar broadcast fallback; oracle completeness fix: RESULT
+values now emitted for all output nodes; GPU/NPU recorded as NoNumericOutput;
+`pkg/bootstrap` re-measured GREEN (blocker exit criterion retained); docs under
+`docs/audit/PHASE-80-*` + `SELF-HOSTING-BLOCKER.md`).
+Prior completed: **79** — Compiler Integrity, IR Architecture & Self-Hosting
 Readiness Audit (evidence-based audit: pipeline, dependency map, Math/Tensor/SSA
 IR, CPU/GPU/NPU parity, determinism, optimization boundaries, tests,
 BUG-1..8 regression, self-hosting readiness; Phase 80 gate = READY WITH
