@@ -1,0 +1,7 @@
+func main() {
+    print("hello, karkain")
+    print(1 + 2 * 3)
+    print(10 - 4)
+    print(7 / 2)
+    print(5 % 3)
+}

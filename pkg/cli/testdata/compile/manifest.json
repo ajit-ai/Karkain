@@ -1,0 +1,19 @@
+{
+  "cases": [
+    { "file": "pass/arith.kark", "expect": "pass" },
+    { "file": "pass/control_flow.kark", "expect": "pass" },
+    { "file": "pass/data_structures.kark", "expect": "pass" },
+    { "file": "pass/for_in.kark", "expect": "pass" },
+    { "file": "pass/funcs.kark", "expect": "pass" },
+    { "file": "pass/strings.kark", "expect": "pass" },
+    { "file": "pass/borrow_safe.kark", "expect": "pass" },
+    { "file": "pass/kernel_compile.kark", "expect": "pass" },
+    { "file": "fail/undefined_func.kark", "expect": "fail", "code": "E-K-RES", "message": "undefined function 'help_me'" },
+    { "file": "fail/duplicate_func.kark", "expect": "fail", "code": "E-K-RES", "message": "duplicate function definition" },
+    { "file": "fail/syntax_junk.kark", "expect": "fail", "code": "E-K-SYN", "message": "unexpected token" },
+    { "file": "fail/use_after_scope.kark", "expect": "fail", "code": "E-K-BRW", "message": "after its scope has ended" },
+    { "file": "fail/use_after_move.kark", "expect": "fail", "code": "E-K-BRW", "message": "use of moved value" },
+    { "file": "fail/kernel_io_forbidden.kark", "expect": "fail", "code": "E-K-SEM", "message": "file I/O operation" },
+    { "file": "fail/kernel_recursion_forbidden.kark", "expect": "fail", "code": "E-K-SEM", "message": "recursive call forbidden" }
+  ]
+}

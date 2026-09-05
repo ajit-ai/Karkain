@@ -284,5 +284,34 @@ batches behind the previous dispatch work:
 
 Reports: `docs/audit/CLI-COMPLETION-IMPLEMENTATION.md`,
 `docs/audit/CLI-COMPLETION-MATRIX.md`. Full suite green
-(`go test ./... -count=1`). KTF-002 (compile-pass/compile-fail + diagnostics)
-remains queued.
+(`go test ./... -count=1`).
+
+### KTF-002 - Compile-Pass / Compile-Fail Corpus with Diagnostics Capture (COMPLETE)
+
+Established the bundled compile corpus: `manifest.json`-driven, deterministic,
+exercising the real lint pipeline for diagnostics and the native C backend for
+compile-pass cases.
+
+- Model: `pkg/testing/compile.go` (`CompileCase`/`Diagnostic`/`CompileResult`/
+  `CompileSummary`/`SummarizeCompile`/`SortCompileByID`; `CompileExpect` with
+  `ExpectPass`/`ExpectFail`; `StatusSkip` honored in summaries).
+- Runner: `pkg/cli/compile_corpus.go` — `loadCompileManifest` (validates
+  manifest + referenced files, deterministic sort), `captureFrontendDiagnostics`
+  (parse→macro→resolve→kernel sema→borrow, mirrors `lint`), `runPassCase`
+  (clean front end + `codegen.GenerateAndCompile` with `CompileOnly`; no C
+  toolchain ⇒ SKIP), `runFailCase` (one diagnostic matching declared code +
+  message substring), `RunCompileCorpus`.
+- Bundled corpus `pkg/cli/testdata/compile/`: 15 cases (8 pass: arith,
+  control_flow, data_structures, for_in, funcs, strings, borrow_safe,
+  kernel_compile; 7 fail spanning E-K-RES / E-K-SYN / E-K-BRW / E-K-SEM).
+  Every fail expectation was validated empirically against `karkain lint`
+  before freezing.
+- CLI: `karkain test --compile [dir]` (default `./testdata/compile`); exit 0
+  all pass, exit 4 (ExitTest) any fail.
+- Grammar constraints respected: newline-separated statements (no `;`), no
+  plain reassignment / `->` return types / `a..b` ranges; `in` reserved word
+  avoided in kernel param names (misaligns `parseKernel`).
+- Self-tests: `pkg/cli/compile_corpus_test.go` (10 tests incl. 2 E2E) — full
+  suite green (`go test ./... -count=1`), bootstrap path intact.
+
+Report: `docs/audit/KTF-002-REPORT.md`.
