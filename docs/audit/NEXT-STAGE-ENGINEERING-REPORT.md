@@ -259,3 +259,30 @@ Full suite green (`go test ./... -count=1`, all 27 packages; `pkg/bootstrap`
 Deferred (future KTF phases): compile-pass/compile-fail, diagnostics,
 conformance, runtime/ABI, bootstrap/self-host harness, property/fuzz,
 benchmarks, Math/Tensor/SIMD/GPU/NPU/Quantum test frameworks.
+
+### CLI-COMPLETION — Complete CLI Toolchain Implementation (COMPLETE)
+
+Executes the Karkain Complete CLI Toolchain Implementation prompt in four
+batches behind the previous dispatch work:
+
+- **Exit codes (§23)** 0..6 (`pkg/cli/exitcodes.go`) with every dispatcher
+  path classified; `--target` closed-set validation (`native|c23|wasm32-wasi`,
+  both flag forms; invalid → usage 2; no compiler → infrastructure 6).
+- **clean** (source-anchored artifact removal, `--all`, never touches
+  sources/manifests/lock) and the **workspace family** (`list/build/test/
+  check/run/clean/init/add/remove/lint/graph`) via `pm.WorkspaceOrder`,
+  identical under `karkain workspace` and `karkain pkg workspace`.
+- **bench** — genuine single-run DURATION harness for `bench_` functions in
+  `*_bench.kark`/`*_test.kark`; **lint** — full front-end incl. borrow checker
+  with `E-K-*` tagging; **explain** — stable error-code registry
+  (`pkg/diagnostics` E-K-* classes + all E-PKG-*) with `--list`.
+- **target/config** commands; **`pkg audit --json` / `pkg verify --json`**
+  machine-readable output; repaired a mojibake arrow in `pkg audit`.
+- Honest boundary: `ir`, `bootstrap`, `selfhost`, `profile` deliberately NOT
+  provided (no fake commands); registry-gated paths retain availability
+  errors.
+
+Reports: `docs/audit/CLI-COMPLETION-IMPLEMENTATION.md`,
+`docs/audit/CLI-COMPLETION-MATRIX.md`. Full suite green
+(`go test ./... -count=1`). KTF-002 (compile-pass/compile-fail + diagnostics)
+remains queued.
