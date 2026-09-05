@@ -32,6 +32,8 @@ COMPILER COMMANDS:
   check <file.kark>        Validate syntax and semantics
   test <path>              Discover and run *_test.kark files
   bench <path>             Time bench_-prefixed functions (single run each)
+  lint <file.kark>         Full front-end analysis (incl. borrow checker)
+  explain <code>           Explain a toolchain error code
   clean [path] [--all]     Remove generated artifacts (sources never touched)
   lsp                      Start Language Server Protocol server
 
@@ -1018,8 +1020,23 @@ func main() {
 				fmt.Println("Error: --filter flag requires a pattern")
 				os.Exit(cli.ExitUsage)
 			}
-		case "build", "run", "check", "transpile", "test", "bench", "lsp":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "lsp":
 			command = arg
+		case "explain":
+			// explain <code> or explain --list
+			if i+1 < len(args) && args[i+1] == "--list" {
+				result := cli.ExplainListCommand()
+				os.Exit(result.ExitCode)
+			}
+			code := ""
+			for j := i + 1; j < len(args); j++ {
+				if !strings.HasPrefix(args[j], "-") {
+					code = args[j]
+					break
+				}
+			}
+			result := cli.ExplainCommand(code)
+			os.Exit(result.ExitCode)
 		case "workspace", "ws":
 			// top-level workspace family: list|build|test|check|run|clean
 			os.Exit(handleWorkspaceCommand(args[i+1:], verbose))
@@ -1084,6 +1101,19 @@ func main() {
 			benchPath = "."
 		}
 		result := cli.BenchCommand(benchPath, cfg, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	if command == "lint" {
+		if targetFile == "" {
+			fmt.Println("Error: No input .kark file specified")
+			printHelp()
+			os.Exit(cli.ExitUsage)
+		}
+		result := cli.LintCommand(targetFile, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}
