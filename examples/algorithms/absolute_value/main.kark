@@ -1,0 +1,15 @@
+func iabs(n) {
+    if (n < 0) {
+        return 0 - n
+    }
+    return n
+}
+
+func main() {
+    print("abs(-42):")
+    print(iabs(-42))
+    print("abs(7):")
+    print(iabs(7))
+    print("abs(0):")
+    print(iabs(0))
+}

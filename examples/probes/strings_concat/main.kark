@@ -1,0 +1,6 @@
+func main() {
+    let a = "foo"
+    let b = "bar"
+    print(a + b)
+    print(a + b + a)
+}

@@ -1,0 +1,38 @@
+func is_prime(n) {
+    if (n < 2) {
+        return 0
+    }
+    let d = 2
+    while (d * d <= n) {
+        if (n % d == 0) {
+            return 0
+        }
+        d = d + 1
+    }
+    return 1
+}
+func bubble_sort(arr) {
+    let n = len(arr)
+    let i = 0
+    while (i < n) {
+        let j = 0
+        while (j < n - i - 1) {
+            if (arr[j] > arr[j + 1]) {
+                let tmp = arr[j]
+                arr[j] = arr[j + 1]
+                arr[j + 1] = tmp
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+}
+func main() {
+    let xs = [64, 34, 25, 12, 22, 11, 90]
+    bubble_sort(xs)
+    print(xs[0])
+    print(xs[3])
+    print(xs[6])
+    print(is_prime(2))
+    print(is_prime(15))
+}

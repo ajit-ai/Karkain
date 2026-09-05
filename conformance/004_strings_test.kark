@@ -1,0 +1,27 @@
+func test_string_length() {
+    let s = "hello world"
+    assert_eq(len(s), 11)
+    let empty = ""
+    assert_eq(len(empty), 0)
+}
+
+func test_string_indexing() {
+    let s = "hello"
+    assert_eq(s[0], "h")
+    assert_eq(s[1], "e")
+    assert_eq(s[4], "o")
+}
+
+func test_string_concat() {
+    let a = "foo"
+    let b = "bar"
+    assert_eq(a + b, "foobar")
+    assert_eq(a + b + a, "foobarfoo")
+    assert_eq("x" + "y" + "z", "xyz")
+}
+
+func test_string_spaces() {
+    let s = "a b c"
+    assert_eq(s[1], " ")
+    assert_eq(len(s), 5)
+}

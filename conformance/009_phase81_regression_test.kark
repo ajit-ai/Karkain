@@ -1,0 +1,64 @@
+func test_unparenthesized_if() {
+    let x = 3
+    let y = 5
+    if x < y {
+        assert(true)
+    }
+    if(x < y) {
+        assert(true)
+    }
+    if x == 3 {
+        assert(true)
+    }
+    if x != 9 {
+        assert(true)
+    }
+    if x < y && y < 10 {
+        assert(true)
+    }
+}
+
+func test_unparenthesized_if_else() {
+    let n = 7
+    if n % 2 == 0 {
+        assert(false)
+    } else {
+        assert(true)
+    }
+}
+
+func test_unparenthesized_if_compound_condition() {
+    let a = 5
+    let b = 10
+    if a + b == 15 && b > a {
+        assert(true)
+    } else {
+        assert(false)
+    }
+}
+
+func test_modulo_regression() {
+    let a = 7
+    let b = 3
+    assert_eq(a % b, 1)
+    let c = - 7
+    let d = 3
+    assert_eq(c % d, - 1)
+    let e = 7
+    let f = - 3
+    assert_eq(e % f, 1)
+    let g = - 7
+    let h = - 3
+    assert_eq(g % h, - 1)
+}
+
+func test_float_modulo() {
+    assert_eq(5.0 % 2.0, 1.0)
+    assert_eq(7.5 % 2.0, 1.5)
+}
+
+func test_modulo_in_place() {
+    let x = 17
+    x = x % 5
+    assert_eq(x, 2)
+}

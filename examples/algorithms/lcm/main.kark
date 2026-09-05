@@ -1,0 +1,17 @@
+func gcd(a, b) {
+    if (b == 0) {
+        return a
+    }
+    return gcd(b, a % b)
+}
+
+func lcm(a, b) {
+    return (a * b) / gcd(a, b)
+}
+
+func main() {
+    print("LCM(4, 6):")
+    print(lcm(4, 6))
+    print("LCM(21, 6):")
+    print(lcm(21, 6))
+}

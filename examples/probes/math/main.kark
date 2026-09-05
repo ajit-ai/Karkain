@@ -1,0 +1,8 @@
+func main() {
+    print(17 / 5)
+    print(17 % 5)
+    print(-7 % 3)
+    print(7.0 / 2.0)
+    print(2.5 * 4.0)
+    print(5.0 % 2.0)
+}

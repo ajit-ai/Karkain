@@ -3,72 +3,103 @@
   "scopeName": "source.karkain",
   "patterns": [
     {
-      "match": "//.*$",
-      "name": "comment.line.double-slash.karkain"
+      "include": "#comment"
     },
     {
-      "match": "\\b(func|var|let|type|struct|import|alloc|free|matrix|addr|deref|if|else|return|print|int|float64|string|bool|true|false)\\b",
-      "name": "keyword.control.karkain"
+      "include": "#string"
     },
     {
-      "match": "\\b\\d+\\.\\d+\\b",
-      "name": "constant.numeric.float.karkain"
+      "include": "#number"
     },
     {
-      "match": "\\b\\d+\\b",
-      "name": "constant.numeric.integer.karkain"
+      "include": "#keyword"
     },
     {
-      "match": "\".*?\"",
-      "name": "string.quoted.double.karkain"
+      "include": "#functionDefinition"
     },
     {
-      "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
-      "name": "entity.name.function.karkain"
+      "include": "#variableDeclaration"
     },
     {
-      "match": "\\+|\\-|\\*|\\/|=|==|!=|<|>|&&|\\|\\|",
-      "name": "keyword.operator.karkain"
+      "include": "#operator"
     },
     {
-      "match": "\\(|\\)|\\{|\\}|\\[|\\]|,|\\.|:",
-      "name": "punctuation.bracket.karkain"
+      "include": "#punctuation"
     },
     {
-      "match": "\\*\\w+",
-      "name": "storage.type.pointer.karkain"
-    },
-    {
-      "match": "matrix\\[\\d+,\\s*\\d+\\]",
-      "name": "storage.type.matrix.karkain"
+      "include": "#identifier"
     }
   ],
   "repository": {
-    "patterns": [
-      {
-        "name": "function.definition",
-        "begin": "\\b(func)\\b",
-        "beginCaptures": ["keyword.control.karkain"],
-        "end": "\\{",
-        "patterns": [
-          {
-            "name": "function.name",
-            "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
-          }
-        ]
+    "comment": {
+      "match": "//.*$",
+      "name": "comment.line.double-slash.karkain"
+    },
+    "string": {
+      "match": "\".*?\"",
+      "name": "string.quoted.double.karkain"
+    },
+    "number": {
+      "patterns": [
+        {
+          "match": "\\b\\d+\\.\\d+\\b",
+          "name": "constant.numeric.float.karkain"
+        },
+        {
+          "match": "\\b\\d+\\b",
+          "name": "constant.numeric.integer.karkain"
+        }
+      ]
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "match": "\\b(func|let|var|if|else|while|for|in|return|break|continue|import|type|struct|enum|match|public|macro)\\b",
+          "name": "keyword.control.karkain"
+        },
+        {
+          "match": "\\b(true|false)\\b",
+          "name": "constant.language.boolean.karkain"
+        },
+        {
+          "match": "\\b(int|float64|string|bool|bigint|bigfloat|void)\\b",
+          "name": "support.type.primitive.karkain"
+        }
+      ]
+    },
+    "functionDefinition": {
+      "begin": "\\b(func)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.karkain" },
+        "2": { "name": "entity.name.function.karkain" }
       },
-      {
-        "name": "variable.declaration",
-        "begin": "\\b(var|let)\\b",
-        "beginCaptures": ["keyword.control.karkain"],
-        "end": "=",
-        "patterns": [
-          {
-            "name": "variable.name",
-            "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
-          }
-        ]
-      }
-    ]
+      "end": "(?=\\{)",
+      "patterns": [
+        {
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+          "name": "meta.function.parameters.karkain"
+        }
+      ]
+    },
+    "variableDeclaration": {
+      "begin": "\\b(let|var)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.karkain" },
+        "2": { "name": "variable.other.karkain" }
+      },
+      "end": "(?==|$|;)"
+    },
+    "operator": {
+      "match": "==|!=|<=|>=|&&|\\|\\||[+\\-*/%<>]|!|->|=>",
+      "name": "keyword.operator.karkain"
+    },
+    "punctuation": {
+      "match": "[\\(\\)\\[\\]\\{\\},.;:]",
+      "name": "punctuation.bracket.karkain"
+    },
+    "identifier": {
+      "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
+      "name": "variable.other.karkain"
+    }
   }
 }

@@ -1,0 +1,16 @@
+func power(base, exp) {
+    let result = 1
+    let i = 0
+    while (i < exp) {
+        result = result * base
+        i = i + 1
+    }
+    return result
+}
+
+func main() {
+    print("2^10:")
+    print(power(2, 10))
+    print("3^4:")
+    print(power(3, 4))
+}

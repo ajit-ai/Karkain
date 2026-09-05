@@ -13,17 +13,26 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-80** — Phases 50–80 complete.
+Current phase: **post-82** — Phases 50–82 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
-Last completed: **80** — SIMD / Vector Execution Architecture (cross-backend
-parity baseline `pkg/backend/parity` with CPU scalar oracle; GNU-vector SIMD
-runtime `TensorSimdCRuntime` + `cpu.NewSimd()` for same-shape add/sub/mul/div,
-matmul, relu with scalar broadcast fallback; oracle completeness fix: RESULT
-values now emitted for all output nodes; GPU/NPU recorded as NoNumericOutput;
-`pkg/bootstrap` re-measured GREEN (blocker exit criterion retained); docs under
-`docs/audit/PHASE-80-*` + `SELF-HOSTING-BLOCKER.md`).
+Also completed: **81** — Compiler Correctness (immutable/mutability semantics,
+escape-analysis wiring, executable probes under `examples/phase81-probes/`,
+diagnostics hardening; unparenthesized `if` + single-path `%`).
+Last completed: **82** — Language Conformance, Examples & Developer Tooling
+Foundation (native conformance corpus `conformance/` — 9 files, 48 `func test_*`
+tests through the real front end + C runtime, self-contained file scope via
+`testFileOwnScope`; deterministic probes corpus `examples/probes/` — 11 golden
+output programs enforced by `pkg/cli/probes_corpus_test.go`; algorithm corpus
+grown to 21 dirs (factorial/fibonacci/gcd/lcm/sieve/power/absolute_value);
+toolchain contract `check --format=json` (`karkain-diagnostics-v1`, real parse
+columns via `Parser.ErrorCols`) + `fmt`/`fmt --check` (idempotent token-level
+canonicalizer); real LSP served by `karkain lsp`/`language-server`; `ide info`
+JSON contract; VS Code extension rebuilt (`extension.js` commands check/compile/
+run/format, fixed manifest, corrected grammar) validated by
+`pkg/cli/vscode_extension_test.go`; CI runs conformance + format checks; docs
+under `docs/audit/PHASE-82-*`).
 Prior completed: **79** — Compiler Integrity, IR Architecture & Self-Hosting
 Readiness Audit (evidence-based audit: pipeline, dependency map, Math/Tensor/SSA
 IR, CPU/GPU/NPU parity, determinism, optimization boundaries, tests,

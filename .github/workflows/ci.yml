@@ -40,6 +40,15 @@ jobs:
           echo "E2E: $PASS passed, $FAIL failed"
           if [ "$FAIL" -gt 1 ]; then exit 1; fi  # allow 1 pre-existing failure
 
+      - name: Run conformance tests
+        run: |
+          echo "Karkain-native conformance corpus:"
+          ./karkain test conformance/
+          echo "Format-checking conformance corpus:"
+          for f in conformance/*_test.kark; do
+            ./karkain fmt --check "$f" || { echo "needs format: $f"; exit 1; }
+          done
+
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     needs: test

@@ -1,0 +1,6 @@
+type Person struct { name(string), age(int) }
+func main() {
+    let p = Person{name: "Ana", age: 25}
+    print(p.name)
+    print(p.age)
+}

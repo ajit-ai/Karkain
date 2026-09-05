@@ -1,0 +1,59 @@
+func test_array_literal_and_index() {
+    let xs =[1, 2, 3, 4]
+    assert_eq(len(xs), 4)
+    assert_eq(xs[0], 1)
+    assert_eq(xs[2], 3)
+    assert_eq(xs[3], 4)
+}
+
+func test_array_mutation() {
+    let xs =[1, 2, 3]
+    xs[1] = 99
+    assert_eq(xs[1], 99)
+    assert_eq(len(xs), 3)
+}
+
+func test_array_push_and_len() {
+    let items =[]
+    assert_eq(len(items), 0)
+    push(items, 10)
+    push(items, 20)
+    push(items, 30)
+    assert_eq(len(items), 3)
+    assert_eq(items[0], 10)
+    assert_eq(items[2], 30)
+}
+
+func test_array_slices() {
+    let xs =[10, 20, 30, 40, 50]
+    let tail = xs[2: 5]
+    assert_eq(len(tail), 3)
+    assert_eq(tail[0], 30)
+    assert_eq(tail[2], 50)
+}
+
+func test_array_2d() {
+    let grid =[]
+    let r = 0
+    while(r < 3) {
+        let row =[]
+        let c = 0
+        while(c < 3) {
+            push(row, r * 3 + c)
+            c = c + 1
+        }
+        push(grid, row)
+        r = r + 1
+    }
+    assert_eq(grid[1][2], 5)
+    grid[2][1] = 99
+    assert_eq(grid[2][1], 99)
+    assert_eq(grid[0][0], 0)
+}
+
+func test_array_of_strings() {
+    let names =["ana", "bob", "cam"]
+    assert_eq(len(names), 3)
+    assert_eq(names[0], "ana")
+    assert_eq(names[2], "cam")
+}

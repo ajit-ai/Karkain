@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"karkain/pkg/codegen"
-	"karkain/pkg/diagnostics"
 	"karkain/pkg/lexer"
 	"karkain/pkg/parser"
 	"karkain/pkg/pm"
@@ -109,75 +108,6 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 		return CommandResult{ExitCode: classifyCompileError(err), Message: fmt.Sprintf("Build Error: %v", err)}
 	}
 	return CommandResult{ExitCode: ExitSuccess, Message: "Build successful."}
-}
-
-// CheckCommand validates a .kark file without producing output binaries
-func CheckCommand(targetFile string, verbose bool) CommandResult {
-	if err := ValidateKarFile(targetFile); err != nil {
-		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
-	}
-
-	sourceText, srcMap, err := resolveSourcesCheck(targetFile)
-	if err != nil {
-		return sourceLoadResult(err)
-	}
-
-	src := sourceText
-	l := lexer.New(src)
-	p := parser.New(l)
-	prog := p.ParseProgram()
-
-	// Check for parse errors
-	if len(p.Errors) > 0 {
-		reporter := diagnostics.NewReporter(src, targetFile)
-		for _, parseErr := range p.Errors {
-			line, col := extractLineCol(parseErr)
-			fmt.Fprint(os.Stderr, reporter.Report(diagnostics.SeverityError, line, col, parseErr))
-		}
-		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("%d parse error(s) found", len(p.Errors))}
-	}
-
-	// Apply macro expansion
-	prog = parser.ApplyMacroExpansion(prog)
-
-	// Whole-program name-resolution diagnostics (Option B): report duplicate
-	// top-level definitions and undefined bare function references at the
-	// Karkain level. This pass is purely additive (it never changes emitted
-	// output), so build/run are unaffected.
-	resolver := sema.NewResolver(prog, srcMap)
-	if resolveErrs := resolver.Resolve(); len(resolveErrs) > 0 {
-		reporter := diagnostics.NewReporter(src, targetFile)
-		for _, re := range resolveErrs {
-			fmt.Fprint(os.Stderr, reporter.Report(diagnostics.SeverityError, re.Line, 1, re.Msg))
-		}
-		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("%d name-resolution error(s) found", len(resolveErrs))}
-	}
-
-	// Run kernel analyzer for semantic checks
-	analyzer := sema.NewKernelAnalyzer()
-	errorCount := 0
-	for _, stmt := range prog.Statements {
-		if kernel, ok := stmt.(*parser.KernelDeclStmt); ok {
-			kernelErrors := analyzer.AnalyzeKernel(kernel)
-			if len(kernelErrors) > 0 {
-				reporter := diagnostics.NewReporter(src, targetFile)
-				for _, ke := range kernelErrors {
-					// Use line 1 as fallback since kernel errors don't carry line info
-					fmt.Fprint(os.Stderr, reporter.Report(diagnostics.SeverityError, 1, 1, ke.Error()))
-				}
-				errorCount += len(kernelErrors)
-			}
-		}
-	}
-
-	if errorCount > 0 {
-		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("%d semantic error(s) found", errorCount)}
-	}
-
-	if verbose {
-		fmt.Printf("Check passed: %s (%d statements)\n", targetFile, len(prog.Statements))
-	}
-	return CommandResult{ExitCode: ExitSuccess, Message: "Check passed."}
 }
 
 // TestCommand discovers and runs *_test.kark files and functions prefixed with

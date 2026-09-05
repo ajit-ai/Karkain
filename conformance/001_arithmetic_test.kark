@@ -1,0 +1,38 @@
+func test_integer_arithmetic() {
+    assert_eq(2 + 3, 5)
+    assert_eq(10 - 4, 6)
+    assert_eq(6 * 7, 42)
+    assert_eq(17 / 5, 3)
+    assert_eq(17 % 5, 2)
+    assert_eq(100 / 10 / 2, 5)
+}
+
+func test_modulo_signs() {
+    assert_eq(- 7 % 3, - 1)
+    assert_eq(7 % - 3, 1)
+    assert_eq(- 7 % - 3, - 1)
+}
+
+func test_float_arithmetic() {
+    assert_eq(7.0 / 2.0, 3.5)
+    assert_eq(3.5 + 1.25, 4.75)
+    assert_eq(2.5 * 4.0, 10.0)
+    assert_ne(2.5 * 4.0, 10)
+}
+
+func test_operator_precedence() {
+    assert_eq(2 + 3 * 4, 14)
+    assert_eq((2 + 3) * 4, 20)
+    assert_eq(2 * 3 + 4 * 5, 26)
+    assert_eq(10 - 2 - 3, 5)
+}
+
+func test_negative_numbers() {
+    let a = - 5
+    assert_eq(a + 5, 0)
+    assert_eq(- 3 * 4, - 12)
+    assert_eq(- 1 - 1, - 2)
+    assert(a < 0)
+    assert(- 1 > - 2)
+    assert_eq(- 2 * - 2, 4)
+}
