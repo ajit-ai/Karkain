@@ -1110,6 +1110,7 @@ Value binary_op(Value left, const char* op, Value right) {
         if (strcmp(op, "-") == 0) return make_float(l - r);
         if (strcmp(op, "*") == 0) return make_float(l * r);
         if (strcmp(op, "/") == 0) return make_float(r != 0.0 ? l / r : 0.0);
+        if (strcmp(op, "%") == 0) return make_float(r != 0.0 ? fmod(l, r) : 0.0);
         if (strcmp(op, ">") == 0) return make_int(l > r);
         if (strcmp(op, "<") == 0) return make_int(l < r);
         if (strcmp(op, ">=") == 0) return make_int(l >= r);
@@ -1180,6 +1181,9 @@ Value binary_op(Value left, const char* op, Value right) {
     }
     if (strcmp(op, "/") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
         return make_int(right.intVal != 0 ? left.intVal / right.intVal : 0);
+    }
+    if (strcmp(op, "%") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
+        return make_int(right.intVal != 0 ? left.intVal % right.intVal : 0);
     }
     if (strcmp(op, ">") == 0 && left.type == TYPE_INT && right.type == TYPE_INT) {
         return make_int(left.intVal > right.intVal);
