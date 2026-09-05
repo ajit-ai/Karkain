@@ -167,3 +167,39 @@ func main() {
 		t.Fatalf("check: want ExitCode %d, got %d (%s)", ExitSuccess, res.ExitCode, res.Message)
 	}
 }
+
+// TestCheckCommand_SiblingJoinParity locks the check/run assembly agreement: a
+// non-project directory whose root entry calls a sibling module must pass
+// check exactly as it runs (both pipelines join siblings without `func main`).
+func TestCheckCommand_SiblingJoinParity(t *testing.T) {
+	dir := t.TempDir()
+	writeKark(t, dir, "math.kark", `func twice(x) {
+    return x * 2
+}
+`)
+	root := writeKark(t, dir, "main.kark", `func main() {
+    print(twice(21))
+}
+`)
+	text, serr := resolveSources(root)
+	if serr != nil {
+		t.Fatalf("resolveSources(%s): %v", root, serr)
+	}
+	out := compileRunSource(t, text, root, t.TempDir())
+	if got := strings.TrimSpace(strings.ReplaceAll(out, "\r\n", "\n")); got != "42" {
+		t.Fatalf("run: want 42, got %q", got)
+	}
+	res := CheckCommand(root, false)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("check must agree with run (sibling-join parity): got %d (%s)", res.ExitCode, res.Message)
+	}
+}
+
+func mustSource(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(b)
+}

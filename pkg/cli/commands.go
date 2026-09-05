@@ -377,20 +377,7 @@ func resolveSourcesWithMap(targetFile string) (string, sema.SourceMap, error) {
 
 	files, err := projectSourceFiles(cleanPath)
 	if err != nil {
-		data, readErr := os.ReadFile(cleanPath)
-		if readErr != nil {
-			return "", nil, readErr
-		}
-		sm := sema.SourceMap{}
-		line := 1
-		for i := 1; i < len(data); i++ {
-			if data[i] == '\n' {
-				sm[line] = cleanPath
-				line++
-			}
-		}
-		sm[line] = cleanPath
-		return string(data), sm, nil
+		return siblingJoinWithMap(cleanPath)
 	}
 
 	funcMainRegex := regexp.MustCompile(`(?m)^\s*func\s+main\s*\(`)
@@ -435,6 +422,56 @@ func resolveSourcesWithMap(targetFile string) (string, sema.SourceMap, error) {
 			sb.WriteString(src)
 		}
 	}
+	return sb.String(), sm, nil
+}
+
+// siblingJoinWithMap is the map-producing equivalent of loadSourceWithSiblings:
+// it joins the root entry file with its same-directory sibling .kark modules
+// (excluding files that declare `func main`) in sorted, deterministic order,
+// and records each line's owning file. Keeping run/build and check on the same
+// assembly prevents name-resolution mismatches between the pipelines.
+func siblingJoinWithMap(rootFile string) (string, sema.SourceMap, error) {
+	dir := filepath.Dir(rootFile)
+	entries, err := os.ReadDir(dir)
+	var sb strings.Builder
+	sm := sema.SourceMap{}
+	curLine := 1
+	funcMainRegex := regexp.MustCompile(`(?m)^\s*func\s+main\s*\(`)
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || filepath.Ext(entry.Name()) != ".kark" || entry.Name() == filepath.Base(rootFile) {
+				continue
+			}
+			p := filepath.Join(dir, entry.Name())
+			data, rerr := os.ReadFile(p)
+			if rerr != nil {
+				continue
+			}
+			if funcMainRegex.MatchString(string(data)) {
+				continue
+			}
+			src := string(data)
+			lines := strings.Count(src, "\n") + 1
+			for i := 1; i <= lines; i++ {
+				sm[curLine] = p
+				curLine++
+			}
+			sb.WriteString(src)
+			sb.WriteString("\n\n")
+			curLine += 2
+		}
+	}
+	data, rerr := os.ReadFile(rootFile)
+	if rerr != nil {
+		return "", nil, rerr
+	}
+	src := string(data)
+	lines := strings.Count(src, "\n") + 1
+	for i := 1; i <= lines; i++ {
+		sm[curLine] = rootFile
+		curLine++
+	}
+	sb.WriteString(src)
 	return sb.String(), sm, nil
 }
 
