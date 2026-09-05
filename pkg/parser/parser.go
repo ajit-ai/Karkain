@@ -22,6 +22,12 @@ type Parser struct {
 	arena     *Arena          // Arena allocator for AST nodes — batch allocation
 	Errors    []string        // Phase 19: Parser error tracking
 	enumNames map[string]bool // Phase 45: known enum type names
+
+	// Phase 81: When true, an identifier directly followed by '{' inside an
+	// unparenthesized `if` condition is treated as a plain identifier (the '{'
+	// opens the body, not a struct literal). Cleared while parsing any '('
+	// group so parenthesized struct literals keep working.
+	unparenthesizedIfCondition bool
 }
 
 func New(l *lexer.Lexer) *Parser {
@@ -185,6 +191,16 @@ func (p *Parser) parseFunc() *FuncDecl {
 		}
 	}
 	p.nextToken() // consume ')'
+
+	// Phase 81: An optional single return-type annotation may follow the
+	// parameter list (e.g. `func f(x) int { ... }`). It carries no stored
+	// semantics yet, but must be consumed so the C-brace that opens the body
+	// is properly aligned. Without this skip, the return type was treated as
+	// the body opener and the closing brace was left dangling, which swallowed
+	// every following top-level statement into the still-open body.
+	if p.curToken.Type == lexer.TokenIdent {
+		p.nextToken() // consume the return type
+	}
 	p.nextToken() // consume '{'
 
 	fn.Body = p.parseBlock()
@@ -689,9 +705,18 @@ func (p *Parser) parseFor() Node {
 func (p *Parser) parseIf() *IfStmt {
 	line := int(p.curToken.Line)
 	p.nextToken() // consume 'if'
-	p.nextToken() // consume '('
+
+	// Phase 81: give conditions both forms — `if x < y { ... }` and the
+	// historical `if (x < y) { ... }`. parseExpr treats a '(' group as a
+	// primary and continues with any operator that follows ')', so mixed forms
+	// like `if (p.x) == 1 { ... }` parse too. The flag suppresses struct-literal
+	// interpretation so an identifier right before the body is not confused
+	// with `Type{...}` (see parseIdentExpr); it is cleared inside '(' groups,
+	// so parenthesized struct literals keep working.
+	p.unparenthesizedIfCondition = true
 	condition := p.parseExpr()
-	p.nextToken() // consume ')'
+	p.unparenthesizedIfCondition = false
+
 	p.nextToken() // consume '{'
 	consequence := p.parseBlock()
 	p.nextToken() // consume '}'
@@ -817,7 +842,7 @@ func (p *Parser) parseIdentStatement() Node {
 			p.advanceIfStalled(start, "function call arguments")
 		}
 		p.nextToken() // consume ')'
-		return p.exprStmtAt(&CallExpr{Function: ident, Args: args}, line)
+		return p.exprStmtAt(&CallExpr{Function: ident, Args: args, Line: line}, line)
 	}
 
 	// Check for dot expression
@@ -841,6 +866,7 @@ func (p *Parser) parseIdentStatement() Node {
 				Function: ident + "." + rightIdent,
 				Args:     args,
 				IsCFunc:  ident == "C",
+				Line:     line,
 			}, line)
 		}
 		dotExpr := &DotExpr{Left: left, Right: rightIdent}
@@ -1067,9 +1093,14 @@ func (p *Parser) parsePrimaryExpr() Node {
 	case lexer.TokenIdent:
 		return p.parseIdentExpr()
 	case lexer.TokenLParen:
+		// Phase 81: clear the unparenthesized-if flag inside '(' groups so
+		// struct literals such as `if x < (Point{y: 1}).z { ... }` still parse.
+		savedIfCondition := p.unparenthesizedIfCondition
+		p.unparenthesizedIfCondition = false
 		p.nextToken() // consume '('
 		expr := p.parseExpr()
 		p.nextToken() // consume ')'
+		p.unparenthesizedIfCondition = savedIfCondition
 		return expr
 	case lexer.TokenLBracket:
 		return p.parseArrayLiteral()
@@ -1462,7 +1493,10 @@ func (p *Parser) parseIdentExpr() Node {
 	}
 
 	// Phase 19: Check for struct literal: TypeName{field: val, ...}
-	if p.curToken.Type == lexer.TokenLBrace {
+	// Phase 81: inside an unparenthesized `if` condition, a trailing '{' opens
+	// the body, not a struct literal — the identifier stays a plain operand so
+	// parseIf can consume the body block.
+	if p.curToken.Type == lexer.TokenLBrace && !p.unparenthesizedIfCondition {
 		return p.parseStructLiteral(ident)
 	}
 

@@ -1,0 +1,4 @@
+import used
+func main() {
+    print(used.twice(21))
+}

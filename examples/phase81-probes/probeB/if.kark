@@ -1,0 +1,42 @@
+func main() {
+    let x = 3
+    let y = 5
+    if x < y {
+        print(1)
+    }
+    if (x < y) {
+        print(2)
+    }
+    if x == 3 {
+        print(3)
+    }
+    if x != 9 {
+        print(4)
+    }
+    if x < y && y < 10 {
+        print(5)
+    }
+    if x < y {
+        print(6)
+    } else {
+        print(9)
+    }
+    if 1 {
+        print(7)
+    }
+    let done = 1
+    if done {
+        print(8)
+    }
+    if x == 99 {
+        print(8)
+    } else if x == 3 {
+        print(9)
+    }
+    if isTrue() {
+        print(10)
+    }
+}
+func isTrue() int {
+    return 1
+}

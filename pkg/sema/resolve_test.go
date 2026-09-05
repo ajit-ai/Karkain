@@ -225,3 +225,26 @@ func TestResolver_ImportValidation_NotFound(t *testing.T) {
 		t.Errorf("expected 'module not found' error, got: %s", errLines(errs))
 	}
 }
+
+// TestResolver_DiagnosticLineSurvivesMacroExpansion locks the Phase 81
+// diagnostics fix: ApplyMacroExpansion rebuilds AST nodes, so it must carry
+// each node's Line through. Without that, an undefined-function error inside
+// an expanded program was reported at line 0 instead of the real source line.
+func TestResolver_DiagnosticLineSurvivesMacroExpansion(t *testing.T) {
+	src := "func main() {\n  let a = 1\n  let b = 2\n  unknown_function(5)\n}\n"
+	prog := parseTestProg(t, src)
+	expanded := parser.ApplyMacroExpansion(prog)
+	r := NewResolver(expanded, nil)
+	errs := r.Resolve()
+	if !hasErr(errs, "undefined function 'unknown_function'") {
+		t.Fatalf("expected undefined-function error, got: %s", errLines(errs))
+	}
+	for _, e := range errs {
+		if e.Line == 0 {
+			t.Errorf("diagnostic line was lost during macro expansion: %s", e.Msg)
+		}
+		if e.Line != 4 {
+			t.Errorf("expected line 4 for undefined function, got %d: %s", e.Line, e.Msg)
+		}
+	}
+}

@@ -195,6 +195,39 @@ func TestCheckCommand_SiblingJoinParity(t *testing.T) {
 	}
 }
 
+// TestModuleE2E_SourceIsolation_StrayExcluded locks the Phase 81 source
+// isolation rule: when the root entry imports `used`, assembly must be driven
+// entirely by the import graph and must NOT pull in an unimported sibling. The
+// stray file deliberately contains a name-resolution error (`ghost()` is
+// undefined) — if it leaked into the assembled unit, check would fail. It must
+// be excluded so both check and run pass cleanly.
+func TestModuleE2E_SourceIsolation_StrayExcluded(t *testing.T) {
+	dir := t.TempDir()
+	writeKark(t, dir, "stray.kark", `func orphan() {
+    return ghost()
+}
+`)
+	writeKark(t, dir, "used.kark", `func twice(x) {
+    return x * 2
+}
+`)
+	root := writeKark(t, dir, "main.kark", `import used
+func main() {
+    print(used.twice(21))
+}
+`)
+	// Check: the stray file's undefined `ghost` must not be resolved, proving it
+	// is not part of the import-driven unit.
+	if res := CheckCommand(root, false); res.ExitCode != ExitSuccess {
+		t.Fatalf("check: stray sibling leaked into unit (want ExitCode %d, got %d: %s)", ExitSuccess, res.ExitCode, res.Message)
+	}
+	// Run: stray must not execute and must not break compilation.
+	out := strings.TrimSpace(runModuleEntry(t, root))
+	if out != "42" {
+		t.Fatalf("run: want 42, got %q", out)
+	}
+}
+
 func mustSource(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)

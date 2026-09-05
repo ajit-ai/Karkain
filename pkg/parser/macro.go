@@ -85,6 +85,7 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Name:   n.Name,
 			Params: n.Params,
 			Body:   []Node{},
+			Line:   n.Line,
 		}
 		for _, stmt := range n.Body {
 			newFunc.Body = append(newFunc.Body, me.expandNode(stmt))
@@ -97,12 +98,14 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Value:    me.expandNode(n.Value),
 			Type:     n.Type,
 			IsMatrix: n.IsMatrix,
+			Line:     n.Line,
 		}
 	case *BinaryExpr:
 		return &BinaryExpr{
 			Left:     me.expandNode(n.Left),
 			Operator: n.Operator,
 			Right:    me.expandNode(n.Right),
+			Line:     n.Line,
 		}
 	case *CallExpr:
 		newArgs := []Node{}
@@ -113,13 +116,14 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Function: n.Function,
 			Args:     newArgs,
 			IsCFunc:  n.IsCFunc,
+			Line:     n.Line,
 		}
 	case *ArrayLiteral:
 		newElements := []Node{}
 		for _, elem := range n.Elements {
 			newElements = append(newElements, me.expandNode(elem))
 		}
-		return &ArrayLiteral{Elements: newElements}
+		return &ArrayLiteral{Elements: newElements, Line: n.Line}
 	case *MapLiteral:
 		newKeys := []Node{}
 		newValues := []Node{}
@@ -127,17 +131,19 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			newKeys = append(newKeys, me.expandNode(key))
 			newValues = append(newValues, me.expandNode(n.Values[i]))
 		}
-		return &MapLiteral{Keys: newKeys, Values: newValues}
+		return &MapLiteral{Keys: newKeys, Values: newValues, Line: n.Line}
 	case *IndexExpr:
 		return &IndexExpr{
 			Left:  me.expandNode(n.Left),
 			Index: me.expandNode(n.Index),
+			Line:  n.Line,
 		}
 	case *IfStmt:
 		newIf := &IfStmt{
 			Condition:   me.expandNode(n.Condition),
 			Consequence: []Node{},
 			Alternative: []Node{},
+			Line:        n.Line,
 		}
 		for _, stmt := range n.Consequence {
 			newIf.Consequence = append(newIf.Consequence, me.expandNode(stmt))
@@ -147,11 +153,11 @@ func (me *MacroExpander) expandNode(node Node) Node {
 		}
 		return newIf
 	case *ExprStmt:
-		return &ExprStmt{Expression: me.expandNode(n.Expression)}
+		return &ExprStmt{Expression: me.expandNode(n.Expression), Line: n.Line}
 	case *ReturnStmt:
-		return &ReturnStmt{Value: me.expandNode(n.Value)}
+		return &ReturnStmt{Value: me.expandNode(n.Value), Line: n.Line}
 	case *PrintStmt:
-		return &PrintStmt{Value: me.expandNode(n.Value)}
+		return &PrintStmt{Value: me.expandNode(n.Value), Line: n.Line}
 	default:
 		// For literals and other nodes, return as-is
 		return n

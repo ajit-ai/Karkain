@@ -1,0 +1,6 @@
+// This sibling is deliberately NOT imported by main.kark. It contains an
+// undefined call (`ghost`) which would fail check/run if it leaked into the
+// import-driven unit. Source isolation must exclude it.
+func orphan() {
+    return ghost()
+}

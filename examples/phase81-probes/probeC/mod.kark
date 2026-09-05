@@ -1,0 +1,18 @@
+func main() {
+    let a = 7
+    let b = 3
+    print(a % b)
+    let c = -7
+    let d = 3
+    print(c % d)
+    let e = 7
+    let f = -3
+    print(e % f)
+    let g = -7
+    let h = -3
+    print(g % h)
+    print(5.0 % 2.0)
+    let zero = 0
+    print(a % zero)
+    print(mod(10, 4))
+}

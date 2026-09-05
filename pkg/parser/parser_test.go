@@ -404,3 +404,193 @@ func findFirstCallName(t *testing.T, body []Node, name string) *CallExpr {
 	}
 	return nil
 }
+
+// findFirstIf returns the first IfStmt found anywhere in the statements.
+func findFirstIf(t *testing.T, body []Node) *IfStmt {
+	t.Helper()
+	var walk func(n Node) *IfStmt
+	walk = func(n Node) *IfStmt {
+		if n == nil {
+			return nil
+		}
+		if st, ok := n.(*IfStmt); ok {
+			return st
+		}
+		if es, ok := n.(*ExprStmt); ok {
+			return walk(es.Expression)
+		}
+		if be, ok := n.(*BinaryExpr); ok {
+			if s := walk(be.Left); s != nil {
+				return s
+			}
+			return walk(be.Right)
+		}
+		return nil
+	}
+	for _, stmt := range body {
+		if s := walk(stmt); s != nil {
+			return s
+		}
+	}
+	return nil
+}
+
+// TestParseIfUnparenthesizedComparison locks the Phase 81 fix: `if x < y { ... }`
+// (no parens) must parse the whole comparison as the condition and leave the
+// trailing '{' to open the body — not swallow it as a struct literal.
+func TestParseIfUnparenthesizedComparison(t *testing.T) {
+	prog := parseSource(t, "func main() { let x = 3; let y = 5; if x < y { print(1) } }")
+	mainFn, ok := prog.Statements[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	st := findFirstIf(t, mainFn.Body)
+	if st == nil {
+		t.Fatal("expected an IfStmt")
+	}
+	bin, ok := st.Condition.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("expected BinaryExpr condition, got %T", st.Condition)
+	}
+	if bin.Operator != "<" {
+		t.Errorf("expected '<' operator, got %q", bin.Operator)
+	}
+	if len(ifBodySlice(st)) != 1 {
+		t.Fatalf("expected 1 body statement, got %d", len(ifBodySlice(st)))
+	}
+	if _, ok := ifBodySlice(st)[0].(*PrintStmt); !ok {
+		t.Errorf("expected PrintStmt in body, got %T", ifBodySlice(st)[0])
+	}
+}
+
+// TestParseIfUnparenthesizedCompound covers compound conditions without parens.
+func TestParseIfUnparenthesizedCompound(t *testing.T) {
+	prog := parseSource(t, "func main() { let x = 3; let y = 5; if x < y && y < 10 { print(1) } }")
+	mainFn, ok := prog.Statements[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	st := findFirstIf(t, mainFn.Body)
+	if st == nil {
+		t.Fatal("expected an IfStmt")
+	}
+	bin, ok := st.Condition.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("expected BinaryExpr condition, got %T", st.Condition)
+	}
+	if bin.Operator != "&&" {
+		t.Errorf("expected '&&' at top of condition, got %q", bin.Operator)
+	}
+}
+
+// TestParseIfUnparenthesizedCallCondition covers a function call condition
+// without parens: if foo(x) { ... }.
+func TestParseIfUnparenthesizedCallCondition(t *testing.T) {
+	prog := parseSource(t, "func main() { if foo(x) { print(1) } }")
+	mainFn, ok := prog.Statements[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	st := findFirstIf(t, mainFn.Body)
+	if st == nil {
+		t.Fatal("expected an IfStmt")
+	}
+	call, ok := st.Condition.(*CallExpr)
+	if !ok {
+		t.Fatalf("expected CallExpr condition, got %T", st.Condition)
+	}
+	if call.Function != "foo" {
+		t.Errorf("expected call to foo, got %q", call.Function)
+	}
+}
+
+// TestParseIfUnparenthesizedBareIdent covers if done { ... } — the body opener
+// must not be read as a struct literal after the identifier.
+func TestParseIfUnparenthesizedBareIdent(t *testing.T) {
+	prog := parseSource(t, "func main() { let done = 1; if done { print(2) } }")
+	mainFn, ok := prog.Statements[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	st := findFirstIf(t, mainFn.Body)
+	if st == nil {
+		t.Fatal("expected an IfStmt")
+	}
+	ident, ok := st.Condition.(*Identifier)
+	if !ok {
+		t.Fatalf("expected Identifier condition, got %T", st.Condition)
+	}
+	if ident.Name != "done" {
+		t.Errorf("expected condition identifier 'done', got %q", ident.Name)
+	}
+	if _, ok := ifBodySlice(st)[0].(*PrintStmt); !ok {
+		t.Errorf("expected PrintStmt in body, got %T", ifBodySlice(st)[0])
+	}
+}
+
+// TestParseIfParenthesizedStillWorks guards the historical form.
+func TestParseIfParenthesizedStillWorks(t *testing.T) {
+	prog := parseSource(t, "func main() { if (x < y) { print(1) } }")
+	mainFn, ok := prog.Statements[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	st := findFirstIf(t, mainFn.Body)
+	if st == nil {
+		t.Fatal("expected an IfStmt")
+	}
+	bin, ok := st.Condition.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("expected BinaryExpr condition, got %T", st.Condition)
+	}
+	if bin.Operator != "<" {
+		t.Errorf("expected '<' operator, got %q", bin.Operator)
+	}
+}
+
+// TestParseIfMixedParenLeadsOperator covers if (x) == 1 { ... }, where an
+// operator follows the closing paren of the leading group.
+func TestParseIfMixedParenLeadsOperator(t *testing.T) {
+	prog := parseSource(t, "func main() { if (x) == 1 { print(1) } }")
+	mainFn, ok := prog.Statements[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	st := findFirstIf(t, mainFn.Body)
+	if st == nil {
+		t.Fatal("expected an IfStmt")
+	}
+	bin, ok := st.Condition.(*BinaryExpr)
+	if !ok {
+		t.Fatalf("expected BinaryExpr condition, got %T", st.Condition)
+	}
+	if bin.Operator != "==" {
+		t.Errorf("expected '==' operator, got %q", bin.Operator)
+	}
+}
+
+// TestParseIfElseIfUnparenthesized covers else-if chains without parens.
+func TestParseIfElseIfUnparenthesized(t *testing.T) {
+	prog := parseSource(t, "func main() { if x == 1 { print(1) } else if x == 2 { print(2) } else { print(3) } }")
+	mainFn, ok := prog.Statements[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	st := findFirstIf(t, mainFn.Body)
+	if st == nil {
+		t.Fatal("expected an IfStmt")
+	}
+	if len(st.Alternative) != 1 {
+		t.Fatalf("expected 1 alternative statement, got %d", len(st.Alternative))
+	}
+	if _, ok := st.Alternative[0].(*IfStmt); !ok {
+		t.Fatalf("expected nested IfStmt in alternative, got %T", st.Alternative[0])
+	}
+	if len(ifBodySlice(st)) != 1 {
+		t.Fatalf("expected 1 body statement, got %d", len(ifBodySlice(st)))
+	}
+}
+
+func ifBodySlice(st *IfStmt) []Node {
+	return st.Consequence
+}
