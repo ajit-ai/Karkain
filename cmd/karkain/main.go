@@ -35,6 +35,8 @@ COMPILER COMMANDS:
   lint <file.kark>         Full front-end analysis (incl. borrow checker)
   explain <code>           Explain a toolchain error code
   clean [path] [--all]     Remove generated artifacts (sources never touched)
+  target                   List supported --target values
+  config                   Print effective toolchain configuration
   lsp                      Start Language Server Protocol server
 
 WORKSPACE COMMANDS:
@@ -635,6 +637,33 @@ func handlePackageCommand(args []string) int {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
 			return cli.ExitPackage
 		}
+		if containsFlag(rest, "--json") {
+			if containsFlag(rest, "--licenses") {
+				warnings := kpkg.CheckLicenses(projectDir)
+				data, jerr := json.MarshalIndent(struct {
+					Licenses []string `json:"license_warnings"`
+				}{Licenses: warnings}, "", "  ")
+				if jerr != nil {
+					fmt.Fprintln(os.Stderr, "Error: json encoding failed")
+					return cli.ExitPackage
+				}
+				fmt.Println(string(data))
+				return cli.ExitSuccess
+			}
+			vulns := kpkg.AuditDependencies(projectDir)
+			if vulns == nil {
+				vulns = []kpkg.VulnReport{}
+			}
+			data, jerr := json.MarshalIndent(struct {
+				Vulnerabilities []kpkg.VulnReport `json:"vulnerabilities"`
+			}{Vulnerabilities: vulns}, "", "  ")
+			if jerr != nil {
+				fmt.Fprintln(os.Stderr, "Error: json encoding failed")
+				return cli.ExitPackage
+			}
+			fmt.Println(string(data))
+			return cli.ExitSuccess
+		}
 		if containsFlag(rest, "--licenses") {
 			fmt.Println("Checking license compatibility...")
 			warnings := kpkg.CheckLicenses(projectDir)
@@ -654,7 +683,7 @@ func handlePackageCommand(args []string) int {
 		} else {
 			for _, v := range vulns {
 				fmt.Printf("  WARN  %s@%s: %s\n", v.Name, v.Version, v.Advisory)
-				fmt.Printf("        Ã¢â€ â€™ %s\n", v.Fix)
+				fmt.Printf("        -> %s\n", v.Fix)
 			}
 			fmt.Printf("\n%d issues found\n", len(vulns))
 		}
@@ -664,6 +693,31 @@ func handlePackageCommand(args []string) int {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
+			return cli.ExitPackage
+		}
+		if containsFlag(rest, "--json") {
+			results := kpkg.VerifyIntegrity(projectDir)
+			if results == nil {
+				results = []kpkg.VerifyResult{}
+			}
+			allOk := true
+			for _, r := range results {
+				if !r.Valid {
+					allOk = false
+				}
+			}
+			data, jerr := json.MarshalIndent(struct {
+				Ok       bool                `json:"ok"`
+				Packages []kpkg.VerifyResult `json:"packages"`
+			}{Ok: allOk, Packages: results}, "", "  ")
+			if jerr != nil {
+				fmt.Fprintln(os.Stderr, "Error: json encoding failed")
+				return cli.ExitPackage
+			}
+			fmt.Println(string(data))
+			if allOk {
+				return cli.ExitSuccess
+			}
 			return cli.ExitPackage
 		}
 		if containsFlag(rest, "--signatures") {
@@ -1118,6 +1172,12 @@ func main() {
 			if result.Message != "" {
 				fmt.Println(result.Message)
 			}
+			os.Exit(result.ExitCode)
+		case "target":
+			result := cli.TargetCommand()
+			os.Exit(result.ExitCode)
+		case "config":
+			result := cli.ConfigCommand()
 			os.Exit(result.ExitCode)
 		case "pkg":
 			// Collect all remaining args and hand off to package manager
