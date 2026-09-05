@@ -1,0 +1,25 @@
+func binary_search(data, target) {
+    let low = 0
+    let high = len(data) - 1
+    while (low <= high) {
+        let mid = low + ((high - low) / 2)
+        let elem = data[mid]
+        if (elem == target) {
+            return mid
+        }
+        if (elem < target) {
+            low = mid + 1
+        } else {
+            high = mid - 1
+        }
+    }
+    return -1
+}
+
+func main() {
+    let data = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    print("Binary Search for 40:")
+    print(binary_search(data, 40))
+    print("Binary Search for 45 (not found):")
+    print(binary_search(data, 45))
+}

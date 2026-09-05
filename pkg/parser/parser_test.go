@@ -152,6 +152,42 @@ func TestChainedIndexBindsToSameLeft(t *testing.T) {
 	}
 }
 
+// TestChainedIndexAssignmentStatement guards the algorithm-suite fix: in
+// statement position the postfix bracket chain was not looped, so
+// `dp[i][j] = v` split into `dp[i]` plus a misparsed `[j] = v` (ArrayLiteral
+// on the left). It must now parse as a single nested IndexExpr assignment.
+func TestChainedIndexAssignmentStatement(t *testing.T) {
+	prog := parseSource(t, `func main(dp, i, j) {
+    dp[i][j] = 42
+}`)
+	body := findFuncBody(prog)
+	if body == nil {
+		t.Fatal("main function not found")
+	}
+	if len(body) != 1 {
+		t.Fatalf("expected exactly 1 statement, got %d", len(body))
+	}
+	es, ok := body[0].(*ExprStmt)
+	if !ok {
+		t.Fatalf("expected ExprStmt, got %T", body[0])
+	}
+	bin, ok := es.Expression.(*BinaryExpr)
+	if !ok || bin.Operator != "=" {
+		t.Fatalf("expected assignment BinaryExpr, got %T %q", es.Expression, bin.Operator)
+	}
+	outer, ok := bin.Left.(*IndexExpr)
+	if !ok {
+		t.Fatalf("expected outer IndexExpr on left of assignment, got %T", bin.Left)
+	}
+	inner, ok := outer.Left.(*IndexExpr)
+	if !ok {
+		t.Fatalf("expected inner IndexExpr under outer.Left, got %T", outer.Left)
+	}
+	if ident, ok := inner.Left.(*Identifier); !ok || ident.Name != "dp" {
+		t.Fatalf("innermost left should be 'dp', got %T", inner.Left)
+	}
+}
+
 // TestIndexThenOperator guards the Phase 56-C fix: `a[i] + b` used to leave the `+`
 // unconsumed so it leaked out as a spurious extra call argument (a[i], then a nil
 // binary-op arg). It must now parse as a single binary argument of the call.
@@ -260,6 +296,22 @@ func TestParser_ModuleImport(t *testing.T) {
 	}
 	if prog.Imports[1].Name != "utils" {
 		t.Errorf("expected import name 'utils', got '%s'", prog.Imports[1].Name)
+	}
+}
+
+func TestParser_DottedModuleImport(t *testing.T) {
+	prog := parseSource(t, "import std.string\nimport app.mymod\nfunc main() { print(1) }\n")
+	if len(prog.Imports) != 2 {
+		t.Fatalf("expected 2 imports, got %d", len(prog.Imports))
+	}
+	if prog.Imports[0].Name != "std.string" {
+		t.Errorf("expected dotted name 'std.string', got %q", prog.Imports[0].Name)
+	}
+	if prog.Imports[1].Name != "app.mymod" {
+		t.Errorf("expected dotted name 'app.mymod', got %q", prog.Imports[1].Name)
+	}
+	if len(prog.Statements) != 1 {
+		t.Errorf("expected func main to remain a statement, got %d", len(prog.Statements))
 	}
 }
 

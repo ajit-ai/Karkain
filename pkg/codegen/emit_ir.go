@@ -229,7 +229,7 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 				fmt.Fprintf(&sb, "\treturn %s;\n", arg(0))
 			}
 		case ssa.OpIndexGet:
-			fmt.Fprintf(&sb, "\t%s = array_get(%s, %s);\n", dest, arg(0), arg(1))
+			fmt.Fprintf(&sb, "\t%s = array_or_string_get(%s, %s);\n", dest, arg(0), arg(1))
 		case ssa.OpIndexSet:
 			fmt.Fprintf(&sb, "\tindex_set(&%s, %s, %s);\n", arg(0), arg(1), arg(2))
 		case ssa.OpPrint:

@@ -1,0 +1,19 @@
+func linear_search(data, target) {
+    let i = 0
+    while (i < len(data)) {
+        let elem = data[i]
+        if (elem == target) {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+func main() {
+    let data = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    print("Linear Search for 60:")
+    print(linear_search(data, 60))
+    print("Linear Search for 65 (not found):")
+    print(linear_search(data, 65))
+}

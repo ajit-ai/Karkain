@@ -273,6 +273,16 @@ typedef double double4 __attribute__((vector_size(32)));
 #endif
 #endif
 
+// Windows <windows.h> defines min/max as function-like macros, which collides
+// with Karkain user functions named min/max in the generated C. Undefine them
+// so Value max(...) / Value min(...) declarations compile cleanly.
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 // Phase 14: Self-hosting directory listing (POSIX dir iteration, available in
 // MinGW and all POSIX toolchains).
 #include <dirent.h>
@@ -940,6 +950,22 @@ Value array_get(Value arr, Value idx) {
     int i = (int)idx.intVal;
     if (i < 0 || i >= arr.arrVal.length) return make_int(0);
     return *arr.arrVal.items[i];
+}
+
+// String indexing: s[i] returns the character at position i as a one-character
+// string (empty string when out of bounds). Enables char-level algorithms such
+// as Levenshtein distance without requiring an explicit split into an array.
+Value string_get(Value s, long long i) {
+    if (s.type != TYPE_STRING || s.strVal == NULL) return make_string("");
+    long long n = (long long)strlen(s.strVal);
+    if (i < 0 || i >= n) return make_string("");
+    char buf[2] = { s.strVal[i], '\0' };
+    return make_string(buf);
+}
+
+Value array_or_string_get(Value container, Value idx) {
+    if (container.type == TYPE_STRING) return string_get(container, idx.type == TYPE_INT ? idx.intVal : -1);
+    return array_get(container, idx);
 }
 
 // Phase 50: Index assignment â€” sets element at index for both arrays and maps
@@ -2213,7 +2239,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 		sb.WriteString("_m; })")
 		return sb.String()
 	case *parser.IndexExpr:
-		return fmt.Sprintf("array_get(%s, %s)", g.genExpr(n.Left), g.genExpr(n.Index))
+		return fmt.Sprintf("array_or_string_get(%s, %s)", g.genExpr(n.Left), g.genExpr(n.Index))
 	case *parser.SliceExpr:
 		end := "make_int(-1)"
 		if n.End != nil {

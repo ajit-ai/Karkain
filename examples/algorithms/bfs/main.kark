@@ -1,0 +1,38 @@
+func bfs(graph, start, target) {
+    let n = len(graph)
+    let visited = []
+    let i = 0
+    while (i < n) {
+        push(visited, 0)
+        i = i + 1
+    }
+    let queue = []
+    push(queue, start)
+    visited[start] = 1
+    let front = 0
+    while (front < len(queue)) {
+        let node = queue[front]
+        front = front + 1
+        if (node == target) {
+            return 1
+        }
+        let k = 0
+        while (k < len(graph[node])) {
+            let next = graph[node][k]
+            if (visited[next] == 0) {
+                visited[next] = 1
+                push(queue, next)
+            }
+            k = k + 1
+        }
+    }
+    return -1
+}
+
+func main() {
+    let graph = [[1, 2], [0, 3, 4], [0, 5], [1], [1], [2]]
+    print("BFS: start 0 reachable to 5?")
+    print(bfs(graph, 0, 5))
+    print("BFS: start 0 reachable to 4?")
+    print(bfs(graph, 0, 4))
+}
