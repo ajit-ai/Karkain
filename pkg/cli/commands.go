@@ -9,6 +9,7 @@ import (
 	"karkain/pkg/parser"
 	"karkain/pkg/pm"
 	"karkain/pkg/sema"
+	"karkain/pkg/testing"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -179,8 +180,15 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 	return CommandResult{ExitCode: 0, Message: "Check passed."}
 }
 
-// TestCommand discovers and runs *_test.kark files and functions prefixed with test_ or @test
+// TestCommand discovers and runs *_test.kark files and functions prefixed with
+// test_ or @test. It is the KTF-001 native test entry point.
 func TestCommand(testPath string, cfg codegen.Config, verbose bool) CommandResult {
+	return TestCommandFiltered(testPath, cfg, verbose, "")
+}
+
+// TestCommandFiltered is TestCommand with a deterministic substring filter over
+// the stable test identity/name. An empty filter selects all tests.
+func TestCommandFiltered(testPath string, cfg codegen.Config, verbose bool, filter string) CommandResult {
 	info, err := os.Stat(testPath)
 	if err != nil {
 		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error accessing path: %v", err)}
@@ -196,39 +204,41 @@ func TestCommand(testPath string, cfg codegen.Config, verbose bool) CommandResul
 		}
 	}
 
+	// Deterministic ordering: sort the discovered files.
+	sort.Strings(testFiles)
 	if len(testFiles) == 0 {
 		return CommandResult{ExitCode: 0, Message: "No test files found."}
 	}
 
-	totalTests := 0
-	passedTests := 0
-	failedTests := 0
-
+	var allResults []testing.TestResult
 	for _, tf := range testFiles {
-		totalTests++
 		if verbose {
 			fmt.Printf("=== Running tests in %s ===\n", tf)
 		}
+		res := runTestsInFile(tf, cfg, verbose, filter)
+		allResults = append(allResults, res...)
+	}
 
-		result := runSingleTestFile(tf, cfg, verbose)
-		if result.ExitCode == 0 {
-			passedTests++
-			if verbose {
-				fmt.Printf("  PASS: %s\n", filepath.Base(tf))
-			}
-		} else {
-			failedTests++
-			fmt.Printf("  FAIL: %s - %s\n", filepath.Base(tf), result.Message)
+	if len(allResults) == 0 {
+		if filter != "" {
+			return CommandResult{ExitCode: 0, Message: fmt.Sprintf("No tests matched filter '%s'.", filter)}
 		}
+		return CommandResult{ExitCode: 0, Message: "No tests found."}
 	}
 
-	summary := fmt.Sprintf("\n=== Test Summary: %d total, %d passed, %d failed ===", totalTests, passedTests, failedTests)
-	fmt.Println(summary)
-
-	if failedTests > 0 {
-		return CommandResult{ExitCode: 1, Message: summary}
+	// Deterministic output ordering: group consecutive emissions but keep the
+	// stable per-test ordering (already sorted within files, files sorted).
+	if !verbose {
+		printResults(appliedFilterLabel(filter), allResults)
 	}
-	return CommandResult{ExitCode: 0, Message: summary}
+
+	summary := testing.Summarize(allResults)
+	printTestSummary(summary)
+
+	if summary.Failed > 0 {
+		return CommandResult{ExitCode: 1, Message: summaryLine(summary)}
+	}
+	return CommandResult{ExitCode: 0, Message: summaryLine(summary)}
 }
 
 // --- internal helpers ---

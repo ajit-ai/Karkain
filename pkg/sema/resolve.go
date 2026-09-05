@@ -63,7 +63,8 @@ var builtinNames = map[string]bool{
 	"sqrt": true, "abs": true, "pow": true, "mod": true,
 	"add_checked": true, "sub_checked": true, "mul_checked": true,
 	"http.get": true,
-	"Some": true, "None": true, "Ok": true, "Err": true,
+	"Some":     true, "None": true, "Ok": true, "Err": true,
+	"assert": true, "assert_eq": true, "assert_ne": true,
 }
 
 // NewResolver creates a Resolver over the given program. If sourceMap is

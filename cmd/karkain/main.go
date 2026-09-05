@@ -807,6 +807,7 @@ func main() {
 	cfg := codegen.NewConfig()
 	verbose := false
 	extraArgs := []string{}
+	testFilter := "" // KTF-001: deterministic substring filter for `karkain test`
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -820,6 +821,9 @@ func main() {
 			switch flagName {
 			case "--target":
 				cfg.Target = flagValue
+				continue
+			case "--filter":
+				testFilter = flagValue
 				continue
 			}
 		}
@@ -853,6 +857,14 @@ func main() {
 				fmt.Println("Error: -o flag requires an output file path")
 				os.Exit(1)
 			}
+		case "--filter":
+			if i+1 < len(args) {
+				testFilter = args[i+1]
+				i++
+			} else {
+				fmt.Println("Error: --filter flag requires a pattern")
+				os.Exit(1)
+			}
 		case "build", "run", "check", "transpile", "test", "lsp":
 			command = arg
 		case "pkg":
@@ -883,7 +895,7 @@ func main() {
 		if testPath == "" {
 			testPath = "."
 		}
-		result := cli.TestCommand(testPath, cfg, verbose)
+		result := cli.TestCommandFiltered(testPath, cfg, verbose, testFilter)
 		fmt.Print(result.Message)
 		os.Exit(result.ExitCode)
 	}

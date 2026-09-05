@@ -3,6 +3,7 @@ package codegen
 import (
 	"context"
 	"fmt"
+	"io"
 	"karkain/pkg/parser"
 	"os"
 	"os/exec"
@@ -20,6 +21,12 @@ type Config struct {
 	Debug       bool   // Add debug flag for DWARF symbols
 	Target      string // Target architecture (native, wasm32-wasi)
 	DisableSSA  bool   // Phase 53: disable SSA IR pipeline (fallback to legacy emission)
+
+	// Stdout / Stderr direct the executed program's output. When nil they
+	// default to the process standard streams. Used by the test runner to
+	// capture per-test output for structured reporting (KTF-001).
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 func NewConfig() Config {
@@ -206,8 +213,14 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		}
 
 		runCmd := exec.Command(runPath)
-		runCmd.Stdout = os.Stdout
-		runCmd.Stderr = os.Stderr
+		runCmd.Stdout = g.cfg.Stdout
+		if runCmd.Stdout == nil {
+			runCmd.Stdout = os.Stdout
+		}
+		runCmd.Stderr = g.cfg.Stderr
+		if runCmd.Stderr == nil {
+			runCmd.Stderr = os.Stderr
+		}
 		runErr := runCmd.Run()
 
 		if g.cfg.OutputPath == "" {
@@ -1177,6 +1190,45 @@ int is_truthy(Value v) {
     return 0;
 }
 
+// KTF-001: Native assertion foundation. These runtime functions back the
+// language-level assert / assert_eq / assert_ne builtins. On failure they emit
+// structured diagnostics to stderr and terminate with a non-zero exit status so
+// a test runner can detect a genuine failure (rather than silently continuing).
+void karkain_assert_report(const char* kind, const char* expr, const char* loc) {
+    fprintf(stderr, "%s: %s", kind, expr);
+    if (loc != NULL && loc[0] != '\0') fprintf(stderr, "  [%s]", loc);
+    fprintf(stderr, "\n");
+    fflush(stderr);
+}
+
+void karkain_assert(Value cond, const char* expr, const char* loc) {
+    if (!is_truthy(cond)) {
+        karkain_assert_report("assertion failed", expr, loc);
+        exit(1);
+    }
+}
+
+void karkain_assert_eq(Value actual, Value expected, const char* expr, const char* loc) {
+    if (!values_equal(actual, expected)) {
+        karkain_assert_report("assertion failed: assert_eq", expr, loc);
+        Value _a = karkain_str(actual);
+        Value _e = karkain_str(expected);
+        fprintf(stderr, "  expected: %s\n  actual:   %s\n", _e.strVal ? _e.strVal : "", _a.strVal ? _a.strVal : "");
+        fflush(stderr);
+        exit(1);
+    }
+}
+
+void karkain_assert_ne(Value actual, Value expected, const char* expr, const char* loc) {
+    if (values_equal(actual, expected)) {
+        karkain_assert_report("assertion failed: assert_ne", expr, loc);
+        Value _a = karkain_str(actual);
+        fprintf(stderr, "  unexpectedly equal (actual): %s\n", _a.strVal ? _a.strVal : "");
+        fflush(stderr);
+        exit(1);
+    }
+}
+
 // Phase 11: Raw pointer operations
 void* karkain_alloc(size_t count, size_t size) {
     return malloc(count * size);
@@ -2070,6 +2122,61 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 	return ""
 }
 
+// genAssertCall lowers a KTF-001 assertion builtin call (assert/assert_eq/
+// assert_ne) to its C runtime check. A trailing string literal argument is
+// treated as a user message; otherwise the call expression text is used as the
+// diagnostic label. The optional message/expression is passed as the `loc` C
+// argument, which the runtime prints alongside the failure.
+func (g *Generator) genAssertCall(n *parser.CallExpr) string {
+	label := assertLabel(n.Function)
+	minArgs := 1
+	if n.Function == "assert_eq" || n.Function == "assert_ne" {
+		minArgs = 2
+	}
+	if len(n.Args) < minArgs {
+		return fmt.Sprintf("({ fprintf(stderr, \"assertion failed: %s (missing arguments)\\n\"); exit(1); (Value){0}; })", n.Function)
+	}
+	msg := ""
+	valueArgs := n.Args[:minArgs]
+	if len(n.Args) > minArgs {
+		if sl, ok := n.Args[minArgs].(*parser.StringLiteral); ok && isStringLit(n.Args[minArgs]) {
+			msg = sl.Value
+		}
+	}
+	if msg == "" {
+		msg = label
+	}
+	gen := make([]string, 0, len(valueArgs))
+	for _, a := range valueArgs {
+		gen = append(gen, g.genExpr(a))
+	}
+	return fmt.Sprintf("karkain_%s(%s, \"%s\", \"\")",
+		n.Function, strings.Join(gen, ", "), escapeCString(msg))
+}
+
+func assertLabel(fn string) string {
+	switch fn {
+	case "assert_eq":
+		return "assert_eq(actual, expected)"
+	case "assert_ne":
+		return "assert_ne(actual, expected)"
+	default:
+		return "assert(condition)"
+	}
+}
+
+func isStringLit(n parser.Node) bool {
+	_, ok := n.(*parser.StringLiteral)
+	return ok
+}
+
+func escapeCString(s string) string {
+	r := strings.ReplaceAll(s, `\`, `\\`)
+	r = strings.ReplaceAll(r, `"`, `\"`)
+	r = strings.ReplaceAll(r, "\n", `\n`)
+	return r
+}
+
 func (g *Generator) genExpr(node parser.Node) string {
 	switch n := node.(type) {
 	case *parser.StringLiteral:
@@ -2259,6 +2366,11 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "abs" {
 			return fmt.Sprintf("karkain_abs(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "assert" || n.Function == "assert_eq" || n.Function == "assert_ne" {
+			// KTF-001: native assertions. Optional trailing string is a message;
+			// otherwise the call expression text is used as the diagnostic label.
+			return g.genAssertCall(n)
 		}
 		if n.Function == "pow" {
 			return fmt.Sprintf("karkain_pow(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
