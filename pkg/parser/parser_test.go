@@ -321,3 +321,86 @@ func TestParser_CImportSkippedGracefully(t *testing.T) {
 		t.Fatalf("expected 1 statement (func main), got %d", len(prog.Statements))
 	}
 }
+
+// TestParser_DottedCallNormalized locks the module-call model: a
+// module-qualified call math.twice(21) must lower to the bare callee name
+// (flat namespace over the concatenated unit), while C.twice(2) keeps its
+// qualifier so codegen can emit a raw C invocation.
+func TestParser_DottedCallNormalized(t *testing.T) {
+	prog := parseSource(t, `import math
+func main() {
+    print(math.twice(21))
+    let r = C.sqrt(9.0)
+}
+`)
+	if len(prog.Statements) != 1 {
+		t.Fatalf("expected 1 statement, got %d", len(prog.Statements))
+	}
+	mainFn, ok := prog.Statements[0].(*FuncDecl)
+	if !ok {
+		t.Fatalf("expected FuncDecl, got %T", prog.Statements[0])
+	}
+	call := findFirstCall(t, mainFn.Body)
+	if call.Function != "twice" {
+		t.Errorf("module call: want bare name 'twice', got %q", call.Function)
+	}
+	if call.IsCFunc {
+		t.Error("module call must not be marked as a C call")
+	}
+	cCall := findFirstCallName(t, mainFn.Body, "C.sqrt")
+	if cCall == nil {
+		t.Fatal("expected C.sqrt call to survive module normalization")
+	}
+	if !cCall.IsCFunc {
+		t.Error("C.sqrt must be marked as a C call")
+	}
+}
+
+func findFirstCall(t *testing.T, body []Node) *CallExpr {
+	t.Helper()
+	c := findFirstCallName(t, body, "")
+	if c == nil {
+		t.Fatal("no call expression found")
+	}
+	return c
+}
+
+func findFirstCallName(t *testing.T, body []Node, name string) *CallExpr {
+	t.Helper()
+	var walk func(n Node) *CallExpr
+	walk = func(n Node) *CallExpr {
+		if n == nil {
+			return nil
+		}
+		if call, ok := n.(*CallExpr); ok {
+			if name == "" || call.Function == name {
+				return call
+			}
+		}
+		if be, ok := n.(*BinaryExpr); ok {
+			if c := walk(be.Left); c != nil {
+				return c
+			}
+			return walk(be.Right)
+		}
+		if es, ok := n.(*ExprStmt); ok {
+			return walk(es.Expression)
+		}
+		if rs, ok := n.(*ReturnStmt); ok {
+			return walk(rs.Value)
+		}
+		if ps, ok := n.(*PrintStmt); ok {
+			return walk(ps.Value)
+		}
+		if vd, ok := n.(*VarDeclStmt); ok {
+			return walk(vd.Value)
+		}
+		return nil
+	}
+	for _, stmt := range body {
+		if c := walk(stmt); c != nil {
+			return c
+		}
+	}
+	return nil
+}

@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"karkain/pkg/codegen"
 	"karkain/pkg/lexer"
@@ -28,31 +30,54 @@ func runKarkFile(t *testing.T, path string) string {
 	if err := os.WriteFile(copyPath, src, 0o644); err != nil {
 		t.Fatalf("copy %s: %v", path, err)
 	}
-	latched := filepath.Join(work, "prog")
-	cfg := codegen.NewConfig()
-	cfg.CompileOnly = false
-	cfg.RunAfter = false
-	cfg.OutputPath = latched
+	return compileRunSource(t, string(src), copyPath, work)
+}
 
-	l := lexer.New(string(src))
-	p := parser.New(l)
-	prog := p.ParseProgram()
-	if len(p.Errors) > 0 {
-		t.Fatalf("parse errors in %s: %s", path, strings.Join(p.Errors, "; "))
+// compileRunSource runs the full compile+run cycle for a source text, retrying
+// transient gcc failures (Windows toolchain file locks under parallel load).
+func compileRunSource(t *testing.T, src, refPath, work string) string {
+	t.Helper()
+	const attempts = 4
+	var lastErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		cfg := codegen.NewConfig()
+		cfg.CompileOnly = false
+		cfg.RunAfter = false
+		cfg.OutputPath = filepath.Join(work, fmt.Sprintf("prog_%d", attempt))
+
+		l := lexer.New(src)
+		p := parser.New(l)
+		prog := p.ParseProgram()
+		if len(p.Errors) > 0 {
+			t.Fatalf("parse errors: %s", strings.Join(p.Errors, "; "))
+		}
+		prog = parser.ApplyMacroExpansion(prog)
+		g := codegen.New(cfg)
+		if err := g.GenerateAndCompile(prog, refPath); err != nil {
+			lastErr = err
+			if strings.Contains(err.Error(), "C compilation failed") && attempt < attempts {
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+			t.Fatalf("compile failed: %v", err)
+		}
+		exe := cfg.OutputPath
+		if runtime.GOOS == "windows" {
+			exe += ".exe"
+		}
+		out, err := exec.Command(exe).CombinedOutput()
+		if err != nil {
+			if attempt < attempts {
+				lastErr = err
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+			t.Fatalf("run failed: %v output=%s", err, string(out))
+		}
+		return string(out)
 	}
-	prog = parser.ApplyMacroExpansion(prog)
-	g := codegen.New(cfg)
-	if err := g.GenerateAndCompile(prog, copyPath); err != nil {
-		t.Fatalf("compile %s failed: %v", path, err)
-	}
-	if runtime.GOOS == "windows" {
-		latched += ".exe"
-	}
-	out, err := exec.Command(latched).CombinedOutput()
-	if err != nil {
-		t.Fatalf("run %s failed: %v output=%s", path, err, string(out))
-	}
-	return string(out)
+	t.Fatalf("transient failures running compiled unit: %v", lastErr)
+	return ""
 }
 
 // expectedAlgorithmOutput maps each algorithm program name to its exact

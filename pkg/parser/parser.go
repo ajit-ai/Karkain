@@ -1413,10 +1413,19 @@ func (p *Parser) parseIdentExpr() Node {
 				return &EnumVariantExpr{EnumName: ident, Variant: rightIdent, Value: val}
 			}
 
+			// Module-qualified calls (e.g. math.twice(...)) compile into the same
+			// flat namespace as bare calls: the concatenated unit defines every
+			// symbol globally, so the module prefix is normalized away. C.* calls
+			// keep their qualifier so codegen can emit raw C invocations.
+			callName := rightIdent
+			isCFunc := ident == "C"
+			if isCFunc {
+				callName = "C." + rightIdent
+			}
 			return &CallExpr{
-				Function: ident + "." + rightIdent,
+				Function: callName,
 				Args:     args,
-				IsCFunc:  ident == "C",
+				IsCFunc:  isCFunc,
 			}
 		}
 

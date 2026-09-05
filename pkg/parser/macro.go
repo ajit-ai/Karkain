@@ -26,6 +26,7 @@ func (me *MacroExpander) ExpandProgram(prog *Program) *Program {
 	newProg := &Program{
 		Statements: []Node{},
 		CImports:   prog.CImports,
+		Imports:    prog.Imports,
 	}
 
 	// First pass: collect all macro declarations

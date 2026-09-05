@@ -32,9 +32,9 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
-	sourceText, err := resolveSources(targetFile)
+	sourceText, err := resolveSourcesRun(targetFile)
 	if err != nil {
-		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error reading file: %v", err)}
+		return sourceLoadResult(err)
 	}
 
 	if verbose {
@@ -71,9 +71,9 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
-	sourceText, err := resolveSources(targetFile)
+	sourceText, err := resolveSourcesRun(targetFile)
 	if err != nil {
-		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error reading file: %v", err)}
+		return sourceLoadResult(err)
 	}
 
 	if verbose {
@@ -117,9 +117,9 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
-	sourceText, srcMap, err := resolveSourcesWithMap(targetFile)
+	sourceText, srcMap, err := resolveSourcesCheck(targetFile)
 	if err != nil {
-		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error reading file: %v", err)}
+		return sourceLoadResult(err)
 	}
 
 	src := sourceText
