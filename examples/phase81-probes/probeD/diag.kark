@@ -1,0 +1,5 @@
+func main() {
+    let a = 1
+    let b = 2
+    print(unknown_function(5))
+}

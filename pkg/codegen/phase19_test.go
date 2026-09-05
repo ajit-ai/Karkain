@@ -206,8 +206,8 @@ func TestGenLogicalOperators(t *testing.T) {
 	if !strings.Contains(orResult, "is_truthy") {
 		t.Errorf("expected is_truthy in ||, got %s", orResult)
 	}
-	if !strings.Contains(modResult, "karkain_mod") {
-		t.Errorf("expected karkain_mod, got %s", modResult)
+	if !strings.Contains(modResult, "binary_op") && !strings.Contains(modResult, `"%"`) {
+		t.Errorf("expected binary_op modulo path, got %s", modResult)
 	}
 }
 

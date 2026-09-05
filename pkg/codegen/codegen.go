@@ -1415,21 +1415,6 @@ void karkain_delete(Value* m, Value k) {
     }
 }
 
-// Phase 19: Modulo operator
-Value karkain_mod(Value a, Value b) {
-    if (a.type == TYPE_INT && b.type == TYPE_INT) {
-        if (b.intVal == 0) return make_int(0);
-        return make_int(a.intVal % b.intVal);
-    }
-    if (a.type == TYPE_FLOAT64 || b.type == TYPE_FLOAT64) {
-        double l = (a.type == TYPE_FLOAT64) ? a.floatVal : (double)a.intVal;
-        double r = (b.type == TYPE_FLOAT64) ? b.floatVal : (double)b.intVal;
-        if (r == 0.0) return make_float(0.0);
-        return make_float(fmod(l, r));
-    }
-    return make_int(0);
-}
-
 // Phase 70: atomic compare-and-swap helper.
 //   int karkain_atomic_cas(_Atomic int* p, int expected, int desired, memory_order o)
 //   returns 1 if the exchange occurred, else 0 (and no swap).
@@ -2299,9 +2284,10 @@ func (g *Generator) genExpr(node parser.Node) string {
 
 			return fmt.Sprintf("%s = %s", left, right)
 		}
-		if n.Operator == "%" {
-			return fmt.Sprintf("karkain_mod(%s, %s)", g.genExpr(n.Left), g.genExpr(n.Right))
-		}
+		// Phase 81: the `%` operator shares the single authoritative modulo path
+		// (binary_op), matching +,-,*,/ and the SSA emitter. Legacy karkain_mod
+		// produced identical C-style results but created a second, redundant
+		// code path with semantic-drift risk.
 		if n.Operator == "&&" {
 			return fmt.Sprintf("make_int(is_truthy(%s) && is_truthy(%s))", g.genExpr(n.Left), g.genExpr(n.Right))
 		}
@@ -2423,7 +2409,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 			return fmt.Sprintf("({ Value _del_m = %s; karkain_delete(&_del_m, %s); _del_m; })", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		if n.Function == "mod" {
-			return fmt.Sprintf("karkain_mod(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+			return fmt.Sprintf("binary_op(%s, \"%%\", %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		if n.Function == "add_checked" {
 			return fmt.Sprintf("karkain_add_checked(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
