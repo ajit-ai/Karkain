@@ -230,6 +230,84 @@ func WorkspaceTestOrder(rootDir string) ([]WorkspaceMember, error) {
 	return WorkspaceOrder(rootDir)
 }
 
+// RemoveWorkspaceMember removes a package directory from the workspace.
+func RemoveWorkspaceMember(rootDir, memberPath string) error {
+	path := filepath.Join(rootDir, WorkspaceFile)
+	ws, err := readWorkspace(path)
+	if err != nil {
+		return fmt.Errorf("not a workspace root (no %s found)", WorkspaceFile)
+	}
+
+	absPath := memberPath
+	if !filepath.IsAbs(memberPath) {
+		absPath, _ = filepath.Abs(filepath.Join(rootDir, memberPath))
+	}
+	kept := ws.Members[:0]
+	removed := false
+	for _, m := range ws.Members {
+		mAbs := m
+		if !filepath.IsAbs(m) {
+			mAbs, _ = filepath.Abs(filepath.Join(rootDir, m))
+		}
+		if m == memberPath || mAbs == absPath {
+			removed = true
+			continue
+		}
+		kept = append(kept, m)
+	}
+	if !removed {
+		return fmt.Errorf("%s is not a workspace member", memberPath)
+	}
+
+	ws.Members = kept
+	data, err := json.MarshalIndent(ws, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// WorkspaceGraphLines returns a deterministic, human-readable rendering of the
+// member dependency graph in topological order: one line per member naming the
+// workspace members it depends on (or noting it has none). Edges only cover
+// inter-member dependencies; registry/git deps are not members by definition.
+func WorkspaceGraphLines(rootDir string) ([]string, error) {
+	members, err := WorkspaceOrder(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	absRoot, _ := filepath.Abs(rootDir)
+	byDir := make(map[string]WorkspaceMember, len(members))
+	for _, m := range members {
+		byDir[m.Dir] = m
+	}
+	var lines []string
+	for _, m := range members {
+		lbl := m.Name
+		if lbl == "" {
+			lbl = m.Dir
+		}
+		deps := workspaceDepDirs(memberManifest(m.Dir), absRoot)
+		if len(deps) == 0 {
+			lines = append(lines, fmt.Sprintf("member %s: no workspace dependencies", lbl))
+			continue
+		}
+		var depNames []string
+		for _, d := range deps {
+			if dm, ok := byDir[d]; ok {
+				depNames = append(depNames, dm.Name)
+			}
+		}
+		sort.Strings(depNames)
+		if len(depNames) == 0 {
+			lines = append(lines, fmt.Sprintf("member %s: no workspace dependencies", lbl))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("member %s -> %s", lbl, strings.Join(depNames, ", ")))
+	}
+	return lines, nil
+}
+
 // memberManifest parses a member's karkain.toml, or nil when missing.
 func memberManifest(dir string) *Manifest {
 	p := filepath.Join(dir, ManifestFile)

@@ -44,8 +44,11 @@ WORKSPACE COMMANDS:
   workspace check          Validate all members (no binaries produced)
   workspace run            Build and run all member entrypoints
   workspace clean [--all]  Clean generated artifacts from all members
+  workspace lint           Full front-end analysis of all members
+  workspace graph          Show member dependency graph
   workspace init           Initialize workspace root
   workspace add <path>     Add member package
+  workspace remove <path>  Remove member package
 
 PACKAGE MANAGEMENT (top-level):
   karkain init [name]                Create new project (in current dir)
@@ -86,8 +89,11 @@ PACKAGE MANAGEMENT (detailed):
   karkain pkg cache path                 Show cache directory
   karkain pkg workspace init             Initialize workspace root
   karkain pkg workspace add <path>       Add member package
+  karkain pkg workspace remove <path>    Remove member package
   karkain pkg workspace build            Build all packages
   karkain pkg workspace test             Test all packages
+  karkain pkg workspace lint             Full front-end analysis of all packages
+  karkain pkg workspace graph            Show member dependency graph
 
 OPTIONS:
   -o <path>               Output binary path (build)
@@ -708,7 +714,7 @@ func handlePackageCommand(args []string) int {
 	case "workspace", "ws":
 		wsArgs := rest
 		if len(wsArgs) == 0 {
-			fmt.Println("Usage: karkain pkg workspace <init|add|list|build|test|check|run|clean>")
+			fmt.Println("Usage: karkain pkg workspace <init|add|remove|list|build|test|check|run|clean|lint|graph>")
 			return cli.ExitUsage
 		}
 		wscfg := codegen.NewConfig()
@@ -729,6 +735,26 @@ func handlePackageCommand(args []string) int {
 				return cli.ExitPackage
 			}
 			fmt.Printf("Added %s to workspace\n", wsArgs[1])
+		case "remove":
+			if len(wsArgs) < 2 {
+				fmt.Fprintln(os.Stderr, "Error: path required")
+				return cli.ExitUsage
+			}
+			if err := cli.WorkspaceRemove(cwd, wsArgs[1]); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return cli.ExitPackage
+			}
+			fmt.Printf("Removed %s from workspace\n", wsArgs[1])
+		case "graph":
+			if err := cli.WorkspaceGraph(cwd); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return cli.ExitPackage
+			}
+		case "lint":
+			if err := cli.WorkspaceLint(cwd, false); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return cli.ExitCompile
+			}
 		case "list", "ls":
 			if err := cli.WorkspaceList(cwd); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -789,7 +815,7 @@ func handleWorkspaceCommand(args []string, verbose bool) int {
 	}
 
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		fmt.Println("Usage: karkain workspace <list|build|test|check|run|clean|init|add>")
+		fmt.Println("Usage: karkain workspace <list|build|test|check|run|clean|lint|graph|init|add|remove>")
 		return cli.ExitSuccess
 	}
 
@@ -850,6 +876,16 @@ func handleWorkspaceCommand(args []string, verbose bool) int {
 			return cli.ExitPackage
 		}
 		fmt.Println("Initialized workspace")
+	case "graph":
+		if err := cli.WorkspaceGraph(cwd); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+	case "lint":
+		if err := cli.WorkspaceLint(cwd, verbose); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitCompile
+		}
 	case "add":
 		if len(tail) == 0 {
 			fmt.Fprintln(os.Stderr, "Error: path required")
@@ -870,6 +906,26 @@ func handleWorkspaceCommand(args []string, verbose bool) int {
 			return cli.ExitPackage
 		}
 		fmt.Printf("Added %s to workspace\n", path)
+	case "remove":
+		if len(tail) == 0 {
+			fmt.Fprintln(os.Stderr, "Error: path required")
+			return cli.ExitUsage
+		}
+		path := ""
+		for i := 0; i < len(tail); i++ {
+			if !strings.HasPrefix(tail[i], "-") && path == "" {
+				path = tail[i]
+			}
+		}
+		if path == "" {
+			fmt.Fprintln(os.Stderr, "Error: path required")
+			return cli.ExitUsage
+		}
+		if err := cli.WorkspaceRemove(cwd, path); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+		fmt.Printf("Removed %s from workspace\n", path)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown workspace command: %s\n", sub)
 		return cli.ExitUsage

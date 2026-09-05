@@ -177,6 +177,61 @@ func WorkspaceTest(rootDir string, cfg codegen.Config, verbose bool) error {
 	return nil
 }
 
+// WorkspaceGraph renders the member dependency graph in topological order.
+func WorkspaceGraph(rootDir string) error {
+	members, err := pm.WorkspaceOrder(rootDir)
+	if err != nil {
+		return err
+	}
+	if len(members) == 0 {
+		fmt.Println("No workspace members")
+		return nil
+	}
+	lines, err := pm.WorkspaceGraphLines(rootDir)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Workspace graph (%d members, dependency order):\n", len(members))
+	for _, line := range lines {
+		fmt.Printf("  %s\n", line)
+	}
+	return nil
+}
+
+// WorkspaceRemove removes a member from the workspace configuration.
+func WorkspaceRemove(rootDir, memberPath string) error {
+	return pm.RemoveWorkspaceMember(rootDir, memberPath)
+}
+
+// WorkspaceLint runs the full front-end lint pass over every member's
+// entrypoint in dependency order. Findings are reported per member; the first
+// member with issues aborts the pass (deterministic stop condition).
+func WorkspaceLint(rootDir string, verbose bool) error {
+	members, err := pm.WorkspaceOrder(rootDir)
+	if err != nil {
+		return err
+	}
+	if len(members) == 0 {
+		fmt.Println("No workspace members")
+		return nil
+	}
+
+	fmt.Printf("Workspace lint (%d members, dependency order):\n", len(members))
+	for _, m := range members {
+		mainKar, skip := memberEntrypoint(m.Dir)
+		if skip {
+			fmt.Printf("  SKIP  [%d] %s (no entrypoint found)\n", m.Order, m.Name)
+			continue
+		}
+		fmt.Printf("  LINT  [%d] %s\n", m.Order, m.Name)
+		res := LintCommand(mainKar, verbose)
+		if res.ExitCode != 0 {
+			return fmt.Errorf("workspace lint failed for %s: %s", m.Name, res.Message)
+		}
+	}
+	return nil
+}
+
 // memberEntrypoint locates a member's compilable entry file. It returns
 // (path, false) when found, or ("", true) to skip the member. The project
 // layout places the entry at <member>/src/main.kark; a flat main.kark is also
