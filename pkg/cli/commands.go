@@ -29,12 +29,12 @@ type CommandResult struct {
 // RunCommand parses, type-checks, transpiles, compiles and executes a .kark file
 func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResult {
 	if err := ValidateKarFile(targetFile); err != nil {
-		return CommandResult{ExitCode: 1, Message: err.Error()}
+		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
 	sourceText, err := resolveSources(targetFile)
 	if err != nil {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error reading file: %v", err)}
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error reading file: %v", err)}
 	}
 
 	if verbose {
@@ -43,7 +43,7 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 
 	prog := parseSource(sourceText, verbose)
 	if prog == nil {
-		return CommandResult{ExitCode: 1, Message: "Parse failed"}
+		return CommandResult{ExitCode: ExitCompile, Message: "Parse failed"}
 	}
 
 	// Phase 43: Run borrow checker
@@ -52,7 +52,7 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 		for _, e := range errs {
 			msg += "  " + e.Message + "\n"
 		}
-		return CommandResult{ExitCode: 1, Message: msg}
+		return CommandResult{ExitCode: ExitCompile, Message: msg}
 	}
 
 	cfg.RunAfter = true
@@ -60,20 +60,20 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 	cg := codegen.New(cfg)
 
 	if err := cg.GenerateAndCompile(prog, targetFile); err != nil {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Execution Error: %v", err)}
+		return CommandResult{ExitCode: classifyCompileError(err), Message: fmt.Sprintf("Execution Error: %v", err)}
 	}
-	return CommandResult{ExitCode: 0, Message: ""}
+	return CommandResult{ExitCode: ExitSuccess, Message: ""}
 }
 
 // BuildCommand compiles a .kark file into a native executable
 func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verbose bool) CommandResult {
 	if err := ValidateKarFile(targetFile); err != nil {
-		return CommandResult{ExitCode: 1, Message: err.Error()}
+		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
 	sourceText, err := resolveSources(targetFile)
 	if err != nil {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error reading file: %v", err)}
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error reading file: %v", err)}
 	}
 
 	if verbose {
@@ -82,7 +82,7 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 
 	prog := parseSource(sourceText, verbose)
 	if prog == nil {
-		return CommandResult{ExitCode: 1, Message: "Parse failed"}
+		return CommandResult{ExitCode: ExitCompile, Message: "Parse failed"}
 	}
 
 	// Phase 43: Run borrow checker
@@ -91,7 +91,7 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 		for _, e := range errs {
 			msg += "  " + e.Message + "\n"
 		}
-		return CommandResult{ExitCode: 1, Message: msg}
+		return CommandResult{ExitCode: ExitCompile, Message: msg}
 	}
 
 	cfg.RunAfter = false
@@ -106,20 +106,20 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 
 	cg := codegen.New(cfg)
 	if err := cg.GenerateAndCompile(prog, targetFile); err != nil {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Build Error: %v", err)}
+		return CommandResult{ExitCode: classifyCompileError(err), Message: fmt.Sprintf("Build Error: %v", err)}
 	}
-	return CommandResult{ExitCode: 0, Message: "Build successful."}
+	return CommandResult{ExitCode: ExitSuccess, Message: "Build successful."}
 }
 
 // CheckCommand validates a .kark file without producing output binaries
 func CheckCommand(targetFile string, verbose bool) CommandResult {
 	if err := ValidateKarFile(targetFile); err != nil {
-		return CommandResult{ExitCode: 1, Message: err.Error()}
+		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
 	sourceText, srcMap, err := resolveSourcesWithMap(targetFile)
 	if err != nil {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error reading file: %v", err)}
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error reading file: %v", err)}
 	}
 
 	src := sourceText
@@ -134,7 +134,7 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 			line, col := extractLineCol(parseErr)
 			fmt.Fprint(os.Stderr, reporter.Report(diagnostics.SeverityError, line, col, parseErr))
 		}
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("%d parse error(s) found", len(p.Errors))}
+		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("%d parse error(s) found", len(p.Errors))}
 	}
 
 	// Apply macro expansion
@@ -150,7 +150,7 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 		for _, re := range resolveErrs {
 			fmt.Fprint(os.Stderr, reporter.Report(diagnostics.SeverityError, re.Line, 1, re.Msg))
 		}
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("%d name-resolution error(s) found", len(resolveErrs))}
+		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("%d name-resolution error(s) found", len(resolveErrs))}
 	}
 
 	// Run kernel analyzer for semantic checks
@@ -171,13 +171,13 @@ func CheckCommand(targetFile string, verbose bool) CommandResult {
 	}
 
 	if errorCount > 0 {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("%d semantic error(s) found", errorCount)}
+		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("%d semantic error(s) found", errorCount)}
 	}
 
 	if verbose {
 		fmt.Printf("Check passed: %s (%d statements)\n", targetFile, len(prog.Statements))
 	}
-	return CommandResult{ExitCode: 0, Message: "Check passed."}
+	return CommandResult{ExitCode: ExitSuccess, Message: "Check passed."}
 }
 
 // TestCommand discovers and runs *_test.kark files and functions prefixed with
@@ -191,7 +191,7 @@ func TestCommand(testPath string, cfg codegen.Config, verbose bool) CommandResul
 func TestCommandFiltered(testPath string, cfg codegen.Config, verbose bool, filter string) CommandResult {
 	info, err := os.Stat(testPath)
 	if err != nil {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error accessing path: %v", err)}
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error accessing path: %v", err)}
 	}
 
 	var testFiles []string
@@ -200,14 +200,14 @@ func TestCommandFiltered(testPath string, cfg codegen.Config, verbose bool, filt
 	} else {
 		testFiles, err = findTestFiles(testPath)
 		if err != nil {
-			return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error scanning directory: %v", err)}
+			return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error scanning directory: %v", err)}
 		}
 	}
 
 	// Deterministic ordering: sort the discovered files.
 	sort.Strings(testFiles)
 	if len(testFiles) == 0 {
-		return CommandResult{ExitCode: 0, Message: "No test files found."}
+		return CommandResult{ExitCode: ExitSuccess, Message: "No test files found."}
 	}
 
 	var allResults []testing.TestResult
@@ -221,9 +221,9 @@ func TestCommandFiltered(testPath string, cfg codegen.Config, verbose bool, filt
 
 	if len(allResults) == 0 {
 		if filter != "" {
-			return CommandResult{ExitCode: 0, Message: fmt.Sprintf("No tests matched filter '%s'.", filter)}
+			return CommandResult{ExitCode: ExitSuccess, Message: fmt.Sprintf("No tests matched filter '%s'.", filter)}
 		}
-		return CommandResult{ExitCode: 0, Message: "No tests found."}
+		return CommandResult{ExitCode: ExitSuccess, Message: "No tests found."}
 	}
 
 	// Deterministic output ordering: group consecutive emissions but keep the
@@ -236,9 +236,9 @@ func TestCommandFiltered(testPath string, cfg codegen.Config, verbose bool, filt
 	printTestSummary(summary)
 
 	if summary.Failed > 0 {
-		return CommandResult{ExitCode: 1, Message: summaryLine(summary)}
+		return CommandResult{ExitCode: ExitTest, Message: summaryLine(summary)}
 	}
-	return CommandResult{ExitCode: 0, Message: summaryLine(summary)}
+	return CommandResult{ExitCode: ExitSuccess, Message: summaryLine(summary)}
 }
 
 // --- internal helpers ---
@@ -664,12 +664,12 @@ func findTestFiles(dir string) ([]string, error) {
 func runSingleTestFile(testFile string, cfg codegen.Config, verbose bool) CommandResult {
 	// Validate the test file path
 	if err := ValidateKarFile(testFile); err != nil {
-		return CommandResult{ExitCode: 1, Message: err.Error()}
+		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
 	content, err := os.ReadFile(testFile)
 	if err != nil {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Error reading file: %v", err)}
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error reading file: %v", err)}
 	}
 
 	src := string(content)
@@ -678,7 +678,7 @@ func runSingleTestFile(testFile string, cfg codegen.Config, verbose bool) Comman
 	prog := p.ParseProgram()
 
 	if len(p.Errors) > 0 {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Parse errors: %s", strings.Join(p.Errors, "; "))}
+		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("Parse errors: %s", strings.Join(p.Errors, "; "))}
 	}
 
 	prog = parser.ApplyMacroExpansion(prog)
@@ -696,7 +696,7 @@ func runSingleTestFile(testFile string, cfg codegen.Config, verbose bool) Comman
 			mprog = parser.ApplyMacroExpansion(mprog)
 			moduleStmts = mprog.Statements
 		} else {
-			return CommandResult{ExitCode: 1, Message: fmt.Sprintf("Module parse errors: %s", strings.Join(mp.Errors, "; "))}
+			return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("Module parse errors: %s", strings.Join(mp.Errors, "; "))}
 		}
 	}
 
@@ -761,9 +761,9 @@ func runSingleTestFile(testFile string, cfg codegen.Config, verbose bool) Comman
 	}
 
 	if failed > 0 {
-		return CommandResult{ExitCode: 1, Message: fmt.Sprintf("%d test(s) failed", failed)}
+		return CommandResult{ExitCode: ExitTest, Message: fmt.Sprintf("%d test(s) failed", failed)}
 	}
-	return CommandResult{ExitCode: 0, Message: "All tests passed"}
+	return CommandResult{ExitCode: ExitSuccess, Message: "All tests passed"}
 }
 
 func discoverTestFunctions(prog *parser.Program) []*parser.FuncDecl {

@@ -160,18 +160,20 @@ type Position struct {
 	Character int `json:"character"`
 }
 
-// handlePackageCommand dispatches all 'karkain pkg' subcommands.
-func handlePackageCommand(args []string) {
+// handlePackageCommand dispatches all 'karkain pkg' subcommands and returns the
+// process exit code to use. Operational failures classify as ExitPackage(5),
+// CLI usage errors within the package namespace as ExitUsage(2).
+func handlePackageCommand(args []string) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Printf("Error getting current directory: %v\n", err)
-		os.Exit(1)
+		return cli.ExitEnv
 	}
 
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		fmt.Println("Usage: karkain pkg <command> [options]")
 		fmt.Println("Run 'karkain --help' for full command list")
-		return
+		return cli.ExitSuccess
 	}
 
 	subCmd := args[0]
@@ -192,7 +194,7 @@ func handlePackageCommand(args []string) {
 		result, err := kpkg.InitProject(projectDir, name)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Printf("Project '%s' created in %s\n", name, result.ProjectDir)
 		fmt.Println("Created:")
@@ -205,13 +207,13 @@ func handlePackageCommand(args []string) {
 	case "new":
 		if len(rest) < 1 || strings.HasPrefix(rest[0], "-") {
 			fmt.Fprintln(os.Stderr, "Error: project name required\n  Usage: karkain new <name>")
-			os.Exit(1)
+			return cli.ExitUsage
 		}
 		name := rest[0]
 		result, err := kpkg.NewProject(cwd, name)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Printf("Created new project '%s' in %s\n", name, result.ProjectDir)
 		fmt.Println("Created:")
@@ -224,7 +226,7 @@ func handlePackageCommand(args []string) {
 	case "add":
 		if len(rest) < 1 {
 			fmt.Fprintln(os.Stderr, "Error: package name required\n  Usage: karkain pkg add <pkg> [version]")
-			os.Exit(1)
+			return cli.ExitUsage
 		}
 		pkgName := rest[0]
 		version := "*"
@@ -251,12 +253,12 @@ func handlePackageCommand(args []string) {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project (no karkain.toml)")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		err = kpkg.AddDependency(projectDir, pkgName, version, source, url)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Printf("Added %s@%s (%s)\n", pkgName, version, source)
 		dep := kpkg.Dependency{Name: pkgName, Version: version, Source: source, URL: url}
@@ -270,17 +272,17 @@ func handlePackageCommand(args []string) {
 	case "remove", "rm":
 		if len(rest) < 1 {
 			fmt.Fprintln(os.Stderr, "Error: package name required\n  Usage: karkain pkg remove <pkg>")
-			os.Exit(1)
+			return cli.ExitUsage
 		}
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		err = kpkg.RemoveDependency(projectDir, rest[0])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Printf("Removed %s\n", rest[0])
 
@@ -289,18 +291,18 @@ func handlePackageCommand(args []string) {
 		projectDir, _ := kpkg.FindProjectRoot(cwd)
 		if projectDir == "" {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Println("Fetching dependencies...")
 		// Resolve (writes karkain.lock) then fetch exactly the locked versions.
 		_, rerr := kpkg.ResolveAndLock(projectDir)
 		if rerr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", rerr)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		if _, ferr := kpkg.FetchLocked(projectDir); ferr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", ferr)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		deps, _ := kpkg.ListDependencies(projectDir)
 		if len(deps) == 0 {
@@ -317,23 +319,23 @@ func handlePackageCommand(args []string) {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		if len(rest) > 0 {
 			manifest, pErr := kpkg.ParseManifest(filepath.Join(projectDir, kpkg.ManifestFile))
 			if pErr != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", pErr)
-				os.Exit(1)
+				return cli.ExitPackage
 			}
 			dep, exists := manifest.Dependencies[rest[0]]
 			if !exists {
 				fmt.Fprintf(os.Stderr, "Error: %s is not a dependency\n", rest[0])
-				os.Exit(1)
+				return cli.ExitPackage
 			}
 			fmt.Printf("Re-fetching %s@%s...\n", rest[0], dep.Version)
 			if fErr := kpkg.FetchModule(projectDir, dep); fErr != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", fErr)
-				os.Exit(1)
+				return cli.ExitPackage
 			}
 			fmt.Printf("Updated %s\n", rest[0])
 		} else {
@@ -343,7 +345,7 @@ func handlePackageCommand(args []string) {
 			fmt.Println("Resolving dependencies...")
 			if _, err := kpkg.ResolveAndLock(projectDir); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return cli.ExitPackage
 			}
 			deps, _ := kpkg.ListDependencies(projectDir)
 			fmt.Printf("Updated %d dependencies (karkain.lock written)\n", len(deps))
@@ -354,12 +356,12 @@ func handlePackageCommand(args []string) {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		manifest, pErr := kpkg.ParseManifest(filepath.Join(projectDir, kpkg.ManifestFile))
 		if pErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", pErr)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Println("Checking for updates...")
 		updated := 0
@@ -384,16 +386,16 @@ func handlePackageCommand(args []string) {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		manifest, pErr := kpkg.ParseManifest(filepath.Join(projectDir, kpkg.ManifestFile))
 		if pErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", pErr)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		if len(manifest.Dependencies) == 0 {
 			fmt.Println("No dependencies")
-			return
+			return cli.ExitSuccess
 		}
 		treeMode := false
 		outdatedMode := false
@@ -414,7 +416,7 @@ func handlePackageCommand(args []string) {
 				}
 				fmt.Printf("%s%s %s@%s (%s)\n", connector, name, name, dep.Version, dep.Source)
 			}
-			return
+			return cli.ExitSuccess
 		}
 		if outdatedMode {
 			fmt.Println("Checking for newer versions...")
@@ -431,7 +433,7 @@ func handlePackageCommand(args []string) {
 					fmt.Printf("  %s %s -> %s\n", name, dep.Version, latest)
 				}
 			}
-			return
+			return cli.ExitSuccess
 		}
 		fmt.Printf("%-20s %-8s %-10s %s\n", "PACKAGE", "VERSION", "SOURCE", "URL")
 		for name, dep := range manifest.Dependencies {
@@ -443,16 +445,16 @@ func handlePackageCommand(args []string) {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		details, derr := kpkg.ResolvedDetails(projectDir)
 		if derr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", derr)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		if len(details) == 0 {
 			fmt.Println("Karkain Dependencies\n\n  (none)")
-			return
+			return cli.ExitSuccess
 		}
 		fmt.Println("Karkain Dependencies")
 		direct, transitive := 0, 0
@@ -485,12 +487,12 @@ func handlePackageCommand(args []string) {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		lines, terr := kpkg.TreeLines(projectDir)
 		if terr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", terr)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		for _, l := range lines {
 			fmt.Println(l)
@@ -500,17 +502,17 @@ func handlePackageCommand(args []string) {
 	case "search":
 		if len(rest) < 1 {
 			fmt.Fprintln(os.Stderr, "Error: search query required\n  Usage: karkain pkg search <query>")
-			os.Exit(1)
+			return cli.ExitUsage
 		}
 		query := strings.Join(rest, " ")
 		results, err := kpkg.SearchRegistry(query)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		if len(results) == 0 {
 			fmt.Println("No packages found")
-			return
+			return cli.ExitSuccess
 		}
 		fmt.Printf("Found %d packages:\n\n", len(results))
 		for _, r := range results {
@@ -521,12 +523,12 @@ func handlePackageCommand(args []string) {
 	case "info":
 		if len(rest) < 1 {
 			fmt.Fprintln(os.Stderr, "Error: package name required\n  Usage: karkain pkg info <pkg>")
-			os.Exit(1)
+			return cli.ExitUsage
 		}
 		info, err := kpkg.PackageInfo(rest[0])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Printf("Name:        %s\n", info.Name)
 		fmt.Printf("Latest:      %s\n", info.Latest)
@@ -541,23 +543,23 @@ func handlePackageCommand(args []string) {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		token, tErr := kpkg.LoadToken()
 		if tErr != nil {
 			fmt.Fprintln(os.Stderr, "Error: not logged in. Run 'karkain pkg login' first")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		manifest, pErr := kpkg.ParseManifest(filepath.Join(projectDir, kpkg.ManifestFile))
 		if pErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", pErr)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Printf("Publishing %s@%s...\n", manifest.Name, manifest.Version)
 		err = kpkg.PublishPackage(projectDir, manifest, token.Token)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Printf("Published %s@%s\n", manifest.Name, manifest.Version)
 
@@ -572,12 +574,12 @@ func handlePackageCommand(args []string) {
 		token, err := kpkg.Authenticate(user, pass)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		err = kpkg.SaveToken(token)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: could not save token: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Printf("Logged in as %s\n", user)
 
@@ -586,7 +588,7 @@ func handlePackageCommand(args []string) {
 		err := kpkg.ClearToken()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		fmt.Println("Logged out")
 
@@ -595,7 +597,7 @@ func handlePackageCommand(args []string) {
 		token, err := kpkg.LoadToken()
 		if err != nil {
 			fmt.Println("Not logged in")
-			return
+			return cli.ExitSuccess
 		}
 		fmt.Printf("Logged in as %s\n", token.Username)
 
@@ -604,7 +606,7 @@ func handlePackageCommand(args []string) {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		if containsFlag(rest, "--licenses") {
 			fmt.Println("Checking license compatibility...")
@@ -612,13 +614,13 @@ func handlePackageCommand(args []string) {
 			if len(warnings) == 0 {
 				fmt.Println("All licenses compatible")
 			} else {
-				for _, w := range warnings {
-					fmt.Printf("  WARN  %s\n", w)
-				}
+for _, w := range warnings {
+				fmt.Printf("  WARN  %s\n", w)
 			}
-			return
 		}
-		fmt.Println("Scanning for vulnerabilities...")
+		return cli.ExitSuccess
+	}
+	fmt.Println("Scanning for vulnerabilities...")
 		vulns := kpkg.AuditDependencies(projectDir)
 		if len(vulns) == 0 {
 			fmt.Println("No known vulnerabilities found")
@@ -635,11 +637,11 @@ func handlePackageCommand(args []string) {
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 		if containsFlag(rest, "--signatures") {
 			fmt.Println("Verifying package signatures... (signature verification not yet implemented)")
-			return
+			return cli.ExitSuccess
 		}
 		fmt.Println("Verifying package integrity...")
 		results := kpkg.VerifyIntegrity(projectDir)
@@ -656,14 +658,14 @@ func handlePackageCommand(args []string) {
 			fmt.Println("\nAll packages verified")
 		} else {
 			fmt.Println("\nIntegrity check failed")
-			os.Exit(1)
+			return cli.ExitPackage
 		}
 
 	// --- CACHE ---
 	case "cache":
 		if len(rest) == 0 {
 			fmt.Println("Usage: karkain pkg cache <list|clean|path>")
-			return
+			return cli.ExitUsage
 		}
 		switch rest[0] {
 		case "list":
@@ -686,47 +688,49 @@ func handlePackageCommand(args []string) {
 		wsArgs := rest
 		if len(wsArgs) == 0 {
 			fmt.Println("Usage: karkain pkg workspace <init|add|build|test>")
-			return
+			return cli.ExitUsage
 		}
 		switch wsArgs[0] {
 		case "init":
 			if err := kpkg.InitWorkspace(cwd); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return cli.ExitPackage
 			}
 			fmt.Println("Initialized workspace")
 		case "add":
 			if len(wsArgs) < 2 {
 				fmt.Fprintln(os.Stderr, "Error: path required")
-				os.Exit(1)
+				return cli.ExitUsage
 			}
 			if err := kpkg.AddWorkspaceMember(cwd, wsArgs[1]); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return cli.ExitPackage
 			}
 			fmt.Printf("Added %s to workspace\n", wsArgs[1])
 		case "build":
 			wscfg := codegen.NewConfig()
 			if err := cli.WorkspaceBuild(cwd, wscfg, false); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return cli.ExitPackage
 			}
 		case "test":
 			wscfg := codegen.NewConfig()
 			if err := cli.WorkspaceTest(cwd, wscfg, false); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return cli.ExitPackage
 			}
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown workspace command: %s\n", wsArgs[0])
-			os.Exit(1)
+			return cli.ExitUsage
 		}
 
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown pkg command: %s\n", subCmd)
-		fmt.Println("Run 'karkain --help' for available commands")
-		os.Exit(1)
+fmt.Fprintf(os.Stderr, "Unknown pkg command: %s\n", subCmd)
+fmt.Println("Run 'karkain --help' for available commands")
+	return cli.ExitUsage
 	}
+
+	return cli.ExitSuccess
 }
 
 func handleLSP() {
@@ -797,8 +801,7 @@ func main() {
 	// them to the package command handler unconditionally, before parsing.
 	switch args[0] {
 	case "init", "new", "add", "remove", "rm", "update", "list", "tree", "fetch":
-		handlePackageCommand(args)
-		return
+		os.Exit(handlePackageCommand(args))
 	}
 
 	command := ""
@@ -821,6 +824,10 @@ func main() {
 			switch flagName {
 			case "--target":
 				cfg.Target = flagValue
+				if err := cli.ValidateTarget(cfg.Target); err != nil {
+					fmt.Println(err)
+					os.Exit(cli.ExitUsage)
+				}
 				continue
 			case "--filter":
 				testFilter = flagValue
@@ -847,7 +854,11 @@ func main() {
 				i++
 			} else {
 				fmt.Println("Error: --target flag requires a target architecture")
-				os.Exit(1)
+				os.Exit(cli.ExitUsage)
+			}
+			if err := cli.ValidateTarget(cfg.Target); err != nil {
+				fmt.Println(err)
+				os.Exit(cli.ExitUsage)
 			}
 		case "-o":
 			if i+1 < len(args) {
@@ -855,7 +866,7 @@ func main() {
 				i++
 			} else {
 				fmt.Println("Error: -o flag requires an output file path")
-				os.Exit(1)
+				os.Exit(cli.ExitUsage)
 			}
 		case "--filter":
 			if i+1 < len(args) {
@@ -863,19 +874,18 @@ func main() {
 				i++
 			} else {
 				fmt.Println("Error: --filter flag requires a pattern")
-				os.Exit(1)
+				os.Exit(cli.ExitUsage)
 			}
 		case "build", "run", "check", "transpile", "test", "lsp":
 			command = arg
 		case "pkg":
 			// Collect all remaining args and hand off to package manager
-			handlePackageCommand(args[i+1:])
-			return
+			os.Exit(handlePackageCommand(args[i+1:]))
 		default:
 			if strings.HasPrefix(arg, "-") {
 				fmt.Printf("Error: Unknown flag '%s'\n", arg)
 				printHelp()
-				os.Exit(1)
+				os.Exit(cli.ExitUsage)
 			}
 			if targetFile == "" {
 				targetFile = arg
@@ -903,12 +913,12 @@ func main() {
 	if targetFile == "" {
 		fmt.Println("Error: No input .kark file specified")
 		printHelp()
-		os.Exit(1)
+		os.Exit(cli.ExitUsage)
 	}
 
 	if err := cli.ValidateKarFile(targetFile); err != nil {
 		fmt.Println(err)
-		os.Exit(1)
+		os.Exit(cli.ExitUsage)
 	}
 
 	if command == "" {
@@ -928,7 +938,7 @@ func main() {
 	default:
 		fmt.Printf("Error: Unknown command '%s'\n", command)
 		printHelp()
-		os.Exit(1)
+		os.Exit(cli.ExitUsage)
 	}
 
 	if result.Message != "" {
