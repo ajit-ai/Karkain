@@ -56,17 +56,35 @@ func lookupTestFunc(prog *parser.Program, name string) *parser.FuncDecl {
 	return nil
 }
 
+// testFileOwnScope collects the test file's own non-test, non-main top-level
+// declarations so that self-contained *_test.kark files can call helper
+// functions defined in the same file. This is the conformance-corpus scope
+// model: a test file owns the code it tests.
+func testFileOwnScope(prog *parser.Program) []parser.Node {
+	var scope []parser.Node
+	for _, stmt := range prog.Statements {
+		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			if strings.HasPrefix(fn.Name, "test_") || fn.Name == "main" {
+				continue
+			}
+		}
+		scope = append(scope, stmt)
+	}
+	return scope
+}
+
 // runSingleTest compiles and executes a single test function (with the shared
 // module scope), capturing its output, duration and any assertion failure.
-func runSingleTest(fn *parser.FuncDecl, moduleStmts []parser.Node, tc testing.TestCase, cfg codegen.Config) testing.TestResult {
+func runSingleTest(fn *parser.FuncDecl, ownStmts, moduleStmts []parser.Node, tc testing.TestCase, cfg codegen.Config) testing.TestResult {
 	res := testing.TestResult{ID: tc.ID, Name: tc.Name, Status: testing.StatusFail}
 	if fn == nil {
 		res.Failure = &testing.Failure{Message: "test function not found"}
 		return res
 	}
 
-	stmts := make([]parser.Node, 0, len(moduleStmts)+2)
+	stmts := make([]parser.Node, 0, len(moduleStmts)+len(ownStmts)+2)
 	stmts = append(stmts, moduleStmts...)
+	stmts = append(stmts, ownStmts...)
 	stmts = append(stmts,
 		&parser.FuncDecl{
 			Name:   fn.Name,
@@ -147,10 +165,11 @@ func runTestsInFile(testFile string, cfg codegen.Config, verbose bool, filter st
 	}
 
 	moduleStmts := testFileModuleScope(testFile)
+	ownStmts := testFileOwnScope(prog)
 
 	for _, tc := range cases {
 		fn := lookupTestFunc(prog, tc.Name)
-		r := runSingleTest(fn, moduleStmts, tc, cfg)
+		r := runSingleTest(fn, ownStmts, moduleStmts, tc, cfg)
 		results = append(results, r)
 		if verbose {
 			printSingleResult(r)

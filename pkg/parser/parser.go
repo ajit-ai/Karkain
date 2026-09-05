@@ -21,6 +21,7 @@ type Parser struct {
 	src       string          // Source text for zero-copy token literal access
 	arena     *Arena          // Arena allocator for AST nodes — batch allocation
 	Errors    []string        // Phase 19: Parser error tracking
+	ErrorCols []int           // Phase 82: 1-based token-start column per Errors entry
 	enumNames map[string]bool // Phase 45: known enum type names
 
 	// Phase 81: When true, an identifier directly followed by '{' inside an
@@ -39,6 +40,7 @@ func New(l *lexer.Lexer) *Parser {
 
 func (p *Parser) addError(msg string) {
 	p.Errors = append(p.Errors, fmt.Sprintf("line %d: %s", p.curToken.Line, msg))
+	p.ErrorCols = append(p.ErrorCols, int(p.curToken.Col)+1)
 }
 
 func (p *Parser) nextToken() {

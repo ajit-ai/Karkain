@@ -1,0 +1,7 @@
+func main() {
+    let m = {}
+    m["age"] = 30
+    print(m["age"])
+    m["name"] = "Ana"
+    print(m["name"])
+}

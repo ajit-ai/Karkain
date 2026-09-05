@@ -1,0 +1,13 @@
+func gcd(a, b) {
+    if (b == 0) {
+        return a
+    }
+    return gcd(b, a % b)
+}
+
+func main() {
+    print("GCD(48, 36):")
+    print(gcd(48, 36))
+    print("GCD(270, 192):")
+    print(gcd(270, 192))
+}

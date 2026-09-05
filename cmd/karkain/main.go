@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"karkain/pkg/cli"
 	"karkain/pkg/codegen"
+	"karkain/pkg/lsp"
 	kpkg "karkain/pkg/pm"
 	"os"
 	"path/filepath"
@@ -35,10 +35,13 @@ COMPILER COMMANDS:
   bench <path>             Time bench_-prefixed functions (single run each)
   lint <file.kark>         Full front-end analysis (incl. borrow checker)
   explain <code>           Explain a toolchain error code
+  fmt <file.kark>          Canonicalize formatting (--check to verify only)
   clean [path] [--all]     Remove generated artifacts (sources never touched)
   target                   List supported --target values
   config                   Print effective toolchain configuration
-  lsp                      Start Language Server Protocol server
+  lsp                      Start Language Server Protocol server (stdio)
+  language-server          Alias for the LSP server command
+  ide info                 Print machine-readable IDE/toolchain contract (JSON)
 
 WORKSPACE COMMANDS:
   workspace list           List members in dependency order
@@ -128,66 +131,6 @@ Examples:
   karkain update
   karkain list
   karkain tree`)
-}
-
-// LSP message types
-type LSPRequest struct {
-	Jsonrpc string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
-	ID      int         `json:"id"`
-	Params  interface{} `json:"params"`
-}
-
-type LSPResponse struct {
-	Jsonrpc string      `json:"jsonrpc"`
-	ID      int         `json:"id"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   *LSPError   `json:"error,omitempty"`
-}
-
-type LSPError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-type InitializeResult struct {
-	Capabilities ServerCapabilities `json:"capabilities"`
-	ServerInfo   ServerInfo         `json:"serverInfo"`
-}
-
-type ServerCapabilities struct {
-	TextDocumentSync   TextDocumentSync `json:"textDocumentSync"`
-	HoverProvider      bool             `json:"hoverProvider"`
-	DefinitionProvider bool             `json:"definitionProvider"`
-}
-
-type TextDocumentSync struct {
-	OpenClose bool `json:"openClose"`
-	Change    int  `json:"change"`
-}
-
-type ServerInfo struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-type HoverResult struct {
-	Contents string `json:"contents"`
-}
-
-type DefinitionResult struct {
-	URI   string `json:"uri"`
-	Range Range  `json:"range"`
-}
-
-type Range struct {
-	Start Position `json:"start"`
-	End   Position `json:"end"`
-}
-
-type Position struct {
-	Line      int `json:"line"`
-	Character int `json:"character"`
 }
 
 // handlePackageCommand dispatches all 'karkain pkg' subcommands and returns the
@@ -989,57 +932,13 @@ func handleWorkspaceCommand(args []string, verbose bool) int {
 }
 
 func handleLSP() {
-	fmt.Println("Karkain LSP Server starting...")
-	fmt.Println("Listening on stdin/stdout for JSON-RPC 2.0 messages")
-
-	scanner := bufio.NewScanner(os.Stdin)
-
-	for scanner.Scan() {
-		var request LSPRequest
-		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
-			fmt.Printf("Error parsing LSP request: %v\n", err)
-			continue
-		}
-
-		var response LSPResponse
-		response.Jsonrpc = "2.0"
-		response.ID = request.ID
-
-		switch request.Method {
-		case "initialize":
-			response.Result = InitializeResult{
-				Capabilities: ServerCapabilities{
-					TextDocumentSync: TextDocumentSync{
-						OpenClose: true,
-						Change:    1,
-					},
-					HoverProvider:      true,
-					DefinitionProvider: true,
-				},
-				ServerInfo: ServerInfo{
-					Name:    "karkain-lsp",
-					Version: "0.1.0",
-				},
-			}
-		case "textDocument/hover":
-			response.Result = HoverResult{Contents: "Karkain Language Hover Info"}
-		case "textDocument/definition":
-			response.Result = DefinitionResult{
-				URI: "file:///path/to/definition",
-				Range: Range{
-					Start: Position{Line: 0, Character: 0},
-					End:   Position{Line: 0, Character: 10},
-				},
-			}
-		default:
-			response.Error = &LSPError{
-				Code:    -32601,
-				Message: fmt.Sprintf("Method not supported: %s", request.Method),
-			}
-		}
-
-		responseJSON, _ := json.Marshal(response)
-		fmt.Println(string(responseJSON))
+	// Phase 82: the `lsp` / `language-server` command now serves the real,
+	// tested LSP engine in pkg/lsp (JSON-RPC 2.0 over stdio with correct
+	// Content-Length framing) instead of the previous canned mock.
+	srv := lsp.NewServer(os.Stdin, os.Stdout, os.Stdout)
+	if err := srv.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Language server error: %v\n", err)
+		os.Exit(cli.ExitFailure)
 	}
 }
 
@@ -1067,6 +966,8 @@ func main() {
 	extraArgs := []string{}
 	testFilter := ""       // KTF-001: deterministic substring filter for `karkain test`
 	compileCorpus := false // KTF-002: run the compile-pass/compile-fail corpus
+	formatJSON := false    // Phase 82: machine-readable structured output (e.g. check --format=json)
+	fmtCheck := false     // Phase 82: `karkain fmt --check` verifies canonical formatting
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -1088,6 +989,13 @@ func main() {
 			case "--filter":
 				testFilter = flagValue
 				continue
+			case "--format":
+				if flagValue == "json" {
+					formatJSON = true
+					continue
+				}
+				fmt.Printf("Error: Unknown --format value '%s' (supported: json)\n", flagValue)
+				os.Exit(cli.ExitUsage)
 			}
 		}
 
@@ -1126,6 +1034,24 @@ func main() {
 			}
 		case "--compile":
 			compileCorpus = true
+		case "--json":
+			formatJSON = true
+		case "--check":
+			// `karkain fmt --check <file>` verifies without rewriting.
+			fmtCheck = true
+		case "--format":
+			if i+1 < len(args) {
+				if args[i+1] == "json" {
+					formatJSON = true
+					i++
+				} else {
+					fmt.Printf("Error: Unknown --format value '%s' (supported: json)\n", args[i+1])
+					os.Exit(cli.ExitUsage)
+				}
+			} else {
+				fmt.Println("Error: --format flag requires a value")
+				os.Exit(cli.ExitUsage)
+			}
 		case "--filter":
 			if i+1 < len(args) {
 				testFilter = args[i+1]
@@ -1134,8 +1060,18 @@ func main() {
 				fmt.Println("Error: --filter flag requires a pattern")
 				os.Exit(cli.ExitUsage)
 			}
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "lsp":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "lsp", "language-server", "fmt":
 			command = arg
+		case "ide":
+			// ide info: machine-readable LanguageProvider contract for IDEs
+			// (LiteIDE et al). No subcommand/none emits a usage note.
+			if i+1 < len(args) && args[i+1] == "info" {
+				result := cli.ToolchainInfoCommand()
+				fmt.Println(result.Message)
+				os.Exit(result.ExitCode)
+			}
+			fmt.Println("ide: known subcommands: info")
+			os.Exit(cli.ExitUsage)
 		case "explain":
 			// explain <code> or explain --list
 			if i+1 < len(args) && args[i+1] == "--list" {
@@ -1200,9 +1136,22 @@ func main() {
 		}
 	}
 
-	if command == "lsp" {
+	if command == "lsp" || command == "language-server" {
 		handleLSP()
 		return
+	}
+
+	if command == "fmt" {
+		if targetFile == "" {
+			fmt.Println("Error: No input .kark file specified")
+			printHelp()
+			os.Exit(cli.ExitUsage)
+		}
+		result := cli.FormatCommand(targetFile, fmtCheck)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
 	}
 
 	if command == "test" {
@@ -1278,7 +1227,11 @@ func main() {
 	case "transpile":
 		result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
 	case "check":
-		result = cli.CheckCommand(targetFile, verbose)
+		format := cli.CheckFormatHuman
+		if formatJSON {
+			format = cli.CheckFormatJSON
+		}
+		result = cli.CheckCommandFormatted(targetFile, verbose, format)
 	default:
 		fmt.Printf("Error: Unknown command '%s'\n", command)
 		printHelp()

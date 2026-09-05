@@ -1,0 +1,15 @@
+func fib(n) {
+    if (n <= 1) {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+func bump(arr, idx) {
+    arr[idx] = arr[idx] + 10
+}
+func main() {
+    print(fib(10))
+    let xs = [1, 2, 3]
+    bump(xs, 1)
+    print(xs[1])
+}

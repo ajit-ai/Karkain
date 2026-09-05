@@ -514,3 +514,18 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
              v
            78 (NPU Optimization)
 ``
+
+## Phase Completion Record (post-78)
+
+| Phase | Scope | Status |
+|-------|-------|--------|
+| 79 | Compiler Integrity, IR Architecture & Self-Hosting Readiness Audit (evidence-based audit; Phase 80 gate = READY WITH PREREQUISITES) | COMPLETE (`docs/audit/PHASE-79-*`) |
+| 80 | SIMD / Vector Execution Architecture (cross-backend parity baseline `pkg/backend/parity`; GNU-vector SIMD runtime; oracle completeness) | COMPLETE (`docs/audit/PHASE-80-*`) |
+| 81 | Compiler Correctness (immutable/mutability semantics, escape analysis wiring, executable probes, diagnostics hardening) | COMPLETE |
+| 82 | Language Conformance, Examples & Developer Tooling Foundation: conformance corpus (48 native tests), probes corpus (11 golden programs), algorithm corpus expansion (21 programs), `check --format=json` + `fmt` toolchain contract, real LSP wiring, `ide info` contract, VS Code extension, CI steps | COMPLETE (`conformance/`, `examples/probes/`, `docs/audit/PHASE-82-*`) |
+
+### Current phase
+
+**Phase 83+** — next milestone: LSP diagnostics/sync into editors, compiler
+symbol namespacing (C-library collision fix), `E-K-RES` true columns, array
+returns, growth of the conformance corpus.

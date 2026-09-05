@@ -1,0 +1,22 @@
+func main() {
+    let xs = [10, 20, 30, 40, 50]
+    let tail = xs[2:5]
+    print(len(tail))
+    print(tail[0])
+    print(tail[2])
+    let grid = []
+    let r = 0
+    while (r < 3) {
+        let row = []
+        let c = 0
+        while (c < 3) {
+            push(row, r * 3 + c)
+            c = c + 1
+        }
+        push(grid, row)
+        r = r + 1
+    }
+    print(grid[1][2])
+    grid[2][1] = 99
+    print(grid[2][1])
+}

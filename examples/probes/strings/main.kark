@@ -1,0 +1,6 @@
+func main() {
+    let s = "hello world"
+    print(len(s))
+    print(s[0])
+    print(s[6])
+}

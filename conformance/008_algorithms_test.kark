@@ -1,0 +1,101 @@
+func test_factorial() {
+    assert_eq(factorial(5), 120)
+    assert_eq(factorial(10), 3628800)
+}
+
+func factorial(n) {
+    if n <= 1 {
+        return 1
+    }
+    return n * factorial(n - 1)
+}
+
+func test_fibonacci() {
+    assert_eq(fib(0), 0)
+    assert_eq(fib(1), 1)
+    assert_eq(fib(10), 55)
+}
+
+func fib(n) {
+    if n <= 1 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+func test_euclid_gcd() {
+    assert_eq(gcd(48, 36), 12)
+    assert_eq(gcd(17, 5), 1)
+    assert_eq(gcd(270, 192), 6)
+}
+
+func gcd(a, b) {
+    if b == 0 {
+        return a
+    }
+    return gcd(b, a % b)
+}
+
+func test_primality() {
+    assert(is_prime(2))
+    assert(is_prime(3))
+    assert(is_prime(17))
+    assert(! is_prime(1))
+    assert(! is_prime(15))
+    assert(! is_prime(49))
+}
+
+func is_prime(n) {
+    if n < 2 {
+        return 0
+    }
+    let d = 2
+    while(d * d <= n) {
+        if n % d == 0 {
+            return 0
+        }
+        d = d + 1
+    }
+    return 1
+}
+
+func test_bubble_sort() {
+    let xs =[64, 34, 25, 12, 22, 11, 90]
+    bubble_sort(xs)
+    assert_eq(xs[0], 11)
+    assert_eq(xs[3], 25)
+    assert_eq(xs[6], 90)
+    assert_eq(len(xs), 7)
+}
+
+func bubble_sort(arr) {
+    let n = len(arr)
+    let i = 0
+    while(i < n) {
+        let j = 0
+        while(j < n - i - 1) {
+            if arr[j] > arr[j + 1] {
+                let tmp = arr[j]
+                arr[j] = arr[j + 1]
+                arr[j + 1] = tmp
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+}
+
+func test_sum_of_squares() {
+    assert_eq(sum_squares(3), 14)
+    assert_eq(sum_squares(5), 55)
+}
+
+func sum_squares(n) {
+    let total = 0
+    let i = 1
+    while(i <= n) {
+        total = total + i * i
+        i = i + 1
+    }
+    return total
+}

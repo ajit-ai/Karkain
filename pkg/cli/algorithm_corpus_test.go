@@ -97,6 +97,13 @@ var expectedAlgorithmOutput = map[string]string{
 	"dfs":         "DFS: start 0 visits 5?\n1\nDFS: start 0 visits 3?\n1",
 	"dijkstra":    "Dijkstra shortest 0 -> 3:\n5",
 	"bellman":     "Bellman-Ford shortest 0 -> 3:\n5",
+	"factorial":   "Factorial of 5:\n120\nFactorial of 10:\n3628800",
+	"fibonacci":   "Fibonacci(10):\n55\nFibonacci(20):\n6765",
+	"gcd":         "GCD(48, 36):\n12\nGCD(270, 192):\n6",
+	"lcm":         "LCM(4, 6):\n12\nLCM(21, 6):\n42",
+	"sieve":       "Primes up to 30:\n2\n3\n5\n7\n11\n13\n17\n19\n23\n29",
+	"power":       "2^10:\n1024\n3^4:\n81",
+	"absolute_value": "abs(-42):\n42\nabs(7):\n7\nabs(0):\n0",
 }
 
 // TestAlgorithmCorpus_RunsEveryProgram compiles and runs every program under
@@ -144,8 +151,9 @@ func TestAlgorithmCorpus_RunsEveryProgram(t *testing.T) {
 // of either a program or its expectation: coverage must be complete.
 func TestAlgorithmCorpus_EveryAlgorithmCovered(t *testing.T) {
 	want := []string{
-		"bellman", "bfs", "binary", "bubble", "dfs", "dijkstra", "heap",
-		"kadane", "knapsack", "levenshtein", "linear", "merge", "quick", "ternary",
+		"absolute_value", "bellman", "bfs", "binary", "bubble", "dfs", "dijkstra",
+		"factorial", "fibonacci", "gcd", "heap", "kadane", "knapsack", "lcm",
+		"levenshtein", "linear", "merge", "power", "quick", "sieve", "ternary",
 	}
 	if len(expectedAlgorithmOutput) != len(want) {
 		t.Errorf("expected %d expectations, got %d", len(want), len(expectedAlgorithmOutput))

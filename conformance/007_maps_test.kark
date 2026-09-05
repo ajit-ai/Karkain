@@ -1,0 +1,37 @@
+func test_map_set_get() {
+    let m = {}
+    m["age"] = 30
+    assert_eq(m["age"], 30)
+    m["name"] = "Ana"
+    assert_eq(m["name"], "Ana")
+}
+
+func test_map_update() {
+    let m = {}
+    m["count"] = 1
+    m["count"] = 2
+    m["count"] = 3
+    assert_eq(m["count"], 3)
+}
+
+func test_map_mixed_keys() {
+    let m = {}
+    m["x"] = 1
+    m["y"] = 2
+    assert_eq(m["x"] + m["y"], 3)
+}
+
+func test_map_nested_values() {
+    let inner = {}
+    inner["deep"] = 42
+    let outer = {}
+    outer["k"] = inner
+    assert_eq(outer["k"]["deep"], 42)
+}
+
+func test_map_string_values() {
+    let m = {}
+    m["greeting"] = "hello"
+    m["subject"] = "world"
+    assert_eq(m["greeting"] + " " + m["subject"], "hello world")
+}

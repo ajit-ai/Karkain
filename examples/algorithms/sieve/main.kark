@@ -1,0 +1,31 @@
+func is_prime(n) {
+    if (n < 2) {
+        return 0
+    }
+    let d = 2
+    while (d * d <= n) {
+        if (n % d == 0) {
+            return 0
+        }
+        d = d + 1
+    }
+    return 1
+}
+
+func main() {
+    let limit = 30
+    let primes = []
+    let n = 2
+    while (n <= limit) {
+        if (is_prime(n)) {
+            push(primes, n)
+        }
+        n = n + 1
+    }
+    print("Primes up to 30:")
+    let i = 0
+    while (i < len(primes)) {
+        print(primes[i])
+        i = i + 1
+    }
+}

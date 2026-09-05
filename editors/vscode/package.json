@@ -1,16 +1,25 @@
 {
   "name": "karkain",
   "displayName": "Karkain Language Support",
-  "description": "Language support for Karkain programming language",
+  "description": "Language support for the Karkain programming language: syntax highlighting, format-on-save, and compile/run/check wiring for the karkain toolchain",
   "version": "0.1.0",
-  "engines": [
-    "vscode@^1.75.0"
-  ],
+  "publisher": "karkain",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
   "categories": [
-    "Languages"
+    "Languages",
+    "Formatters",
+    "Linters"
   ],
+  "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:karkain"
+    "onLanguage:karkain",
+    "onCommand:karkain.check",
+    "onCommand:karkain.compile",
+    "onCommand:karkain.run",
+    "onCommand:karkain.formatDocument"
   ],
   "contributes": {
     "languages": [
@@ -30,13 +39,36 @@
     ],
     "commands": [
       {
-        "command": "karkain.compile",
-        "title": "Compile Karkain File"
+        "command": "karkain.check",
+        "title": "Karkain: Check File"
       },
       {
-        "command": "karkain.debug",
-        "title": "Debug Karkain File"
+        "command": "karkain.compile",
+        "title": "Karkain: Compile File"
+      },
+      {
+        "command": "karkain.run",
+        "title": "Karkain: Run File"
+      },
+      {
+        "command": "karkain.formatDocument",
+        "title": "Karkain: Format Document"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Karkain",
+      "properties": {
+        "karkain.compilerPath": {
+          "type": "string",
+          "default": "karkain",
+          "description": "Path to the karkain executable (or a name found on PATH)."
+        },
+        "karkain.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Format .kark documents on save using `karkain fmt`."
+        }
+      }
+    }
   }
 }
