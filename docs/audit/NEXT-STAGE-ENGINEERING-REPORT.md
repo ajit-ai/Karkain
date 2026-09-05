@@ -238,3 +238,24 @@ test integration NOW WIRED (project-aware module scope, see D2)
 3. **P1** — Formalize runtime + ABI contracts; fold `src/compiler/runtime.c` and codegen's embedded runtime under one documented boundary.
 4. **P1** — Build a golden/differential test harness with CPU as oracle before any accelerator parity claim.
 5. **P2/P3** — Only after correctness + determinism are locked: registry, git, SIMD arithmetic, GPU/NPU.
+
+---
+
+## K. Phase Log
+
+### KTF-001 — Karkain Native Testing Foundation (COMPLETE)
+
+Native assertion builtins (`assert`/`assert_eq`/`assert_ne`) with structured
+failure output to stderr + non-zero exit; toolchain test model (`pkg/testing`:
+TestCase/TestResult/Status/Failure/Summary/Filter); deterministic per-test
+discovery and reporting in `karkain test`; `--filter`; captured per-test
+stdout/stderr via new `codegen.Config.Stdout/Stderr` writers. Existing
+`test_`-prefix convention preserved (reconciled: no new grammar forced), P2
+infrastructure reused unchanged, `WorkspaceTest` untouched.
+
+Full suite green (`go test ./... -count=1`, all 27 packages; `pkg/bootstrap`
+240s self-hosting path intact). Report: `docs/audit/KTF-001-REPORT.md`.
+
+Deferred (future KTF phases): compile-pass/compile-fail, diagnostics,
+conformance, runtime/ABI, bootstrap/self-host harness, property/fuzz,
+benchmarks, Math/Tensor/SIMD/GPU/NPU/Quantum test frameworks.
