@@ -14,11 +14,23 @@ import (
 )
 
 // CPUBackend implements the Backend interface for CPU execution.
-type CPUBackend struct{}
+type CPUBackend struct {
+	simd bool
+}
 
-// New creates a new CPU backend.
+// New creates a new CPU backend using the scalar reference runtime. This is
+// the correctness oracle — every accelerator must match its output.
 func New() *CPUBackend {
 	return &CPUBackend{}
+}
+
+// NewSimd creates a CPU backend that lowers the vectorizable tensor ops
+// (add/sub/mul/div/matmul/relu) to vectorized C via GNU vector extensions.
+// Numeric results are equivalent to the scalar oracle within floating-point
+// tolerance (matmul reorders K accumulation). Non-contiguous/broadcast shapes
+// automatically fall back to the scalar runtime.
+func NewSimd() *CPUBackend {
+	return &CPUBackend{simd: true}
 }
 
 // Name returns the backend name.
@@ -61,11 +73,18 @@ func (b *CPUBackend) Supports(op tensor.Op, dtype tensor.ElemType, shape tensor.
 // Execute runs a tensor graph using the embedded C runtime.
 // It compiles a small C program and runs it.
 func (b *CPUBackend) Execute(graph *tensor.TensorGraph, inputs map[string][]float64) (*backend.Result, error) {
+	return b.execute(graph, inputs, b.simd)
+}
+
+// execute is the shared implementation for the scalar and SIMD runtime
+// variants. The SIMD variant emits the scalar+TensorSimdCRuntime and calls the
+// tensor_simd_* ops for the vectorizable op set.
+func (b *CPUBackend) execute(graph *tensor.TensorGraph, inputs map[string][]float64, simd bool) (*backend.Result, error) {
 	tempDir := filepath.Join(os.TempDir(), "karkain-npu")
 	os.MkdirAll(tempDir, 0777)
 
 	// Generate C program
-	cCode := generateCProgram(graph, inputs)
+	cCode := generateCProgramVariant(graph, inputs, simd)
 
 	// Write to unique temp files so concurrent invocations (parallel tests,
 	// multi-goroutine dispatch) never collide on the same path, which on
@@ -109,6 +128,9 @@ func (b *CPUBackend) Execute(graph *tensor.TensorGraph, inputs map[string][]floa
 
 	// Parse output
 	result := parseOutput(string(runOut), graph)
+	if simd {
+		result.Metadata["simd"] = "true"
+	}
 	return result, nil
 }
 
@@ -117,11 +139,19 @@ func (b *CPUBackend) Execute(graph *tensor.TensorGraph, inputs map[string][]floa
 // ============================================================
 
 func generateCProgram(graph *tensor.TensorGraph, inputs map[string][]float64) string {
+	return generateCProgramVariant(graph, inputs, false)
+}
+
+func generateCProgramVariant(graph *tensor.TensorGraph, inputs map[string][]float64, simd bool) string {
 	var sb strings.Builder
 
-	// Header
+	// Header + embedded runtime (scalar oracle, or scalar+SIMD extensions)
 	sb.WriteString("#include <stdio.h>\n#include <stdlib.h>\n")
-	sb.WriteString(TensorCRuntime)
+	if simd {
+		sb.WriteString(TensorSimdCRuntime)
+	} else {
+		sb.WriteString(TensorCRuntime)
+	}
 	sb.WriteString("\nint main(void) {\n")
 
 	// C-legal variable name for each node ID
@@ -179,7 +209,7 @@ func generateCProgram(graph *tensor.TensorGraph, inputs map[string][]float64) st
 		case tensor.OpAdd, tensor.OpSub, tensor.OpMul, tensor.OpDiv,
 			tensor.OpMatMul, tensor.OpRelu, tensor.OpSigmoid, tensor.OpTanh,
 			tensor.OpSoftmax, tensor.OpTranspose:
-			emitOpNamed(&sb, node, varName)
+			emitOpNamed(&sb, node, varName, simd)
 		}
 	}
 
@@ -193,36 +223,43 @@ func generateCProgram(graph *tensor.TensorGraph, inputs map[string][]float64) st
 			continue
 		}
 		v := varName[node.ID]
-		if node.Op == tensor.OpCreate {
-			// Create outputs directly print their data
-			sb.WriteString(fmt.Sprintf("    printf(\"RESULT %s\", \"\");\n", node.ID))
-			sb.WriteString(fmt.Sprintf("    for (int i = 0; i < %s->ndim; i++) printf(\"%%d,\", %s->shape[i]);\n", v, v))
-			sb.WriteString(fmt.Sprintf("    printf(\"|%%zu|\", tensor_numel(%s));\n", v))
-			sb.WriteString(fmt.Sprintf("    for (size_t i = 0; i < tensor_numel(%s); i++) printf(\"%%g \", %s->data[i]);\n", v, v))
-			sb.WriteString("    printf(\"\\n\");\n")
-		}
+		// Every declared output — Create or computed — emits a multi-line block
+		// (RESULT, shape, numel, values) that parseOutput reconstructs into
+		// Result.Values, so the oracle exposes numeric values for the graph.
+		sb.WriteString(fmt.Sprintf("    printf(\"RESULT %s\\n\");\n", node.ID))
+		sb.WriteString(fmt.Sprintf("    for (int i = 0; i < %s->ndim; i++) printf(\"%%d,\", %s->shape[i]);\n", v, v))
+		sb.WriteString("    printf(\"\\n\");\n")
+		sb.WriteString(fmt.Sprintf("    printf(\"|%%zu|\\n\", tensor_numel(%s));\n", v))
+		sb.WriteString(fmt.Sprintf("    for (size_t i = 0; i < tensor_numel(%s); i++) printf(\"%%g \", %s->data[i]);\n", v, v))
+		sb.WriteString("    printf(\"\\n\");\n")
 	}
 
 	sb.WriteString("\n    return 0;\n}\n")
 	return sb.String()
 }
 
-func emitOpNamed(sb *strings.Builder, node *tensor.TensorNode, varName map[string]string) {
+func emitOpNamed(sb *strings.Builder, node *tensor.TensorNode, varName map[string]string, simd bool) {
 	target := varName[node.ID]
 	arg := func(idx int) string { return varName[node.Args[idx].(string)] }
+	simdFn := func(scalar, vector string) string {
+		if simd {
+			return vector
+		}
+		return scalar
+	}
 	switch node.Op {
 	case tensor.OpAdd:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_add(%s, %s);\n", target, arg(0), arg(1)))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = %s(%s, %s);\n", target, simdFn("tensor_add", "tensor_simd_add"), arg(0), arg(1)))
 	case tensor.OpSub:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_sub(%s, %s);\n", target, arg(0), arg(1)))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = %s(%s, %s);\n", target, simdFn("tensor_sub", "tensor_simd_sub"), arg(0), arg(1)))
 	case tensor.OpMul:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_mul(%s, %s);\n", target, arg(0), arg(1)))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = %s(%s, %s);\n", target, simdFn("tensor_mul", "tensor_simd_mul"), arg(0), arg(1)))
 	case tensor.OpDiv:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_div(%s, %s);\n", target, arg(0), arg(1)))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = %s(%s, %s);\n", target, simdFn("tensor_div", "tensor_simd_div"), arg(0), arg(1)))
 	case tensor.OpMatMul:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_matmul(%s, %s);\n", target, arg(0), arg(1)))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = %s(%s, %s);\n", target, simdFn("tensor_matmul", "tensor_simd_matmul"), arg(0), arg(1)))
 	case tensor.OpRelu:
-		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_relu(%s);\n", target, arg(0)))
+		sb.WriteString(fmt.Sprintf("    Tensor* %s = %s(%s);\n", target, simdFn("tensor_relu", "tensor_simd_relu"), arg(0)))
 	case tensor.OpSigmoid:
 		sb.WriteString(fmt.Sprintf("    Tensor* %s = tensor_sigmoid(%s);\n", target, arg(0)))
 	case tensor.OpTanh:

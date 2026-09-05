@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"karkain/pkg/codegen"
 	"karkain/pkg/lexer"
@@ -18,6 +19,28 @@ func hasGCC(t *testing.T) {
 	if _, err := exec.LookPath("gcc"); err != nil {
 		t.Skip("gcc not available")
 	}
+}
+
+// gccTempDir is a t.TempDir replacement for tests that hand files to the C
+// toolchain. On Windows the OS/AV-indexer may briefly hold a handle on a
+// freshly compiled artifact; t.TempDir's clean up then fails the test with a
+// bogus "used by another process" error. Retry the removal best-effort instead.
+func gccTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "karkain-gcc-test")
+	if err != nil {
+		t.Fatalf("mkTempDir: %v", err)
+	}
+	t.Cleanup(func() {
+		for i := 0; i < 25; i++ {
+			if err := os.RemoveAll(dir); err == nil {
+				return
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		_ = os.RemoveAll(dir)
+	})
+	return dir
 }
 
 func writeTestFile(t *testing.T, dir, name, src string) string {
@@ -262,7 +285,7 @@ func test_prints() {
 
 func TestKTFTestCommand_PassExitZero_FailExitNonZero(t *testing.T) {
 	hasGCC(t)
-	dir := t.TempDir()
+	dir := gccTempDir(t)
 	passFile := writeTestFile(t, dir, "pass_test.kark", `
 func test_ok() { assert(1 == 1) }
 `)
@@ -284,7 +307,7 @@ func test_bad() { assert(1 == 2) }
 
 func TestKTFTestCommand_FilterSelectsTests(t *testing.T) {
 	hasGCC(t)
-	dir := t.TempDir()
+	dir := gccTempDir(t)
 	file := writeTestFile(t, dir, "multi_test.kark", `
 func test_wanted() { assert(1 == 1) }
 func test_other()  { assert(1 == 1) }
@@ -307,7 +330,7 @@ func test_other()  { assert(1 == 1) }
 
 func TestKTFTestCommand_UnmatchedFilterExitsZero(t *testing.T) {
 	hasGCC(t)
-	dir := t.TempDir()
+	dir := gccTempDir(t)
 	file := writeTestFile(t, dir, "m_test.kark", `
 func test_ok() { assert(1 == 1) }
 `)

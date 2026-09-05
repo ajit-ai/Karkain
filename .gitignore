@@ -42,3 +42,5 @@
 # Generated C files from examples
 examples/*.c
 temp/
+# Bootstrap stage-1 generated self-host output
+/src/compiler/main.c
