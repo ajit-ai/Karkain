@@ -31,6 +31,7 @@ COMPILER COMMANDS:
   transpile <file.kark>    Generate C or other backend output
   check <file.kark>        Validate syntax and semantics
   test <path>              Discover and run *_test.kark files
+  bench <path>             Time bench_-prefixed functions (single run each)
   clean [path] [--all]     Remove generated artifacts (sources never touched)
   lsp                      Start Language Server Protocol server
 
@@ -1017,7 +1018,7 @@ func main() {
 				fmt.Println("Error: --filter flag requires a pattern")
 				os.Exit(cli.ExitUsage)
 			}
-		case "build", "run", "check", "transpile", "test", "lsp":
+		case "build", "run", "check", "transpile", "test", "bench", "lsp":
 			command = arg
 		case "workspace", "ws":
 			// top-level workspace family: list|build|test|check|run|clean
@@ -1074,6 +1075,18 @@ func main() {
 		}
 		result := cli.TestCommandFiltered(testPath, cfg, verbose, testFilter)
 		fmt.Print(result.Message)
+		os.Exit(result.ExitCode)
+	}
+
+	if command == "bench" {
+		benchPath := targetFile
+		if benchPath == "" {
+			benchPath = "."
+		}
+		result := cli.BenchCommand(benchPath, cfg, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
 		os.Exit(result.ExitCode)
 	}
 
