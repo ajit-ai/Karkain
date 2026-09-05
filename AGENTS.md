@@ -29,7 +29,17 @@ Prior completed: **78** — NPU Optimization (fusion, memory planning, INT8/INT4
 Deterministic resolver (`pkg/pm/resolver.go`), lockfile-integrated workflows
 (`pkg/pm/flow.go`: `ResolveAndLock`, `FetchLocked`, `ResolvedDetails`,
 `TreeLines`, `NewProject`), fetch cache safety (atomic temp→rename + checksum in
-`FetchModule`). CLI wiring under single `karkain.exe`: top-level
+`FetchModule`).
+
+### Completed: CLI Toolchain (Batches B1–B4) + KTF-001 + KTF-002
+Full CLI surface (`bench/lint/explain/clean/workspace/*/target/config/pkg audit
+--json/pkg verify --json` + exit-code scheme + `--filter`), the native test
+foundation (`karkain test`: language-level `assert/assert_eq/assert_ne`, KTF-001
+model, deterministic discovery/execution, `--filter`), and the compile
+pass/fail corpus (`karkain test --compile [dir]`: manifest-driven, real lint
+pipeline diagnostics, gcc-gated pass cases, exit 4 on failure). Reports:
+`docs/audit/KTF-001-REPORT.md`, `docs/audit/KTF-002-REPORT.md`,
+`docs/audit/CLI-COMPLETION-IMPLEMENTATION.md`, `docs/audit/CLI-COMPLETION-MATRIX.md`. CLI wiring under single `karkain.exe`: top-level
 `new/remove/update/list/tree/fetch` (incl. `karkain pkg ...` aliases);
 `update` now re-resolves and writes `karkain.lock`; `fetch` uses the lockfile.
 Registry/git fetching remain explicit "not available" errors (not faked).

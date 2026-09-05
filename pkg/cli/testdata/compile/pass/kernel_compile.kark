@@ -1,0 +1,6 @@
+kernel k(x: int) {
+    let v = x * 2
+    barrier()
+    let g = global_id(0)
+    print(v)
+}

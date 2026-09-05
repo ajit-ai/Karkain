@@ -1,0 +1,7 @@
+func main() {
+    {
+        let x = 42
+        print(x)
+    }
+    print(x)
+}

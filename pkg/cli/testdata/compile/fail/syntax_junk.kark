@@ -1,0 +1,4 @@
+func main() {
+    print(1)
+}
+trailing_junk_at_top_level

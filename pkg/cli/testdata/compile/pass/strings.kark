@@ -1,0 +1,9 @@
+func main() {
+    let s = "karkain"
+    print(s)
+    print(len(s))
+    let b = s == "karkain"
+    print(b)
+    let c: string = "prefix_" + s
+    print(c)
+}

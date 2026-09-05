@@ -1,0 +1,8 @@
+func main() {
+    let counter = 0
+    let bump = fn() {
+        return counter + 1
+    }
+    print(bump())
+    print(counter)
+}

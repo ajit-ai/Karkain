@@ -1,0 +1,12 @@
+func fib(n: int) {
+    if n < 2 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+func main() {
+    print(fib(1))
+    print(fib(2))
+    print(fib(10))
+}

@@ -31,6 +31,7 @@ COMPILER COMMANDS:
   transpile <file.kark>    Generate C or other backend output
   check <file.kark>        Validate syntax and semantics
   test <path>              Discover and run *_test.kark files
+  test --compile [dir]     Run compile-pass/compile-fail corpus (diagnostics)
   bench <path>             Time bench_-prefixed functions (single run each)
   lint <file.kark>         Full front-end analysis (incl. borrow checker)
   explain <code>           Explain a toolchain error code
@@ -1064,7 +1065,8 @@ func main() {
 	cfg := codegen.NewConfig()
 	verbose := false
 	extraArgs := []string{}
-	testFilter := "" // KTF-001: deterministic substring filter for `karkain test`
+	testFilter := ""       // KTF-001: deterministic substring filter for `karkain test`
+	compileCorpus := false // KTF-002: run the compile-pass/compile-fail corpus
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -1122,6 +1124,8 @@ func main() {
 				fmt.Println("Error: -o flag requires an output file path")
 				os.Exit(cli.ExitUsage)
 			}
+		case "--compile":
+			compileCorpus = true
 		case "--filter":
 			if i+1 < len(args) {
 				testFilter = args[i+1]
@@ -1202,6 +1206,20 @@ func main() {
 	}
 
 	if command == "test" {
+		if compileCorpus {
+			dir := ""
+			if targetFile != "" {
+				dir = targetFile
+			}
+			if dir == "" {
+				dir = cli.DefaultCompileCorpus
+			}
+			s := cli.RunCompileCorpus(dir, verbose, cfg)
+			if s.Failed > 0 {
+				os.Exit(cli.ExitTest)
+			}
+			os.Exit(cli.ExitSuccess)
+		}
 		testPath := targetFile
 		if testPath == "" {
 			testPath = "."

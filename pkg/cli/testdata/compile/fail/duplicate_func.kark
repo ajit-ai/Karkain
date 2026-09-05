@@ -1,0 +1,7 @@
+func foo() {
+    return 1
+}
+
+func foo() {
+    return 2
+}

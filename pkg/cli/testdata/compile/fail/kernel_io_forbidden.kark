@@ -1,0 +1,3 @@
+kernel k(x: int) {
+    writeFile("out.txt", "data")
+}
