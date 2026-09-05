@@ -1,0 +1,31 @@
+func bubble_sort(data) {
+    let n = len(data)
+    let i = 0
+    while (i < n) {
+        let j = 0
+        while (j < n - i - 1) {
+            if (data[j] > data[j + 1]) {
+                let t = data[j]
+                data[j] = data[j + 1]
+                data[j + 1] = t
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+}
+
+func print_array(a) {
+    let i = 0
+    while (i < len(a)) {
+        print(a[i])
+        i = i + 1
+    }
+}
+
+func main() {
+    let data = [64, 34, 25, 12, 22, 11, 90]
+    bubble_sort(data)
+    print("Bubble sort result:")
+    print_array(data)
+}

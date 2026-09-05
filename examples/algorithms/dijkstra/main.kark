@@ -1,0 +1,56 @@
+func dijkstra(graph, start, target) {
+    let n = len(graph)
+    let dist = []
+    let visited = []
+    let i = 0
+    while (i < n) {
+        push(dist, 999999)
+        push(visited, 0)
+        i = i + 1
+    }
+    dist[start] = 0
+    let count = 0
+    while (count < n) {
+        let u = -1
+        let best = 999999
+        let v = 0
+        while (v < n) {
+            if (visited[v] == 0 && dist[v] < best) {
+                best = dist[v]
+                u = v
+            }
+            v = v + 1
+        }
+        if (u == -1) {
+            count = n
+        } else {
+            visited[u] = 1
+            let k = 0
+            while (k < len(graph[u])) {
+                let edge = graph[u][k]
+                let nb = edge[0]
+                let w = edge[1]
+                if (dist[u] + w < dist[nb]) {
+                    dist[nb] = dist[u] + w
+                }
+                k = k + 1
+            }
+            count = count + 1
+        }
+    }
+    if (dist[target] == 999999) {
+        return -1
+    }
+    return dist[target]
+}
+
+func main() {
+    let graph = [
+        [[1, 4], [2, 2]],
+        [[0, 4], [2, 1], [3, 5]],
+        [[0, 2], [1, 1], [3, 3]],
+        [[1, 5], [2, 3]]
+    ]
+    print("Dijkstra shortest 0 -> 3:")
+    print(dijkstra(graph, 0, 3))
+}

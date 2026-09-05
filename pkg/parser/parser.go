@@ -737,51 +737,54 @@ func (p *Parser) parseIdentStatement() Node {
 		return p.parseBareGateApply(ident)
 	}
 
-	// Check for index assignment: arr[i] = val or matrix arr[r,c] = val
+	// Check for index assignment: arr[i] = val, chained arr[i][j] = val, or
+	// matrix arr[r,c] = val. Postfix brackets chain so that nested 2D table
+	// writes (dp[i][j] = v) build a single IndexExpr instead of splitting the
+	// trailing "[j] = v" into a misparsed ArrayLiteral assignment.
 	if p.curToken.Type == lexer.TokenLBracket {
-		p.nextToken() // consume '['
-		var first Node
-		if p.curToken.Type == lexer.TokenColon { // Phase 55: open start
-			first = &IntLiteral{Value: "0"}
-		} else {
-			first = p.parseExpr()
-		}
-		if p.curToken.Type == lexer.TokenComma {
-			// Matrix index: arr[row, col] = val
-			p.nextToken() // consume ','
-			col := p.parseExpr()
+		var target Node = &Identifier{Name: ident}
+		for p.curToken.Type == lexer.TokenLBracket {
+			p.nextToken() // consume '['
+			var first Node
+			if p.curToken.Type == lexer.TokenColon { // Phase 55: open start
+				first = &IntLiteral{Value: "0"}
+			} else {
+				first = p.parseExpr()
+			}
+			if p.curToken.Type == lexer.TokenComma {
+				// Matrix index: arr[row, col] = val
+				p.nextToken() // consume ','
+				col := p.parseExpr()
+				p.nextToken() // consume ']'
+				matIdx := &MatrixIndexExpr{
+					Matrix: target,
+					Row:    first,
+					Col:    col,
+				}
+				target = matIdx
+				break
+			}
+			// Phase 55: slice in statement position: s[0:5]
+			if p.curToken.Type == lexer.TokenColon {
+				p.nextToken() // consume ':'
+				var end Node
+				if p.curToken.Type != lexer.TokenRBracket {
+					end = p.parseExpr()
+				}
+				p.nextToken() // consume ']'
+				target = &SliceExpr{Target: target, Start: first, End: end}
+				continue
+			}
+			// Single index: arr[i] = val or arr[i]
 			p.nextToken() // consume ']'
-			matIdx := &MatrixIndexExpr{
-				Matrix: &Identifier{Name: ident},
-				Row:    first,
-				Col:    col,
-			}
-			if p.curToken.Type == lexer.TokenAssign {
-				p.nextToken() // consume '='
-				val := p.parseExpr()
-				return p.exprStmtAt(&BinaryExpr{Left: matIdx, Operator: "=", Right: val}, line)
-			}
-			return p.exprStmtAt(matIdx, line)
+			target = &IndexExpr{Left: target, Index: first}
 		}
-		// Phase 55: slice in statement position: s[0:5]
-		if p.curToken.Type == lexer.TokenColon {
-			p.nextToken() // consume ':'
-			var end Node
-			if p.curToken.Type != lexer.TokenRBracket {
-				end = p.parseExpr()
-			}
-			p.nextToken() // consume ']'
-			return p.exprStmtAt(&SliceExpr{Target: &Identifier{Name: ident}, Start: first, End: end}, line)
-		}
-		// Single index: arr[i] = val or arr[i]
-		p.nextToken() // consume ']'
-		idxExpr := &IndexExpr{Left: &Identifier{Name: ident}, Index: first}
 		if p.curToken.Type == lexer.TokenAssign {
 			p.nextToken() // consume '='
 			val := p.parseExpr()
-			return p.exprStmtAt(&BinaryExpr{Left: idxExpr, Operator: "=", Right: val}, line)
+			return p.exprStmtAt(&BinaryExpr{Left: target, Operator: "=", Right: val}, line)
 		}
-		return p.exprStmtAt(idxExpr, line)
+		return p.exprStmtAt(target, line)
 	}
 
 	// Simple variable assignment (reassignment, not declaration)
@@ -1651,12 +1654,24 @@ func (p *Parser) parseCImport() *CImportBlock {
 	return &CImportBlock{Content: content}
 }
 
-// parseModuleImport parses `import <module_name>` at the top level.
+// parseModuleImport parses `import <module_name>` at the top level. Module
+// names may be dotted paths such as `std.core` or `app.mymod`; the full path
+// string becomes the import name.
 func (p *Parser) parseModuleImport() *ModuleImport {
+	start := p.curToken.Start
 	p.nextToken() // consume 'import'
 	name := p.curToken.Literal(p.src)
 	line := int(p.curToken.Line)
-	p.nextToken() // consume module name
+	p.nextToken() // consume the first module-path element
+
+	// Consume any dotted path continuation: (. ident)*
+	for p.curToken.Type == lexer.TokenDot {
+		p.nextToken() // consume '.'
+		part := p.curToken.Literal(p.src)
+		name += "." + part
+		p.advanceIfStalled(start, "module import path")
+		p.nextToken() // consume the path element
+	}
 	return &ModuleImport{Name: name, Line: line}
 }
 
