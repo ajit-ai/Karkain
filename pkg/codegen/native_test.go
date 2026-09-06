@@ -26,7 +26,7 @@ func TestNativeGen_BasicFunction(t *testing.T) {
 	}
 
 	gen := NewNativeGenerator()
-	result, err := gen.GenerateModule(prog)
+	result, _, err := gen.GenerateModule(prog, "test.kark")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestNativeGen_StructLayout(t *testing.T) {
 	}
 
 	gen := NewNativeGenerator()
-	result, err := gen.GenerateModule(prog)
+	result, _, err := gen.GenerateModule(prog, "test.kark")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestNativeGen_ControlFlow(t *testing.T) {
 	}
 
 	gen := NewNativeGenerator()
-	result, err := gen.GenerateModule(prog)
+	result, _, err := gen.GenerateModule(prog, "test.kark")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestNativeGen_ExternDeclarations(t *testing.T) {
 	}
 
 	gen := NewNativeGenerator()
-	result, err := gen.GenerateModule(prog)
+	result, _, err := gen.GenerateModule(prog, "test.kark")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
