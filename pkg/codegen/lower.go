@@ -1,8 +1,8 @@
 package codegen
 
 import (
-	"karkain/pkg/parser"
 	"karkain/pkg/ir/ssa"
+	"karkain/pkg/parser"
 	"strconv"
 	"strings"
 )
@@ -134,7 +134,9 @@ func (l *fnLowerer) lowerExpr(e parser.Node) ssa.Operand {
 				args[i] = ssa.Reg(l.ensureReg(l.lowerExpr(a), "arg"))
 			}
 			target := n.Function
-			if !l.declared[target] {
+			if l.declared[target] {
+				target = userFuncC(n.Function) // user function namespace
+			} else {
 				target = "karkain_" + target // runtime builtin naming
 			}
 			dest := l.fn.NewReg("call")
@@ -259,7 +261,6 @@ func (l *fnLowerer) lowerStmt(s parser.Node) {
 		l.rawcStmt(l.g.genStatement(s))
 	}
 }
-
 
 func (l *fnLowerer) lowerIf(n *parser.IfStmt) {
 	creg := l.ensureReg(l.lowerExpr(n.Condition), "cond")

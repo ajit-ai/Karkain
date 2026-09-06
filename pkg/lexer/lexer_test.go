@@ -70,24 +70,35 @@ func TestTokenZeroCopy(t *testing.T) {
 }
 
 func TestTokenLineCol(t *testing.T) {
+	// Token columns are 0-based byte offsets within the line (source spans),
+	// matching the convention used by Parser.ErrorCols when reporting errors
+	// as true 1-based columns for the CLI/LSP diagnostic contract.
 	input := "let a\nlet b"
 	l := New(input)
 
 	tok := l.NextToken()
-	if tok.Line != 1 || tok.Col != 1 {
-		t.Errorf("expected line 1 col 1 for 'let', got line %d col %d", tok.Line, tok.Col)
+	if tok.Line != 1 || tok.Col != 0 {
+		t.Errorf("expected line 1 col 0 for 'let', got line %d col %d", tok.Line, tok.Col)
 	}
 	tok = l.NextToken()
-	if tok.Line != 1 || tok.Col != 5 {
-		t.Errorf("expected line 1 col 5 for 'a', got line %d col %d", tok.Line, tok.Col)
+	if tok.Line != 1 || tok.Col != 4 {
+		t.Errorf("expected line 1 col 4 for 'a', got line %d col %d", tok.Line, tok.Col)
 	}
 	tok = l.NextToken()
-	if tok.Line != 2 || tok.Col != 1 {
-		t.Errorf("expected line 2 col 1 for second 'let', got line %d col %d", tok.Line, tok.Col)
+	if tok.Line != 2 || tok.Col != 0 {
+		t.Errorf("expected line 2 col 0 for second 'let', got line %d col %d", tok.Line, tok.Col)
 	}
 	tok = l.NextToken()
-	if tok.Line != 2 || tok.Col != 5 {
-		t.Errorf("expected line 2 col 5 for 'b', got line %d col %d", tok.Line, tok.Col)
+	if tok.Line != 2 || tok.Col != 4 {
+		t.Errorf("expected line 2 col 4 for 'b', got line %d col %d", tok.Line, tok.Col)
+	}
+
+	// Two-char operators start on the true column of their first character.
+	two := New("a == 1")
+	two.NextToken() // 'a' consumes col 0
+	op := two.NextToken()
+	if op.Col != 2 {
+		t.Errorf("expected '==', got line %d col %d", op.Line, op.Col)
 	}
 }
 

@@ -2,8 +2,8 @@ package codegen
 
 import (
 	"fmt"
-	"karkain/pkg/parser"
 	"karkain/pkg/ir/ssa"
+	"karkain/pkg/parser"
 	"sort"
 	"strconv"
 	"strings"
@@ -126,9 +126,9 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 	} else {
 		params := make([]string, len(fn.Params))
 		for i, p := range fn.Params {
-	params[i] = "Value " + sanitizeC(p.Name)
+			params[i] = "Value " + sanitizeC(p.Name)
 		}
-		fmt.Fprintf(&sb, "Value %s(%s) {\n", sanitizeC(fn.Name), strings.Join(params, ", "))
+		fmt.Fprintf(&sb, "Value %s(%s) {\n", userFuncC(fn.Name), strings.Join(params, ", "))
 	}
 	// Function parameters are bound directly by the signature — no copies needed.
 	// Their names serve as the variable cells.
@@ -285,4 +285,3 @@ func (g *Generator) emitFunctionViaIR(prog *parser.Program, fn *parser.FuncDecl)
 	}
 	return g.emitSSAFunction(sfn, fn.Params), true
 }
-

@@ -26,6 +26,7 @@ karkain run examples/probes/hello/main.kark
 | math | `math/main.kark` | int div/mod, floats | `3` `2` `-1` `3.5` `10` `1` |
 | algorithms | `algorithms/main.kark` | bubble sort, primality | `11` `25` `90` `1` `0` |
 | phase81 | `phase81/main.kark` | unparenthesized if, modulo | `1`..`10` `1` `-1` `1` |
+| namespace | `namespace/main.kark` | user builtin shadowing (`sqrt`, `readFile`) | `777` `virtual` `1` `2` |
 
 ## Conventions
 

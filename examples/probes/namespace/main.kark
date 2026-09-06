@@ -1,0 +1,26 @@
+func sqrt(x) {
+    return 777
+}
+
+func readFile(path) {
+    return "virtual"
+}
+
+func main() {
+    let r = sqrt(4)
+    println(r)
+    let s = readFile("/nowhere")
+    println(s)
+    let v = [1, 2]
+    println(v[0])
+    let n = mathLength(v)
+    println(n)
+}
+
+func mathLength(x) {
+    let i = 0
+    while (i < len(x)) {
+        i = i + 1
+    }
+    return i
+}

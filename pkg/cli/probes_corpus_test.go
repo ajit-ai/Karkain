@@ -37,6 +37,7 @@ var probeExpected = map[string]string{
 	"math":           "3\n2\n-1\n3.5\n10\n1",
 	"algorithms":     "11\n25\n90\n1\n0",
 	"phase81":        "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n1\n-1\n1",
+	"namespace":      "777\nvirtual\n1\n2",
 }
 
 // TestProbesCorpus_RunsEveryProbe compiles+runs each examples/probes probe via

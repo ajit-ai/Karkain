@@ -191,7 +191,7 @@ func New(input string) *Lexer {
 	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
 		b = b[3:]
 	}
-	l := &Lexer{Input: b, Line: 1, Col: 1}
+	l := &Lexer{Input: b, Line: 1, Col: 0}
 	l.readChar()
 	return l
 }
@@ -244,10 +244,12 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '=' {
 			start := l.Position
 			l.readChar()
+			l.Col++
 			tok = Token{Type: TokenEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else if l.peekChar() == '>' {
 			start := l.Position
 			l.readChar()
+			l.Col++
 			tok = Token{Type: TokenFatArrow, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
 			tok = Token{Type: TokenAssign, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
@@ -256,6 +258,7 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '=' {
 			start := l.Position
 			l.readChar()
+			l.Col++
 			tok = Token{Type: TokenNotEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
 			tok = Token{Type: TokenNot, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
@@ -264,6 +267,7 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '&' {
 			start := l.Position
 			l.readChar()
+			l.Col++
 			tok = Token{Type: TokenAnd, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
 			tok = Token{Type: TokenAmp, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
@@ -272,6 +276,7 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '|' {
 			start := l.Position
 			l.readChar()
+			l.Col++
 			tok = Token{Type: TokenOr, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
 			tok = Token{Type: TokenIllegal, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
@@ -280,10 +285,12 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '-' {
 			start := l.Position
 			l.readChar()
+			l.Col++
 			tok = Token{Type: TokenSend, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else if l.peekChar() == '=' {
 			start := l.Position
 			l.readChar()
+			l.Col++
 			tok = Token{Type: TokenLessEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
 			tok = Token{Type: TokenLessThan, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
@@ -292,6 +299,7 @@ func (l *Lexer) NextToken() Token {
 		if l.peekChar() == '=' {
 			start := l.Position
 			l.readChar()
+			l.Col++
 			tok = Token{Type: TokenGreaterEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
 			tok = Token{Type: TokenGreaterThan, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
@@ -323,6 +331,7 @@ func (l *Lexer) NextToken() Token {
 	}
 
 	l.readChar()
+	l.Col++
 	return tok
 }
 
@@ -331,6 +340,8 @@ func (l *Lexer) skipWhitespace() {
 		if l.Ch == '\n' {
 			l.Line++
 			l.Col = 0
+			l.readChar()
+			continue
 		}
 		l.readChar()
 		l.Col++

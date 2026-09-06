@@ -30,6 +30,8 @@ type FuncDecl struct {
 	Captures      []string           // Phase 54: free variables captured from enclosing scope (lambdas only)
 	Public        bool               // Phase 80: visibility modifier (public decl usable across files/modules)
 	Line          int
+	Col           int                // Phase 83: 0-based byte column of the function name token
+	EndCol        int                // Phase 83: 0-based byte column just past the function name
 }
 
 type VarDeclStmt struct {
@@ -101,8 +103,10 @@ type BigFloatLiteral struct {
 }
 
 type Identifier struct {
-	Name string
-	Line int
+	Name   string
+	Line   int
+	Col    int // Phase 83: 0-based byte column of the identifier token (0 when not tracked)
+	EndCol int // Phase 83: 0-based byte column just past the identifier
 }
 
 type ArrayLiteral struct {
@@ -142,6 +146,8 @@ type CallExpr struct {
 	Args     []Node
 	IsCFunc  bool // True if this is a C function call (e.g., C.sqrt)
 	Line     int
+	Col      int // Phase 83: 0-based byte column of the callee start (function-name token)
+	EndCol   int // Phase 83: 0-based byte column just past the callee
 }
 
 // Phase 41: Hybrid Memory Model — safe references + @raw for hardware

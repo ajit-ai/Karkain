@@ -14,10 +14,10 @@ import (
 
 // testClient is a minimal LSP client for testing
 type testClient struct {
-	server   *Server
-	inBuf    *bytes.Buffer
-	outBuf   *bytes.Buffer
-	closed   bool
+	server *Server
+	inBuf  *bytes.Buffer
+	outBuf *bytes.Buffer
+	closed bool
 }
 
 func newTestClient() *testClient {
@@ -259,6 +259,160 @@ func TestLSP_RealtimeDiagnostics(t *testing.T) {
 	tc.sendNotification(MethodTextDocumentDidClose, DidCloseTextDocumentParams{
 		TextDocument: TextDocumentIdentifier{URI: "file:///workspace/test.kark"},
 	})
+}
+
+// ============================================================
+// TestLSP_SharedCanonicalDiagnostics (Phase 83)
+// The LSP must publish exactly the diagnostics the CLI's canonical
+// pipeline (cli.AnalyzeSource) produces, with 0-based LSP ranges derived
+// from the true resolver spans (start..endColumn).
+// ============================================================
+
+func TestLSP_SharedCanonicalDiagnostics(t *testing.T) {
+	tc := newTestClient()
+	tc.sendRequest(1, MethodInitialize, InitializeParams{
+		RootURI: "file:///workspace",
+		Capabilities: ClientCapabilities{
+			TextDocument: &TextDocumentClientCapabilities{},
+		},
+	})
+	tc.sendNotification(MethodInitialized, map[string]interface{}{})
+
+	src := "func main() {\n  let result = unknown_name + 5\n}\n"
+	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{
+			URI:        "file:///workspace/diags.kark",
+			LanguageID: "karkain",
+			Version:    1,
+			Text:       src,
+		},
+	})
+
+	diags := tc.server.diagnostics["file:///workspace/diags.kark"]
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 canonical diagnostic, got %d (%v)", len(diags), diags)
+	}
+	d := diags[0]
+	// unknown_name is on line 2 (0-based line 1) at byte 15 (0-based char),
+	// spanning 12 characters (15..27 0-based) — CLI reports column 16/endColumn 28.
+	if d.Range.Start.Line != 1 {
+		t.Errorf("expected start line 1, got %d", d.Range.Start.Line)
+	}
+	if d.Range.Start.Character != 15 {
+		t.Errorf("expected start char 15, got %d", d.Range.Start.Character)
+	}
+	if d.Range.End.Line != 1 {
+		t.Errorf("expected end line 1, got %d", d.Range.End.Line)
+	}
+	if d.Range.End.Character != 27 {
+		t.Errorf("expected end char 27, got %d", d.Range.End.Character)
+	}
+	if d.Severity != DiagError {
+		t.Errorf("expected error severity, got %v", d.Severity)
+	}
+	if !strings.Contains(d.Message, "undefined identifier 'unknown_name'") {
+		t.Errorf("expected undefined-identifier message, got: %s", d.Message)
+	}
+}
+
+// ============================================================
+// TestLSP_UndefinedFunctionSpans (Phase 83)
+// Statement-position undefined function calls must carry the same true
+// span this phase delivers to `karkain check --format=json`.
+// ============================================================
+
+func TestLSP_UndefinedFunctionSpans(t *testing.T) {
+	tc := newTestClient()
+	tc.sendRequest(1, MethodInitialize, InitializeParams{
+		RootURI: "file:///workspace",
+		Capabilities: ClientCapabilities{
+			TextDocument: &TextDocumentClientCapabilities{},
+		},
+	})
+	tc.sendNotification(MethodInitialized, map[string]interface{}{})
+
+	src := "func main() {\n  undefined_call(1)\n}\n"
+	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{
+			URI:        "file:///workspace/undef.kark",
+			LanguageID: "karkain",
+			Version:    1,
+			Text:       src,
+		},
+	})
+
+	diags := tc.server.diagnostics["file:///workspace/undef.kark"]
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "undefined function 'undefined_call'") {
+			found = true
+			// undefined_call at 0-based line 1, char 2, spans 14 chars (2..16).
+			if d.Range.Start.Line != 1 || d.Range.Start.Character != 2 {
+				t.Errorf("expected range start (1,2), got (%d,%d)", d.Range.Start.Line, d.Range.Start.Character)
+			}
+			if d.Range.End.Character != 16 {
+				t.Errorf("expected range end char 16, got %d", d.Range.End.Character)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected undefined-function diagnostic, got: %v", diags)
+	}
+}
+
+// ============================================================
+// TestLSP_RealTimeSync (Phase 83)
+// didChange must invalidate diagnostics and republish them from the shared
+// driver; fixing the buffer clears them again.
+// ============================================================
+
+func TestLSP_RealTimeSync(t *testing.T) {
+	tc := newTestClient()
+	tc.sendRequest(1, MethodInitialize, InitializeParams{
+		RootURI: "file:///workspace",
+		Capabilities: ClientCapabilities{
+			TextDocument: &TextDocumentClientCapabilities{},
+		},
+	})
+	tc.sendNotification(MethodInitialized, map[string]interface{}{})
+
+	uri := "file:///workspace/sync.kark"
+	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{URI: uri, LanguageID: "karkain", Version: 1, Text: "func main() {\n}\n"},
+	})
+	if diags := tc.server.diagnostics[uri]; len(diags) != 0 {
+		t.Fatalf("valid buffer should have no diagnostics, got %d", len(diags))
+	}
+
+	invalid := "func main() {\n  print(1);\n}\n"
+	tc.sendNotification(MethodTextDocumentDidChange, DidChangeTextDocumentParams{
+		TextDocument: VersionedTextDocumentIdentifier{URI: uri, Version: 2},
+		ContentChanges: []TextDocumentContentChangeEvent{
+			{Text: invalid},
+		},
+	})
+	if diags := tc.server.diagnostics[uri]; len(diags) == 0 {
+		t.Fatal("expected diagnostics after introducing a syntax error")
+	} else if diags[0].Source != "karkain" {
+		t.Errorf("expected canonical source 'karkain', got %q", diags[0].Source)
+	}
+
+	// Fix the buffer: a valid program must clear the diagnostics.
+	tc.sendNotification(MethodTextDocumentDidChange, DidChangeTextDocumentParams{
+		TextDocument: VersionedTextDocumentIdentifier{URI: uri, Version: 3},
+		ContentChanges: []TextDocumentContentChangeEvent{
+			{Text: "func main() {\n  let x = 42\n  println(x)\n}\n"},
+		},
+	})
+	if diags := tc.server.diagnostics[uri]; len(diags) != 0 {
+		t.Fatalf("fixed buffer should clear diagnostics, got %d", len(diags))
+	}
+
+	// Version must track the latest didChange version.
+	doc := tc.server.GetDocument(uri)
+	if doc == nil || doc.Version != 3 {
+		t.Errorf("expected document version 3, got %v", doc)
+	}
 }
 
 // ============================================================
