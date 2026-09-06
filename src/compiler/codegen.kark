@@ -230,6 +230,15 @@ func emitC11Expr(state, node) {
 
         if (fname == "getArgs") {
             emit(state, "_karkain_get_args()")
+        } else if (hasUserFunc(state, fname)) {
+            emit(state, "karkain_user_" + fname + "(")
+            let au = 0
+            while (au < argc) {
+                if (au > 0) { emit(state, ", ") }
+                emitC11Expr(state, args[au])
+                au = au + 1
+            }
+            emit(state, ")")
         } else if (fname == "len") {
             emit(state, "karkain_len(")
             if (argc > 0) { emitC11Expr(state, args[0]) }
@@ -521,7 +530,7 @@ func emitC11Stmt(state, node) {
             emitLine(state, "_karkain_gargc = _karkain_argc; _karkain_gargv = _karkain_argv;")
         } else {
             let rtype = emitC11Type(funcReturnType(node))
-            emit(state, rtype + " " + fnName + "(")
+            emit(state, rtype + " " + emitC11FuncSymbol(fnName) + "(")
             let i = 0
             while (i < len(params)) {
                 if (i > 0) { emit(state, ", ") }
@@ -580,6 +589,44 @@ func emitC11Stmt(state, node) {
     }
 }
 
+// Deterministic C symbol for user-defined Karkain functions (Phase 83).
+// User code lives under the karkain_user_* namespace so user functions can
+// never collide with the karkain_* runtime helpers; `main`/`getArgs` keep their
+// canonical names. Mirrors the Go backend's userFuncC exactly so the
+// self-hosted compiler and the reference backend emit byte-identical output.
+func emitC11FuncSymbol(fnName) {
+    if (fnName == "main") {
+        return fnName
+    }
+    if (fnName == "getArgs") {
+        return fnName
+    }
+    return "karkain_user_" + fnName
+}
+
+// Phase 83: register a user function name for builtin shadowing. The registry
+// is fully populated by the forward-declaration pass (which runs before any
+// function body is emitted), so call emission can resolve user-vs-builtin.
+func registerUserFunc(state, fnName) {
+    if (fnName != "main") {
+        if (fnName != "getArgs") {
+            state[6] = appendArray(state[6], fnName)
+        }
+    }
+}
+
+func hasUserFunc(state, fname) {
+    let funcs = codegenFunctions(state)
+    let i = 0
+    while (i < len(funcs)) {
+        if (funcs[i] == fname) {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
 func generateC11(ast) {
     let state = createCodegenState("c11")
     emitC11Preamble(state)
@@ -608,12 +655,13 @@ func generateC11(ast) {
 // definition order (mirrors the Go backend's Phase 40 pass).
 func emitC11ForwardDecl(state, node) {
     let fnName = funcName(node)
+    registerUserFunc(state, fnName)
     if (fnName == "main") {
         emitLine(state, "int main(int _karkain_argc, char** _karkain_argv);")
         return
     }
     let rtype = emitC11Type(funcReturnType(node))
-    emit(state, rtype + " " + fnName + "(")
+    emit(state, rtype + " " + emitC11FuncSymbol(fnName) + "(")
     let params = funcParams(node)
     let i = 0
     while (i < len(params)) {

@@ -3,9 +3,6 @@ package cli
 import (
 	"fmt"
 	"karkain/pkg/diagnostics"
-	"karkain/pkg/lexer"
-	"karkain/pkg/parser"
-	"karkain/pkg/sema"
 	"os"
 )
 
@@ -46,94 +43,24 @@ func CheckCommandFormatted(targetFile string, verbose bool, format string) Comma
 	}
 
 	src := sourceText
-	l := lexer.New(src)
-	p := parser.New(l)
-	prog := p.ParseProgram()
-
-	// Check for parse errors
-	if len(p.Errors) > 0 {
-		diags := collectSyntaxDiagnostics(targetFile, p)
+	diags, stmts := AnalyzeSource(targetFile, src, srcMap)
+	if len(diags) > 0 {
+		stage := checkStageFor(diags)
 		if format == CheckFormatJSON {
 			emitJSONDiagnostics(diags)
 			return CommandResult{ExitCode: ExitCompile, Message: ""}
 		}
 		renderDiagnostics(src, targetFile, diags)
-		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("%d parse error(s) found", len(p.Errors))}
-	}
-
-	// Apply macro expansion
-	prog = parser.ApplyMacroExpansion(prog)
-
-	// Whole-program name-resolution diagnostics: duplicate top-level
-	// definitions and undefined bare function references at the Karkain level.
-	resolver := sema.NewResolver(prog, srcMap)
-	if resolveErrs := resolver.Resolve(); len(resolveErrs) > 0 {
-		diags := collectResolveDiagnostics(targetFile, resolveErrs)
-		if format == CheckFormatJSON {
-			emitJSONDiagnostics(diags)
-			return CommandResult{ExitCode: ExitCompile, Message: ""}
-		}
-		renderDiagnostics(src, targetFile, diags)
-		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("%d name-resolution error(s) found", len(resolveErrs))}
-	}
-
-	// Run kernel analyzer for semantic checks
-	analyzer := sema.NewKernelAnalyzer()
-	errorCount := 0
-	var semaDiags []diagnostics.Diagnostic
-	for _, stmt := range prog.Statements {
-		if kernel, ok := stmt.(*parser.KernelDeclStmt); ok {
-			kernelErrors := analyzer.AnalyzeKernel(kernel)
-			if len(kernelErrors) > 0 {
-				for _, ke := range kernelErrors {
-					semaDiags = append(semaDiags, diagnostics.ErrorDiagnostic(targetFile, 1, 1, diagnostics.CodeSema, ke.Error()))
-				}
-				errorCount += len(kernelErrors)
-			}
-		}
-	}
-
-	if errorCount > 0 {
-		if format == CheckFormatJSON {
-			emitJSONDiagnostics(semaDiags)
-			return CommandResult{ExitCode: ExitCompile, Message: ""}
-		}
-		renderDiagnostics(src, targetFile, semaDiags)
-		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("%d semantic error(s) found", errorCount)}
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(stage, len(diags))}
 	}
 
 	if verbose {
-		fmt.Printf("Check passed: %s (%d statements)\n", targetFile, len(prog.Statements))
+		fmt.Printf("Check passed: %s (%d statements)\n", targetFile, stmts)
 	}
 	if format == CheckFormatJSON {
 		return CommandResult{ExitCode: ExitSuccess, Message: ""}
 	}
 	return CommandResult{ExitCode: ExitSuccess, Message: "Check passed."}
-}
-
-// collectSyntaxDiagnostics converts parser errors (strings + parallel token
-// columns) into structured diagnostics.
-func collectSyntaxDiagnostics(targetFile string, p *parser.Parser) []diagnostics.Diagnostic {
-	var diags []diagnostics.Diagnostic
-	for i, parseErr := range p.Errors {
-		line, _ := extractLineCol(parseErr)
-		col := 1
-		if i < len(p.ErrorCols) && p.ErrorCols[i] > 0 {
-			col = p.ErrorCols[i]
-		}
-		diags = append(diags, diagnostics.ErrorDiagnostic(targetFile, line, col, diagnostics.CodeSyntax, parseErr))
-	}
-	return diags
-}
-
-// collectResolveDiagnostics converts name-resolution errors into structured
-// diagnostics. Resolver errors are line-anchored (column best-effort = 1).
-func collectResolveDiagnostics(targetFile string, resolveErrs []sema.ResolveError) []diagnostics.Diagnostic {
-	var diags []diagnostics.Diagnostic
-	for _, re := range resolveErrs {
-		diags = append(diags, diagnostics.ErrorDiagnostic(targetFile, re.Line, 1, diagnostics.CodeResolve, re.Msg))
-	}
-	return diags
 }
 
 // emitJSONDiagnostics writes the structured diagnostic set as JSON to stdout.

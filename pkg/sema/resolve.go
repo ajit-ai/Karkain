@@ -10,8 +10,10 @@ import (
 
 // ResolveError is a single whole-program name-resolution diagnostic.
 type ResolveError struct {
-	Line int
-	Msg  string
+	Line   int // 1-based line
+	Col    int // 0-based byte column of the offending token (best-effort)
+	EndCol int // 0-based byte column just past the offending token (best-effort)
+	Msg    string
 }
 
 func (e *ResolveError) Error() string {
@@ -129,8 +131,10 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 			}
 			if seen[n.Name] {
 				r.errors = append(r.errors, ResolveError{
-					Line: n.Line,
-					Msg:  fmt.Sprintf("duplicate function definition '%s'", n.Name),
+					Line:   n.Line,
+					Col:    n.Col,
+					EndCol: n.EndCol,
+					Msg:    fmt.Sprintf("duplicate function definition '%s'", n.Name),
 				})
 			} else {
 				seen[n.Name] = true
@@ -224,8 +228,19 @@ func (r *Resolver) walkCalls(body []parser.Node, locals map[string]bool, callerN
 func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName string, sm SourceMap) {
 	switch n := s.(type) {
 	case *parser.ExprStmt:
+		// A bare assignment `x = v` implicitly declares x (Phase 51 semantics):
+		// register the target before checking the value so reads of x resolve and
+		// the assignment target itself is not misreported as an undefined read.
+		if be, ok := n.Expression.(*parser.BinaryExpr); ok && be.Operator == "=" {
+			if id, ok := be.Left.(*parser.Identifier); ok && locals != nil && id.Name != "" {
+				locals[id.Name] = true
+			}
+		}
 		r.checkExpr(n.Expression, locals, callerName, sm)
 	case *parser.VarDeclStmt:
+		if locals != nil && n.Name != "" {
+			locals[n.Name] = true
+		}
 		r.checkExpr(n.Value, locals, callerName, sm)
 	case *parser.ReturnStmt:
 		r.checkExpr(n.Value, locals, callerName, sm)
@@ -249,9 +264,22 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 			r.checkStmt(x, locals, callerName, sm)
 		}
 	case *parser.ForInStmt:
-		r.checkExpr(n.Iter, nil, callerName, sm)
+		r.checkExpr(n.Iter, locals, callerName, sm)
+		bodyLocals := locals
+		if locals != nil && (n.VarName != "" || n.KeyName != "") {
+			bodyLocals = make(map[string]bool, len(locals)+2)
+			for k := range locals {
+				bodyLocals[k] = true
+			}
+			if n.VarName != "" {
+				bodyLocals[n.VarName] = true
+			}
+			if n.KeyName != "" {
+				bodyLocals[n.KeyName] = true
+			}
+		}
 		for _, x := range n.Body {
-			r.checkStmt(x, locals, callerName, sm)
+			r.checkStmt(x, bodyLocals, callerName, sm)
 		}
 	case *parser.FuncDecl:
 		sub := r.localNames(n)
@@ -265,21 +293,36 @@ func (r *Resolver) checkExpr(e parser.Node, locals map[string]bool, callerName s
 		return
 	}
 	switch n := e.(type) {
+	case *parser.Identifier:
+		r.checkUndefinedName(n, locals, sm)
 	case *parser.CallExpr:
 		r.checkCallExpr(n, locals, callerName, sm)
 	case *parser.BinaryExpr:
+		// Struct-literal fields arrive as BinaryExpr "=" nodes (field key Left,
+		// value Right); those are handled by the StructLiteral case, never here.
 		r.checkExpr(n.Left, locals, callerName, sm)
 		r.checkExpr(n.Right, locals, callerName, sm)
+	case *parser.DotExpr:
+		// obj.field — the right side is a field name, not a value read.
+		r.checkExpr(n.Left, locals, callerName, sm)
 	case *parser.ArrayLiteral:
 		for _, x := range n.Elements {
 			r.checkExpr(x, locals, callerName, sm)
 		}
 	case *parser.MapLiteral:
-		for _, k := range n.Keys {
-			r.checkExpr(k, locals, callerName, sm)
-		}
+		// Keys are conservatively treated as labels (map keys are frequently
+		// identifier literals); only values are value-position reads.
 		for _, v := range n.Values {
 			r.checkExpr(v, locals, callerName, sm)
+		}
+	case *parser.StructLiteral:
+		// Fields arrive as BinaryExpr "="; the left side is a field key.
+		for _, f := range n.Fields {
+			if be, ok := f.(*parser.BinaryExpr); ok {
+				r.checkExpr(be.Right, locals, callerName, sm)
+			} else {
+				r.checkExpr(f, locals, callerName, sm)
+			}
 		}
 	case *parser.IndexExpr:
 		r.checkExpr(n.Left, locals, callerName, sm)
@@ -303,7 +346,8 @@ func (r *Resolver) checkExpr(e parser.Node, locals map[string]bool, callerName s
 	case *parser.Dereference:
 		r.checkExpr(n.Operand, locals, callerName, sm)
 	case *parser.RawAccessExpr:
-		r.checkExpr(n.Address, locals, callerName, sm)
+		// @raw(addr) addresses are raw C-level addresses, not Karkain values:
+		// skip the address, check only the optional write value.
 		if n.Value != nil {
 			r.checkExpr(n.Value, locals, callerName, sm)
 		}
@@ -319,6 +363,33 @@ func (r *Resolver) checkExpr(e parser.Node, locals map[string]bool, callerName s
 		}
 		r.walkCalls(n.Body, sub, callerName, sm)
 	}
+}
+
+// checkUndefinedName flags a bare identifier used in value position that is not
+// a local (var/param/loop var/implicit assignment target), not a defined
+// function or type, and not a language builtin. It only fires inside function
+// bodies (locals != nil); top-level statements never reach this walk, which
+// keeps module-global patterns free of false positives.
+func (r *Resolver) checkUndefinedName(n *parser.Identifier, locals map[string]bool, sm SourceMap) {
+	if n == nil || n.Name == "" || locals == nil {
+		return
+	}
+	name := n.Name
+	if locals[name] || r.funcs[name] || r.types[name] || r.builtin[name] {
+		return
+	}
+	// Guard the few keyword-shaped literals that the lexer may surface as
+	// identifiers in some contexts.
+	switch name {
+	case "true", "false", "nil", "THIS", "self":
+		return
+	}
+	r.errors = append(r.errors, ResolveError{
+		Line:   n.Line,
+		Col:    n.Col,
+		EndCol: n.EndCol,
+		Msg:    fmt.Sprintf("undefined identifier '%s'", name),
+	})
 }
 
 // checkCallExpr validates a single call against the defined codebase.
@@ -344,8 +415,10 @@ func (r *Resolver) checkCallExpr(n *parser.CallExpr, locals map[string]bool, cal
 			declFile := r.declFile[name]
 			if callerFile != "" && declFile != "" && callerFile != declFile {
 				r.errors = append(r.errors, ResolveError{
-					Line: n.Line,
-					Msg:  fmt.Sprintf("private function '%s' is not accessible from file '%s' (defined in '%s')", name, callerFile, declFile),
+					Line:   n.Line,
+					Col:    n.Col,
+					EndCol: n.EndCol,
+					Msg:    fmt.Sprintf("private function '%s' is not accessible from file '%s' (defined in '%s')", name, callerFile, declFile),
 				})
 			}
 		}
@@ -353,8 +426,10 @@ func (r *Resolver) checkCallExpr(n *parser.CallExpr, locals map[string]bool, cal
 	}
 	// Unknown bare function reference.
 	r.errors = append(r.errors, ResolveError{
-		Line: n.Line,
-		Msg:  fmt.Sprintf("undefined function '%s'", name),
+		Line:   n.Line,
+		Col:    n.Col,
+		EndCol: n.EndCol,
+		Msg:    fmt.Sprintf("undefined function '%s'", name),
 	})
 	// Still recurse into args to find nested undefined calls.
 	for _, a := range n.Args {

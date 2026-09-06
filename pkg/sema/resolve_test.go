@@ -248,3 +248,79 @@ func TestResolver_DiagnosticLineSurvivesMacroExpansion(t *testing.T) {
 		}
 	}
 }
+
+// TestResolver_UndefinedIdentifierDetected is Phase 83: a bare identifier used
+// in value position inside a function body that is neither a local, parameter,
+// defined function, type, nor builtin is a name-resolution error.
+func TestResolver_UndefinedIdentifierDetected(t *testing.T) {
+	src := "func main() {\n  let result = unknown_name + 5\n  print(result)\n}\n"
+	prog := parseTestProg(t, src)
+	r := NewResolver(prog, nil)
+	errs := r.Resolve()
+	if !hasErr(errs, "undefined identifier 'unknown_name'") {
+		t.Fatalf("expected undefined-identifier error, got: %s", errLines(errs))
+	}
+	for _, e := range errs {
+		if e.Line != 2 {
+			t.Errorf("expected line 2, got %d", e.Line)
+		}
+		// unknown_name starts at byte 15 (0-based) of
+		// "  let result = unknown_name + 5".
+		if e.Col != 15 {
+			t.Errorf("expected col 15, got %d", e.Col)
+		}
+		if e.EndCol != 27 {
+			t.Errorf("expected endCol 27, got %d", e.EndCol)
+		}
+	}
+}
+
+// TestResolver_UndefinedIdentifierSkipsFalsePositives locks the Phase 83
+// conservative guards: locals, assignment targets, struct field keys, method
+// receivers, enum names and top-level globals must never be flagged.
+func TestResolver_UndefinedIdentifierSkipsFalsePositives(t *testing.T) {
+	src := "func helper() int {\n  return 5\n}\n" +
+		"func main() {\n" +
+		"  let x = 1\n" +
+		"  x = helper()\n" +
+		"  let d = Point{x: 1}\n" +
+		"  let m = {a: x}\n" +
+		"  let e = Some(x)\n" +
+		"  let f = helper()\n" +
+		"  let someArray = [1, 2, 3]\n" +
+		"  for v in someArray {\n" +
+		"    print(v)\n" +
+		"  }\n" +
+		"}\n"
+	prog := parseTestProg(t, src)
+	r := NewResolver(prog, nil)
+	errs := r.Resolve()
+	for _, e := range errs {
+		if strings.HasPrefix(e.Msg, "undefined identifier") {
+			t.Errorf("unexpected undefined-identifier error: %s", e.Msg)
+		}
+	}
+}
+
+// TestResolver_UndefinedIdentifierSpanSurvivesMacroExpansion locks Phase 83:
+// the macro-expansion clone constructors must carry Col/EndCol through (the
+// Phase 81 line fix was span-incomplete for FuncDecl/CallExpr).
+func TestResolver_UndefinedIdentifierSpanSurvivesMacroExpansion(t *testing.T) {
+	src := "func main() {\n  let result = unknown_name + 5\n}\n"
+	prog := parseTestProg(t, src)
+	expanded := parser.ApplyMacroExpansion(prog)
+	r := NewResolver(expanded, nil)
+	errs := r.Resolve()
+	found := false
+	for _, e := range errs {
+		if strings.HasPrefix(e.Msg, "undefined identifier") {
+			found = true
+			if e.Col != 15 {
+				t.Errorf("expected col 15 after macro expansion, got %d", e.Col)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected undefined-identifier error, got: %s", errLines(errs))
+	}
+}

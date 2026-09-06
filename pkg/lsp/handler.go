@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"karkain/pkg/cli"
 	"karkain/pkg/lexer"
 	"karkain/pkg/parser"
-	"karkain/pkg/sema"
 )
 
 // ============================================================
@@ -163,82 +163,37 @@ func (h *Handler) publishDiagnostics(uri string) {
 	})
 }
 
+// runDiagnostics is a thin adapter over the canonical CLI diagnostic driver
+// (cli.AnalyzeSource). LSP and `karkain check` now share one front-end
+// pipeline, so editor squiggles and CLI reports can never diverge again.
 func (h *Handler) runDiagnostics(uri, text string) []Diagnostic {
-	var diags []Diagnostic
-
-	// Lex + Parse
-	l := lexer.New(text)
-	p := parser.New(l)
-	p.ParseProgram()
-
-	// Parser errors
-	for _, e := range p.Errors {
-		line, col := parseErrorLocation(e)
-		diags = append(diags, Diagnostic{
+	srcDiags, _ := cli.AnalyzeSource("", text, nil)
+	lspDiags := make([]Diagnostic, 0, len(srcDiags))
+	for _, d := range srcDiags {
+		startLine := d.Line - 1
+		if startLine < 0 {
+			startLine = 0
+		}
+		startChar := d.Column - 1
+		if startChar < 0 {
+			startChar = 0
+		}
+		endLine := startLine
+		endChar := startChar + 1
+		if d.EndColumn > d.Column {
+			endChar = d.EndColumn - 1
+		}
+		lspDiags = append(lspDiags, Diagnostic{
 			Range: Range{
-				Start: Position{Line: line, Character: col},
-				End:   Position{Line: line, Character: col + 20},
+				Start: Position{Line: startLine, Character: startChar},
+				End:   Position{Line: endLine, Character: endChar},
 			},
 			Severity: DiagError,
-			Source:   "karkain-parser",
-			Message:  e,
+			Source:   "karkain",
+			Message:  d.Message,
 		})
 	}
-
-	// Semantic analysis — re-parse for sema (ParseProgram consumes tokens)
-	l2 := lexer.New(text)
-	p2 := parser.New(l2)
-	prog2 := p2.ParseProgram()
-
-	checker := sema.NewActorChecker()
-	if err := checker.ProcessProgram(prog2); err != nil {
-		for _, e := range checker.Errors {
-			line, col := parseErrorLocation(e)
-			diags = append(diags, Diagnostic{
-				Range: Range{
-					Start: Position{Line: line, Character: col},
-					End:   Position{Line: line, Character: col + 20},
-				},
-				Severity: DiagWarning,
-				Source:   "karkain-sema",
-				Message:  e,
-			})
-		}
-	}
-
-	coroutineChecker := sema.NewCoroutineChecker()
-	if err := coroutineChecker.ProcessProgram(prog2); err != nil {
-		for _, e := range coroutineChecker.Errors {
-			line, col := parseErrorLocation(e)
-			diags = append(diags, Diagnostic{
-				Range: Range{
-					Start: Position{Line: line, Character: col},
-					End:   Position{Line: line, Character: col + 20},
-				},
-				Severity: DiagWarning,
-				Source:   "karkain-sema",
-				Message:  e,
-			})
-		}
-	}
-
-	// Symbol index is already built by parseAndIndex during document open/change
-	return diags
-}
-
-// parseErrorLocation extracts line/col from parser error strings like "line 5: unexpected token"
-func parseErrorLocation(errStr string) (int, int) {
-	line := 0
-	col := 0
-	if strings.HasPrefix(errStr, "line ") {
-		rest := errStr[5:]
-		idx := strings.Index(rest, ":")
-		if idx > 0 {
-			fmt.Sscanf(rest[:idx], "%d", &line)
-			line-- // 0-based
-		}
-	}
-	return line, col
+	return lspDiags
 }
 
 // ------------------------------------------------------------

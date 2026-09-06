@@ -523,9 +523,11 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 | 80 | SIMD / Vector Execution Architecture (cross-backend parity baseline `pkg/backend/parity`; GNU-vector SIMD runtime; oracle completeness) | COMPLETE (`docs/audit/PHASE-80-*`) |
 | 81 | Compiler Correctness (immutable/mutability semantics, escape analysis wiring, executable probes, diagnostics hardening) | COMPLETE |
 | 82 | Language Conformance, Examples & Developer Tooling Foundation: conformance corpus (48 native tests), probes corpus (11 golden programs), algorithm corpus expansion (21 programs), `check --format=json` + `fmt` toolchain contract, real LSP wiring, `ide info` contract, VS Code extension, CI steps | COMPLETE (`conformance/`, `examples/probes/`, `docs/audit/PHASE-82-*`) |
+| 83 | Compiler Symbol Namespacing, True Diagnostic Spans & LSP↔CLI Pipeline Sharing: deterministic `karkain_user_*` C namespace (Go + self-host parity), user-function builtin shadowing, `E-K-RES` true columns (`endColumn` + `excerpt` in the v1 JSON contract), `pkg/source` line-index model, single `cli.AnalyzeSource` driver shared by `check` and LSP with real-time `didChange` sync, undefined-identifier resolution, array-return semantics, conformance corpus 48→59 tests + `namespace` probe golden (12) | COMPLETE (`pkg/source/`, `pkg/cli/checker.go`, `conformance/010..011`, `docs/audit/PHASE-83-FINAL-REPORT.md`) |
 
 ### Current phase
 
-**Phase 83+** — next milestone: LSP diagnostics/sync into editors, compiler
-symbol namespacing (C-library collision fix), `E-K-RES` true columns, array
-returns, growth of the conformance corpus.
+**PHASE 83 COMPLETE** — next milestone: LSP depth (hover/go-to-definition,
+UTF-16 spans, VS Code Problems panel via a real LSP client), style-grade
+formatter, unparenthesized `while`/`for` parity, kernel-sema span accuracy, and
+continued conformance-corpus growth.

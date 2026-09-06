@@ -13,14 +13,14 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-82** — Phases 50–82 complete.
+Current phase: **post-83** — Phases 50–83 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
 Also completed: **81** — Compiler Correctness (immutable/mutability semantics,
 escape-analysis wiring, executable probes under `examples/phase81-probes/`,
 diagnostics hardening; unparenthesized `if` + single-path `%`).
-Last completed: **82** — Language Conformance, Examples & Developer Tooling
+Also completed: **82** — Language Conformance, Examples & Developer Tooling
 Foundation (native conformance corpus `conformance/` — 9 files, 48 `func test_*`
 tests through the real front end + C runtime, self-contained file scope via
 `testFileOwnScope`; deterministic probes corpus `examples/probes/` — 11 golden
@@ -33,6 +33,18 @@ JSON contract; VS Code extension rebuilt (`extension.js` commands check/compile/
 run/format, fixed manifest, corrected grammar) validated by
 `pkg/cli/vscode_extension_test.go`; CI runs conformance + format checks; docs
 under `docs/audit/PHASE-82-*`).
+Last completed: **83** — Compiler Symbol Namespacing, True Diagnostic Spans &
+LSP↔CLI Pipeline Sharing (deterministic `karkain_user_*` C namespace for user
+functions — Go `userFuncC` + self-hosted `codegen.kark` mirror — fixes
+C-library collisions like `abs` and makes user functions that shadow builtins
+win; `E-K-RES` true columns: lexer 0-based byte columns, parser `Col`/`EndCol`
+spans surviving macro expansion, optional `endColumn` + `excerpt` fields in the
+`karkain-diagnostics-v1` contract; new `pkg/source` line-index/excerpt package;
+single `cli.AnalyzeSource` driver shared by `karkain check` and the LSP with
+real-time `didChange` diagnostics sync; conservative undefined-identifier
+resolution; array-return semantics; conformance corpus 48→59 tests in 11 files
++ `namespace` probe golden (12 total); docs under
+`docs/audit/PHASE-83-FINAL-REPORT.md`).
 Prior completed: **79** — Compiler Integrity, IR Architecture & Self-Hosting
 Readiness Audit (evidence-based audit: pipeline, dependency map, Math/Tensor/SSA
 IR, CPU/GPU/NPU parity, determinism, optimization boundaries, tests,

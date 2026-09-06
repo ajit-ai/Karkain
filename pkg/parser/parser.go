@@ -164,6 +164,8 @@ func (p *Parser) parseFunc() *FuncDecl {
 	p.nextToken() // consume 'func'
 	fn := p.arena.AllocFuncDecl(p.curToken.Literal(p.src), nil, nil, nil)
 	fn.Line = int(p.curToken.Line)
+	fn.Col = int(p.curToken.Col)
+	fn.EndCol = fn.Col + len(p.curToken.Literal(p.src))
 	fn.Params = []string{}
 
 	p.nextToken() // consume fn name
@@ -755,6 +757,7 @@ func (p *Parser) exprStmtAt(expr Node, line int) *ExprStmt {
 func (p *Parser) parseIdentStatement() Node {
 	line := int(p.curToken.Line)
 	ident := p.curToken.Literal(p.src)
+	identCol := int(p.curToken.Col)
 	p.nextToken() // consume identifier
 
 	// Phase 14: Bare quantum gate syntax — H qr[0], CNOT qr[0], qr[1]
@@ -829,7 +832,7 @@ func (p *Parser) parseIdentStatement() Node {
 	// Otherwise it's an expression statement
 	// We already consumed the ident, so we need to reconstruct
 	// Handle function calls and other expressions starting with ident
-	left := &Identifier{Name: ident}
+	left := &Identifier{Name: ident, Col: identCol, EndCol: identCol + len(ident)}
 
 	// Check for function call
 	if p.curToken.Type == lexer.TokenLParen {
@@ -844,7 +847,7 @@ func (p *Parser) parseIdentStatement() Node {
 			p.advanceIfStalled(start, "function call arguments")
 		}
 		p.nextToken() // consume ')'
-		return p.exprStmtAt(&CallExpr{Function: ident, Args: args, Line: line}, line)
+		return p.exprStmtAt(&CallExpr{Function: ident, Args: args, Line: line, Col: identCol, EndCol: identCol + len(ident)}, line)
 	}
 
 	// Check for dot expression
@@ -869,6 +872,8 @@ func (p *Parser) parseIdentStatement() Node {
 				Args:     args,
 				IsCFunc:  ident == "C",
 				Line:     line,
+				Col:      identCol,
+				EndCol:   identCol + len(ident) + 1 + len(rightIdent),
 			}, line)
 		}
 		dotExpr := &DotExpr{Left: left, Right: rightIdent}
@@ -1416,6 +1421,7 @@ func (p *Parser) parseMapLiteral() *MapLiteral {
 
 func (p *Parser) parseIdentExpr() Node {
 	ident := p.curToken.Literal(p.src)
+	identCol := int(p.curToken.Col)
 	p.nextToken() // consume identifier
 
 	// Check for dot expression (e.g., C.sqrt, matrix.method)
@@ -1459,6 +1465,8 @@ func (p *Parser) parseIdentExpr() Node {
 				Function: callName,
 				Args:     args,
 				IsCFunc:  isCFunc,
+				Col:      identCol,
+				EndCol:   identCol + len(ident) + 1 + len(rightIdent),
 			}
 		}
 
@@ -1491,7 +1499,10 @@ func (p *Parser) parseIdentExpr() Node {
 		}
 		p.nextToken() // consume ')'
 
-		return p.arena.AllocCallExpr(ident, args, false)
+		call := p.arena.AllocCallExpr(ident, args, false)
+		call.Col = identCol
+		call.EndCol = identCol + len(ident)
+		return call
 	}
 
 	// Phase 19: Check for struct literal: TypeName{field: val, ...}
@@ -1502,7 +1513,10 @@ func (p *Parser) parseIdentExpr() Node {
 		return p.parseStructLiteral(ident)
 	}
 
-	return p.arena.AllocIdentifier(ident)
+	id := p.arena.AllocIdentifier(ident)
+	id.Col = identCol
+	id.EndCol = identCol + len(ident)
+	return id
 }
 
 // Phase 19: Struct literal parsing: Name{field: val, ...}

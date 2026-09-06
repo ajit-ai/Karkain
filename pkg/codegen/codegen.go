@@ -35,6 +35,19 @@ func NewConfig() Config {
 	}
 }
 
+// userFuncC is the deterministic C symbol for a user-defined Karkain function.
+// User code lives in the karkain_user_* namespace so Karkain functions can
+// never collide with the runtime's karkain_* helpers (the C-library collision
+// fix). `main` (the C entry point) and `getArgs` (the argument intrinsic) keep
+// their canonical names. The mapping is injective because Karkain identifiers
+// are already C-legal, so sanitizeC is an identity on them.
+func userFuncC(name string) string {
+	if name == "main" || name == "getArgs" {
+		return name
+	}
+	return "karkain_user_" + name
+}
+
 type Generator struct {
 	cfg              Config
 	enumDecls        map[string]*parser.EnumDecl // Phase 45: tracked enum declarations
@@ -45,11 +58,12 @@ type Generator struct {
 	quantumRegisters []string                    // Phase 14: declared quantum registers, in declaration order
 	needsHTTP        bool                        // Phase 55b: track if http.get is used (strip stub otherwise)
 	sourceFile       string                      // Phase 55b: source file for #line directives
+	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 }
 
 func New(cfg Config) *Generator {
 	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl),
-		closureVars: make(map[string]bool)}
+		closureVars: make(map[string]bool), userFuncs: make(map[string]bool)}
 }
 
 func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
@@ -63,6 +77,14 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	}
 	if g.needsHTTP {
 		sb.WriteString("#define KARKAIN_USE_HTTP\n")
+	}
+	// Pre-scan: collect user-declared function names for deterministic symbol
+	// mangling and user-functions-first builtin shadowing.
+	g.userFuncs = make(map[string]bool)
+	for _, stmt := range prog.Statements {
+		if fn, ok := stmt.(*parser.FuncDecl); ok && fn.Name != "main" && fn.Name != "getArgs" {
+			g.userFuncs[fn.Name] = true
+		}
 	}
 
 	sb.WriteString(g.generateCHeader())
@@ -116,7 +138,7 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 				retType = "int"
 				params = []string{"int _karkain_argc", "char** _karkain_argv"}
 			}
-			fmt.Fprintf(&sb, "%s %s(%s);\n", retType, fn.Name, strings.Join(params, ", "))
+			fmt.Fprintf(&sb, "%s %s(%s);\n", retType, userFuncC(fn.Name), strings.Join(params, ", "))
 		}
 	}
 	sb.WriteByte('\n')
@@ -1586,7 +1608,7 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	}
 
 	retType := "Value"
-	fnName := fn.Name
+	fnName := userFuncC(fn.Name)
 	if fnName == "main" {
 		retType = "int"
 	}
@@ -2314,6 +2336,17 @@ func (g *Generator) genExpr(node parser.Node) string {
 			funcName := strings.TrimPrefix(n.Function, "C.")
 			return fmt.Sprintf("%s(%s)", funcName, strings.Join(args, ", "))
 		}
+		// Phase 83: user functions shadow language builtins. A user `func sqrt`
+		// (or readFile/push/spawn/...) must dispatch to the mangled user symbol,
+		// never the runtime helper it would otherwise collide with. Capturing
+		// closures (which need an implicit env argument) are handled below.
+		if g.userFuncs[n.Function] && !g.closureVars[n.Function] {
+			args := []string{}
+			for _, arg := range n.Args {
+				args = append(args, g.genExpr(arg))
+			}
+			return fmt.Sprintf("%s(%s)", userFuncC(n.Function), strings.Join(args, ", "))
+		}
 		if n.Function == "len" {
 			return fmt.Sprintf("karkain_len(%s)", g.genExpr(n.Args[0]))
 		}
@@ -2445,13 +2478,16 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		// Phase 54: closure variables carry an implicit env argument
 		if g.closureVars[n.Function] {
-			return fmt.Sprintf("%s(_genv_%s%s)", n.Function, sanitizeC(n.Function),
+			return fmt.Sprintf("%s(_genv_%s%s)", userFuncC(n.Function), sanitizeC(n.Function),
 				func() string {
 					if len(args) > 0 {
 						return ", " + strings.Join(args, ", ")
 					}
 					return ""
 				}())
+		}
+		if g.userFuncs[n.Function] {
+			return fmt.Sprintf("%s(%s)", userFuncC(n.Function), strings.Join(args, ", "))
 		}
 		return fmt.Sprintf("%s(%s)", n.Function, strings.Join(args, ", "))
 	case *parser.MatrixIndexExpr:

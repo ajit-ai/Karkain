@@ -82,10 +82,16 @@ func (me *MacroExpander) expandNode(node Node) Node {
 	case *FuncDecl:
 		// Expand function body
 		newFunc := &FuncDecl{
-			Name:   n.Name,
-			Params: n.Params,
-			Body:   []Node{},
-			Line:   n.Line,
+			Name:          n.Name,
+			Params:        n.Params,
+			ParamTypes:    n.ParamTypes,
+			GenericParams: n.GenericParams,
+			Captures:      n.Captures,
+			Public:        n.Public,
+			Body:          []Node{},
+			Line:          n.Line,
+			Col:           n.Col,
+			EndCol:        n.EndCol,
 		}
 		for _, stmt := range n.Body {
 			newFunc.Body = append(newFunc.Body, me.expandNode(stmt))
@@ -98,6 +104,9 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Value:    me.expandNode(n.Value),
 			Type:     n.Type,
 			IsMatrix: n.IsMatrix,
+			IsSIMD:   n.IsSIMD,
+			Align:    n.Align,
+			Escapes:  n.Escapes,
 			Line:     n.Line,
 		}
 	case *BinaryExpr:
@@ -117,6 +126,8 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Args:     newArgs,
 			IsCFunc:  n.IsCFunc,
 			Line:     n.Line,
+			Col:      n.Col,
+			EndCol:   n.EndCol,
 		}
 	case *ArrayLiteral:
 		newElements := []Node{}
@@ -138,6 +149,18 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Index: me.expandNode(n.Index),
 			Line:  n.Line,
 		}
+	case *DotExpr:
+		return &DotExpr{
+			Left:  me.expandNode(n.Left),
+			Right: n.Right,
+			Line:  n.Line,
+		}
+	case *StructLiteral:
+		newFields := []Node{}
+		for _, f := range n.Fields {
+			newFields = append(newFields, me.expandNode(f))
+		}
+		return &StructLiteral{TypeName: n.TypeName, Fields: newFields, Line: n.Line}
 	case *IfStmt:
 		newIf := &IfStmt{
 			Condition:   me.expandNode(n.Condition),

@@ -1,0 +1,55 @@
+// Phase 83: compiler symbol namespace + builtin shadowing semantics. User
+// functions live in the deterministic karkain_user_* C namespace; a user
+// function whose name collides with a builtin shadows it (user wins), while
+// unrelated runtime helpers keep working. Derived from the C-library collision
+// fix. These tests share one corpus program, so each shadowed name must not be
+// used by any other corpus file (sqrt/trim/pow/readFile are safe; len/push/
+// assert_eq/assert/str/int/contains/substr are used elsewhere).
+func makeMagic(x) {
+    return x * 100
+}
+
+func sqrt(x) {
+    return 777
+}
+
+func trim(s) {
+    return "trimmed"
+}
+
+func pow(a, b) {
+    return a + b
+}
+
+func readFile(path) {
+    return "virtual"
+}
+
+func test_user_sqrt_shadows_runtime() {
+    assert_eq(sqrt(4), 777)
+    let m = makeMagic(2)
+    assert_eq(m, 200)
+}
+
+func test_user_trim_shadows_runtime_helpers_still_work() {
+    assert_eq(trim("anything"), "trimmed")
+    assert_eq(str(42), "42")
+}
+
+func test_user_pow_is_plain_arithmetic() {
+    assert_eq(pow(2, 3), 5)
+    let xs =[1, 2]
+    assert_eq(len(xs), 2)
+}
+
+func test_user_readfile_shadows_runtime() {
+    assert_eq(readFile("/nowhere"), "virtual")
+}
+
+func test_forward_reference_after_shadows() {
+    assert_eq(lateCall(9), 81)
+}
+
+func lateCall(x) {
+    return x * x
+}

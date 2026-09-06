@@ -20,6 +20,15 @@ type Diagnostic struct {
 	// report column 1 (documented limitation, not a guarantee).
 	Column int `json:"column"`
 
+	// EndColumn is the optional 1-based column just past the offending token
+	// (a zero/absent endColumn means the range is unknown). Added in Phase 83;
+	// additive optional field, part of the karkain-diagnostics-v1 contract.
+	EndColumn int `json:"endColumn,omitempty"`
+
+	// Excerpt is the optional trimmed source line of the finding, with long
+	// lines truncated. Added in Phase 83; additive optional field.
+	Excerpt string `json:"excerpt,omitempty"`
+
 	// Severity is one of "error", "warning", "info".
 	Severity string `json:"severity"`
 

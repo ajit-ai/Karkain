@@ -42,8 +42,14 @@ produces `[]` — no message text, exit 0. Diagnostics with errors exit 3.
 ### Columns (contract, v1)
 
 - **Parse errors:** the true 1-based token-start column (`Parser.ErrorCols`).
-- **Name-resolution errors:** line-anchored, column always `1` (a known v1
-  limitation; consumers must treat column as informational for `E-K-RES`).
+- **Name-resolution errors:** true 1-based spans since Phase 83. The lexer
+  tracks 0-based byte columns, the parser records per-node `Col`/`EndCol`
+  spans (surviving macro expansion), and `E-K-RES` diagnostics carry both
+  `column` and the optional `endColumn` (1-based, just past the offending
+  token). LSP derives its 0-based ranges from these spans.
+- **Additive fields (Phase 83, optional):** `endColumn` (1-based, just past
+  the offending token) and `excerpt` (trimmed, truncated source line). Both are
+  `omitempty`; consumers must not require either.
 
 ### Diagnostic codes
 
@@ -103,7 +109,10 @@ any unexpected compile result. GCC-gated for pass cases.
 
 ## Known limitations (honest)
 
-- `E-K-RES` columns are line-anchored (column 1).
+- `E-K-RES` columns are line-anchored (column 1).  **RESOLVED in Phase 83** —
+  true spans shipped; see Columns (v1) above.
 - User-declared functions that shadow C library symbols (`abs`, …) fail at the
   C compiler stage — symbol namespacing is a planned compiler change.
+  **RESOLVED in Phase 83** — user functions now live in the deterministic
+  `karkain_user_*` C namespace and can shadow builtins (user wins).
 - `fmt` is contract-level canonicalization, not a formatting *style* engine.
