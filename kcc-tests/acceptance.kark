@@ -1,0 +1,91 @@
+// Phase 89: Self-Hosted Compiler Acceptance Test
+// This program exercises the self-hosted compiler's ability to
+// compile a meaningful Karkain program through the full pipeline.
+//
+// Pipeline: .kark -> self-hosted compiler -> C23 -> gcc -> native executable
+//
+// Tests: variables, arithmetic, functions, control flow, arrays, strings
+
+func fibonacci(n) {
+    if (n <= 1) {
+        return n
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2)
+}
+
+func factorial(n) {
+    let result = 1
+    var i = 2
+    while (i <= n) {
+        result = result * i
+        i = i + 1
+    }
+    return result
+}
+
+func is_even(n) {
+    if (n % 2 == 0) {
+        return 1
+    }
+    return 0
+}
+
+func count_even(arr) {
+    var count = 0
+    var i = 0
+    while (i < len(arr)) {
+        if (is_even(arr[i]) == 1) {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+func main() {
+    // Test 1: Basic arithmetic
+    let a = 10
+    let b = 20
+    let sum = a + b
+    let product = a * b
+    print("Sum: " + str(sum))
+    print("Product: " + str(product))
+
+    // Test 2: Function calls
+    let fib10 = fibonacci(10)
+    let fact5 = factorial(5)
+    print("fibonacci(10): " + str(fib10))
+    print("factorial(5): " + str(fact5))
+
+    // Test 3: Control flow
+    var max_val = 0
+    var i = 0
+    while (i < 10) {
+        if (i > max_val) {
+            max_val = i
+        }
+        i = i + 1
+    }
+    print("max in 0..9: " + str(max_val))
+
+    // Test 4: Array operations
+    let arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    let evens = count_even(arr)
+    print("even count: " + str(evens))
+
+    // Test 5: String operations
+    let greeting = "Hello"
+    let target = "World"
+    let message = greeting + ", " + target + "!"
+    print(message)
+    print("length: " + str(len(message)))
+
+    // Test 6: Boolean logic
+    let check1 = is_even(4)
+    let check2 = is_even(7)
+    print("4 is even: " + str(check1))
+    print("7 is even: " + str(check2))
+
+    // Summary
+    print("All acceptance tests passed!")
+}

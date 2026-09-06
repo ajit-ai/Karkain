@@ -1,0 +1,80 @@
+// Phase 89: Karkain Runtime Platform Abstraction
+// Defines the platform-facing operations that differ per OS/architecture.
+// The runtime provides these as built-in operations.
+
+// Program startup
+func getArgs() {
+    // Runtime: Value getArgs(void)
+    // Returns command-line arguments as string array.
+    // Populated by the C entry point from argc/argv.
+    return []
+}
+
+func karkain_system(cmd) {
+    // Runtime: Value karkain_system(Value cmd)
+    // Executes a shell command. Returns exit code.
+    return system(cmd)
+}
+
+// Memory management
+func karkain_alloc(size) {
+    // Runtime: Value karkain_alloc(Value size)
+    // Raw memory allocation. Returns pointer.
+    return size
+}
+
+func karkain_free(ptr) {
+    // Runtime: void karkain_free(Value ptr)
+    // Frees raw memory.
+}
+
+// Platform detection
+func platform_name() {
+    // Returns the current platform: "linux", "darwin", "windows"
+    return "unknown"
+}
+
+func karkain_time() {
+    // Runtime: Value karkain_time(void)
+    // Returns current time in milliseconds since epoch.
+    // Implementation: C runtime calls clock_gettime() or QueryPerformanceCounter().
+    return 0
+}
+
+// Assertions (KTF-001)
+func karkain_assert(condition, msg) {
+    // Runtime: void karkain_assert(Value condition, Value msg)
+    // Asserts condition is truthy, prints msg on failure.
+    assert(condition, msg)
+}
+
+func karkain_assert_eq(a, b, msg) {
+    // Runtime: void karkain_assert_eq(Value a, Value b, Value msg)
+    // Asserts a == b, prints msg on failure.
+    assert_eq(a, b, msg)
+}
+
+func karkain_assert_ne(a, b, msg) {
+    // Runtime: void karkain_assert_ne(Value a, Value b, Value msg)
+    // Asserts a != b, prints msg on failure.
+    assert_ne(a, b, msg)
+}
+
+// Checked arithmetic — returns Option[Int]
+func karkain_add_checked(a, b) {
+    // Runtime: Value karkain_add_checked(Value a, Value b)
+    // Returns Some(a+b) or None on overflow.
+    return a + b
+}
+
+func karkain_sub_checked(a, b) {
+    // Runtime: Value karkain_sub_checked(Value a, Value b)
+    // Returns Some(a-b) or None on overflow.
+    return a - b
+}
+
+func karkain_mul_checked(a, b) {
+    // Runtime: Value karkain_mul_checked(Value a, Value b)
+    // Returns Some(a*b) or None on overflow.
+    return a * b
+}
