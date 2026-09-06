@@ -13,7 +13,14 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-90** — Phases 50–90 complete.
+Current phase: **post-91** — Phases 50–91 complete.
+Also completed: **91** — Comprehensive Validation & Release Decision
+(audit of all documentation for consistency: SPEC.md version 0.14.0→1.0.0,
+self-hosted compiler reference Phase 56→88; stdlib.md import examples updated
+for async/gpu modules; full regression suite GREEN: lexer/parser/sema/ssa/pm/
+codegen/backend/npu/source/module/diagnostics all pass, CLI passes with 300s
+timeout for conformance corpus; release decision: KARKAIN 1.0 — RELEASE READY;
+`docs/audit/PHASE-91-FINAL-REPORT.md`).
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).

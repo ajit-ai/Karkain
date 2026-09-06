@@ -33,6 +33,8 @@ import std.collections
 import std.math
 import std.io
 import std.system
+import std.gpu
+import std.async
 ```
 
 The module resolver maps `std.<name>` to `stdlib/<name>/` at the project root.

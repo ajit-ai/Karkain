@@ -1,11 +1,11 @@
 # Karkain Language Specification
 
-**Version:** 0.14.0
-**Status:** Working draft Ã¢â‚¬â€ extracted from the reference compiler (`pkg/lexer`, `pkg/parser`, `pkg/sema`, `pkg/codegen`, `pkg/ir/ssa`)
-**Date:** 2026-08-29
+**Version:** 1.0.0
+**Status:** Production — extracted from the reference compiler (`pkg/lexer`, `pkg/parser`, `pkg/sema`, `pkg/codegen`, `pkg/ir/ssa`)
+**Date:** 2026-09-06
 
 > This document is the **single source of truth** for the Karkain programming
-> language. It is derived from the working Go compiler, and the Phase 56
+> language. It is derived from the working Go compiler, and the Phase 88
 > self-hosted compiler (`src/compiler/*.kark`) must conform to it. Where this
 > spec and the reference compiler disagree, the reference compiler wins until
 > the spec is corrected Ã¢â‚¬â€ both must eventually converge.
@@ -37,6 +37,7 @@
 | Spec version | Compiler phase | Notes |
 |--------------|----------------|-------|
 | 0.14.0 | 55d | KPM package manager integrated; SSA backend; string/slice types; closures |
+| 1.0.0 | 90 | Production release: self-hosted compiler, runtime boundary, stdlib, native build, diagnostics |
 
 ---
 
@@ -458,7 +459,7 @@ function calls use the `C.` prefix (`C.sqrt(...)`). FFI package
 
 | Area | Gap | Tracking |
 |------|-----|----------|
-| Self-hosted compiler | `self_host_parser_test.kark` fails; `src/compiler/*.kark` incomplete | Phase 56 |
+| Self-hosted compiler | `self_host_parser_test.kark` fails; `src/compiler/*.kark` incomplete | Phase 88 |
 | Enum payload variants | Enums parse but payload handling unstable | BUG-7 |
 | Struct codegen | Certain codegen paths incomplete | BUG-1 |
 | Option/Result match arms | Codegen edge cases | BUG-2 |
