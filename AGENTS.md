@@ -13,7 +13,11 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-91** — Phases 50–91 complete.
+Current phase: **post-92** — Phases 50–92 complete.
+Also completed: **92** — HIR Infrastructure
+(High-Level IR with typed nodes: 20 expression kinds, 16 statement kinds,
+19 type kinds, AST→HIR lowering via BuildHIR(), Format() for debug output,
+7 passing tests including 5-program round-trip; `pkg/ir/hir/`).
 Also completed: **91** — Comprehensive Validation & Release Decision
 (audit of all documentation for consistency: SPEC.md version 0.14.0→1.0.0,
 self-hosted compiler reference Phase 56→88; stdlib.md import examples updated
