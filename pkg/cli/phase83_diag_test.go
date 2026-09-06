@@ -67,7 +67,7 @@ func TestCheck_HumanWarningRendered(t *testing.T) {
 			t.Fatalf("warnings must not terminate: %d", res.ExitCode)
 		}
 	})
-	if !strings.Contains(out, "warning[W-K-UNUSED]:") {
+	if !strings.Contains(out, "warning[K100]:") {
 		t.Errorf("stderr missing warning header:\n%s", out)
 	}
 	if !strings.Contains(out, "unused variable `count`") {
@@ -128,7 +128,7 @@ func TestCheck_ErrorsStillShortCircuitWarnings(t *testing.T) {
 	if strings.Contains(out, "W-K-UNUSED") {
 		t.Errorf("warning pass must be skipped when resolution fails:\n%s", out)
 	}
-	if !strings.Contains(out, "error[E-K-RES]:") {
+	if !strings.Contains(out, "error[K002]:") {
 		t.Errorf("error should still render with structured header:\n%s", out)
 	}
 }

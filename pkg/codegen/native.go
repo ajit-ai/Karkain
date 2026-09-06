@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"karkain/pkg/diagnostics"
 	"karkain/pkg/parser"
 	"strings"
 )
@@ -9,27 +10,38 @@ import (
 // NativeGenerator translates Karkain AST modules into C11/LLVM IR intermediate code
 // for compilation to optimized native object files and executables.
 type NativeGenerator struct {
-	buf        strings.Builder
-	errors     []string
-	indent     int
-	typeMap    map[string]string
-	externFuncs map[string]bool
+	buf          strings.Builder
+	errors       []string
+	indent       int
+	typeMap      map[string]string
+	externFuncs  map[string]bool
+	diagnostics  *CodegenDiagnostics
+	symbolTable  *SymbolTable
+	relocManager *RelocationManager
+	debugBuilder *DebugInfoBuilder
+	sourceFile   string
 }
 
 // NewNativeGenerator creates a new native code generator
 func NewNativeGenerator() *NativeGenerator {
 	return &NativeGenerator{
-		typeMap:     make(map[string]string),
-		externFuncs: make(map[string]bool),
+		typeMap:      make(map[string]string),
+		externFuncs:  make(map[string]bool),
+		diagnostics:  NewCodegenDiagnostics(""),
+		symbolTable:  NewSymbolTable(),
+		relocManager: NewRelocationManager(),
+		debugBuilder: NewDebugInfoBuilder(),
 	}
 }
 
 // GenerateModule translates a full Karkain program module into C11 source code
-func (g *NativeGenerator) GenerateModule(prog *parser.Program) (string, error) {
+func (g *NativeGenerator) GenerateModule(prog *parser.Program, sourceFile string) (string, []diagnostics.Diagnostic, error) {
 	g.buf.Reset()
 	g.errors = nil
 	g.indent = 0
 	g.externFuncs = make(map[string]bool)
+	g.sourceFile = sourceFile
+	g.diagnostics = NewCodegenDiagnostics(sourceFile)
 
 	g.emitPreamble()
 	g.emitExternDeclarations()
@@ -48,9 +60,50 @@ func (g *NativeGenerator) GenerateModule(prog *parser.Program) (string, error) {
 	}
 
 	if len(g.errors) > 0 {
-		return "", fmt.Errorf("native codegen errors:\n%s", strings.Join(g.errors, "\n"))
+		diags := ConvertToDiagnostics(sourceFile, g.errors)
+		return "", diags, fmt.Errorf("native codegen errors:\n%s", strings.Join(g.errors, "\n"))
 	}
-	return g.buf.String(), nil
+
+	// Add any diagnostics collected during generation
+	diags := g.diagnostics.GetDiagnostics()
+	return g.buf.String(), diags, nil
+}
+
+// GenerateObject builds a native object representation (sections, symbols,
+// debug information) from an AST module. Backend emission fills the section
+// payloads; symbols and source-to-address mappings are resolved here from the
+// compiler structures, giving linkers and debuggers a well-defined path from
+// Karkain source to native representation.
+func (g *NativeGenerator) GenerateObject(prog *parser.Program, sourceFile string) (*Object, []diagnostics.Diagnostic, error) {
+	g.sourceFile = sourceFile
+	g.diagnostics = NewCodegenDiagnostics(sourceFile)
+
+	obj := NewObject(sourceFile)
+	obj.AddSection(".text", SectionTypeText, nil, 16)
+	obj.AddSection(".rodata", SectionTypeROData, nil, 8)
+	obj.AddSection(".data", SectionTypeData, nil, 8)
+
+	st := NewSymbolTable()
+	if err := st.CollectSymbolsFromAST(prog, obj); err != nil {
+		diag := ReportSymbolDiagnostic(sourceFile, "program symbols", err)
+		g.diagnostics.AddError(1, 1, diagnostics.CodeCodegen, diag.Message)
+		return obj, g.diagnostics.GetDiagnostics(), err
+	}
+	if err := ValidateSymbolNames(obj.Symbols); err != nil {
+		diag := ReportSymbolDiagnostic(sourceFile, "program symbols", err)
+		g.diagnostics.AddError(1, 1, diagnostics.CodeCodegen, diag.Message)
+		return obj, g.diagnostics.GetDiagnostics(), err
+	}
+
+	dib := NewDebugInfoBuilder()
+	if err := dib.CollectDebugInfoFromAST(prog, sourceFile); err != nil {
+		diag := ReportDebugDiagnostic(sourceFile, "program debug info", err)
+		g.diagnostics.AddError(1, 1, diagnostics.CodeCodegen, diag.Message)
+		return obj, g.diagnostics.GetDiagnostics(), err
+	}
+	obj.DebugInfo = dib.GetDebugInfo()
+
+	return obj, g.diagnostics.GetDiagnostics(), nil
 }
 
 // emitPreamble writes the C11 header includes and type definitions
