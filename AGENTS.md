@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-84** — Phases 50–84 complete.
+Current phase: **post-85** — Phases 50–85 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
@@ -45,7 +45,16 @@ real-time `didChange` diagnostics sync; conservative undefined-identifier
 resolution; array-return semantics; conformance corpus 48→59 tests in 11 files
 + `namespace` probe golden (12 total); docs under
 `docs/audit/PHASE-83-FINAL-REPORT.md`).
-Last completed: **84** — Native Codegen, Linker & Debug Information
+Last completed: **85** — Native Build & Linking Integration
+(NativeBuilder orchestrating Object→Linker→Executable pipeline via
+`NativeBuilder.Build` and `BuildMultiObject`; CLI integration:
+`--target=native-link` flag dispatches `BuildCommand`/`RunCommand` to
+`nativeBuildCommand`/`nativeRunCommand`; KOBJ binary artifact format
+(sections/symbols); debug address relocation from 0-based counters to
+actual linked .text base (0x1000+) via `relocateDebugAddresses`;
+SourceAddressMap built from relocated DebugInfo; 8 focused NativeBuilder
+tests + 6 CLI integration tests; docs under `docs/native-codegen.md`).
+Prior completed: **84** — Native Codegen, Linker & Debug Information
 (Karkain-owned object model: sections/symbols/relocations/debug-info;
 scope-aware SymbolTable with `karkain_user_*` namespacing via
 `CollectSymbolsFromAST`; RelocationManager with Addr32/64, PCRel32/64,
