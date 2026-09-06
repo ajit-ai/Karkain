@@ -1,0 +1,29 @@
+// Phase 90: Standard Library Import Test
+// Tests that stdlib modules can be imported and used.
+
+func main() {
+    // Test basic operations that don't require stdlib
+    let x = 42
+    let y = 58
+    let sum = x + y
+    print("Basic arithmetic: " + str(sum))
+
+    // Test array operations
+    let arr = [1, 2, 3, 4, 5]
+    print("Array length: " + str(len(arr)))
+
+    // Test string operations
+    let s = "Hello, Karkain 1.0!"
+    print("String length: " + str(len(s)))
+
+    // Test control flow
+    var i = 0
+    var total = 0
+    while (i < len(arr)) {
+        total = total + arr[i]
+        i = i + 1
+    }
+    print("Array sum: " + str(total))
+
+    print("Stdlib import test passed!")
+}

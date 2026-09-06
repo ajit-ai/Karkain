@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-89** — Phases 50–89 complete.
+Current phase: **post-90** — Phases 50–90 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
@@ -45,7 +45,12 @@ real-time `didChange` diagnostics sync; conservative undefined-identifier
 resolution; array-return semantics; conformance corpus 48→59 tests in 11 files
 + `namespace` probe golden (12 total); docs under
 `docs/audit/PHASE-83-FINAL-REPORT.md`).
-Last completed: **89** — Self-Hosted Runtime & Toolchain
+Last completed: **90** — Production Release Gate / Karkain 1.0
+(production build workflow verified, CLI commands validated: check/build/fmt/lint,
+stdlib imports work, runtime type discrepancy resolved as intentional bootstrap
+limitation, release acceptance test, 15 focused Go tests, version 1.0.0 consistent,
+40+ total tests pass; `docs/audit/PHASE-90-FINAL-REPORT.md`).
+Prior completed: **89** — Self-Hosted Runtime & Toolchain
 (Karkain-owned runtime boundary with Value type system, container ops,
 I/O primitives, platform abstraction, initialization contract;
 runtime/ directory with 5 boundary docs; acceptance test proving

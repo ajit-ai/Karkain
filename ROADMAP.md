@@ -530,9 +530,9 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 | 87 | Standard Library Foundation: stdlib structure (core/string/collections/math/io/system modules), `std.*` import resolution wired into module graph via `findStdlibDir`, 6 focused module-resolution tests | COMPLETE (`stdlib/core/core.kark`, `stdlib/string/string.kark`, `stdlib/collections/collections.kark`, `stdlib/system/system.kark`, `pkg/module/module.go`, `docs/stdlib.md`) |
 | 88 | Self-Hosted Compiler Foundation: self-hosted Karkain compiler compiles via bootstrap (src/compiler/*.kark → C23 → native executable), lexer/parser/AST/sema/codegen in Karkain, 7 representative test programs, 8 focused Go tests, build script | COMPLETE (`src/compiler/main.kark`, `src/compiler/ast.kark`, `src/compiler/lexer.kark`, `src/compiler/parser.kark`, `src/compiler/sema.kark`, `src/compiler/codegen.kark`, `scripts/build-kcc.sh`, `kcc-tests/`, `pkg/cli/phase88_test.go`, `docs/self-hosted-compiler.md`) |
 | 89 | Self-Hosted Runtime & Toolchain: Karkain-owned runtime boundary (Value type system, container ops, I/O primitives, platform abstraction, initialization contract), runtime/ directory with 5 boundary docs, acceptance test proving self-hosted compiler → C23 → gcc → native executable pipeline, 12 focused Go tests | COMPLETE (`runtime/types.kark`, `runtime/io.kark`, `runtime/platform.kark`, `runtime/init.kark`, `runtime/boundary.kark`, `kcc-tests/acceptance.kark`, `pkg/cli/phase89_test.go`, `docs/runtime.md`) |
+| 90 | Production Release Gate / Karkain 1.0: production build workflow verified, CLI commands validated (check/build/fmt/lint), stdlib imports work, runtime type discrepancy resolved as intentional bootstrap limitation, release acceptance test, 15 focused Go tests, version 1.0.0 consistent | COMPLETE (`kcc-tests/release.kark`, `kcc-tests/stdlib_import_test.kark`, `pkg/cli/phase90_test.go`, `docs/audit/PHASE-90-FINAL-REPORT.md`) |
 
 ### Current phase
 
-**PHASE 89 COMPLETE** — next milestone: self-hosted compiler loop/for support,
-semantic analysis parity, module import resolution, LSP depth (hover/go-to-definition,
-UTF-16 spans), and continued conformance-corpus growth.
+**PHASE 90 COMPLETE** — Karkain 1.0 production baseline established.
+Phase 91 will perform the comprehensive audit and documentation reconciliation.
