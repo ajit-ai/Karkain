@@ -1,0 +1,6 @@
+// Phase 88: Representative error test
+// Tests: error reporting for undefined function
+func main() {
+    let x = undefined_function(1, 2)
+    print(x)
+}

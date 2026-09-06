@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-87** — Phases 50–87 complete.
+Current phase: **post-88** — Phases 50–88 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
@@ -45,7 +45,12 @@ real-time `didChange` diagnostics sync; conservative undefined-identifier
 resolution; array-return semantics; conformance corpus 48→59 tests in 11 files
 + `namespace` probe golden (12 total); docs under
 `docs/audit/PHASE-83-FINAL-REPORT.md`).
-Last completed: **87** — Standard Library Foundation
+Last completed: **88** — Self-Hosted Compiler Foundation
+(self-hosted Karkain compiler compiles via bootstrap: src/compiler/*.kark
+→ C23 → native executable; lexer/parser/AST/sema/codegen in Karkain;
+7 representative test programs; 8 focused Go tests; build script;
+docs under `docs/self-hosted-compiler.md`).
+Prior completed: **87** — Standard Library Foundation
 (stdlib structure with core/string/collections/math/io/system modules,
 `std.*` import resolution wired into module graph via `findStdlibDir`,
 6 focused module-resolution tests; `docs/stdlib.md`).
