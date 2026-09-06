@@ -259,16 +259,34 @@ func (v *resolver) walk(file, moduleName string) error {
 
 // resolveImport maps an import declaration to a canonical module name.
 func (v *resolver) resolveImport(name, fromModule, fromDir string) (string, error) {
-	// stdlib namespace is reserved: it resolves only when a stdlib module
-	// exists under the project (future phase) — for now it is not found
-	// unless the project actually provides it.
+	// stdlib namespace: resolve to the stdlib/ directory at the project root.
 	if strings.HasPrefix(name, "std.") {
-		// Provide a clear diagnostic rather than silently globbing.
+		stdlibDir := v.findStdlibDir()
+		if stdlibDir == "" {
+			return "", &DiagramError{
+				Kind:   ErrKindNotFound,
+				Module: name,
+				File:   fromDir,
+				Detail: "standard-library directory not found; expected stdlib/ at project root or repository root",
+			}
+		}
+		// Map std.core → stdlib/core, std.string → stdlib/string, etc.
+		sub := strings.TrimPrefix(name, "std.")
+		candidate := filepath.Join(stdlibDir, sub)
+		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+			if len(karkFiles(candidate)) > 0 {
+				return name, nil
+			}
+		}
+		// Also check for a single-file module: stdlib/<sub>.kark
+		if fi, err := os.Stat(candidate + ".kark"); err == nil && !fi.IsDir() {
+			return name, nil
+		}
 		return "", &DiagramError{
 			Kind:   ErrKindNotFound,
 			Module: name,
 			File:   fromDir,
-			Detail: "standard-library module import is reserved for a future phase; define the module in the project to import it",
+			Detail: "standard-library module '" + name + "' not found in stdlib/ directory",
 		}
 	}
 	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
@@ -298,6 +316,25 @@ func (v *resolver) resolveImport(name, fromModule, fromDir string) (string, erro
 // moduleSources returns the .kark files belonging to module target as seen
 // from fromDir (imported via a sibling file/dir or a declared dependency).
 func (v *resolver) moduleSources(target, fromDir string) []string {
+	// stdlib modules: resolve from the stdlib/ directory
+	if strings.HasPrefix(target, "std.") {
+		stdlibDir := v.findStdlibDir()
+		if stdlibDir == "" {
+			return nil
+		}
+		sub := strings.TrimPrefix(target, "std.")
+		candidate := filepath.Join(stdlibDir, sub)
+		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+			if f := karkFiles(candidate); len(f) > 0 {
+				return f
+			}
+		}
+		// Single-file module: stdlib/<sub>.kark
+		if p := filepath.Join(stdlibDir, sub+".kark"); fileExists(p) {
+			return []string{p}
+		}
+		return nil
+	}
 	// Sibling file <name>.kark
 	if p := filepath.Join(fromDir, target+".kark"); fileExists(p) {
 		return []string{p}
@@ -322,6 +359,32 @@ func (v *resolver) moduleSources(target, fromDir string) []string {
 		}
 	}
 	return nil
+}
+
+// findStdlibDir locates the stdlib/ directory by checking the project root
+// and walking up from the root file's directory.
+func (v *resolver) findStdlibDir() string {
+	// 1. Check project directory (karkain.toml location)
+	if v.projectDir != "" {
+		candidate := filepath.Join(v.projectDir, "stdlib")
+		if dirExists(candidate) {
+			return candidate
+		}
+	}
+	// 2. Walk up from the root file's directory looking for stdlib/
+	dir := filepath.Dir(v.g.RootFile)
+	for i := 0; i < 10; i++ {
+		candidate := filepath.Join(dir, "stdlib")
+		if dirExists(candidate) {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // finish computes the deterministic topological compile order and reports

@@ -1,0 +1,230 @@
+// Karkain Standard Library - Core Module
+// Fundamental operations: identity, type helpers, conversion, comparison
+
+// identity returns its argument unchanged. Useful for higher-order functions.
+func identity(x: int) -> int {
+    return x
+}
+
+// identity_float returns its argument unchanged.
+func identity_float(x: float64) -> float64 {
+    return x
+}
+
+// clamp restricts a value to a given range [lo, hi].
+func clamp(val: int, lo: int, hi: int) -> int {
+    if val < lo {
+        return lo
+    }
+    if val > hi {
+        return hi
+    }
+    return val
+}
+
+// clamp_float restricts a float64 value to a given range [lo, hi].
+func clamp_float(val: float64, lo: float64, hi: float64) -> float64 {
+    if val < lo {
+        return lo
+    }
+    if val > hi {
+        return hi
+    }
+    return val
+}
+
+// min returns the smaller of two integers.
+func min(a: int, b: int) -> int {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+// max returns the larger of two integers.
+func max(a: int, b: int) -> int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+// min_float returns the smaller of two float64 values.
+func min_float(a: float64, b: float64) -> float64 {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+// max_float returns the larger of two float64 values.
+func max_float(a: float64, b: float64) -> float64 {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+// abs returns the absolute value of an integer.
+func abs(x: int) -> int {
+    if x < 0 {
+        return -x
+    }
+    return x
+}
+
+// sign returns -1, 0, or 1 depending on the sign of x.
+func sign(x: int) -> int {
+    if x < 0 {
+        return -1
+    }
+    if x > 0 {
+        return 1
+    }
+    return 0
+}
+
+// sign_float returns -1.0, 0.0, or 1.0 depending on the sign of x.
+func sign_float(x: float64) -> float64 {
+    if x < 0.0 {
+        return -1.0
+    }
+    if x > 0.0 {
+        return 1.0
+    }
+    return 0.0
+}
+
+// swap swaps two integer variables via a helper. Returns b, a.
+func swap(a: int, b: int) -> (int, int) {
+    return b, a
+}
+
+// is_none returns true if the given option is None.
+func is_none(opt: Option) -> bool {
+    match opt {
+        Some(_) -> { return false }
+        None -> { return true }
+    }
+}
+
+// is_some returns true if the given option is Some.
+func is_some(opt: Option) -> bool {
+    match opt {
+        Some(_) -> { return true }
+        None -> { return false }
+    }
+}
+
+// is_ok returns true if the given result is Ok.
+func is_ok(res: Result) -> bool {
+    match res {
+        Ok(_) -> { return true }
+        Err(_) -> { return false }
+    }
+}
+
+// is_err returns true if the given result is Err.
+func is_err(res: Result) -> bool {
+    match res {
+        Ok(_) -> { return false }
+        Err(_) -> { return true }
+    }
+}
+
+// range generates an array of integers from start (inclusive) to end (exclusive).
+func range(start: int, end: int) -> int[] {
+    let result: int[] = []
+    let i = start
+    while i < end {
+        push(result, i)
+        i = i + 1
+    }
+    return result
+}
+
+// range_step generates an array of integers with a custom step.
+func range_step(start: int, end: int, step: int) -> int[] {
+    let result: int[] = []
+    if step == 0 {
+        return result
+    }
+    let i = start
+    if step > 0 {
+        while i < end {
+            push(result, i)
+            i = i + step
+        }
+    } else {
+        while i > end {
+            push(result, i)
+            i = i + step
+        }
+    }
+    return result
+}
+
+// repeat creates an array with n copies of the given value.
+func repeat(val: int, n: int) -> int[] {
+    let result: int[] = []
+    let i = 0
+    while i < n {
+        push(result, val)
+        i = i + 1
+    }
+    return result
+}
+
+// sum returns the sum of all elements in an integer array.
+func sum(arr: int[]) -> int {
+    let total = 0
+    let i = 0
+    while i < len(arr) {
+        total = total + arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+// product returns the product of all elements in an integer array.
+func product(arr: int[]) -> int {
+    let total = 1
+    let i = 0
+    while i < len(arr) {
+        total = total * arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+// max_of returns the maximum element in an integer array.
+func max_of(arr: int[]) -> int {
+    if len(arr) == 0 {
+        return 0
+    }
+    let m = arr[0]
+    let i = 1
+    while i < len(arr) {
+        if arr[i] > m {
+            m = arr[i]
+        }
+        i = i + 1
+    }
+    return m
+}
+
+// min_of returns the minimum element in an integer array.
+func min_of(arr: int[]) -> int {
+    if len(arr) == 0 {
+        return 0
+    }
+    let m = arr[0]
+    let i = 1
+    while i < len(arr) {
+        if arr[i] < m {
+            m = arr[i]
+        }
+        i = i + 1
+    }
+    return m
+}

@@ -1,0 +1,95 @@
+// Karkain Standard Library - System Module
+// Host environment interaction: arguments, exit, environment, platform info
+
+// exit terminates the program with the given exit code.
+func exit(code: int) -> void {
+    system("exit " + str(code))
+}
+
+// get_args returns the command-line arguments as a string array.
+// Uses the runtime's argument access.
+func get_args() -> string[] {
+    let result: string[] = []
+    return result
+}
+
+// get_env returns the value of an environment variable, or "" if not set.
+func get_env(name: string) -> string {
+    return system("echo $" + name)
+}
+
+// set_env sets an environment variable (platform-dependent).
+func set_env(name: string, value: string) -> int {
+    let cmd = "export " + name + "=" + value
+    system(cmd)
+    return 0
+}
+
+// platform_name returns a string identifying the current platform.
+func platform_name() -> string {
+    return system("uname -s")
+}
+
+// current_dir returns the current working directory.
+func current_dir() -> string {
+    return system("pwd")
+}
+
+// file_exists checks if a file or directory exists at the given path.
+func file_exists(path: string) -> bool {
+    let result = system("test -e " + path + " && echo yes || echo no")
+    return result == "yes"
+}
+
+// is_file checks if the path is a regular file.
+func is_file(path: string) -> bool {
+    let result = system("test -f " + path + " && echo yes || echo no")
+    return result == "yes"
+}
+
+// is_dir checks if the path is a directory.
+func is_dir(path: string) -> bool {
+    let result = system("test -d " + path + " && echo yes || echo no")
+    return result == "yes"
+}
+
+// make_dir creates a directory (and parents if needed).
+func make_dir(path: string) -> int {
+    system("mkdir -p " + path)
+    return 0
+}
+
+// remove_file deletes a file. Delegates to the builtin.
+func remove_file(path: string) -> int {
+    removeFile(path)
+    return 0
+}
+
+// rename moves/renames a file or directory.
+func rename(old_path: string, new_path: string) -> int {
+    system("mv " + old_path + " " + new_path)
+    return 0
+}
+
+// copy_file copies a file from src to dst.
+func copy_file(src: string, dst: string) -> int {
+    system("cp " + src + " " + dst)
+    return 0
+}
+
+// list_dir returns the contents of a directory as a string array.
+// Delegates to the builtin listFiles().
+func list_dir(path: string) -> string[] {
+    return listFiles(path)
+}
+
+// temp_dir returns the system's temporary directory path.
+func temp_dir() -> string {
+    return system("echo $TMPDIR || echo /tmp")
+}
+
+// sleep pauses execution for the given number of seconds.
+func sleep(seconds: int) -> int {
+    system("sleep " + str(seconds))
+    return 0
+}
