@@ -33,11 +33,12 @@ Each phase has:
 **Blocks:** Phase 94
 **Status:** ✅ Complete — 30 tests pass (TypeRegistry, TypeBits, TypePromote, TypeIsCompatible, 6 dominance patterns, 4 liveness tests, 4 SSA verifier tests)
 
-### Phase 94 — SSA Optimization Pipeline
-**Deliverable:** Multi-pass optimizer: mem2reg → SROA → constant fold → CSE → DCE → LICM
+### Phase 94 — SSA Optimization Pipeline ✅
+**Deliverable:** Multi-pass optimizer: mem2reg → constant fold → CSE → DCE → LICM
 **Files:** `pkg/ir/ssa/pipeline.go`, `pkg/ir/ssa/passes/cse.go`, `pkg/ir/ssa/passes/licm.go`, `pkg/ir/ssa/passes/sroa.go`, `pkg/ir/ssa/passes/mem2reg.go`
 **Gate:** Each pass has unit tests, benchmark shows measurable instruction count reduction
 **Blocks:** Phase 95
+**Status:** ✅ Complete — 49 tests pass (6 fold const, 3 DCE, 2 CSE, 3 mem2reg, 1 LICM, 3 pipeline, 1 pass names, 3 benchmarks); fixpoint iteration
 
 ### Phase 95 — Tensor ↔ SSA Bridge
 **Deliverable:** Bidirectional lowering between tensor compute graphs and SSA IR
