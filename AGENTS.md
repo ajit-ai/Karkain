@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-85** — Phases 50–85 complete.
+Current phase: **post-86** — Phases 50–86 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
@@ -45,7 +45,12 @@ real-time `didChange` diagnostics sync; conservative undefined-identifier
 resolution; array-return semantics; conformance corpus 48→59 tests in 11 files
 + `namespace` probe golden (12 total); docs under
 `docs/audit/PHASE-83-FINAL-REPORT.md`).
-Last completed: **85** — Native Build & Linking Integration
+Last completed: **86** — Developer Toolchain
+(test timeout safety via goroutine+select with 30s default, multi-file
+formatter (`karkain fmt .` recursive), exported `Canonicalize` for LSP
+reuse, `textDocument/formatting` LSP support, `ExitLint(7)` exit code,
+8 focused tests; docs under `docs/audit/PHASE-86-FINAL-REPORT.md`).
+Prior completed: **85** — Native Build & Linking Integration
 (NativeBuilder orchestrating Object→Linker→Executable pipeline via
 `NativeBuilder.Build` and `BuildMultiObject`; CLI integration:
 `--target=native-link` flag dispatches `BuildCommand`/`RunCommand` to
