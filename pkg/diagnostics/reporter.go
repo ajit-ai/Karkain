@@ -5,14 +5,22 @@ import (
 	"strings"
 )
 
-// Severity represents the severity level of a diagnostic message
-type Severity int
+// Severity represents the severity level of a diagnostic message. The string
+// value is the JSON wire value used by the karkain-diagnostics-v1 contract.
+type Severity string
 
 const (
-	SeverityError Severity = iota
-	SeverityWarning
-	SeverityInfo
+	SeverityError   Severity = "error"
+	SeverityWarning Severity = "warning"
+	SeverityInfo    Severity = "info"
+	SeverityNote    Severity = "note"
+	SeverityHelp    Severity = "help"
 )
+
+// String returns the wire-string form of the severity.
+func (s Severity) String() string {
+	return string(s)
+}
 
 // DiagnosticReporter formats and renders diagnostic messages with source context
 type DiagnosticReporter struct {
@@ -32,11 +40,21 @@ func NewReporter(sourceCode string, filePath string) *DiagnosticReporter {
 
 // Report formats and returns a diagnostic message with source context
 func (r *DiagnosticReporter) Report(severity Severity, line, col int, message string) string {
+	return r.ReportWithCode(severity, line, col, "", message, "")
+}
+
+// ReportWithCode formats and returns a diagnostic message with source context, code, and help text
+func (r *DiagnosticReporter) ReportWithCode(severity Severity, line, col int, code string, message string, help string) string {
 	var sb strings.Builder
 
-	// Header with severity and location
+	// Header with severity, code (if provided), and location
 	severityStr := severityLabel(severity)
-	sb.WriteString(fmt.Sprintf("%s: %s:%d:%d: %s\n", severityStr, r.filePath, line, col, message))
+	if code != "" {
+		sb.WriteString(fmt.Sprintf("%s[%s]: %s\n", severityStr, code, message))
+	} else {
+		sb.WriteString(fmt.Sprintf("%s: %s\n", severityStr, message))
+	}
+	sb.WriteString(fmt.Sprintf("  --> %s:%d:%d\n", r.filePath, line, col))
 
 	// Source snippet context (show the error line and surrounding context)
 	// line is 1-based; convert to 0-based index
@@ -70,18 +88,14 @@ func (r *DiagnosticReporter) Report(severity Severity, line, col int, message st
 		}
 	}
 
+	// Help text if provided
+	if help != "" {
+		sb.WriteString(fmt.Sprintf("   = help: %s\n", help))
+	}
+
 	return sb.String()
 }
 
 func severityLabel(s Severity) string {
-	switch s {
-	case SeverityError:
-		return "error"
-	case SeverityWarning:
-		return "warning"
-	case SeverityInfo:
-		return "info"
-	default:
-		return "unknown"
-	}
+	return s.String()
 }

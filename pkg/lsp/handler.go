@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"karkain/pkg/cli"
+	"karkain/pkg/diagnostics"
 	"karkain/pkg/lexer"
 	"karkain/pkg/parser"
 )
@@ -166,34 +167,53 @@ func (h *Handler) publishDiagnostics(uri string) {
 // runDiagnostics is a thin adapter over the canonical CLI diagnostic driver
 // (cli.AnalyzeSource). LSP and `karkain check` now share one front-end
 // pipeline, so editor squiggles and CLI reports can never diverge again.
+// Errors and warnings both publish; LSP severities map from the structured
+// field (error → red, warning → yellow, anything else → info).
 func (h *Handler) runDiagnostics(uri, text string) []Diagnostic {
-	srcDiags, _ := cli.AnalyzeSource("", text, nil)
-	lspDiags := make([]Diagnostic, 0, len(srcDiags))
-	for _, d := range srcDiags {
-		startLine := d.Line - 1
-		if startLine < 0 {
-			startLine = 0
+	errDiags, warnDiags, _ := cli.AnalyzeSource("", text, nil)
+	lspDiags := make([]Diagnostic, 0, len(errDiags)+len(warnDiags))
+	appendDiags := func(diags []diagnostics.Diagnostic, severity int) {
+		for _, d := range diags {
+			startLine := d.Line - 1
+			if startLine < 0 {
+				startLine = 0
+			}
+			startChar := d.Column - 1
+			if startChar < 0 {
+				startChar = 0
+			}
+			endLine := startLine
+			endChar := startChar + 1
+			if d.EndColumn > d.Column {
+				endChar = d.EndColumn - 1
+			}
+			lspDiags = append(lspDiags, Diagnostic{
+				Range: Range{
+					Start: Position{Line: startLine, Character: startChar},
+					End:   Position{Line: endLine, Character: endChar},
+				},
+				Severity: severity,
+				Source:   "karkain",
+				Message:  d.Message,
+			})
 		}
-		startChar := d.Column - 1
-		if startChar < 0 {
-			startChar = 0
-		}
-		endLine := startLine
-		endChar := startChar + 1
-		if d.EndColumn > d.Column {
-			endChar = d.EndColumn - 1
-		}
-		lspDiags = append(lspDiags, Diagnostic{
-			Range: Range{
-				Start: Position{Line: startLine, Character: startChar},
-				End:   Position{Line: endLine, Character: endChar},
-			},
-			Severity: DiagError,
-			Source:   "karkain",
-			Message:  d.Message,
-		})
 	}
+	appendDiags(errDiags, lspDiagSeverity(diagnostics.SeverityError))
+	appendDiags(warnDiags, lspDiagSeverity(diagnostics.SeverityWarning))
 	return lspDiags
+}
+
+// lspDiagSeverity maps a structured diagnostic severity onto the LSP
+// DiagnosticSeverity scale.
+func lspDiagSeverity(s diagnostics.Severity) int {
+	switch s {
+	case diagnostics.SeverityError:
+		return DiagError
+	case diagnostics.SeverityWarning:
+		return DiagWarning
+	default:
+		return DiagInfo
+	}
 }
 
 // ------------------------------------------------------------

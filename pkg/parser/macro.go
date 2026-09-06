@@ -108,6 +108,8 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Align:    n.Align,
 			Escapes:  n.Escapes,
 			Line:     n.Line,
+			Col:      n.Col,
+			EndCol:   n.EndCol,
 		}
 	case *BinaryExpr:
 		return &BinaryExpr{

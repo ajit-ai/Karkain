@@ -220,6 +220,8 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 	line := int(p.curToken.Line)
 	p.nextToken() // consume 'let' or 'var'
 	name := p.curToken.Literal(p.src)
+	nameCol := int(p.curToken.Col)
+	nameEndCol := nameCol + len(name)
 
 	p.nextToken() // consume identifier
 
@@ -318,7 +320,7 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 	// Check if the value is a matrix declaration
 	if p.curToken.Type == lexer.TokenMatrix {
 		matrixDecl := p.parseMatrixDeclInternal()
-		node := &VarDeclStmt{Name: name, Value: matrixDecl, IsMatrix: true}
+		node := &VarDeclStmt{Name: name, Value: matrixDecl, IsMatrix: true, Col: nameCol, EndCol: nameEndCol}
 		setNodeLine(node, line)
 		return node
 	}
@@ -329,7 +331,7 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 		fn := p.arena.AllocFuncDecl(name, lambda.Params, lambda.Body, nil)
 		fn.ParamTypes = lambda.ParamTypes
 		fn.Captures = lambda.Captures // Phase 54: propagate captures to named binding
-		node := &VarDeclStmt{Name: name, Value: fn}
+		node := &VarDeclStmt{Name: name, Value: fn, Col: nameCol, EndCol: nameEndCol}
 		setNodeLine(node, line)
 		return node
 	}
@@ -338,12 +340,12 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 
 	// If we have a type, store it in the variable declaration
 	if typeName != "" {
-		node := &VarDeclStmt{Name: name, Value: val, Type: typeName, IsSIMD: isSIMD, Align: align}
+		node := &VarDeclStmt{Name: name, Value: val, Type: typeName, IsSIMD: isSIMD, Align: align, Col: nameCol, EndCol: nameEndCol}
 		setNodeLine(node, line)
 		return node
 	}
 
-	node := &VarDeclStmt{Name: name, Value: val, Align: align}
+	node := &VarDeclStmt{Name: name, Value: val, Align: align, Col: nameCol, EndCol: nameEndCol}
 	setNodeLine(node, line)
 	return node
 }

@@ -43,6 +43,8 @@ type VarDeclStmt struct {
 	Align    int    // Cache-line alignment attribute (0 = none)
 	Escapes  bool   // Phase 49: true if variable escapes current scope (passed to func, returned, captured by lambda)
 	Line     int
+	Col      int // Phase 83: 0-based byte column of the variable name token
+	EndCol   int // Phase 83: 0-based byte column just past the variable name
 }
 
 type ReturnStmt struct {
