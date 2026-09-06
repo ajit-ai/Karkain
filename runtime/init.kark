@@ -1,0 +1,34 @@
+// Phase 89: Karkain Runtime Initialization
+// Defines the program startup/shutdown contract.
+// The C runtime provides main() which calls karkain_init() -> user_main() -> karkain_fini().
+
+// Runtime initialization — called before user code.
+func karkain_init() {
+    // Runtime: void karkain_init(void)
+    // Initializes the runtime: argument parsing, memory pools,
+    // file handle table, etc.
+    // Called by the C main() entry point.
+}
+
+// Runtime finalization — called after user code.
+func karkain_fini() {
+    // Runtime: void karkain_fini(void)
+    // Cleans up runtime state: closes file handles,
+    // frees remaining allocations, etc.
+    // Called by the C main() exit path.
+}
+
+// The C entry point pattern for generated programs:
+//
+// int main(int argc, char** argv) {
+//     _karkain_gargc = argc;
+//     _karkain_gargv = argv;
+//     karkain_init();
+//     Value result = karkain_user_main();
+//     karkain_fini();
+//     return 0;
+// }
+//
+// The self-hosted compiler's codegen emits this pattern.
+// User functions are prefixed with karkain_user_ to avoid
+// collision with runtime symbols.

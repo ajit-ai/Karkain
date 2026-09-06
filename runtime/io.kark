@@ -1,0 +1,83 @@
+// Phase 89: Karkain Runtime I/O Boundary
+// Defines the file I/O and console operations provided by the runtime.
+// These are the platform-facing I/O primitives.
+
+// Console output
+func print_value(v) {
+    // Runtime: void print_value(Value v)
+    // Polymorphic print to stdout with newline.
+    print(v)
+}
+
+func io_print(v) {
+    // Runtime: printf("%s", v) for strings, format for others
+    print(v)
+}
+
+func io_println(v) {
+    // Runtime: print_value(v) — prints with newline
+    println(v)
+}
+
+// File operations — provided by the runtime.
+func openFile(path) {
+    // Runtime: Value openFile(Value path)
+    // Opens a file for reading. Returns a handle (string path).
+    return readFile(path)
+}
+
+func readLine(handle) {
+    // Runtime: Value readLine(Value handle)
+    // Reads one line from an open file handle.
+    return ""
+}
+
+func readLineEOF(handle) {
+    // Runtime: Value readLineEOF(Value handle)
+    // Reads one line, returns [line, isEOF] array.
+    // Distinguishes empty line from end-of-file.
+    return ["", true]
+}
+
+func closeFile(handle) {
+    // Runtime: Value closeFile(Value handle)
+    // Closes an open file handle.
+    return 1
+}
+
+func createFile(path) {
+    // Runtime: Value createFile(Value path)
+    // Creates/truncates a file for writing. Returns handle.
+    return writeFile(path, "")
+}
+
+func writeToFile(handle, content) {
+    // Runtime: Value writeToFile(Value handle, Value content)
+    // Writes content to a file handle.
+    return writeFile(handle, content)
+}
+
+func karkain_readFile(path) {
+    // Runtime: Value karkain_readFile(Value path)
+    // Reads entire file contents to string.
+    return readFile(path)
+}
+
+func karkain_writeFile(path, content) {
+    // Runtime: Value karkain_writeFile(Value path, Value content)
+    // Writes string content to file.
+    return writeFile(path, content)
+}
+
+func removeFile(path) {
+    // Runtime: Value removeFile(Value path)
+    // Deletes a file. Returns 1 on success, 0 on failure.
+    // Implementation: C runtime calls POSIX remove() or Win32 DeleteFile().
+    return 1
+}
+
+func karkain_listFiles(dir) {
+    // Runtime: Value karkain_listFiles(Value dir)
+    // Lists directory entries (excluding . and ..).
+    return listFiles(dir)
+}

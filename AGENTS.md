@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-88** — Phases 50–88 complete.
+Current phase: **post-89** — Phases 50–89 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
@@ -45,7 +45,13 @@ real-time `didChange` diagnostics sync; conservative undefined-identifier
 resolution; array-return semantics; conformance corpus 48→59 tests in 11 files
 + `namespace` probe golden (12 total); docs under
 `docs/audit/PHASE-83-FINAL-REPORT.md`).
-Last completed: **88** — Self-Hosted Compiler Foundation
+Last completed: **89** — Self-Hosted Runtime & Toolchain
+(Karkain-owned runtime boundary with Value type system, container ops,
+I/O primitives, platform abstraction, initialization contract;
+runtime/ directory with 5 boundary docs; acceptance test proving
+self-hosted compiler → C23 → gcc → native executable pipeline;
+12 focused Go tests; `docs/runtime.md`; `docs/self-hosted-compiler.md`).
+Prior completed: **88** — Self-Hosted Compiler Foundation
 (self-hosted Karkain compiler compiles via bootstrap: src/compiler/*.kark
 → C23 → native executable; lexer/parser/AST/sema/codegen in Karkain;
 7 representative test programs; 8 focused Go tests; build script;

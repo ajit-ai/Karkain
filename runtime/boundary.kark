@@ -1,0 +1,60 @@
+// Phase 89: Karkain Runtime Boundary
+// This file documents the complete runtime ownership model.
+//
+// RUNTIME ARCHITECTURE:
+//
+// Karkain language
+//     |
+// Karkain standard library (stdlib/)
+//     |  — Owned by: language designers
+//     |  — Written in: .kark
+//     |  — Imports: libc via import "C" { }
+//     |  — Examples: core, string, collections, math, io, system
+//     |
+// Karkain runtime API (runtime/)
+//     |  — Owned by: runtime team
+//     |  — Written in: .kark (contract) + C (implementation)
+//     |  — Provides: Value type system, container ops, I/O, platform
+//     |  — Boundary: clear ownership, not duplicated
+//     |
+// Platform abstraction
+//     |  — Owned by: platform team
+//     |  — Written in: C (OS-specific)
+//     |  — Provides: file I/O, process control, memory management
+//     |  — Examples: POSIX, Windows, WASI
+//     |
+// Operating system / native platform
+//     — Not owned by Karkain
+//     — Provided by: kernel + C library
+//
+//
+// FUNCTION OWNERSHIP MODEL:
+//
+// Category            | Prefix       | Implementation    | Example
+// --------------------|--------------|-------------------|--------
+// Language primitive  | (none)       | compiler intrinsic| len(), print()
+// Compiler builtin    | (none)       | codegen emits C   | str(), int()
+// Standard library    | module.name  | .kark + libc FFI  | math.sqrt()
+// Runtime API         | karkain_     | C runtime         | karkain_readFile()
+// Platform API        | (varies)     | OS-specific C     | open(), read()
+//
+//
+// NAMESPACE RULES:
+//
+// 1. User functions: karkain_user_<name> (C namespace)
+// 2. Runtime functions: karkain_<name> (C namespace)
+// 3. Built-in functions: (no prefix, resolved by codegen)
+// 4. Standard library: <module>.<name> (Karkain namespace)
+//
+//
+// WHAT IS NOT SELF-HOSTED:
+//
+// - Operating system calls (POSIX/Win32/WASI)
+// - C standard library (libc)
+// - GMP arbitrary precision (libgmp)
+// - GCC/Clang compilation
+// - Linker and loader
+// - Process management
+//
+// These remain platform implementations. Karkain owns the
+// language and runtime interfaces, not the OS facilities.

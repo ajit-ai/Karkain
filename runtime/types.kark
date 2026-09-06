@@ -1,0 +1,121 @@
+// Phase 89: Karkain Runtime Type System
+// Defines the Value representation used by all generated programs.
+// This is the canonical runtime type contract — not a reimplementation.
+
+// ValueType enum — the runtime tag for every Karkain value.
+// Matches the C ValueType enum in the generated runtime.
+func TYPE_INT() { return 0 }
+func TYPE_FLOAT64() { return 1 }
+func TYPE_STRING() { return 2 }
+func TYPE_ARRAY() { return 3 }
+func TYPE_MAP() { return 4 }
+func TYPE_BOOL() { return 5 }
+func TYPE_BIGINT() { return 6 }
+func TYPE_BIGFLOAT() { return 7 }
+func TYPE_OPTION() { return 8 }
+func TYPE_RESULT() { return 9 }
+
+// Value constructors — each returns a heap-allocated Value.
+// The runtime provides these as built-in operations.
+// This file documents the contract; actual implementation is in the C runtime.
+
+func make_int(v) {
+    // Runtime: Value make_int(long long v)
+    // Returns a stack-allocated Value with type=TYPE_INT.
+    return v
+}
+
+func make_float(v) {
+    // Runtime: Value make_float(double v)
+    return v
+}
+
+func make_bool(v) {
+    // Runtime: Value make_bool(int v)
+    return v
+}
+
+func make_string(s) {
+    // Runtime: Value make_string(const char* s)
+    // Returns a heap-backed string Value.
+    return s
+}
+
+func make_array() {
+    // Runtime: Value make_array(void)
+    // Returns an empty array Value.
+    return []
+}
+
+func make_map() {
+    // Runtime: Value make_map(void)
+    // Returns an empty map Value.
+    return {}
+}
+
+// Container operations — provided by the runtime.
+func array_push(arr, elem) {
+    // Runtime: void array_push(Value* arr, Value elem)
+    // Appends elem to arr. Mutates arr in place.
+    return push(arr, elem)
+}
+
+func array_get(arr, idx) {
+    // Runtime: Value array_get(Value arr, Value idx)
+    return arr[idx]
+}
+
+func map_set(m, key, val) {
+    // Runtime: void map_set(Value* m, Value key, Value val)
+    m[key] = val
+}
+
+func map_get(m, key) {
+    // Runtime: Value map_get(Value m, Value key)
+    return m[key]
+}
+
+// Type operations
+func values_equal(a, b) {
+    // Runtime: int values_equal(Value a, Value b)
+    // Deep structural equality.
+    return a == b
+}
+
+func is_truthy(v) {
+    // Runtime: int is_truthy(Value* v)
+    // Returns 1 if v is truthy, 0 otherwise.
+    if (v == 0) { return 0 }
+    if (v == "") { return 0 }
+    return 1
+}
+
+// String operations
+func karkain_len(v) {
+    // Runtime: Value karkain_len(Value v)
+    // Polymorphic length: string, array, map.
+    return len(v)
+}
+
+func karkain_substr(str, start, length) {
+    // Runtime: Value karkain_substr(Value str, Value start, Value length)
+    return substr(str, start, length)
+}
+
+// Arithmetic
+func binary_op(a, op, b) {
+    // Runtime: Value binary_op(Value a, const char* op, Value b)
+    // Full operator dispatch for +, -, *, /, %, ==, !=, <, >, <=, >=, &&, ||.
+    if (op == "+") { return a + b }
+    if (op == "-") { return a - b }
+    if (op == "*") { return a * b }
+    if (op == "/") { return a / b }
+    if (op == "%") { return a % b }
+    if (op == "==") { return a == b }
+    if (op == "!=") { return a != b }
+    if (op == "<") { return a < b }
+    if (op == ">") { return a > b }
+    if (op == "<=") { return a <= b }
+    if (op == ">=") { return a >= b }
+    return 0
+}
