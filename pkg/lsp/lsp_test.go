@@ -716,3 +716,49 @@ func compute(a i32) {
 		}
 	}
 }
+
+// ============================================================
+// TestLSP_WarningsUseWarningSeverity (Phase 83)
+// Resolve-clean programs can still carry warnings (unused variables); those
+// must publish at LSP warning severity, not error, with the true span.
+// ============================================================
+
+func TestLSP_WarningsUseWarningSeverity(t *testing.T) {
+	tc := newTestClient()
+	tc.sendRequest(1, MethodInitialize, InitializeParams{
+		RootURI: "file:///workspace",
+		Capabilities: ClientCapabilities{
+			TextDocument: &TextDocumentClientCapabilities{},
+		},
+	})
+	tc.sendNotification(MethodInitialized, map[string]interface{}{})
+
+	src := "func main() {\n  let count = 10\n  println(\"hi\")\n}\n"
+	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{
+			URI:        "file:///workspace/warn.kark",
+			LanguageID: "karkain",
+			Version:    1,
+			Text:       src,
+		},
+	})
+
+	diags := tc.server.diagnostics["file:///workspace/warn.kark"]
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 warning diagnostic, got %d (%v)", len(diags), diags)
+	}
+	d := diags[0]
+	if d.Severity != DiagWarning {
+		t.Errorf("expected warning severity, got %v", d.Severity)
+	}
+	// `count` is on line 2 at byte 6, spanning 6..11 (0-based).
+	if d.Range.Start.Line != 1 || d.Range.Start.Character != 6 {
+		t.Errorf("warning range start wrong: %+v", d.Range.Start)
+	}
+	if d.Range.End.Line != 1 || d.Range.End.Character != 11 {
+		t.Errorf("warning range end wrong: %+v", d.Range.End)
+	}
+	if !strings.Contains(d.Message, "unused variable `count`") {
+		t.Errorf("expected unused-variable message, got: %s", d.Message)
+	}
+}

@@ -49,22 +49,28 @@ func collectResolveDiagnostics(targetFile string, src string, resolveErrs []sema
 
 // AnalyzeSource is the canonical front-end diagnostic pass shared by the CLI
 // (`karkain check`) and the LSP. It runs lex+parse, macro expansion, whole-
-// program name resolution and the kernel analyzer over an already-assembled
-// source unit, returning the first failing stage's structured diagnostics
-// (identical stage ordering and short-circuit semantics as the CLI).
+// program name resolution, the kernel analyzer and the Phase 83 warning
+// pass over an already-assembled source unit, returning the first failing
+// stage's structured error diagnostics, the collected warnings, and the
+// statement count.
+//
+// Errors short-circuit (identical stage ordering to the CLI); warnings are
+// computed only once the program resolves, never terminate compilation, and
+// use the same Diagnostic model so the human report, the JSON wire format and
+// IDE severity mapping all share one shape.
 //
 // It performs no file I/O and never prints. “file“ is stamped into each
 // diagnostic for the CLI wire format; the LSP passes "" because it attaches
 // the document URI separately at publish time. Passing a nil SourceMap keeps
 // cross-file visibility enforcement off (single-document units).
-func AnalyzeSource(file string, src string, srcMap sema.SourceMap) ([]diagnostics.Diagnostic, int) {
+func AnalyzeSource(file string, src string, srcMap sema.SourceMap) (diags []diagnostics.Diagnostic, warns []diagnostics.Diagnostic, stmts int) {
 	l := lexer.New(src)
 	p := parser.New(l)
 	prog := p.ParseProgram()
 
 	// Stage 1: syntax.
 	if len(p.Errors) > 0 {
-		return collectSyntaxDiagnostics(file, p, src), 0
+		return collectSyntaxDiagnostics(file, p, src), nil, 0
 	}
 
 	// Whole-program name resolution (Phase 81 fix: macro expansion runs
@@ -72,20 +78,45 @@ func AnalyzeSource(file string, src string, srcMap sema.SourceMap) ([]diagnostic
 	prog = parser.ApplyMacroExpansion(prog)
 	resolver := sema.NewResolver(prog, srcMap)
 	if resolveErrs := resolver.Resolve(); len(resolveErrs) > 0 {
-		return collectResolveDiagnostics(file, src, resolveErrs), 0
+		return collectResolveDiagnostics(file, src, resolveErrs), nil, 0
 	}
 
 	// Kernel analyzer stage.
 	analyzer := sema.NewKernelAnalyzer()
-	var diags []diagnostics.Diagnostic
+	var kernelDiags []diagnostics.Diagnostic
 	for _, stmt := range prog.Statements {
 		if kernel, ok := stmt.(*parser.KernelDeclStmt); ok {
 			for _, ke := range analyzer.AnalyzeKernel(kernel) {
-				diags = append(diags, diagnostics.ErrorDiagnostic(file, 1, 1, diagnostics.CodeSema, ke.Error()))
+				kernelDiags = append(kernelDiags, diagnostics.ErrorDiagnostic(file, 1, 1, diagnostics.CodeSema, ke.Error()))
 			}
 		}
 	}
-	return diags, len(prog.Statements)
+	if len(kernelDiags) > 0 {
+		return kernelDiags, nil, len(prog.Statements)
+	}
+
+	// Warning pass: only runs for programs that survived resolution, so a
+	// missing name can never cascade into bogus unused-variable findings.
+	return nil, collectUnusedWarnings(file, src, sema.UnusedVars(prog)), len(prog.Statements)
+}
+
+// collectUnusedWarnings converts sema name-warnings into structured
+// diagnostics with true 1-based columns and spans.
+func collectUnusedWarnings(file string, src string, warns []sema.Warning) []diagnostics.Diagnostic {
+	diags := make([]diagnostics.Diagnostic, 0, len(warns))
+	for _, w := range warns {
+		col := 1
+		if w.Col > 0 {
+			col = w.Col + 1
+		}
+		d := diagnostics.WarningDiagnostic(file, w.Line, col, diagnostics.CodeWarnUnused, w.Msg)
+		if w.EndCol > w.Col {
+			d.EndColumn = w.EndCol + 1
+		}
+		d.Excerpt = source.Excerpt(src, w.Line, 80)
+		diags = append(diags, d)
+	}
+	return diags
 }
 
 // checkStageFor derives the failing stage from a diagnostic set produced by

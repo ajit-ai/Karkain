@@ -43,15 +43,25 @@ func CheckCommandFormatted(targetFile string, verbose bool, format string) Comma
 	}
 
 	src := sourceText
-	diags, stmts := AnalyzeSource(targetFile, src, srcMap)
-	if len(diags) > 0 {
-		stage := checkStageFor(diags)
+	errDiags, warnDiags, stmts := AnalyzeSource(targetFile, src, srcMap)
+	if len(errDiags) > 0 {
+		stage := checkStageFor(errDiags)
 		if format == CheckFormatJSON {
-			emitJSONDiagnostics(diags)
+			emitJSONDiagnostics(errDiags)
 			return CommandResult{ExitCode: ExitCompile, Message: ""}
 		}
-		renderDiagnostics(src, targetFile, diags)
-		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(stage, len(diags))}
+		renderDiagnostics(src, errDiags)
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(stage, len(errDiags))}
+	}
+
+	// Warnings never terminate compilation: render them (if any) and continue
+	// to a successful result. JSON consumers receive the warning array.
+	if len(warnDiags) > 0 {
+		if format == CheckFormatJSON {
+			emitJSONDiagnostics(warnDiags)
+			return CommandResult{ExitCode: ExitSuccess, Message: ""}
+		}
+		renderDiagnostics(src, warnDiags)
 	}
 
 	if verbose {
@@ -59,6 +69,9 @@ func CheckCommandFormatted(targetFile string, verbose bool, format string) Comma
 	}
 	if format == CheckFormatJSON {
 		return CommandResult{ExitCode: ExitSuccess, Message: ""}
+	}
+	if len(warnDiags) > 0 {
+		return CommandResult{ExitCode: ExitSuccess, Message: fmt.Sprintf("Check passed with %d warning(s).", len(warnDiags))}
 	}
 	return CommandResult{ExitCode: ExitSuccess, Message: "Check passed."}
 }
@@ -73,10 +86,9 @@ func emitJSONDiagnostics(diags []diagnostics.Diagnostic) {
 	fmt.Println(string(out))
 }
 
-// renderDiagnostics prints diagnostics in the existing human form.
-func renderDiagnostics(src, targetFile string, diags []diagnostics.Diagnostic) {
-	reporter := diagnostics.NewReporter(src, targetFile)
-	for _, d := range diags {
-		fmt.Fprint(os.Stderr, reporter.Report(diagnostics.SeverityError, d.Line, d.Column, d.Message))
-	}
+// renderDiagnostics prints diagnostics in the Phase 83 human report form
+// (error[E-K-*]:/warning[W-K-*]: headers, source frame, caret underline, help
+// and notes). One renderer serves errors and warnings alike.
+func renderDiagnostics(src string, diags []diagnostics.Diagnostic) {
+	fmt.Fprint(os.Stderr, diagnostics.FormatDiagnostics(diags, src))
 }

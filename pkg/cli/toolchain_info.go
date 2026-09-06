@@ -77,7 +77,7 @@ func ToolchainInfoCommand() CommandResult {
 	info.Toolchain.LSP = []string{"karkain", "lsp"}
 	info.Diagnostics.Format = "json"
 	info.Diagnostics.Schema = "karkain-diagnostics-v1"
-	info.Diagnostics.Code = "E-K-*"
+	info.Diagnostics.Code = "E-K-*/W-K-*"
 	info.ExitCodes.Success = ExitSuccess
 	info.ExitCodes.Failure = ExitFailure
 	info.ExitCodes.Usage = ExitUsage
