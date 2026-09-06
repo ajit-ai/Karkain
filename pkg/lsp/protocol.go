@@ -78,6 +78,7 @@ type ServerCapabilities struct {
 	HoverProvider              bool                      `json:"hoverProvider,omitempty"`
 	DefinitionProvider         bool                      `json:"definitionProvider,omitempty"`
 	DocumentSymbolProvider     bool                      `json:"documentSymbolProvider,omitempty"`
+	FormattingProvider         bool                      `json:"formattingProvider,omitempty"`
 	DiagnosticProvider         interface{}               `json:"diagnosticProvider,omitempty"`
 }
 
@@ -395,5 +396,6 @@ const (
 	MethodTextDocumentHover        = "textDocument/hover"
 	MethodTextDocumentDefinition   = "textDocument/definition"
 	MethodTextDocumentDocumentSym  = "textDocument/documentSymbol"
+	MethodTextDocumentFormatting   = "textDocument/formatting"
 	MethodTextDocumentPublishDiag  = "textDocument/publishDiagnostics"
 )

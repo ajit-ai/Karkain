@@ -52,6 +52,7 @@ func (h *Handler) HandleInitialize(params json.RawMessage) (interface{}, *JSONRP
 			HoverProvider:          true,
 			DefinitionProvider:     true,
 			DocumentSymbolProvider: true,
+			FormattingProvider:     true,
 		},
 		ServerInfo: ServerInfo{
 			Name:    "karkain-lsp",
@@ -72,6 +73,8 @@ func (h *Handler) HandleRequest(method string, params json.RawMessage) (interfac
 		return h.handleDefinition(params)
 	case MethodTextDocumentDocumentSym:
 		return h.handleDocumentSymbol(params)
+	case MethodTextDocumentFormatting:
+		return h.handleFormatting(params)
 	default:
 		return nil, &JSONRPCError{Code: ErrMethodNotFound, Message: "method not found: " + method}
 	}
@@ -845,4 +848,59 @@ func formatCoroutineDecl(c *parser.CoroutineDecl) string {
 		params = append(params, fmt.Sprintf("%s: %s", p.Name, p.Type))
 	}
 	return fmt.Sprintf("%s %s(%s)", prefix, c.Name, strings.Join(params, ", "))
+}
+
+// ------------------------------------------------------------
+// Formatting
+// ------------------------------------------------------------
+
+// DocumentFormattingParams represents the parameters for textDocument/formatting
+type DocumentFormattingParams struct {
+	TextDocument struct {
+		URI string `json:"uri"`
+	} `json:"textDocument"`
+	Options struct {
+		TabSize    int  `json:"tabSize"`
+		InsertSpaces bool `json:"insertSpaces"`
+	} `json:"options"`
+}
+
+// handleFormatting processes textDocument/formatting requests
+func (h *Handler) handleFormatting(params json.RawMessage) (interface{}, *JSONRPCError) {
+	var p DocumentFormattingParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &JSONRPCError{Code: ErrInvalidParams, Message: "invalid params"}
+	}
+
+	doc := h.server.GetDocument(p.TextDocument.URI)
+	if doc == nil {
+		return nil, &JSONRPCError{Code: ErrInvalidParams, Message: "document not found"}
+	}
+
+	formatted, danger, err := cli.Canonicalize(doc.Text)
+	if err != nil {
+		return nil, &JSONRPCError{Code: ErrInternalError, Message: fmt.Sprintf("formatting error: %v", err)}
+	}
+
+	if danger || formatted == doc.Text {
+		return []TextEdit{}, nil
+	}
+
+	// Return a single edit that replaces the entire document
+	lines := strings.Split(doc.Text, "\n")
+	lastLine := len(lines) - 1
+	lastChar := 0
+	if len(lines) > 0 {
+		lastChar = len(lines[len(lines)-1])
+	}
+
+	edit := TextEdit{
+		Range: Range{
+			Start: Position{Line: 0, Character: 0},
+			End:   Position{Line: lastLine, Character: lastChar},
+		},
+		NewText: formatted,
+	}
+
+	return []TextEdit{edit}, nil
 }

@@ -17,9 +17,9 @@ func TestFormatCommand_IdempotentAndSemanticsPreserving(t *testing.T) {
 	src := "func  add( a,b ){\n    return   a+b\n}\nfunc main(){\n   let x=add(1 , 2)\n   print(x)  \n}\n"
 	wantCanonical := "func add(a, b) {\n    return a + b\n}\nfunc main() {\n   let x = add(1, 2)\n   print(x)\n}\n"
 
-	formatted, danger, err := canonicalize(src)
+	formatted, danger, err := Canonicalize(src)
 	if err != nil {
-		t.Fatalf("canonicalize: %v", err)
+		t.Fatalf("Canonicalize: %v", err)
 	}
 	if danger {
 		t.Fatal("unexpected multi-line-literal guard triggered")
@@ -28,10 +28,10 @@ func TestFormatCommand_IdempotentAndSemanticsPreserving(t *testing.T) {
 		t.Errorf("canonical mismatch:\n got: %q\nwant: %q", formatted, wantCanonical)
 	}
 
-	// Idempotency: applying canonicalize again must not change the output.
-	second, _, err := canonicalize(formatted)
+	// Idempotency: applying Canonicalize again must not change the output.
+	second, _, err := Canonicalize(formatted)
 	if err != nil {
-		t.Fatalf("canonicalize(2): %v", err)
+		t.Fatalf("Canonicalize(2): %v", err)
 	}
 	if second != formatted {
 		t.Errorf("formatter is not idempotent:\n got: %q\nwant: %q", second, formatted)
@@ -42,9 +42,9 @@ func TestFormatCommand_IdempotentAndSemanticsPreserving(t *testing.T) {
 // sequence inside a string literal) survives formatting byte-for-byte.
 func TestFormatCommand_PreservesComments(t *testing.T) {
 	src := "func main() {\n    let url = \"https://example.com/x?y=1\"   // keep me  \n    // standalone  \n}\n"
-	formatted, danger, err := canonicalize(src)
+	formatted, danger, err := Canonicalize(src)
 	if err != nil {
-		t.Fatalf("canonicalize: %v", err)
+		t.Fatalf("Canonicalize: %v", err)
 	}
 	if danger {
 		t.Fatal("unexpected multi-line-literal guard triggered")
@@ -74,7 +74,7 @@ func TestFormatCommand_WriteAndCheck(t *testing.T) {
 	}
 	got, _ := os.ReadFile(file)
 	if strings.Contains(string(got), "print(1)   }") {
-		t.Errorf("file was not canonicalized: %q", string(got))
+		t.Errorf("file was not Canonicalized: %q", string(got))
 	}
 
 	res = FormatCommand(file, true)
@@ -114,9 +114,9 @@ func TestFormatCommand_SemanticsPreservedThroughRun(t *testing.T) {
 		`   greet( "Kadane's  max" )` + "\n" +
 		`}` + "\n"
 
-	formatted, danger, err := canonicalize(src)
+	formatted, danger, err := Canonicalize(src)
 	if err != nil {
-		t.Fatalf("canonicalize: %v", err)
+		t.Fatalf("Canonicalize: %v", err)
 	}
 	if danger {
 		t.Fatal("unexpected multi-line guard")
@@ -146,15 +146,15 @@ func TestFormatCommand_UsableOnWholeCorpus(t *testing.T) {
 			files = append(files, filesRoot...)
 		}
 		for _, f := range files {
-			formatted, danger, err := canonicalize(readFileForTest(t, f))
+			formatted, danger, err := Canonicalize(readFileForTest(t, f))
 			if err != nil {
-				t.Errorf("%s: canonicalize error: %v", f, err)
+				t.Errorf("%s: Canonicalize error: %v", f, err)
 				continue
 			}
 			if danger {
 				continue
 			}
-			again, _, err := canonicalize(formatted)
+			again, _, err := Canonicalize(formatted)
 			if err != nil {
 				t.Errorf("%s: idempotency error: %v", f, err)
 				continue

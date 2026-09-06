@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"karkain/pkg/lexer"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -13,13 +14,84 @@ import (
 // (for CI). It returns ExitSuccess when the file is (or becomes) canonical,
 // and ExitFailure when `--check` finds that formatting is required.
 //
+// When path is a directory, all *.kark files in the directory are formatted
+// recursively. The directory mode returns ExitSuccess only if all files
+// were already formatted (or successfully formatted).
+//
 // The formatter is intentionally conservative (contract-level, not a
 // sophisticated AST pretty-printer): it preserves token text and order, line
 // structure, leading indentation, blank lines and comments, and only
 // canonicalizes inter-token spacing, trailing whitespace and line endings.
 // Because tokens are never re-ordered or re-spelled, formatting cannot change
 // semantics, and it is idempotent by construction.
-func FormatCommand(file string, checkOnly bool) CommandResult {
+func FormatCommand(path string, checkOnly bool) CommandResult {
+	info, err := os.Stat(path)
+	if err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error: %v", err)}
+	}
+
+	if info.IsDir() {
+		return formatDirectory(path, checkOnly)
+	}
+
+	return formatSingleFile(path, checkOnly)
+}
+
+// formatDirectory formats all *.kark files in a directory recursively.
+func formatDirectory(dir string, checkOnly bool) CommandResult {
+	var unformatted []string
+	var formatErrors []string
+
+	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if fi.IsDir() {
+			return nil
+		}
+		if filepath.Ext(path) != ".kark" {
+			return nil
+		}
+		result := formatSingleFile(path, checkOnly)
+		if result.ExitCode == ExitFailure {
+			if strings.Contains(result.Message, "not formatted") {
+				unformatted = append(unformatted, path)
+			} else {
+				formatErrors = append(formatErrors, fmt.Sprintf("%s: %s", path, result.Message))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error walking directory: %v", err)}
+	}
+
+	if len(formatErrors) > 0 {
+		return CommandResult{
+			ExitCode: ExitFailure,
+			Message:  fmt.Sprintf("Errors formatting %d file(s):\n%s", len(formatErrors), strings.Join(formatErrors, "\n")),
+		}
+	}
+
+	if checkOnly && len(unformatted) > 0 {
+		return CommandResult{
+			ExitCode: ExitFailure,
+			Message:  fmt.Sprintf("%d file(s) need formatting:\n%s", len(unformatted), strings.Join(unformatted, "\n")),
+		}
+	}
+
+	if len(unformatted) > 0 {
+		return CommandResult{
+			ExitCode: ExitSuccess,
+			Message:  fmt.Sprintf("Formatted %d file(s).", len(unformatted)),
+		}
+	}
+
+	return CommandResult{ExitCode: ExitSuccess, Message: "All files already formatted."}
+}
+
+// formatSingleFile formats a single .kark file.
+func formatSingleFile(file string, checkOnly bool) CommandResult {
 	if err := ValidateKarFile(file); err != nil {
 		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
@@ -29,15 +101,12 @@ func FormatCommand(file string, checkOnly bool) CommandResult {
 		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Error reading file: %v", err)}
 	}
 
-	formatted, danger, err := canonicalize(string(srcBytes))
+	formatted, danger, err := Canonicalize(string(srcBytes))
 	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
 
 	if danger {
-		// A token literal spans multiple lines (e.g. a multi-line string);
-		// token-stream reshaping could corrupt it, so the file is left
-		// untouched and reported as canonical to stay idempotent.
 		return CommandResult{ExitCode: ExitSuccess, Message: "no formatting needed (line-preserving mode)"}
 	}
 
@@ -55,10 +124,10 @@ func FormatCommand(file string, checkOnly bool) CommandResult {
 	return CommandResult{ExitCode: ExitSuccess, Message: "formatted."}
 }
 
-// canonicalize produces the canonical form of a source text. It returns
+// Canonicalize produces the canonical form of a source text. It returns
 // danger=true when any token literal contains a newline (multi-line literals),
 // in which case the caller must leave the source untouched.
-func canonicalize(src string) (string, bool, error) {
+func Canonicalize(src string) (string, bool, error) {
 	// Normalize line endings first so positions stay aligned afterwards.
 	normalized := strings.ReplaceAll(src, "\r\n", "\n")
 

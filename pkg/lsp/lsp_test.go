@@ -762,3 +762,115 @@ func TestLSP_WarningsUseWarningSeverity(t *testing.T) {
 		t.Errorf("expected unused-variable message, got: %s", d.Message)
 	}
 }
+
+func TestLSP_Formatting(t *testing.T) {
+	tc := newTestClient()
+	tc.sendRequest(1, MethodInitialize, InitializeParams{
+		RootURI: "file:///workspace",
+		Capabilities: ClientCapabilities{
+			TextDocument: &TextDocumentClientCapabilities{},
+		},
+	})
+	tc.sendNotification(MethodInitialized, map[string]interface{}{})
+
+	// Open an unformatted document
+	src := "func  add( a,b ){\n  return   a+b\n}\n"
+	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{
+			URI:        "file:///workspace/format.kark",
+			LanguageID: "karkain",
+			Version:    1,
+			Text:       src,
+		},
+	})
+
+	// Request formatting
+	resp := tc.sendRequest(2, MethodTextDocumentFormatting, DocumentFormattingParams{
+		TextDocument: struct {
+			URI string `json:"uri"`
+		}{URI: "file:///workspace/format.kark"},
+	})
+
+	if resp.Error != nil {
+		t.Fatalf("formatting request failed: %v", resp.Error.Message)
+	}
+
+	// Result is []TextEdit marshaled as []interface{}
+	editsRaw, ok := resp.Result.([]interface{})
+	if !ok {
+		t.Fatalf("expected array result, got %T: %v", resp.Result, resp.Result)
+	}
+	if len(editsRaw) != 1 {
+		t.Fatalf("expected 1 edit, got %d", len(editsRaw))
+	}
+
+	// Re-marshal and unmarshal to get TextEdit
+	editBytes, _ := json.Marshal(editsRaw[0])
+	var edit TextEdit
+	if err := json.Unmarshal(editBytes, &edit); err != nil {
+		t.Fatalf("failed to unmarshal edit: %v", err)
+	}
+
+	// Verify the edit replaces the entire document
+	if edit.Range.Start.Line != 0 || edit.Range.Start.Character != 0 {
+		t.Errorf("edit start wrong: %+v", edit.Range.Start)
+	}
+
+	// Verify the formatted text is canonical
+	formatted := edit.NewText
+	if formatted == src {
+		t.Error("expected formatting to change source")
+	}
+	// Verify no double spaces between tokens
+	for i := 0; i < len(formatted)-1; i++ {
+		if formatted[i] == ' ' && formatted[i+1] == ' ' {
+			// Skip indentation (leading spaces at start of line)
+			if i > 0 && formatted[i-1] != '\n' {
+				t.Error("formatted text still has double spaces between tokens")
+				break
+			}
+		}
+	}
+}
+
+func TestLSP_Formatting_AlreadyFormatted(t *testing.T) {
+	tc := newTestClient()
+	tc.sendRequest(1, MethodInitialize, InitializeParams{
+		RootURI: "file:///workspace",
+		Capabilities: ClientCapabilities{
+			TextDocument: &TextDocumentClientCapabilities{},
+		},
+	})
+	tc.sendNotification(MethodInitialized, map[string]interface{}{})
+
+	// Open a properly formatted document
+	src := "func add(a, b) {\n    return a + b\n}\n"
+	tc.sendNotification(MethodTextDocumentDidOpen, DidOpenTextDocumentParams{
+		TextDocument: TextDocumentItem{
+			URI:        "file:///workspace/formatted.kark",
+			LanguageID: "karkain",
+			Version:    1,
+			Text:       src,
+		},
+	})
+
+	// Request formatting
+	resp := tc.sendRequest(2, MethodTextDocumentFormatting, DocumentFormattingParams{
+		TextDocument: struct {
+			URI string `json:"uri"`
+		}{URI: "file:///workspace/formatted.kark"},
+	})
+
+	if resp.Error != nil {
+		t.Fatalf("formatting request failed: %v", resp.Error.Message)
+	}
+
+	// Result should be an empty array
+	editsRaw, ok := resp.Result.([]interface{})
+	if !ok {
+		t.Fatalf("expected array result, got %T: %v", resp.Result, resp.Result)
+	}
+	if len(editsRaw) != 0 {
+		t.Errorf("expected 0 edits for already-formatted document, got %d", len(editsRaw))
+	}
+}

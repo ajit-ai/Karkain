@@ -13,6 +13,7 @@ const (
 	ExitTest    = 4 // test failure
 	ExitPackage = 5 // package/dependency failure
 	ExitEnv     = 6 // infrastructure/toolchain failure (e.g. no usable C compiler)
+	ExitLint    = 7 // lint-specific failure (warnings treated as errors)
 )
 
 // validTargets is the closed set of targets the Go toolchain can actually

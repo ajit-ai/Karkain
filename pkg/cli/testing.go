@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const defaultTestTimeout = 30 * time.Second
+
 // discoverTestCases extracts Karkain-native test declarations from a parsed
 // program and returns them in deterministic (name-sorted) order. KTF-001
 // recognizes the `test_`-prefixed function convention as the native test
@@ -75,6 +77,7 @@ func testFileOwnScope(prog *parser.Program) []parser.Node {
 
 // runSingleTest compiles and executes a single test function (with the shared
 // module scope), capturing its output, duration and any assertion failure.
+// A test that exceeds the timeout is terminated with a timeout failure.
 func runSingleTest(fn *parser.FuncDecl, ownStmts, moduleStmts []parser.Node, tc testing.TestCase, cfg codegen.Config) testing.TestResult {
 	res := testing.TestResult{ID: tc.ID, Name: tc.Name, Status: testing.StatusFail}
 	if fn == nil {
@@ -115,24 +118,40 @@ func runSingleTest(fn *parser.FuncDecl, ownStmts, moduleStmts []parser.Node, tc 
 	tmpCFile := tc.File + ".test.c"
 	defer os.Remove(tmpCFile)
 
-	start := time.Now()
-	cg := codegen.New(testCfg)
-	err := cg.GenerateAndCompile(miniProg, tmpCFile)
-	res.Duration = time.Since(start)
-	res.Stdout = stdout.String()
-	res.Stderr = stderr.String()
+	type testExecResult struct {
+		err error
+	}
+	ch := make(chan testExecResult, 1)
 
-	if err != nil {
-		if f := testing.ParseAssertionFailure(res.Stderr); f != nil {
-			res.Failure = f
-		} else {
-			res.Failure = &testing.Failure{Message: err.Error()}
+	start := time.Now()
+	go func() {
+		cg := codegen.New(testCfg)
+		err := cg.GenerateAndCompile(miniProg, tmpCFile)
+		ch <- testExecResult{err: err}
+	}()
+
+	select {
+	case result := <-ch:
+		res.Duration = time.Since(start)
+		res.Stdout = stdout.String()
+		res.Stderr = stderr.String()
+
+		if result.err != nil {
+			if f := testing.ParseAssertionFailure(res.Stderr); f != nil {
+				res.Failure = f
+			} else {
+				res.Failure = &testing.Failure{Message: result.err.Error()}
+			}
+			return res
 		}
+		res.Status = testing.StatusPass
+		return res
+
+	case <-time.After(defaultTestTimeout):
+		res.Duration = defaultTestTimeout
+		res.Failure = &testing.Failure{Message: fmt.Sprintf("test timed out after %s", defaultTestTimeout)}
 		return res
 	}
-
-	res.Status = testing.StatusPass
-	return res
 }
 
 // runTestsInFile discovers, filters and runs the tests declared in a single
