@@ -341,3 +341,105 @@ func TestModulesNamedDirs(t *testing.T) {
 		t.Errorf("dependency util.kark must precede main.kark, got indices util=%d main=%d files=%v", utilIdx, mainIdx, files)
 	}
 }
+
+func TestStdlibCoreImport(t *testing.T) {
+	f := newFixture(t)
+	// Create a stdlib/core/core.kark in the fixture
+	f.write("stdlib/core/core.kark", "func clamp(val int, lo int, hi int) int { return val }")
+	// Create a main file that imports std.core
+	main := f.write("main.kark", "import std.core\nfunc main() { print(clamp(5, 0, 10)) }")
+	g, err := New(NewSpec{RootFile: main, RootName: "main"})
+	if err != nil {
+		t.Fatalf("New with std.core import: %v", err)
+	}
+	// Should have both std.core and main in order
+	if len(g.Order) < 2 {
+		t.Fatalf("expected at least 2 modules, got %v", g.Order)
+	}
+	found := false
+	for _, m := range g.Order {
+		if m == "std.core" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'std.core' in module order, got %v", g.Order)
+	}
+}
+
+func TestStdlibStringImport(t *testing.T) {
+	f := newFixture(t)
+	f.write("stdlib/string/string.kark", "func str_len(s string) int { return len(s) }")
+	main := f.write("main.kark", "import std.string\nfunc main() { print(str_len(\"hello\")) }")
+	g, err := New(NewSpec{RootFile: main, RootName: "main"})
+	if err != nil {
+		t.Fatalf("New with std.string import: %v", err)
+	}
+	found := false
+	for _, m := range g.Order {
+		if m == "std.string" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'std.string' in module order, got %v", g.Order)
+	}
+}
+
+func TestStdlibNotFound(t *testing.T) {
+	f := newFixture(t)
+	// No stdlib directory in the fixture
+	main := f.write("main.kark", "import std.nonexistent\nfunc main() { print(1) }")
+	_, err := New(NewSpec{RootFile: main, RootName: "main"})
+	if err == nil {
+		t.Fatal("expected error for missing stdlib module")
+	}
+	diag, ok := err.(*DiagramError)
+	if !ok {
+		t.Fatalf("expected *DiagramError, got %T: %v", err, err)
+	}
+	if diag.Kind != ErrKindNotFound {
+		t.Errorf("expected ErrKindNotFound, got %v", diag.Kind)
+	}
+}
+
+func TestStdlibMathImport(t *testing.T) {
+	f := newFixture(t)
+	// The real stdlib/math/math.kark exists in the repo root
+	// We test that the resolver can find it from a fixture that has
+	// a stdlib/ directory with a math/ subdirectory
+	f.write("stdlib/math/math.kark", "func math_abs(x int) int { return x }")
+	main := f.write("main.kark", "import std.math\nfunc main() { print(math_abs(-5)) }")
+	g, err := New(NewSpec{RootFile: main, RootName: "main"})
+	if err != nil {
+		t.Fatalf("New with std.math import: %v", err)
+	}
+	found := false
+	for _, m := range g.Order {
+		if m == "std.math" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'std.math' in module order, got %v", g.Order)
+	}
+}
+
+func TestStdlibCollectionsImport(t *testing.T) {
+	f := newFixture(t)
+	f.write("stdlib/collections/collections.kark", "func array_contains(arr int[], val int) bool { return false }")
+	main := f.write("main.kark", "import std.collections\nfunc main() { print(array_contains([], 1)) }")
+	g, err := New(NewSpec{RootFile: main, RootName: "main"})
+	if err != nil {
+		t.Fatalf("New with std.collections import: %v", err)
+	}
+	found := false
+	for _, m := range g.Order {
+		if m == "std.collections" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected 'std.collections' in module order, got %v", g.Order)
+	}
+}
