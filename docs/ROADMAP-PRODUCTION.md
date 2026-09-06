@@ -26,11 +26,12 @@ Each phase has:
 **Gate:** `go test ./pkg/ir/hir/...` passes, 5 programs round-trip parse→HIR→format
 **Blocks:** Phases 93, 94, 95
 
-### Phase 93 — Typed SSA IR
+### Phase 93 — Typed SSA IR ✅
 **Deliverable:** Extended SSA with typed registers (`i8/i16/i32/i64/f16/f32/f64/ptr`), dominance tree, liveness analysis
 **Files:** `pkg/ir/ssa/typed.go`, `pkg/ir/ssa/dom.go`, `pkg/ir/ssa/liveness.go`
 **Gate:** SSA verifier passes on all existing test programs, dominance tree correct on 10 CFG patterns
 **Blocks:** Phase 94
+**Status:** ✅ Complete — 30 tests pass (TypeRegistry, TypeBits, TypePromote, TypeIsCompatible, 6 dominance patterns, 4 liveness tests, 4 SSA verifier tests)
 
 ### Phase 94 — SSA Optimization Pipeline
 **Deliverable:** Multi-pass optimizer: mem2reg → SROA → constant fold → CSE → DCE → LICM

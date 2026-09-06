@@ -13,7 +13,10 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-92** — Phases 50–92 complete.
+Current phase: **post-93** — Phases 50–93 complete.
+Also completed: **93** — Typed SSA IR
+(TypeRegistry, TypeBits, TypePromote, TypeIsCompatible, dominance tree
+(Cooper et al.), liveness analysis, SSA verifier; 30 tests; `pkg/ir/ssa/`).
 Also completed: **92** — HIR Infrastructure
 (High-Level IR with typed nodes: 20 expression kinds, 16 statement kinds,
 19 type kinds, AST→HIR lowering via BuildHIR(), Format() for debug output,
@@ -56,6 +59,14 @@ real-time `didChange` diagnostics sync; conservative undefined-identifier
 resolution; array-return semantics; conformance corpus 48→59 tests in 11 files
 + `namespace` probe golden (12 total); docs under
 `docs/audit/PHASE-83-FINAL-REPORT.md`).
+Last completed: **93** — Typed SSA IR
+(TypeRegistry with 14 primitive types, TypeBits/TypePromote/TypeIsCompatible
+type-lattice, Cooper et al. iterative dominance tree (DomTree with IDom,
+DomChildren, Dominates/StrictlyDominates/DominanceFrontier/DomTreeDepth),
+iterative liveness analysis (LiveRange, Interferences, NumLiveAt),
+SSA verifier (undefined register, unterminated block, undefined block target),
+30 passing tests across `typed.go`, `dom.go`, `liveness.go`, `typed_test.go`;
+`pkg/ir/ssa/`).
 Last completed: **90** — Production Release Gate / Karkain 1.0
 (production build workflow verified, CLI commands validated: check/build/fmt/lint,
 stdlib imports work, runtime type discrepancy resolved as intentional bootstrap
