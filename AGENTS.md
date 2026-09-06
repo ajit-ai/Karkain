@@ -13,7 +13,11 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-93** — Phases 50–93 complete.
+Current phase: **post-94** — Phases 50–94 complete.
+Also completed: **94** — SSA Optimization Pipeline
+(Multi-pass optimizer: Mem2Reg, FoldConst with algebraic simplification,
+CSE, DCE, LICM for natural loops; Pipeline orchestrator with fixpoint
+iteration and stats; 49 passing tests including benchmarks; `pkg/ir/ssa/`).
 Also completed: **93** — Typed SSA IR
 (TypeRegistry, TypeBits, TypePromote, TypeIsCompatible, dominance tree
 (Cooper et al.), liveness analysis, SSA verifier; 30 tests; `pkg/ir/ssa/`).
@@ -59,6 +63,10 @@ real-time `didChange` diagnostics sync; conservative undefined-identifier
 resolution; array-return semantics; conformance corpus 48→59 tests in 11 files
 + `namespace` probe golden (12 total); docs under
 `docs/audit/PHASE-83-FINAL-REPORT.md`).
+Last completed: **94** — SSA Optimization Pipeline
+(Multi-pass optimizer: Mem2Reg, FoldConst with algebraic simplification,
+CSE, DCE, LICM for natural loops; Pipeline orchestrator with fixpoint
+iteration and stats; 49 passing tests including benchmarks; `pkg/ir/ssa/`).
 Last completed: **93** — Typed SSA IR
 (TypeRegistry with 14 primitive types, TypeBits/TypePromote/TypeIsCompatible
 type-lattice, Cooper et al. iterative dominance tree (DomTree with IDom,
