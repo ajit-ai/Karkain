@@ -17,12 +17,14 @@ const (
 
 // validTargets is the closed set of targets the Go toolchain can actually
 // produce output for today. `native` and `c23` share the native write-`.c`
-// path; `wasm32-wasi` selects the clang WASI cross-compiler. Anything else is
-// rejected rather than silently falling back to native.
+// path; `wasm32-wasi` selects the clang WASI cross-compiler; `native-link`
+// uses the Phase-84 object/linker pipeline. Anything else is rejected rather
+// than silently falling back to native.
 var validTargets = map[string]bool{
 	"native":      true,
 	"c23":         true,
 	"wasm32-wasi": true,
+	"native-link": true,
 }
 
 // ValidateTarget checks a `--target` value against the supported set and
@@ -43,7 +45,7 @@ type TargetError struct {
 }
 
 func (e *TargetError) Error() string {
-	return "unsupported target '" + e.Target + "' (supported targets: native, c23, wasm32-wasi)"
+	return "unsupported target '" + e.Target + "' (supported targets: native, c23, wasm32-wasi, native-link)"
 }
 
 // classifyCompileError maps a codegen error to an exit code: infrastructure

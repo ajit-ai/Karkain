@@ -260,3 +260,99 @@ This method:
 
 The returned Object is ready for the Linker and can carry relocation
 entries and debug info for future backend emission passes.
+
+---
+
+## 9. CLI Integration (Phase 85)
+
+### Build Flow
+
+The `--target=native-link` flag integrates Phase-84 infrastructure into the
+normal Karkain CLI compilation workflow:
+
+```
+program.kark
+    |
+CLI (--target=native-link)
+    |
+Parser → Semantic Analysis
+    |
+NativeGenerator.GenerateObject
+    |  (sections, symbols, debug info)
+    v
+Object
+    |
+Linker (symbol resolution, section layout, relocations)
+    |
+Executable (in-memory)
+    |
+NativeBuilder.Build produces NativeBuildResult
+```
+
+### Usage
+
+```bash
+karkain build --target=native-link program.kark
+karkain run  --target=native-link program.kark
+```
+
+### NativeBuilder (`native_builder.go`)
+
+Orchestrates the integrated pipeline:
+
+```go
+builder := NewNativeBuilder()
+result, err := builder.Build(prog, "program.kark")
+// result.Object      — native object (sections, symbols, debug info)
+// result.Executable  — linked executable (sections, entry point)
+// result.DebugInfo   — source-level debug information
+// result.SourceMap   — bidirectional source↔address mapping
+// result.Diagnostics — structured diagnostics
+```
+
+`Build` performs:
+1. `NativeGenerator.GenerateObject` → Object with sections, symbols, debug info
+2. `Linker.AddObject` + `Link` → Executable with resolved symbols and layout
+3. `relocateDebugAddresses` → offsets debug info addresses to match the
+   linked .text section base (0x1000+), ensuring source-to-address mappings
+   reflect actual virtual addresses
+4. `SourceAddressMap.BuildFromDebugInfo` → bidirectional source↔address map
+
+### BuildMultiObject
+
+Links multiple Object files into a single Executable:
+
+```go
+builder := NewNativeBuilder()
+result, err := builder.BuildMultiObject(objects, "main")
+```
+
+### CLI Dispatch
+
+`BuildCommand` and `RunCommand` dispatch to `nativeBuildCommand` /
+`nativeRunCommand` when `cfg.Target == "native-link"`. The native path:
+
+- Parses source → AST
+- Runs `NativeBuilder.Build` (Object → Linker → Executable)
+- Formats diagnostics via `formatDiagnostics`
+- Writes a KOBJ artifact (binary format with sections/symbols)
+- Reports results (verbose mode prints object/executable stats)
+
+### Artifact Format (KOBJ)
+
+The CLI writes KOBJ binary artifacts:
+
+```
+Magic:     "KOBJ"
+Sections:  name, type, alignment, data bytes
+Symbols:   name, type, binding, section index, value, size
+```
+
+### Debug Information Preservation
+
+After linking, debug addresses are relocated from 0-based counters to
+actual virtual addresses (offset by .text section base). This ensures:
+
+- Source line → address mappings match the linked executable
+- Address → source line reverse lookups work for stack traces
+- Function and variable info reflects actual runtime addresses

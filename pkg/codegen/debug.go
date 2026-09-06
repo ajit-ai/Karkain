@@ -281,10 +281,19 @@ func (sam *SourceAddressMap) GetSourceForAddress(address uint64) (*SourceLocatio
 
 // BuildFromDebugInfo builds a source-address map from debug information
 func (sam *SourceAddressMap) BuildFromDebugInfo(debugInfo *DebugInfo) {
+	// Add mappings from LineInfo entries
 	for _, lineInfo := range debugInfo.LineInfo {
 		if int(lineInfo.FileIndex) < len(debugInfo.SourceFiles) {
 			file := debugInfo.SourceFiles[lineInfo.FileIndex].Path
 			sam.AddMapping(file, int(lineInfo.Line), lineInfo.Address, lineInfo.Function)
+		}
+	}
+	
+	// Also add mappings from FunctionInfo entries (function start lines)
+	for _, funcInfo := range debugInfo.FunctionInfo {
+		if int(funcInfo.FileIndex) < len(debugInfo.SourceFiles) {
+			file := debugInfo.SourceFiles[funcInfo.FileIndex].Path
+			sam.AddMapping(file, int(funcInfo.StartLine), funcInfo.Address, funcInfo.Name)
 		}
 	}
 }
