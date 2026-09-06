@@ -59,7 +59,7 @@ var builtinNames = map[string]bool{
 	"readFile": true, "writeFile": true, "appendArray": true, "push": true,
 	"hasKey": true, "delete": true,
 	"substr": true, "str": true, "int": true,
-	"system": true, "openFile": true, "readLine": true, "listFiles": true,
+	"system": true, "openFile": true, "readLine": true, "readLineEOF": true, "listFiles": true,
 	"closeFile": true, "createFile": true, "writeToFile": true, "removeFile": true,
 	"trim": true, "contains": true, "split": true,
 	"sqrt": true, "abs": true, "pow": true, "mod": true,

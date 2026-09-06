@@ -1,0 +1,5 @@
+// Phase 88: Basic hello program
+// Tests: string literals, print, function declaration, function call
+func main() {
+    print("Hello from self-hosted Karkain compiler!")
+}

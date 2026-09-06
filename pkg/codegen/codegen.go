@@ -1362,10 +1362,8 @@ Value make_bool(int v) {
     return v ? (Value){ .type = TYPE_BOOL, .intVal = 1 } : (Value){ .type = TYPE_BOOL, .intVal = 0 };
 }
 
-// readLineEOF reads one line and returns [line, eof] as a two-element array.
-// This lets callers distinguish a genuinely empty line from end-of-file
-// (readLine alone collapses both to ""). Shares the same handle table as
-// readLine/closeFile so a single openFile handle can be consumed by either.
+// Phase 88: readLineEOF — reads a line and returns [line, isEOF] array.
+// Used by the self-hosted compiler's file reading loop.
 Value readLineEOF(Value handle) {
     Value r = make_array();
     if (handle.type != TYPE_STRING || strlen(handle.strVal) == 0) {
@@ -2385,6 +2383,9 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "readLine" {
 			return fmt.Sprintf("readLine(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "readLineEOF" {
+			return fmt.Sprintf("readLineEOF(%s)", g.genExpr(n.Args[0]))
 		}
 		if n.Function == "listFiles" {
 			return fmt.Sprintf("karkain_listFiles(%s)", g.genExpr(n.Args[0]))

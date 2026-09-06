@@ -528,10 +528,10 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 | 85 | Native Build & Linking Integration: NativeBuilder orchestrating Object→Linker→Executable pipeline (`NativeBuilder.Build`, `BuildMultiObject`), CLI integration (`--target=native-link` dispatches to `nativeBuildCommand`/`nativeRunCommand`), KOBJ binary artifact format (sections/symbols), debug address relocation from 0-based counters to linked .text base (0x1000+) via `relocateDebugAddresses`, SourceAddressMap built from relocated DebugInfo, 8 NativeBuilder tests + 6 CLI integration tests | COMPLETE (`pkg/codegen/native_builder.go`, `pkg/cli/commands.go`, `pkg/cli/native_build_test.go`, `docs/native-codegen.md`) |
 | 86 | Developer Toolchain: test timeout safety (30s goroutine+select), multi-file formatter (`karkain fmt .` recursive), exported `Canonicalize` for LSP reuse, `textDocument/formatting` LSP support, `ExitLint(7)` exit code, 8 focused tests | COMPLETE (`pkg/cli/testing.go`, `pkg/cli/formatter.go`, `pkg/cli/exitcodes.go`, `pkg/lsp/handler.go`, `pkg/lsp/protocol.go`, `docs/audit/PHASE-86-FINAL-REPORT.md`) |
 | 87 | Standard Library Foundation: stdlib structure (core/string/collections/math/io/system modules), `std.*` import resolution wired into module graph via `findStdlibDir`, 6 focused module-resolution tests | COMPLETE (`stdlib/core/core.kark`, `stdlib/string/string.kark`, `stdlib/collections/collections.kark`, `stdlib/system/system.kark`, `pkg/module/module.go`, `docs/stdlib.md`) |
+| 88 | Self-Hosted Compiler Foundation: self-hosted Karkain compiler compiles via bootstrap (src/compiler/*.kark → C23 → native executable), lexer/parser/AST/sema/codegen in Karkain, 7 representative test programs, 8 focused Go tests, build script | COMPLETE (`src/compiler/main.kark`, `src/compiler/ast.kark`, `src/compiler/lexer.kark`, `src/compiler/parser.kark`, `src/compiler/sema.kark`, `src/compiler/codegen.kark`, `scripts/build-kcc.sh`, `kcc-tests/`, `pkg/cli/phase88_test.go`, `docs/self-hosted-compiler.md`) |
 
 ### Current phase
 
-**PHASE 87 COMPLETE** — next milestone: LSP depth (hover/go-to-definition,
-UTF-16 spans, VS Code Problems panel via a real LSP client), style-grade
-formatter, unparenthesized `while`/`for` parity, kernel-sema span accuracy, and
-continued conformance-corpus growth.
+**PHASE 88 COMPLETE** — next milestone: self-hosted compiler loop/for support,
+semantic analysis parity, module import resolution, LSP depth (hover/go-to-definition,
+UTF-16 spans), and continued conformance-corpus growth.

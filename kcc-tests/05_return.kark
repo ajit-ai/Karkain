@@ -1,0 +1,21 @@
+// Phase 88: Return values
+// Tests: return statement, nested function calls with return
+func square(n) {
+    return n * n
+}
+
+func abs_value(n) {
+    if (n < 0) {
+        return -n
+    }
+    return n
+}
+
+func main() {
+    let s = square(5)
+    let a = abs_value(-7)
+    let b = abs_value(3)
+    print(s)
+    print(a)
+    print(b)
+}

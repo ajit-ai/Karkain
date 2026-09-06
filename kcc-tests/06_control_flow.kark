@@ -1,0 +1,40 @@
+// Phase 88: Basic control flow
+// Tests: if/else, comparison operators, boolean logic
+func max(a, b) {
+    if (a > b) {
+        return a
+    }
+    return b
+}
+
+func is_positive(n) {
+    if (n > 0) {
+        return 1
+    }
+    return 0
+}
+
+func classify(n) {
+    if (n > 0) {
+        return 1
+    }
+    if (n < 0) {
+        return -1
+    }
+    return 0
+}
+
+func main() {
+    let m = max(10, 20)
+    let p = is_positive(5)
+    let z = is_positive(-3)
+    let c1 = classify(5)
+    let c2 = classify(-5)
+    let c3 = classify(0)
+    print(m)
+    print(p)
+    print(z)
+    print(c1)
+    print(c2)
+    print(c3)
+}
