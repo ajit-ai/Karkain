@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-83** — Phases 50–83 complete.
+Current phase: **post-84** — Phases 50–84 complete.
 Also completed: **51** — Borrow Checker Lexical Scoping
 (scope-stack identity hardened for shadowing, borrow reversion via declaring scope,
 use-after-scope-end diagnostics, escape-analysis flag wiring, Groups A–I tests).
@@ -45,6 +45,16 @@ real-time `didChange` diagnostics sync; conservative undefined-identifier
 resolution; array-return semantics; conformance corpus 48→59 tests in 11 files
 + `namespace` probe golden (12 total); docs under
 `docs/audit/PHASE-83-FINAL-REPORT.md`).
+Last completed: **84** — Native Codegen, Linker & Debug Information
+(Karkain-owned object model: sections/symbols/relocations/debug-info;
+scope-aware SymbolTable with `karkain_user_*` namespacing via
+`CollectSymbolsFromAST`; RelocationManager with Addr32/64, PCRel32/64,
+PLT32, GOT32 and byte-level application; Linker (symbol resolution,
+section layout, entry-point handling, Executable production);
+DebugInfoBuilder + SourceAddressMap bidirectional source↔address mapping;
+CodegenDiagnostics wrapper reusing Phase-83 `E-K-CG` diagnostics;
+NativeGenerator.GenerateObject AST→Object path; 48 focused tests across
+6 new test files; docs under `docs/native-codegen.md`).
 Prior completed: **79** — Compiler Integrity, IR Architecture & Self-Hosting
 Readiness Audit (evidence-based audit: pipeline, dependency map, Math/Tensor/SSA
 IR, CPU/GPU/NPU parity, determinism, optimization boundaries, tests,
