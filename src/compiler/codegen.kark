@@ -99,12 +99,15 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value make_map(void) { Value r; r.type=TYPE_MAP; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static Value mk_nil(void) { Value r; r.type=TYPE_INT; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static void array_push(Value* a, Value e) { Value* c=(Value*)malloc(sizeof(Value)); *c=e; a->length++; a->items=(Value**)realloc(a->items,sizeof(Value*)*a->length); a->items[a->length-1]=c; }")
-    emitLine(state, "static Value array_get(Value a, Value i) { if(a.type==TYPE_STRING&&i.type==TYPE_INT){ int si=(int)i.intVal; int sl=strlen(a.strVal?a.strVal:\"\"); if(si<0||si>=sl) return make_int(0); char c[2]={a.strVal[si],0}; return make_string(c); } if(a.type!=TYPE_ARRAY) return make_int(0); int idx=(int)i.intVal; if(idx<0||idx>=a.length) return make_int(0); return *a.items[idx]; }")
+    emitLine(state, "static Value karkain_slice(Value v, Value s, Value e) { long long start=(s.type==TYPE_INT)?s.intVal:0; long long end=(e.type==TYPE_INT)?e.intVal:-1; if(v.type==TYPE_STRING){ long long n=(long long)strlen(v.strVal?v.strVal:\"\"); if(end<0) end+=n+1; if(start<0) start=0; if(end>n) end=n; if(start>=end||start>=n) return make_string(\"\"); long long len=end-start; char* buf=(char*)malloc((size_t)len+1); memcpy(buf,v.strVal+start,(size_t)len); buf[len]=0; Value r=make_string(buf); free(buf); return r; } if(v.type==TYPE_ARRAY){ long long n=(long long)v.length; if(end<0) end+=n+1; if(start<0) start=0; if(end>n) end=n; Value out=make_array(); if(start<end){ long long i; for(i=start;i<end;i++) array_push(&out,*v.items[i]); } return out; } return make_int(0); }")
+    emitLine(state, "static Value map_get(Value m, Value k);")
+    emitLine(state, "static Value array_get(Value a, Value i) { if(a.type==TYPE_MAP) return map_get(a,i); if(a.type==TYPE_STRING&&i.type==TYPE_INT){ int si=(int)i.intVal; int sl=strlen(a.strVal?a.strVal:\"\"); if(si<0||si>=sl) return make_int(0); char c[2]={a.strVal[si],0}; return make_string(c); } if(a.type!=TYPE_ARRAY) return make_int(0); int idx=(int)i.intVal; if(idx<0||idx>=a.length) return make_int(0); return *a.items[idx]; }")
     emitLine(state, "static void array_set(Value* a, Value i, Value v) { if(!a||a->type!=TYPE_ARRAY) return; int idx=(int)i.intVal; if(idx<0||idx>=a->length) return; *(a->items[idx])=v; }")
     emitLine(state, "static int is_truthy(Value v) { if(v.type==TYPE_BOOL||v.type==TYPE_INT) return v.intVal!=0; if(v.type==TYPE_FLOAT64) return v.floatVal!=0.0; if(v.type==TYPE_STRING) return v.strVal&&v.strVal[0]!=0; if(v.type==TYPE_ARRAY) return v.length>0; return 0; }")
     emitLine(state, "static Value karkain_len(Value v) { if(v.type==TYPE_ARRAY) return make_int(v.length); if(v.type==TYPE_MAP) return make_int(v.mlen); if(v.type==TYPE_STRING) return make_int(strlen(v.strVal?v.strVal:\"\")); return make_int(0); }")
     emitLine(state, "static Value map_get(Value m, Value k) { if(m.type!=TYPE_MAP) return make_int(0); const char* key=k.strVal?k.strVal:\"\"; int i; for(i=0;i<m.mlen;i++){ if(strcmp(m.keys[i],key)==0) return *m.values[i]; } return make_int(0); }")
     emitLine(state, "static void map_set(Value* m, Value k, Value v) { if(m->type!=TYPE_MAP) return; const char* key=k.strVal?k.strVal:\"\"; int i; for(i=0;i<m->mlen;i++){ if(strcmp(m->keys[i],key)==0){ *(m->values[i])=v; return; } } m->mlen++; m->keys=(char**)realloc(m->keys,sizeof(char*)*m->mlen); m->values=(Value**)realloc(m->values,sizeof(Value*)*m->mlen); m->keys[m->mlen-1]=strdup(key); Value* c=(Value*)malloc(sizeof(Value)); *c=v; m->values[m->mlen-1]=c; }")
+    emitLine(state, "static void index_set(Value* container, Value idx, Value val) { if(!container) return; if(container->type==TYPE_MAP){ map_set(container, idx, val); return; } if(container->type==TYPE_ARRAY&&idx.type==TYPE_INT){ int i=(int)idx.intVal; if(i>=0&&i<container->length){ Value* c=(Value*)malloc(sizeof(Value)); *c=val; container->items[i]=c; return; } } }")
     emitNewline(state)
     emitLine(state, "static Value values_equal(Value a, Value b);")
     emitNewline(state)
@@ -119,7 +122,7 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "    if(l.type==TYPE_FLOAT64||r.type==TYPE_FLOAT64) {")
     emitLine(state, "        double a=l.type==TYPE_FLOAT64?l.floatVal:(double)l.intVal; double b=r.type==TYPE_FLOAT64?r.floatVal:(double)r.intVal;")
     emitLine(state, "        if(strcmp(op,\"+\")==0) return make_float(a+b); if(strcmp(op,\"-\")==0) return make_float(a-b);")
-    emitLine(state, "        if(strcmp(op,\"*\")==0) return make_float(a*b); if(strcmp(op,\"/\")==0) return make_float(b!=0?a/b:0);")
+    emitLine(state, "        if(strcmp(op,\"*\")==0) return make_float(a*b); if(strcmp(op,\"/\")==0) return make_float(b!=0?a/b:0); if(strcmp(op,\"%\")==0) return make_float(b!=0?fmod(a,b):0);")
     emitLine(state, "        if(strcmp(op,\"==\")==0) return make_int(a==b); if(strcmp(op,\"!=\")==0) return make_int(a!=b);")
     emitLine(state, "        if(strcmp(op,\"<\")==0) return make_int(a<b); if(strcmp(op,\">\")==0) return make_int(a>b);")
     emitLine(state, "        if(strcmp(op,\"<=\")==0) return make_int(a<=b); if(strcmp(op,\">=\")==0) return make_int(a>=b);")
@@ -144,6 +147,10 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value karkain_listFiles(Value dir) { Value arr=make_array(); const char* dname=dir.type==TYPE_STRING?(dir.strVal?dir.strVal:\"\"):\"\"; DIR* d=opendir(dname); if(!d) return arr; struct dirent* e; while((e=readdir(d))!=NULL){ if(e->d_name[0]=='.') continue; array_push(&arr, make_string(e->d_name)); } closedir(d); return arr; }")
     emitLine(state, "static Value values_equal(Value a, Value b) { if(a.type!=b.type) return make_int(0); if(a.type==TYPE_INT||a.type==TYPE_BOOL) return make_int(a.intVal==b.intVal); if(a.type==TYPE_FLOAT64){ double d=a.floatVal-b.floatVal; return make_int(d>-1e-9&&d<1e-9); } if(a.type==TYPE_STRING) return make_int(strcmp(a.strVal?a.strVal:\"\",b.strVal?b.strVal:\"\")==0); if(a.type==TYPE_ARRAY){ if(a.length!=b.length) return make_int(0); int i; for(i=0;i<a.length;i++){ if(is_truthy(values_equal(*a.items[i],*b.items[i]))==0) return make_int(0); } return make_int(1); } return make_int(0); }")
     emitLine(state, "static Value karkain_substr(Value str, Value start, Value length) { if(str.type!=TYPE_STRING||start.type!=TYPE_INT||length.type!=TYPE_INT) return make_string(\"\"); int s=(int)start.intVal; int l=(int)length.intVal; int slen=(int)strlen(str.strVal?str.strVal:\"\"); if(s<0) s=0; if(s>=slen) return make_string(\"\"); if(s+l>slen) l=slen-s; if(l<0) l=0; char* buf=(char*)malloc(l+1); memcpy(buf,str.strVal+s,(size_t)l); buf[l]=0; Value r=make_string(buf); free(buf); return r; }")
+    emitLine(state, "static void karkain_assert_report(const char* kind, const char* expr, const char* loc) { fprintf(stderr, \"%s: %s\", kind, expr); if(loc!=NULL&&loc[0]!='\\0') fprintf(stderr, \"  [%s]\", loc); fprintf(stderr, \"\\n\"); fflush(stderr); }")
+    emitLine(state, "static void karkain_assert(Value cond, const char* expr, const char* loc) { if(!is_truthy(cond)) { karkain_assert_report(\"assertion failed\", expr, loc); exit(1); } }")
+    emitLine(state, "static void karkain_assert_eq(Value actual, Value expected, const char* expr, const char* loc) { if(!is_truthy(values_equal(actual, expected))) { karkain_assert_report(\"assertion failed: assert_eq\", expr, loc); Value _a=karkain_str(actual); Value _e=karkain_str(expected); fprintf(stderr, \"  expected: %s\\n  actual:   %s\\n\", _e.strVal?_e.strVal:\"\", _a.strVal?_a.strVal:\"\"); fflush(stderr); exit(1); } }")
+    emitLine(state, "static void karkain_assert_ne(Value actual, Value expected, const char* expr, const char* loc) { if(is_truthy(values_equal(actual, expected))) { karkain_assert_report(\"assertion failed: assert_ne\", expr, loc); Value _a=karkain_str(actual); fprintf(stderr, \"  unexpectedly equal (actual): %s\\n\", _a.strVal?_a.strVal:\"\"); fflush(stderr); exit(1); } }")
     emitLine(state, "static Value karkain_int(Value v) { if(v.type==TYPE_INT) return make_int(v.intVal); if(v.type==TYPE_FLOAT64) return make_int((long long)v.floatVal); if(v.type==TYPE_STRING) return make_int(atoll(v.strVal?v.strVal:\"\")); if(v.type==TYPE_BOOL) return make_int(v.intVal); return make_int(0); }")
     emitLine(state, "static Value karkain_system(Value cmd) { if(cmd.type!=TYPE_STRING) return make_int(-1); int result=system(cmd.strVal?cmd.strVal:\"\"); return make_int(result); }")
     emitLine(state, "static Value karkain_removeFile(Value path) { if(path.type!=TYPE_STRING) return make_int(0); int result=remove(path.strVal?path.strVal:\"\"); return make_int(result==0?1:0); }")
@@ -165,7 +172,7 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value karkain_pow(Value base, Value exp) { if(base.type!=TYPE_INT||exp.type!=TYPE_INT) return make_int(0); long long result=1; long long b=base.intVal; long long e=exp.intVal; while(e>0){ if(e&1) result*=b; b*=b; e>>=1; } return make_int(result); }")
     emitLine(state, "static Value karkain_hasKey(Value m, Value k) { if(m.type!=TYPE_MAP) return make_int(0); int i; for(i=0;i<m.mlen;i++){ const char* key=k.strVal?k.strVal:\"\"; if(strcmp(m.keys[i],key)==0) return make_int(1); } return make_int(0); }")
     emitLine(state, "static void karkain_delete(Value* m, Value k) { if(!m||m->type!=TYPE_MAP) return; const char* key=k.strVal?k.strVal:\"\"; int i; for(i=0;i<m->mlen;i++){ if(strcmp(m->keys[i],key)==0){ int j; for(j=i;j<m->mlen-1;j++){ m->keys[j]=m->keys[j+1]; m->values[j]=m->values[j+1]; } m->mlen--; return; } } }")
-    emitLine(state, "static Value karkain_appendArray(Value arr, Value elem) { array_push(&arr, elem); return arr; }")
+    emitLine(state, "static Value karkain_appendArray(Value* arr, Value elem) { if(!arr||arr->type!=TYPE_ARRAY) return make_int(0); array_push(arr, elem); return *arr; }")
     emitNewline(state)
 }
 
@@ -191,19 +198,44 @@ func emitC11Expr(state, node) {
     if (nt == "BinaryExpr") {
         if (binaryOp(node) == "=") {
             let lhs = binaryLeft(node)
+            let rv = binaryRight(node)
             if (getNodeType(lhs) == "Index") {
-                emit(state, "array_set(&")
-                emitC11Expr(state, indexLeft(lhs))
-                emit(state, ", ")
-                emitC11Expr(state, indexExpr(lhs))
-                emit(state, ", ")
-                emitC11Expr(state, binaryRight(node))
-                emit(state, ")")
+                let il = indexLeft(lhs)
+                let ix = indexExpr(lhs)
+                if (getNodeType(il) == "Ident") {
+                    emit(state, "index_set(&" + identName(il) + ", ")
+                    emitC11Expr(state, ix)
+                    emit(state, ", ")
+                    emitC11Expr(state, rv)
+                    emit(state, ")")
+                } else {
+                    emit(state, "({ Value _iset_tgt = ")
+                    emitC11Expr(state, il)
+                    emit(state, "; index_set(&_iset_tgt, ")
+                    emitC11Expr(state, ix)
+                    emit(state, ", ")
+                    emitC11Expr(state, rv)
+                    emit(state, "); _iset_tgt; })")
+                }
+            } else if (getNodeType(lhs) == "Member") {
+                let dl = dotLeft(lhs)
+                let dn = dotRight(lhs)
+                if (getNodeType(dl) == "Ident") {
+                    emit(state, "map_set(&" + identName(dl) + ", make_string(\"" + dn + "\"), ")
+                    emitC11Expr(state, rv)
+                    emit(state, ")")
+                } else {
+                    emit(state, "({ Value _ms_tgt = ")
+                    emitC11Expr(state, dl)
+                    emit(state, "; map_set(&_ms_tgt, make_string(\"" + dn + "\"), ")
+                    emitC11Expr(state, rv)
+                    emit(state, "); _ms_tgt; })")
+                }
             } else {
                 emit(state, "(")
                 emitC11Expr(state, lhs)
                 emit(state, " = ")
-                emitC11Expr(state, binaryRight(node))
+                emitC11Expr(state, rv)
                 emit(state, ")")
             }
         } else {
@@ -352,11 +384,17 @@ func emitC11Expr(state, node) {
             }
             emit(state, ")")
         } else if (fname == "appendArray" || fname == "push") {
-            emit(state, "karkain_appendArray(")
-            if (argc > 0) { emitC11Expr(state, args[0]) }
-            emit(state, ", ")
-            if (argc > 1) { emitC11Expr(state, args[1]) }
-            emit(state, ")")
+            if (argc > 0 && getNodeType(args[0]) == "Ident") {
+                emit(state, "karkain_appendArray(&" + identName(args[0]) + ", ")
+                if (argc > 1) { emitC11Expr(state, args[1]) }
+                emit(state, ")")
+            } else {
+                emit(state, "({ Value _ap_arr = ")
+                if (argc > 0) { emitC11Expr(state, args[0]) }
+                emit(state, "; karkain_appendArray(&_ap_arr, ")
+                if (argc > 1) { emitC11Expr(state, args[1]) }
+                emit(state, "); _ap_arr; })")
+            }
         } else if (fname == "delete") {
             emit(state, "karkain_delete(&")
             if (argc > 0) { emitC11Expr(state, args[0]) }
@@ -371,6 +409,18 @@ func emitC11Expr(state, node) {
             emit(state, "karkain_abs(")
             if (argc > 0) { emitC11Expr(state, args[0]) }
             emit(state, ")")
+        } else if (fname == "assert" || fname == "assert_eq" || fname == "assert_ne") {
+            let albl = "assert(condition)"
+            if (fname == "assert_eq") { albl = "assert_eq(actual, expected)" }
+            if (fname == "assert_ne") { albl = "assert_ne(actual, expected)" }
+            emit(state, "karkain_" + fname + "(")
+            let ai = 0
+            while (ai < argc) {
+                if (ai > 0) { emit(state, ", ") }
+                emitC11Expr(state, args[ai])
+                ai = ai + 1
+            }
+            emit(state, ", \"" + albl + "\", \"\")")
         } else if (fname == "pow") {
             emit(state, "karkain_pow(")
             let a6 = 0
@@ -413,6 +463,16 @@ func emitC11Expr(state, node) {
         emit(state, ")")
     }
 
+    if (nt == "Slice") {
+        emit(state, "karkain_slice(")
+        emitC11Expr(state, sliceLeft(node))
+        emit(state, ", ")
+        emitC11Expr(state, sliceStart(node))
+        emit(state, ", ")
+        emitC11Expr(state, sliceEnd(node))
+        emit(state, ")")
+    }
+
     if (nt == "ArrayLiteral") {
         let elems = arrayElements(node)
         emit(state, "_karkain_array(" + str(len(elems)))
@@ -423,6 +483,41 @@ func emitC11Expr(state, node) {
             i = i + 1
         }
         emit(state, ")")
+    }
+
+    if (nt == "MapLiteral") {
+        emit(state, "({ Value _m = make_map(); ")
+        let ks = mapKeys(node)
+        let vs = mapValues(node)
+        let i = 0
+        while (i < len(ks)) {
+            emit(state, "map_set(&_m, ")
+            emitC11Expr(state, ks[i])
+            emit(state, ", ")
+            emitC11Expr(state, vs[i])
+            emit(state, "); ")
+            i = i + 1
+        }
+        emit(state, "_m; })")
+    }
+
+    if (nt == "StructLiteral") {
+        emit(state, "({ Value _s = make_map(); ")
+        let fs = structLitFields(node)
+        let i = 0
+        while (i < len(fs)) {
+            let f = fs[i]
+            if (getNodeType(f) == "BinaryExpr") {
+                let fl = binaryLeft(f)
+                if (getNodeType(fl) == "Ident") {
+                    emit(state, "map_set(&_s, make_string(\"" + identName(fl) + "\"), ")
+                    emitC11Expr(state, binaryRight(f))
+                    emit(state, "); ")
+                }
+            }
+            i = i + 1
+        }
+        emit(state, "_s; })")
     }
 }
 
@@ -594,16 +689,7 @@ func emitC11Stmt(state, node) {
     }
 
     if (nt == "StructDecl") {
-        emitLine(state, "typedef struct " + structName(node) + " {")
-        state[2] = codegenIndent(state) + 1
-        let fields = structFields(node)
-        let i = 0
-        while (i < len(fields)) {
-            emitLine(state, emitC11Type(fields[i][0]) + " " + fields[i][1] + ";")
-            i = i + 1
-        }
-        state[2] = codegenIndent(state) - 1
-        emitLine(state, "} " + structName(node) + ";")
+        emitLine(state, "// struct " + structName(node) + " { ")
         emitNewline(state)
     }
 }

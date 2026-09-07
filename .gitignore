@@ -41,6 +41,10 @@
 
 # Generated C files from examples
 examples/*.c
+examples/probes/**/*.c
+examples/probes/**/*.c23
+*.c23
+kcc-tests/*.c
 temp/
 # Bootstrap stage-1 generated self-host output
 /src/compiler/main.c

@@ -17,8 +17,12 @@ func createParserState(tokens, source) {
     state = appendArray(state, [])   // errorCols
     state = appendArray(state, 1)    // line
     state = appendArray(state, source)
+    state = appendArray(state, 0)    // noStructAtBrace (Phase 81: unparenthesized if condition)
     return state
 }
+
+func psNoStructAtBrace(state) { return state[6] }
+func setPsNoStructAtBrace(state, v) { state[6] = v }
 
 func psTokens(state)    { return state[0] }
 func psPos(state)       { return state[1] }
@@ -106,6 +110,18 @@ func psExpect(state, kind) {
 func psCurLiteral(state) {
     let tok = psCurToken(state)
     return tokenLiteral(tok, psSource(state))
+}
+
+// True when the current token is a primitive type keyword or a type name,
+// so `func f(x int)` / `func f() int` / `let x int = ...` all parse.
+func psIsTypeToken(state) {
+    let k = psCurKind(state)
+    if (k == TK_INT()) { return 1 }
+    if (k == TK_FLOAT64()) { return 1 }
+    if (k == TK_STRING()) { return 1 }
+    if (k == TK_BOOL()) { return 1 }
+    if (k == TK_IDENT()) { return 1 }
+    return 0
 }
 
 // ============================================================
@@ -353,7 +369,7 @@ func parseFunc(state) {
             params = appendArray(params, psCurLiteral(state))
             psAdvance(state)
             // Skip optional type annotation
-            if (psCurKind(state) == TK_IDENT()) { psAdvance(state) }
+            if (psIsTypeToken(state)) { psAdvance(state) }
             if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
         } else {
             psAdvance(state)
@@ -362,7 +378,7 @@ func parseFunc(state) {
     if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
 
     // Skip optional return type
-    if (psCurKind(state) == TK_IDENT()) { psAdvance(state) }
+    if (psIsTypeToken(state)) { psAdvance(state) }
 
     // Consume '{'
     if (psCurKind(state) != TK_LBRACE()) {
@@ -454,7 +470,7 @@ func parseVarDecl(state) {
         psAdvance(state) // consume ':'
         typeName = psCurLiteral(state)
         psAdvance(state) // consume type
-    } else if (psCurKind(state) == TK_IDENT()) {
+    } else if (psIsTypeToken(state)) {
         typeName = psCurLiteral(state)
         psAdvance(state) // consume type
     }
@@ -507,7 +523,13 @@ func parseIf(state) {
     let line = psLine(state)
     psAdvance(state) // consume 'if'
 
+    // Phase 81: unparenthesized conditions — `if x < y { ... }`. An identifier
+    // directly before the body opener must stay a plain operand rather than
+    // being consumed as a `Type{...}` struct literal. The flag is cleared
+    // inside '(' groups so parenthesized struct literals keep working.
+    setPsNoStructAtBrace(state, 1)
     let cond = parseExpr(state)
+    setPsNoStructAtBrace(state, 0)
 
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
     let cons = parseBlock(state)
@@ -672,7 +694,7 @@ func parseKernel(state) {
             params = appendArray(params, psCurLiteral(state))
             psAdvance(state)
             if (psCurKind(state) == TK_COLON()) { psAdvance(state) }
-            if (psCurKind(state) == TK_IDENT()) { psAdvance(state) }
+            if (psIsTypeToken(state)) { psAdvance(state) }
             if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
         } else {
             psAdvance(state)
@@ -701,12 +723,22 @@ func parseBinary(state, left, minPrec) {
     }
 
     while (1) {
-        // Postfix: index [expr]
+        // Postfix: index [expr] or slice [start:end]
         while (psCurKind(state) == TK_LBRACKET()) {
             psAdvance(state) // consume '['
             let idx = parseExpr(state)
-            if (psCurKind(state) == TK_RBRACKET()) { psAdvance(state) }
-            left = makeIndex(left, idx, psLine(state))
+            if (psCurKind(state) == TK_COLON()) {
+                psAdvance(state) // consume ':'
+                let end = []
+                if (psCurKind(state) != TK_RBRACKET()) {
+                    end = parseExpr(state)
+                }
+                if (psCurKind(state) == TK_RBRACKET()) { psAdvance(state) }
+                left = makeSlice(left, idx, end, psLine(state))
+            } else {
+                if (psCurKind(state) == TK_RBRACKET()) { psAdvance(state) }
+                left = makeIndex(left, idx, psLine(state))
+            }
         }
 
         // Postfix: .field
@@ -803,14 +835,22 @@ func parsePrimary(state) {
     // Parenthesized expression
     if (kind == TK_LPAREN()) {
         psAdvance(state)
+        let saved = psNoStructAtBrace(state)
+        setPsNoStructAtBrace(state, 0)
         let expr = parseExpr(state)
         if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+        setPsNoStructAtBrace(state, saved)
         return expr
     }
 
     // Array literal
     if (kind == TK_LBRACKET()) {
         return parseArrayLit(state)
+    }
+
+    // Map literal: { key: value, ... }
+    if (kind == TK_LBRACE()) {
+        return parseMapLit(state)
     }
 
     // Identifier or function call or struct literal
@@ -871,7 +911,7 @@ func parseIdentOrCall(state) {
     }
 
     // Struct literal: TypeName { field: val, ... }
-    if (psCurKind(state) == TK_LBRACE()) {
+    if (psCurKind(state) == TK_LBRACE() && psNoStructAtBrace(state) == 0) {
         psAdvance(state) // consume '{'
         let fields = []
         while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
@@ -911,4 +951,27 @@ func parseArrayLit(state) {
 
     if (psCurKind(state) == TK_RBRACKET()) { psAdvance(state) }
     return makeArrayLit(elements, line)
+}
+
+// ============================================================
+// Parse map literal: { key: value, ... }
+// ============================================================
+
+func parseMapLit(state) {
+    let line = psLine(state)
+    psAdvance(state) // consume '{'
+
+    let keys = []
+    let values = []
+    while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
+        let k = parseExpr(state)
+        if (psCurKind(state) == TK_COLON()) { psAdvance(state) }
+        let v = parseExpr(state)
+        if (k != []) { keys = appendArray(keys, k) }
+        if (v != []) { values = appendArray(values, v) }
+        if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+    }
+
+    if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
+    return makeMapLit(keys, values, line)
 }

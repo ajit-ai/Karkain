@@ -968,6 +968,7 @@ func main() {
 	compileCorpus := false // KTF-002: run the compile-pass/compile-fail corpus
 	formatJSON := false    // Phase 82: machine-readable structured output (e.g. check --format=json)
 	fmtCheck := false     // Phase 82: `karkain fmt --check` verifies canonical formatting
+	engine := cli.EngineFromEnv() // Phase 95: KARKAIN_ENGINE / --engine selects self-hosted kcc
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -996,6 +997,14 @@ func main() {
 				}
 				fmt.Printf("Error: Unknown --format value '%s' (supported: json)\n", flagValue)
 				os.Exit(cli.ExitUsage)
+			case "--engine":
+				e, err := cli.EngineFlag(flagValue)
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(cli.ExitUsage)
+				}
+				engine = e
+				continue
 			}
 		}
 
@@ -1058,6 +1067,19 @@ func main() {
 				i++
 			} else {
 				fmt.Println("Error: --filter flag requires a pattern")
+				os.Exit(cli.ExitUsage)
+			}
+		case "--engine":
+			if i+1 < len(args) {
+				e, err := cli.EngineFlag(args[i+1])
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(cli.ExitUsage)
+				}
+				engine = e
+				i++
+			} else {
+				fmt.Println("Error: --engine flag requires a value (go|kcc)")
 				os.Exit(cli.ExitUsage)
 			}
 		case "build", "run", "check", "transpile", "test", "bench", "lint", "lsp", "language-server", "fmt":
@@ -1219,23 +1241,48 @@ func main() {
 	}
 
 	var result cli.CommandResult
-	switch command {
-	case "run":
-		result = cli.RunCommand(targetFile, cfg, verbose)
-	case "build":
-		result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
-	case "transpile":
-		result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
-	case "check":
-		format := cli.CheckFormatHuman
-		if formatJSON {
-			format = cli.CheckFormatJSON
+	if engine == cli.EngineKCC {
+		// Phase 95: the self-hosted compiler is the primary engine for the
+		// core pipeline (lex + parse + C codegen). `run`/`build`/`check`
+		// dispatch to kcc unless the Go engine was explicitly requested.
+		switch command {
+		case "run":
+			result = cli.KCCRunCommand(nil, targetFile, cfg, verbose)
+		case "build", "transpile":
+			// kcc emits C23 and links native executables through gcc, so it
+			// owns both native and c23 targets. Exotic targets (wasm, etc.)
+			// still route through the Go backend.
+			if cfg.Target == "native" || cfg.Target == "c23" {
+				result = cli.KCCBuildCommand(nil, targetFile, outputPath, cfg, verbose)
+			} else {
+				result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
+			}
+		case "check":
+			result = cli.KCCCheckCommand(nil, targetFile, verbose)
+		default:
+			fmt.Printf("Error: Unknown command '%s'\n", command)
+			printHelp()
+			os.Exit(cli.ExitUsage)
 		}
-		result = cli.CheckCommandFormatted(targetFile, verbose, format)
-	default:
-		fmt.Printf("Error: Unknown command '%s'\n", command)
-		printHelp()
-		os.Exit(cli.ExitUsage)
+	} else {
+		switch command {
+		case "run":
+			result = cli.RunCommand(targetFile, cfg, verbose)
+		case "build":
+			result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
+		case "transpile":
+			result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
+		case "check":
+			format := cli.CheckFormatHuman
+			if formatJSON {
+				format = cli.CheckFormatJSON
+			}
+			result = cli.CheckCommandFormatted(targetFile, verbose, format)
+		default:
+			fmt.Printf("Error: Unknown command '%s'\n", command)
+			printHelp()
+			os.Exit(cli.ExitUsage)
+		}
 	}
 
 	if result.Message != "" {
