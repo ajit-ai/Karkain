@@ -13,7 +13,21 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-94** — Phases 50–94 complete.
+Current phase: **post-95** — Phases 50–95 complete.
+Also completed: **95** — Self-Hosted kcc Owns the Core Pipeline
+(self-hosted compiler from `src/compiler` is the primary engine for
+lex+parse+sema+C codegen; `karkain check/build/run --engine=kcc` or
+`KARKAIN_ENGINE=kcc` decompiled through kcc; `pkg/cli/kcc_engine.go` with
+`KCCCheckCommand`/`KCCBuildCommand`/`KCCRunCommand` (temp-sandboxed run), a
+staleness check rebuilding `kcc.exe` when any `src/compiler/*.kark` is newer,
+and Go fallback for LSP/test-runner/exotic backends; CLI `--engine go|kcc`
+flag + env wiring in `cmd/karkain/main.go`; kcc parity fixes for type-keyword
+annotations, unparenthesized if, map/struct literals, slices, index/member
+assignment, assertions, appendArray Value* and struct-decl comments;
+parity gate `pkg/cli/phase95_parity_test.go` proving kcc reproduces all 12
+probe goldens + all 11 conformance files (59 assertions); verified
+`TestBootstrap_BitwiseIdentity` stage2==stage3 bitwise identical;
+docs under `docs/audit/PHASE-95-FINAL-REPORT.md`).
 Also completed: **94** — SSA Optimization Pipeline
 (Multi-pass optimizer: Mem2Reg, FoldConst with algebraic simplification,
 CSE, DCE, LICM for natural loops; Pipeline orchestrator with fixpoint
