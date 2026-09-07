@@ -135,6 +135,12 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 
 	blocks := make(map[string]*ssa.Block, len(fn.Blocks))
 	decls := map[string]bool{}
+	// Function parameters are already declared by the signature; a mutated
+	// parameter would otherwise be redeclared as a local, which is a C error.
+	paramSet := make(map[string]bool, len(fn.Params))
+	for _, p := range fn.Params {
+		paramSet[sanitizeC(p.Name)] = true
+	}
 	for _, b := range fn.Blocks {
 		blocks[b.Name] = b
 		for _, bp := range b.Params {
@@ -151,6 +157,9 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 	}
 	names := make([]string, 0, len(decls))
 	for d := range decls {
+		if paramSet[d] {
+			continue
+		}
 		names = append(names, d)
 	}
 	sort.Strings(names)

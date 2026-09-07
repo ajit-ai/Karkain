@@ -97,6 +97,7 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value make_string(const char* s) { Value r; r.type=TYPE_STRING; r.intVal=0; r.floatVal=0; r.strVal=strdup(s?s:\"\"); r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static Value make_array(void) { Value r; r.type=TYPE_ARRAY; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static Value make_map(void) { Value r; r.type=TYPE_MAP; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
+    emitLine(state, "static Value mk_nil(void) { Value r; r.type=TYPE_INT; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static void array_push(Value* a, Value e) { Value* c=(Value*)malloc(sizeof(Value)); *c=e; a->length++; a->items=(Value**)realloc(a->items,sizeof(Value*)*a->length); a->items[a->length-1]=c; }")
     emitLine(state, "static Value array_get(Value a, Value i) { if(a.type==TYPE_STRING&&i.type==TYPE_INT){ int si=(int)i.intVal; int sl=strlen(a.strVal?a.strVal:\"\"); if(si<0||si>=sl) return make_int(0); char c[2]={a.strVal[si],0}; return make_string(c); } if(a.type!=TYPE_ARRAY) return make_int(0); int idx=(int)i.intVal; if(idx<0||idx>=a.length) return make_int(0); return *a.items[idx]; }")
     emitLine(state, "static void array_set(Value* a, Value i, Value v) { if(!a||a->type!=TYPE_ARRAY) return; int idx=(int)i.intVal; if(idx<0||idx>=a->length) return; *(a->items[idx])=v; }")
@@ -440,7 +441,8 @@ func emitC11Stmt(state, node) {
             emitLine(state, "return 0;")
         } else {
             emit(state, "return ")
-            emitC11Expr(state, returnExpr(node))
+            let rv = returnExpr(node)
+            if (len(rv) == 0) { emit(state, "mk_nil()") } else { emitC11Expr(state, rv) }
             emitLine(state, ";")
         }
     }
@@ -534,7 +536,7 @@ func emitC11Stmt(state, node) {
             let i = 0
             while (i < len(params)) {
                 if (i > 0) { emit(state, ", ") }
-                emit(state, "Value " + params[i][1])
+                emit(state, "Value " + params[i])
                 i = i + 1
             }
             emitLine(state, ") {")
@@ -558,7 +560,7 @@ func emitC11Stmt(state, node) {
         let i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
-            emit(state, emitC11Type(params[i][0]) + " " + params[i][1])
+            emit(state, emitC11Type("") + " " + params[i])
             i = i + 1
         }
         emitLine(state, ") {")
@@ -666,7 +668,7 @@ func emitC11ForwardDecl(state, node) {
     let i = 0
     while (i < len(params)) {
         if (i > 0) { emit(state, ", ") }
-        emit(state, "Value " + params[i][1])
+        emit(state, "Value " + params[i])
         i = i + 1
     }
     emitLine(state, ");")
@@ -770,7 +772,8 @@ func emitWGSLStmt(state, node) {
 
     if (nt == "Return") {
         emit(state, "return ")
-        emitWGSLExpr(state, returnExpr(node))
+        let rv0 = returnExpr(node)
+        if (len(rv0) == 0) { emit(state, "mk_nil()") } else { emitWGSLExpr(state, rv0) }
         emitLine(state, ";")
     }
 
@@ -818,7 +821,7 @@ func emitWGSLStmt(state, node) {
         i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
-            emit(state, params[i][1] + ": " + emitWGSLType(params[i][0]))
+            emit(state, params[i] + ": " + emitWGSLType("int"))
             i = i + 1
         }
         emitLine(state, ") {")
@@ -840,7 +843,7 @@ func emitWGSLStmt(state, node) {
         let i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
-            emit(state, params[i][1] + ": " + emitWGSLType(params[i][0]))
+            emit(state, params[i] + ": " + emitWGSLType("int"))
             i = i + 1
         }
         emit(state, ") -> " + emitWGSLType(funcReturnType(node)))
@@ -1015,7 +1018,8 @@ func emitOpenCLStmt(state, node) {
 
     if (nt == "Return") {
         emit(state, "return ")
-        emitOpenCLExpr(state, returnExpr(node))
+        let rv1 = returnExpr(node)
+        if (len(rv1) == 0) { emit(state, "mk_nil()") } else { emitOpenCLExpr(state, rv1) }
         emitLine(state, ";")
     }
 
@@ -1066,7 +1070,7 @@ func emitOpenCLStmt(state, node) {
         let i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
-            emit(state, "__global " + emitOpenCLType(params[i][0]) + "* " + params[i][1])
+            emit(state, "__global " + emitOpenCLType("int") + "* " + params[i])
             i = i + 1
         }
         emitLine(state, ") {")
@@ -1089,7 +1093,7 @@ func emitOpenCLStmt(state, node) {
         let i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
-            emit(state, emitOpenCLType(params[i][0]) + " " + params[i][1])
+            emit(state, emitOpenCLType("int") + " " + params[i])
             i = i + 1
         }
         emitLine(state, ") {")
@@ -1261,7 +1265,7 @@ func generateOpenQASM(ast) {
             let j = 0
             while (j < len(params)) {
                 if (j > 0) { emit(state, ", ") }
-                emit(state, params[j][1])
+                emit(state, params[j])
                 j = j + 1
             }
             emitLine(state, ") {")
@@ -1444,7 +1448,8 @@ func emitKBCStmt(state, node) {
         emitLine(state, "PRINT")
     }
     if (nt == "Return") {
-        emitKBCExpr(state, returnExpr(node))
+        let rv2 = returnExpr(node)
+        if (len(rv2) > 0) { emitKBCExpr(state, rv2) }
         emitLine(state, "RET")
     }
     if (nt == "ExprStmt") {
@@ -1497,7 +1502,7 @@ func generateForwardDecls(ast) {
             let j = 0
             while (j < len(params)) {
                 if (j > 0) { result = result + ", " }
-                result = result + "Value* " + params[j][1]
+                result = result + "Value* " + params[j]
                 j = j + 1
             }
             result = result + ");\n"

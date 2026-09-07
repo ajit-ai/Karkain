@@ -412,6 +412,18 @@ func dotLeft(n)   { return n[1] }
 func dotRight(n)  { return n[2] }
 func dotLine(n)   { return n[3] }
 
+// Self-hosted aliases matching the Go codegen's MemberExpr/Return/Print
+// accessor names, used by sema.kark and the emit* functions.
+func memberObject(n) { return dotLeft(n) }
+func memberField(n)  { return dotRight(n) }
+func returnExpr(n)   { return retVal(n) }
+func printExpr(n)    { return printVal(n) }
+
+// Condition / return-type aliases used by emitC11/emitWGSL/emitOpenCL/...
+func whileCondition(n) { return whileCond(n) }
+func forCondition(n)   { return forCond(n) }
+func funcReturnType(n) { return "Value" }
+
 // ============================================================
 // StructDecl: [NODE_STRUCT_DECL, name, fields, line]
 // ============================================================

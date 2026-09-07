@@ -143,14 +143,14 @@ func setLxCol(state, v)  { state[3] = v }
 func lxPeek(state) {
     let src = lxSource(state)
     let pos = lxPos(state)
-    if (pos >= len(src)) { return 0 }
+    if (pos >= len(src)) { return "" }
     return substr(src, pos, 1)
 }
 
 func lxAdvance(state) {
     let src = lxSource(state)
     let pos = lxPos(state)
-    if (pos >= len(src)) { return 0 }
+    if (pos >= len(src)) { return "" }
     let ch = substr(src, pos, 1)
     setLxPos(state, pos + 1)
     if (ch == "\n") {
@@ -165,7 +165,7 @@ func lxAdvance(state) {
 func lxPeekAt(state, offset) {
     let src = lxSource(state)
     let pos = lxPos(state) + offset
-    if (pos >= len(src)) { return 0 }
+    if (pos >= len(src)) { return "" }
     return substr(src, pos, 1)
 }
 

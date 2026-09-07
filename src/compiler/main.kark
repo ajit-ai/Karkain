@@ -90,30 +90,6 @@ func printUsage() {
     print("  --version, -v       Show version information")
 }
 
-func readFile(path) {
-    // Read entire file contents
-    // This is a placeholder - actual I/O depends on runtime support
-    let f = openFile(path)
-    if (f == "") {
-        print("Error: cannot open file " + path)
-        return ""
-    }
-    let content = ""
-    let done = false
-    while (done == false) {
-        let result = readLineEOF(f)
-        let line = result[0]
-        let eof = result[1]
-        if (eof == true) {
-            done = true
-        } else {
-            content = content + line + "\n"
-        }
-    }
-    closeFile(f)
-    return content
-}
-
 func checkFile(path) {
     let source = readFile(path)
     if (source == "") { return }
@@ -131,7 +107,7 @@ func checkFile(path) {
         return
     }
 
-    print("âœ“ " + path + " parsed successfully")
+    print("[ok] " + path + " parsed successfully")
 }
 
 func buildFile(path, target) {
@@ -160,7 +136,7 @@ func buildFile(path, target) {
     writeToFile(f, output)
     closeFile(f)
 
-    print("âœ“ " + path + " â†’ " + outPath + " (" + target + ")")
+    print("[ok] " + path + "  ->  " + outPath + " (" + target + ")")
 }
 
 func runFile(path) {
@@ -277,11 +253,6 @@ func loadSourceWithSiblings(path) {
     }
     content = content + readFile(path)
     return content
-}
-
-func getArgs() {
-    // Placeholder - returns command line arguments
-    return ["karkain"]
 }
 
 // ============================================================
