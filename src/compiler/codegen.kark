@@ -106,6 +106,8 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value map_get(Value m, Value k) { if(m.type!=TYPE_MAP) return make_int(0); const char* key=k.strVal?k.strVal:\"\"; int i; for(i=0;i<m.mlen;i++){ if(strcmp(m.keys[i],key)==0) return *m.values[i]; } return make_int(0); }")
     emitLine(state, "static void map_set(Value* m, Value k, Value v) { if(m->type!=TYPE_MAP) return; const char* key=k.strVal?k.strVal:\"\"; int i; for(i=0;i<m->mlen;i++){ if(strcmp(m->keys[i],key)==0){ *(m->values[i])=v; return; } } m->mlen++; m->keys=(char**)realloc(m->keys,sizeof(char*)*m->mlen); m->values=(Value**)realloc(m->values,sizeof(Value*)*m->mlen); m->keys[m->mlen-1]=strdup(key); Value* c=(Value*)malloc(sizeof(Value)); *c=v; m->values[m->mlen-1]=c; }")
     emitNewline(state)
+    emitLine(state, "static Value values_equal(Value a, Value b);")
+    emitNewline(state)
     emitLine(state, "static Value binary_op(Value l, const char* op, Value r) {")
     emitLine(state, "    if(l.type==TYPE_STRING||r.type==TYPE_STRING) {")
     emitLine(state, "        if(strcmp(op,\"+\")==0) { const char* a=l.type==TYPE_STRING?(l.strVal?l.strVal:\"\"):\"\"; const char* b=r.type==TYPE_STRING?(r.strVal?r.strVal:\"\"):\"\"; int n=strlen(a)+strlen(b)+1; char* buf=(char*)malloc(n); buf[0]=0; strcat(buf,a); strcat(buf,b); Value res=make_string(buf); free(buf); return res; }")
@@ -122,13 +124,16 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "        if(strcmp(op,\"<\")==0) return make_int(a<b); if(strcmp(op,\">\")==0) return make_int(a>b);")
     emitLine(state, "        if(strcmp(op,\"<=\")==0) return make_int(a<=b); if(strcmp(op,\">=\")==0) return make_int(a>=b);")
     emitLine(state, "    }")
-    emitLine(state, "    long long a=l.intVal, b=r.intVal;")
-    emitLine(state, "    if(strcmp(op,\"+\")==0) return make_int(a+b); if(strcmp(op,\"-\")==0) return make_int(a-b);")
-    emitLine(state, "    if(strcmp(op,\"*\")==0) return make_int(a*b); if(strcmp(op,\"/\")==0) return make_int(b!=0?a/b:0);")
-    emitLine(state, "    if(strcmp(op,\"%\")==0) return make_int(b!=0?a%b:0);")
-    emitLine(state, "    if(strcmp(op,\"==\")==0) return make_int(a==b); if(strcmp(op,\"!=\")==0) return make_int(a!=b);")
-    emitLine(state, "    if(strcmp(op,\"<\")==0) return make_int(a<b); if(strcmp(op,\">\")==0) return make_int(a>b);")
-    emitLine(state, "    if(strcmp(op,\"<=\")==0) return make_int(a<=b); if(strcmp(op,\">=\")==0) return make_int(a>=b);")
+    emitLine(state, "    if(l.type==TYPE_INT||l.type==TYPE_BOOL||r.type==TYPE_INT||r.type==TYPE_BOOL) {")
+    emitLine(state, "        long long a=l.intVal, b=r.intVal;")
+    emitLine(state, "        if(strcmp(op,\"+\")==0) return make_int(a+b); if(strcmp(op,\"-\")==0) return make_int(a-b);")
+    emitLine(state, "        if(strcmp(op,\"*\")==0) return make_int(a*b); if(strcmp(op,\"/\")==0) return make_int(b!=0?a/b:0);")
+    emitLine(state, "        if(strcmp(op,\"%\")==0) return make_int(b!=0?a%b:0);")
+    emitLine(state, "        if(strcmp(op,\"==\")==0) return make_int(a==b); if(strcmp(op,\"!=\")==0) return make_int(a!=b);")
+    emitLine(state, "        if(strcmp(op,\"<\")==0) return make_int(a<b); if(strcmp(op,\">\")==0) return make_int(a>b);")
+    emitLine(state, "        if(strcmp(op,\"<=\")==0) return make_int(a<=b); if(strcmp(op,\">=\")==0) return make_int(a>=b);")
+    emitLine(state, "    }")
+    emitLine(state, "    if(strcmp(op,\"==\")==0) return values_equal(l,r); if(strcmp(op,\"!=\")==0) return make_int(is_truthy(values_equal(l,r))==0);")
     emitLine(state, "    if(strcmp(op,\"&&\")==0) return make_int(is_truthy(l)&&is_truthy(r)); if(strcmp(op,\"||\")==0) return make_int(is_truthy(l)||is_truthy(r));")
     emitLine(state, "    return make_int(0);")
     emitLine(state, "}")
@@ -457,6 +462,18 @@ func emitC11Stmt(state, node) {
         emit(state, "")
         emitC11Expr(state, exprStmtExpr(node))
         emitLine(state, ";")
+    }
+
+    if (nt == "Break") {
+        emitLine(state, "break;")
+    }
+
+    if (nt == "Continue") {
+        emitLine(state, "continue;")
+    }
+
+    if (nt == "BinaryExpr") {
+        emitC11Expr(state, node)
     }
 
     if (nt == "If") {

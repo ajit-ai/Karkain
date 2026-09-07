@@ -723,6 +723,14 @@ func parseBinary(state, left, minPrec) {
             left = makeUnary("?", left, psLine(state))
         }
 
+        // Assignment: lhs = rhs (simple, index, or dot target)
+        if (psCurKind(state) == TK_ASSIGN()) {
+            psAdvance(state) // consume '='
+            let rhs = parseExpr(state)
+            left = makeBinary("=", left, rhs, psLine(state))
+            break
+        }
+
         // Binary operator
         let kind = psCurKind(state)
         if (!isOpToken(kind)) { break }
