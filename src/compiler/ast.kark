@@ -397,6 +397,24 @@ func indexExpr(n)   { return n[2] }
 func indexLine(n)   { return n[3] }
 
 // ============================================================
+// Slice: [NODE_SLICE, left, start, end, line]
+// ============================================================
+
+func makeSlice(left, start, end, line) {
+    let n = makeNode(NODE_SLICE())
+    n = appendArray(n, left)
+    n = appendArray(n, start)
+    n = appendArray(n, end)
+    n = appendArray(n, line)
+    return n
+}
+
+func sliceLeft(n)   { return n[1] }
+func sliceStart(n)  { return n[2] }
+func sliceEnd(n)    { return n[3] }
+func sliceLine(n)   { return n[4] }
+
+// ============================================================
 // Dot: [NODE_DOT, left, right, line]
 // ============================================================
 
