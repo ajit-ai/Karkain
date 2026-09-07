@@ -1,796 +1,758 @@
-// Phase 40: Self-hosted AST Node Definitions for Karkain Compiler
-// Defines all AST node types, token kinds, and visitor interface structures
-// Foundation module - all other compiler modules depend on it
-
 // ============================================================
-// Location tracking for source mapping
+// Self-hosted Karkain Parser — Production version
+// Rewritten from pkg/parser/parser.go (2088 lines Go) to pure Karkain
 // ============================================================
 
-func createLocation(line, col, offset) {
-    let loc = []
-    loc = appendArray(loc, line)
-    loc = appendArray(loc, col)
-    loc = appendArray(loc, offset)
-    return loc
+// ============================================================
+// AST Node types — every node is an array of values
+// Node format: [nodeType, ...fields]
+// ============================================================
+
+// Node type constants
+func NODE_PROGRAM()       { return 1 }
+func NODE_FUNC_DECL()     { return 2 }
+func NODE_VAR_DECL()      { return 3 }
+func NODE_RETURN()        { return 4 }
+func NODE_IF()            { return 5 }
+func NODE_WHILE()         { return 6 }
+func NODE_FOR()           { return 7 }
+func NODE_FOR_IN()        { return 8 }
+func NODE_PRINT()         { return 9 }
+func NODE_BLOCK()         { return 10 }
+func NODE_EXPR_STMT()     { return 11 }
+func NODE_STRUCT_DECL()   { return 12 }
+func NODE_ENUM_DECL()     { return 13 }
+func NODE_IDENT()         { return 20 }
+func NODE_INT_LIT()       { return 21 }
+func NODE_FLOAT_LIT()     { return 22 }
+func NODE_STRING_LIT()    { return 23 }
+func NODE_BOOL_LIT()      { return 24 }
+func NODE_BINARY()        { return 30 }
+func NODE_UNARY()         { return 31 }
+func NODE_CALL()          { return 32 }
+func NODE_INDEX()         { return 33 }
+func NODE_DOT()           { return 34 }
+func NODE_ASSIGN()        { return 35 }
+func NODE_ARRAY_LIT()     { return 36 }
+func NODE_MAP_LIT()       { return 37 }
+func NODE_LAMBDA()        { return 38 }
+func NODE_IMPORT()        { return 40 }
+func NODE_CIMPORT()       { return 41 }
+func NODE_BREAK()         { return 42 }
+func NODE_CONTINUE()      { return 43 }
+func NODE_MATCH()         { return 44 }
+func NODE_STRUCT_LIT()    { return 45 }
+func NODE_SLICE()         { return 46 }
+func NODE_BORROW()        { return 50 }
+func NODE_MOVE()          { return 51 }
+func NODE_RAW_ACCESS()    { return 52 }
+func NODE_OPTION_SOME()   { return 53 }
+func NODE_OPTION_NONE()   { return 54 }
+func NODE_RESULT_OK()     { return 55 }
+func NODE_RESULT_ERR()    { return 56 }
+func NODE_PROPAGATE()     { return 57 }
+func NODE_KERNEL()        { return 60 }
+func NODE_GLOBAL_ID()     { return 61 }
+func NODE_BARRIER()       { return 62 }
+func NODE_ACTOR()         { return 63 }
+func NODE_SPAWN()         { return 64 }
+func NODE_SEND()          { return 65 }
+func NODE_RECEIVE()       { return 66 }
+func NODE_MATRIX_DECL()   { return 70 }
+func NODE_MATRIX_INDEX()  { return 71 }
+func NODE_QREG_DECL()     { return 72 }
+func NODE_GATE_APPLY()    { return 73 }
+func NODE_MEASURE()       { return 74 }
+func NODE_MACRO()         { return 80 }
+func NODE_QUOTE()         { return 81 }
+func NODE_UNQUOTE()       { return 82 }
+func NODE_COMPTIME()      { return 83 }
+func NODE_DERIVE()        { return 84 }
+func NODE_TAG()           { return 85 }
+func NODE_ALLOC()         { return 86 }
+func NODE_FREE()          { return 87 }
+func NODE_ADDR_OF()       { return 88 }
+func NODE_DEREF()         { return 89 }
+func NODE_SIMD_BUILTIN()  { return 90 }
+func NODE_ATOMIC_OP()     { return 91 }
+func NODE_LINEAR_TYPE()   { return 92 }
+func NODE_PACKED_STRUCT() { return 93 }
+
+// ============================================================
+// Node constructors — create AST nodes as arrays
+// ============================================================
+
+func makeNode(nodeType) {
+    let n = []
+    n = appendArray(n, nodeType)
+    return n
 }
 
-func locLine(loc) { return loc[0] }
-func locCol(loc) { return loc[1] }
-func locOffset(loc) { return loc[2] }
+func nodeType(n) { return n[0] }
 
 // ============================================================
-// TokenKind enum values (integer constants)
+// Program node
 // ============================================================
 
+func makeProgram(stmts, imports) {
+    let n = makeNode(NODE_PROGRAM())
+    n = appendArray(n, stmts)
+    n = appendArray(n, imports)
+    return n
+}
+
+func progStatements(p) { return p[1] }
+func progImports(p)    { return p[2] }
+
+// ============================================================
+// FuncDecl node: [NODE_FUNC_DECL, name, params, body, line, col]
+// ============================================================
+
+func makeFuncDecl(name, params, body, line, col) {
+    let n = makeNode(NODE_FUNC_DECL())
+    n = appendArray(n, name)
+    n = appendArray(n, params)
+    n = appendArray(n, body)
+    n = appendArray(n, line)
+    n = appendArray(n, col)
+    return n
+}
+
+func funcName(n)      { return n[1] }
+func funcParams(n)    { return n[2] }
+func funcBody(n)      { return n[3] }
+func funcLine(n)      { return n[4] }
+func funcCol(n)       { return n[5] }
+
+// ============================================================
+// VarDecl node: [NODE_VAR_DECL, name, value, typeName, line]
+// ============================================================
+
+func makeVarDecl(name, value, typeName, line) {
+    let n = makeNode(NODE_VAR_DECL())
+    n = appendArray(n, name)
+    n = appendArray(n, value)
+    n = appendArray(n, typeName)
+    n = appendArray(n, line)
+    return n
+}
+
+func varDeclName(n)     { return n[1] }
+func varDeclValue(n)    { return n[2] }
+func varDeclType(n)     { return n[3] }
+func varDeclLine(n)     { return n[4] }
+
+// ============================================================
+// Return node: [NODE_RETURN, value, line]
+// ============================================================
+
+func makeReturn(val, line) {
+    let n = makeNode(NODE_RETURN())
+    n = appendArray(n, val)
+    n = appendArray(n, line)
+    return n
+}
+
+func retVal(n)  { return n[1] }
+func retLine(n) { return n[2] }
+
+// ============================================================
+// If node: [NODE_IF, condition, consequence, alternative, line]
+// ============================================================
+
+func makeIf(cond, cons, alt, line) {
+    let n = makeNode(NODE_IF())
+    n = appendArray(n, cond)
+    n = appendArray(n, cons)
+    n = appendArray(n, alt)
+    n = appendArray(n, line)
+    return n
+}
+
+func ifCond(n)  { return n[1] }
+func ifCons(n)  { return n[2] }
+func ifAlt(n)   { return n[3] }
+func ifLine(n)  { return n[4] }
+
+// ============================================================
+// While node: [NODE_WHILE, condition, body, line]
+// ============================================================
+
+func makeWhile(cond, body, line) {
+    let n = makeNode(NODE_WHILE())
+    n = appendArray(n, cond)
+    n = appendArray(n, body)
+    n = appendArray(n, line)
+    return n
+}
+
+func whileCond(n)  { return n[1] }
+func whileBody(n)  { return n[2] }
+func whileLine(n)  { return n[3] }
+
+// ============================================================
+// For node: [NODE_FOR, init, cond, post, body, line]
+// ============================================================
+
+func makeFor(init, cond, post, body, line) {
+    let n = makeNode(NODE_FOR())
+    n = appendArray(n, init)
+    n = appendArray(n, cond)
+    n = appendArray(n, post)
+    n = appendArray(n, body)
+    n = appendArray(n, line)
+    return n
+}
+
+func forInit(n)   { return n[1] }
+func forCond(n)   { return n[2] }
+func forPost(n)   { return n[3] }
+func forBody(n)   { return n[4] }
+func forLine(n)   { return n[5] }
+
+// ============================================================
+// ForIn node: [NODE_FOR_IN, varName, iter, body, line]
+// ============================================================
+
+func makeForIn(varName, iter, body, line) {
+    let n = makeNode(NODE_FOR_IN())
+    n = appendArray(n, varName)
+    n = appendArray(n, iter)
+    n = appendArray(n, body)
+    n = appendArray(n, line)
+    return n
+}
+
+func forInVar(n)  { return n[1] }
+func forInIter(n) { return n[2] }
+func forInBody(n) { return n[3] }
+func forInLine(n) { return n[4] }
+
+// ============================================================
+// Print node: [NODE_PRINT, value, line]
+// ============================================================
+
+func makePrint(val, line) {
+    let n = makeNode(NODE_PRINT())
+    n = appendArray(n, val)
+    n = appendArray(n, line)
+    return n
+}
+
+func printVal(n)  { return n[1] }
+func printLine(n) { return n[2] }
+
+// ============================================================
+// Block node: [NODE_BLOCK, statements]
+// ============================================================
+
+func makeBlock(stmts) {
+    let n = makeNode(NODE_BLOCK())
+    n = appendArray(n, stmts)
+    return n
+}
+
+func blockStmts(n) { return n[1] }
+
+// ============================================================
+// ExprStmt node: [NODE_EXPR_STMT, expression, line]
+// ============================================================
+
+func makeExprStmt(expr, line) {
+    let n = makeNode(NODE_EXPR_STMT())
+    n = appendArray(n, expr)
+    n = appendArray(n, line)
+    return n
+}
+
+func exprStmtExpr(n)  { return n[1] }
+func exprStmtLine(n)  { return n[2] }
+
+// ============================================================
+// Identifier: [NODE_IDENT, name, line, col]
+// ============================================================
+
+func makeIdent(name, line, col) {
+    let n = makeNode(NODE_IDENT())
+    n = appendArray(n, name)
+    n = appendArray(n, line)
+    n = appendArray(n, col)
+    return n
+}
+
+func identName(n)  { return n[1] }
+func identLine(n)  { return n[2] }
+func identCol(n)   { return n[3] }
+
+// ============================================================
 // Literals
-func TK_INT_LIT() { return 1 }
-func TK_FLOAT_LIT() { return 2 }
-func TK_STRING_LIT() { return 3 }
-func TK_BOOL_LIT() { return 4 }
-func TK_IDENT() { return 5 }
-
-// Keywords
-func TK_FUNC() { return 10 }
-func TK_VAR() { return 11 }
-func TK_LET() { return 12 }
-func TK_RETURN() { return 13 }
-func TK_IF() { return 14 }
-func TK_ELSE() { return 15 }
-func TK_WHILE() { return 16 }
-func TK_FOR() { return 17 }
-func TK_PRINT() { return 18 }
-func TK_KERNEL() { return 19 }
-func TK_STRUCT() { return 20 }
-func TK_TYPE() { return 21 }
-func TK_IMPORT() { return 22 }
-func TK_ACTOR() { return 23 }
-func TK_SPAWN() { return 24 }
-func TK_SEND() { return 25 }
-func TK_RECEIVE() { return 26 }
-func TK_CHANNEL() { return 27 }
-func TK_MACRO() { return 28 }
-func TK_COMPTIME() { return 29 }
-func TK_QUOTE() { return 30 }
-func TK_UNQUOTE() { return 31 }
-func TK_BARRIER() { return 32 }
-func TK_GLOBAL_ID() { return 33 }
-func TK_MATRIX() { return 34 }
-func TK_ALLOC() { return 35 }
-func TK_FREE() { return 36 }
-func TK_ADDR() { return 37 }
-func TK_DEREF() { return 38 }
-func TK_TRUE() { return 39 }
-func TK_FALSE() { return 40 }
-func TK_INT() { return 41 }
-func TK_FLOAT64() { return 42 }
-func TK_STRING() { return 43 }
-func TK_BOOL() { return 44 }
-
-// Operators
-func TK_PLUS() { return 50 }
-func TK_MINUS() { return 51 }
-func TK_STAR() { return 52 }
-func TK_SLASH() { return 53 }
-func TK_PERCENT() { return 54 }
-func TK_ASSIGN() { return 55 }
-func TK_EQ() { return 56 }
-func TK_NEQ() { return 57 }
-func TK_LT() { return 58 }
-func TK_GT() { return 59 }
-func TK_LTE() { return 60 }
-func TK_GTE() { return 61 }
-func TK_AND() { return 62 }
-func TK_OR() { return 63 }
-func TK_NOT() { return 64 }
-func TK_ARROW() { return 65 }
-
-// Delimiters
-func TK_LPAREN() { return 70 }
-func TK_RPAREN() { return 71 }
-func TK_LBRACE() { return 72 }
-func TK_RBRACE() { return 73 }
-func TK_LBRACKET() { return 74 }
-func TK_RBRACKET() { return 75 }
-func TK_COMMA() { return 76 }
-func TK_DOT() { return 77 }
-func TK_COLON() { return 78 }
-func TK_SEMICOLON() { return 79 }
-func TK_HASH() { return 80 }
-func TK_EOF() { return 99 }
-
-// ============================================================
-// Token creation and access (Phase 40: Zero-allocation tokens)
-// Tokens store source offsets instead of copying literal strings.
-// The token text is derived on-demand via tokenLiteral(tok, source).
 // ============================================================
 
-func createToken(kind, start, len, loc) {
-    let tok = []
-    tok = appendArray(tok, kind)    // 0: token kind (integer)
-    tok = appendArray(tok, start)   // 1: source start offset (u32)
-    tok = appendArray(tok, len)     // 2: source text length (u32)
-    tok = appendArray(tok, loc)     // 3: source location
-    return tok
+func makeIntLit(val, line) {
+    let n = makeNode(NODE_INT_LIT())
+    n = appendArray(n, val)
+    n = appendArray(n, line)
+    return n
 }
 
-func tokenKind(tok) { return tok[0] }
-func tokenStart(tok) { return tok[1] }
-func tokenLen(tok) { return tok[2] }
-func tokenLoc(tok) { return tok[3] }
+func intLitVal(n)  { return n[1] }
+func intLitLine(n) { return n[2] }
 
-// tokenLiteral returns the token's source text by slicing the source buffer.
-// This is zero-allocation at token creation; the string is materialized on demand.
-func tokenLiteral(tok, source) {
-    let start = tokenStart(tok)
-    let length = tokenLen(tok)
-    return substr(source, start, length)
+func makeFloatLit(val, line) {
+    let n = makeNode(NODE_FLOAT_LIT())
+    n = appendArray(n, val)
+    n = appendArray(n, line)
+    return n
 }
+
+func floatLitVal(n)  { return n[1] }
+func floatLitLine(n) { return n[2] }
+
+func makeStringLit(val, line) {
+    let n = makeNode(NODE_STRING_LIT())
+    n = appendArray(n, val)
+    n = appendArray(n, line)
+    return n
+}
+
+func stringLitVal(n)  { return n[1] }
+func stringLitLine(n) { return n[2] }
+
+func makeBoolLit(val, line) {
+    let n = makeNode(NODE_BOOL_LIT())
+    n = appendArray(n, val)
+    n = appendArray(n, line)
+    return n
+}
+
+func boolLitVal(n)  { return n[1] }
+func boolLitLine(n) { return n[2] }
 
 // ============================================================
-// AST Node Types
+// Binary: [NODE_BINARY, op, left, right, line]
 // ============================================================
 
-// --- Program ---
-func createProgramNode(statements) {
-    let node = []
-    node = appendArray(node, "Program")
-    node = appendArray(node, statements)
-    return node
+func makeBinary(op, left, right, line) {
+    let n = makeNode(NODE_BINARY())
+    n = appendArray(n, op)
+    n = appendArray(n, left)
+    n = appendArray(n, right)
+    n = appendArray(n, line)
+    return n
 }
 
-// --- FuncDecl ---
-func createFuncDeclNode(name, params, returnType, body, loc) {
-    let node = []
-    node = appendArray(node, "FuncDecl")
-    node = appendArray(node, name)
-    node = appendArray(node, params)
-    node = appendArray(node, returnType)
-    node = appendArray(node, body)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- KernelDeclStmt (GPU kernel) ---
-func createKernelDeclNode(name, params, body, workgroup, loc) {
-    let node = []
-    node = appendArray(node, "KernelDecl")
-    node = appendArray(node, name)
-    node = appendArray(node, params)
-    node = appendArray(node, body)
-    node = appendArray(node, workgroup)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- VarDeclStmt ---
-func createVarDeclNode(varType, name, value, loc) {
-    let node = []
-    node = appendArray(node, "VarDecl")
-    node = appendArray(node, varType)
-    node = appendArray(node, name)
-    node = appendArray(node, value)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- LetDecl ---
-func createLetDeclNode(name, value, loc) {
-    let node = []
-    node = appendArray(node, "LetDecl")
-    node = appendArray(node, name)
-    node = appendArray(node, value)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- StructDecl ---
-func createStructDeclNode(name, fields, loc) {
-    let node = []
-    node = appendArray(node, "StructDecl")
-    node = appendArray(node, name)
-    node = appendArray(node, fields)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- Ident ---
-func createIdentNode(name, loc) {
-    let node = []
-    node = appendArray(node, "Ident")
-    node = appendArray(node, name)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- IntLiteral ---
-func createIntLiteralNode(value, loc) {
-    let node = []
-    node = appendArray(node, "IntLiteral")
-    node = appendArray(node, value)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- FloatLiteral ---
-func createFloatLiteralNode(value, loc) {
-    let node = []
-    node = appendArray(node, "FloatLiteral")
-    node = appendArray(node, value)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- StringLiteral ---
-func createStringLiteralNode(value, loc) {
-    let node = []
-    node = appendArray(node, "StringLiteral")
-    node = appendArray(node, value)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- BoolLiteral ---
-func createBoolLiteralNode(value, loc) {
-    let node = []
-    node = appendArray(node, "BoolLiteral")
-    node = appendArray(node, value)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- BinaryExpr ---
-func createBinaryExprNode(op, left, right, loc) {
-    let node = []
-    node = appendArray(node, "BinaryExpr")
-    node = appendArray(node, op)
-    node = appendArray(node, left)
-    node = appendArray(node, right)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- UnaryExpr ---
-func createUnaryExprNode(op, operand, loc) {
-    let node = []
-    node = appendArray(node, "UnaryExpr")
-    node = appendArray(node, op)
-    node = appendArray(node, operand)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- CallExpr ---
-func createCallNode(funcName, args, loc) {
-    let node = []
-    node = appendArray(node, "Call")
-    node = appendArray(node, funcName)
-    node = appendArray(node, args)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- IndexExpr ---
-func createIndexNode(left, index, loc) {
-    let node = []
-    node = appendArray(node, "Index")
-    node = appendArray(node, left)
-    node = appendArray(node, index)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- MemberExpr ---
-func createMemberNode(object, member, loc) {
-    let node = []
-    node = appendArray(node, "Member")
-    node = appendArray(node, object)
-    node = appendArray(node, member)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- Print ---
-func createPrintNode(expr, loc) {
-    let node = []
-    node = appendArray(node, "Print")
-    node = appendArray(node, expr)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- If ---
-func createIfNode(condition, thenBranch, elseBranch, loc) {
-    let node = []
-    node = appendArray(node, "If")
-    node = appendArray(node, condition)
-    node = appendArray(node, thenBranch)
-    node = appendArray(node, elseBranch)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- While ---
-func createWhileNode(condition, body, loc) {
-    let node = []
-    node = appendArray(node, "While")
-    node = appendArray(node, condition)
-    node = appendArray(node, body)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- For ---
-func createForNode(init, condition, post, body, loc) {
-    let node = []
-    node = appendArray(node, "For")
-    node = appendArray(node, init)
-    node = appendArray(node, condition)
-    node = appendArray(node, post)
-    node = appendArray(node, body)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- Return ---
-func createReturnNode(expr, loc) {
-    let node = []
-    node = appendArray(node, "Return")
-    node = appendArray(node, expr)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- ExprStmt ---
-func createExprStmtNode(expr, loc) {
-    let node = []
-    node = appendArray(node, "ExprStmt")
-    node = appendArray(node, expr)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- ArrayLiteral ---
-func createArrayLiteralNode(elements, loc) {
-    let node = []
-    node = appendArray(node, "ArrayLiteral")
-    node = appendArray(node, elements)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- MapLiteral ---
-func createMapLiteralNode(keys, values, loc) {
-    let node = []
-    node = appendArray(node, "MapLiteral")
-    node = appendArray(node, keys)
-    node = appendArray(node, values)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- MatrixDecl ---
-func createMatrixDeclNode(name, rows, cols, elemType, loc) {
-    let node = []
-    node = appendArray(node, "MatrixDecl")
-    node = appendArray(node, name)
-    node = appendArray(node, rows)
-    node = appendArray(node, cols)
-    node = appendArray(node, elemType)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- MatrixIndex ---
-func createMatrixIndexNode(mat, row, col, loc) {
-    let node = []
-    node = appendArray(node, "MatrixIndex")
-    node = appendArray(node, mat)
-    node = appendArray(node, row)
-    node = appendArray(node, col)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- BarrierStmt ---
-func createBarrierNode(loc) {
-    let node = []
-    node = appendArray(node, "Barrier")
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- GlobalIdExpr ---
-func createGlobalIdNode(dimension, loc) {
-    let node = []
-    node = appendArray(node, "GlobalId")
-    node = appendArray(node, dimension)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- SpawnExpr ---
-func createSpawnNode(actorName, args, loc) {
-    let node = []
-    node = appendArray(node, "Spawn")
-    node = appendArray(node, actorName)
-    node = appendArray(node, args)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- SendExpr ---
-func createSendNode(chan, message, loc) {
-    let node = []
-    node = appendArray(node, "Send")
-    node = appendArray(node, chan)
-    node = appendArray(node, message)
-    node = appendArray(node, loc)
-    return node
-}
-
-// --- ReceiveStmt ---
-func createReceiveNode(chan, varName, loc) {
-    let node = []
-    node = appendArray(node, "Receive")
-    node = appendArray(node, chan)
-    node = appendArray(node, varName)
-    node = appendArray(node, loc)
-    return node
-}
+func binaryOp(n)    { return n[1] }
+func binaryLeft(n)  { return n[2] }
+func binaryRight(n) { return n[3] }
+func binaryLine(n)  { return n[4] }
 
 // ============================================================
-// AST Accessor helpers
+// Unary: [NODE_UNARY, op, operand, line]
 // ============================================================
 
-func getNodeType(node) { return node[0] }
+func makeUnary(op, operand, line) {
+    let n = makeNode(NODE_UNARY())
+    n = appendArray(n, op)
+    n = appendArray(n, operand)
+    n = appendArray(n, line)
+    return n
+}
 
-func funcName(node) { return node[1] }
-func funcParams(node) { return node[2] }
-func funcReturnType(node) { return node[3] }
-func funcBody(node) { return node[4] }
-
-func kernelName(node) { return node[1] }
-func kernelParams(node) { return node[2] }
-func kernelBody(node) { return node[3] }
-func kernelWorkgroup(node) { return node[4] }
-
-func varDeclType(node) { return node[1] }
-func varDeclName(node) { return node[2] }
-func varDeclValue(node) { return node[3] }
-
-func letDeclName(node) { return node[1] }
-func letDeclValue(node) { return node[2] }
-
-func identName(node) { return node[1] }
-func literalValue(node) { return node[1] }
-
-func binaryOp(node) { return node[1] }
-func binaryLeft(node) { return node[2] }
-func binaryRight(node) { return node[3] }
-
-func unaryOp(node) { return node[1] }
-func unaryOperand(node) { return node[2] }
-
-func callFunc(node) { return node[1] }
-func callArgs(node) { return node[2] }
-
-func printExpr(node) { return node[1] }
-
-func ifCondition(node) { return node[1] }
-func ifThen(node) { return node[2] }
-func ifElse(node) { return node[3] }
-
-func whileCondition(node) { return node[1] }
-func whileBody(node) { return node[2] }
-
-func forInit(node) { return node[1] }
-func forCondition(node) { return node[2] }
-func forPost(node) { return node[3] }
-func forBody(node) { return node[4] }
-
-func returnExpr(node) { return node[1] }
-func exprStmtExpr(node) { return node[1] }
-
-func programStatements(node) { return node[1] }
-
-func structName(node) { return node[1] }
-func structFields(node) { return node[2] }
-
-func indexLeft(node) { return node[1] }
-func indexExpr(node) { return node[2] }
-
-func memberObject(node) { return node[1] }
-func memberField(node) { return node[2] }
-
-func arrayElements(node) { return node[1] }
-
-func mapKeys(node) { return node[1] }
-func mapValues(node) { return node[2] }
-
-func globalIdDim(node) { return node[1] }
-
-func spawnActor(node) { return node[1] }
-func spawnArgs(node) { return node[2] }
-
-func sendChannel(node) { return node[1] }
-func sendMessage(node) { return node[2] }
-
-func receiveChannel(node) { return node[1] }
-func receiveVar(node) { return node[2] }
-
-func matrixName(node) { return node[1] }
-func matrixRows(node) { return node[2] }
-func matrixCols(node) { return node[3] }
-func matrixElemType(node) { return node[4] }
-
-func matrixIndexMatrix(node) { return node[1] }
-func matrixIndexRow(node) { return node[2] }
-func matrixIndexCol(node) { return node[3] }
+func unaryOp(n)      { return n[1] }
+func unaryOperand(n) { return n[2] }
+func unaryLine(n)    { return n[3] }
 
 // ============================================================
-// Visitor interface helpers (for tree walkers)
+// Call: [NODE_CALL, funcName, args, line, col]
 // ============================================================
 
-func visitNode(node, visitor) {
-    let nodeType = getNodeType(node)
-
-    if (nodeType == "Program") { visitorVisitProgram(node, visitor) }
-    if (nodeType == "FuncDecl") { visitorVisitFuncDecl(node, visitor) }
-    if (nodeType == "KernelDecl") { visitorVisitKernelDecl(node, visitor) }
-    if (nodeType == "VarDecl") { visitorVisitVarDecl(node, visitor) }
-    if (nodeType == "LetDecl") { visitorVisitLetDecl(node, visitor) }
-    if (nodeType == "BinaryExpr") { visitorVisitBinaryExpr(node, visitor) }
-    if (nodeType == "UnaryExpr") { visitorVisitUnaryExpr(node, visitor) }
-    if (nodeType == "Call") { visitorVisitCall(node, visitor) }
-    if (nodeType == "Print") { visitorVisitPrint(node, visitor) }
-    if (nodeType == "If") { visitorVisitIf(node, visitor) }
-    if (nodeType == "While") { visitorVisitWhile(node, visitor) }
-    if (nodeType == "For") { visitorVisitFor(node, visitor) }
-    if (nodeType == "Return") { visitorVisitReturn(node, visitor) }
-    if (nodeType == "StructDecl") { visitorVisitStructDecl(node, visitor) }
+func makeCall(funcName, args, line, col) {
+    let n = makeNode(NODE_CALL())
+    n = appendArray(n, funcName)
+    n = appendArray(n, args)
+    n = appendArray(n, line)
+    n = appendArray(n, col)
+    return n
 }
 
-func visitorVisitProgram(node, visitor) {
-    let stmts = programStatements(node)
-    let i = 0
-    while (i < len(stmts)) {
-        visitNode(stmts[i], visitor)
-        i = i + 1
-    }
-}
-
-func visitorVisitFuncDecl(node, visitor) {
-    let body = funcBody(node)
-    let i = 0
-    while (i < len(body)) {
-        visitNode(body[i], visitor)
-        i = i + 1
-    }
-}
-
-func visitorVisitKernelDecl(node, visitor) {
-    let body = kernelBody(node)
-    let i = 0
-    while (i < len(body)) {
-        visitNode(body[i], visitor)
-        i = i + 1
-    }
-}
-
-func visitorVisitVarDecl(node, visitor) {
-    visitNode(varDeclValue(node), visitor)
-}
-
-func visitorVisitLetDecl(node, visitor) {
-    visitNode(letDeclValue(node), visitor)
-}
-
-func visitorVisitBinaryExpr(node, visitor) {
-    visitNode(binaryLeft(node), visitor)
-    visitNode(binaryRight(node), visitor)
-}
-
-func visitorVisitUnaryExpr(node, visitor) {
-    visitNode(unaryOperand(node), visitor)
-}
-
-func visitorVisitCall(node, visitor) {
-    let args = callArgs(node)
-    let i = 0
-    while (i < len(args)) {
-        visitNode(args[i], visitor)
-        i = i + 1
-    }
-}
-
-func visitorVisitPrint(node, visitor) {
-    visitNode(printExpr(node), visitor)
-}
-
-func visitorVisitIf(node, visitor) {
-    visitNode(ifCondition(node), visitor)
-    let thenB = ifThen(node)
-    let i = 0
-    while (i < len(thenB)) {
-        visitNode(thenB[i], visitor)
-        i = i + 1
-    }
-    let elseB = ifElse(node)
-    i = 0
-    while (i < len(elseB)) {
-        visitNode(elseB[i], visitor)
-        i = i + 1
-    }
-}
-
-func visitorVisitWhile(node, visitor) {
-    visitNode(whileCondition(node), visitor)
-    let body = whileBody(node)
-    let i = 0
-    while (i < len(body)) {
-        visitNode(body[i], visitor)
-        i = i + 1
-    }
-}
-
-func visitorVisitFor(node, visitor) {
-    visitNode(forInit(node), visitor)
-    visitNode(forCondition(node), visitor)
-    visitNode(forPost(node), visitor)
-    let body = forBody(node)
-    let i = 0
-    while (i < len(body)) {
-        visitNode(body[i], visitor)
-        i = i + 1
-    }
-}
-
-func visitorVisitReturn(node, visitor) {
-    visitNode(returnExpr(node), visitor)
-}
-
-func visitorVisitStructDecl(node, visitor) {
-    // No children to visit
-}
+func callFunc(n)  { return n[1] }
+func callArgs(n)  { return n[2] }
+func callLine(n)  { return n[3] }
+func callCol(n)   { return n[4] }
 
 // ============================================================
-// AST pretty printer for debugging
+// Index: [NODE_INDEX, left, index, line]
 // ============================================================
 
-func printAST(node, indent) {
-    let nodeType = getNodeType(node)
-    print(indent + nodeType)
+func makeIndex(left, index, line) {
+    let n = makeNode(NODE_INDEX())
+    n = appendArray(n, left)
+    n = appendArray(n, index)
+    n = appendArray(n, line)
+    return n
+}
 
-    if (nodeType == "Program") {
-        let stmts = programStatements(node)
-        let i = 0
-        while (i < len(stmts)) {
-            printAST(stmts[i], indent + "  ")
-            i = i + 1
-        }
-    }
+func indexLeft(n)   { return n[1] }
+func indexExpr(n)   { return n[2] }
+func indexLine(n)   { return n[3] }
 
-    if (nodeType == "FuncDecl") {
-        print(indent + "  Name: " + funcName(node))
-        print(indent + "  Params: " + str(funcParams(node)))
-        print(indent + "  ReturnType: " + funcReturnType(node))
-        print(indent + "  Body:")
-        let body = funcBody(node)
-        let i = 0
-        while (i < len(body)) {
-            printAST(body[i], indent + "    ")
-            i = i + 1
-        }
-    }
+// ============================================================
+// Dot: [NODE_DOT, left, right, line]
+// ============================================================
 
-    if (nodeType == "KernelDecl") {
-        print(indent + "  Name: " + kernelName(node))
-        print(indent + "  Params: " + str(kernelParams(node)))
-        print(indent + "  Body:")
-        let body = kernelBody(node)
-        let i = 0
-        while (i < len(body)) {
-            printAST(body[i], indent + "    ")
-            i = i + 1
-        }
-    }
+func makeDot(left, right, line) {
+    let n = makeNode(NODE_DOT())
+    n = appendArray(n, left)
+    n = appendArray(n, right)
+    n = appendArray(n, line)
+    return n
+}
 
-    if (nodeType == "VarDecl") {
-        print(indent + "  Type: " + varDeclType(node))
-        print(indent + "  Name: " + varDeclName(node))
-        print(indent + "  Value:")
-        printAST(varDeclValue(node), indent + "    ")
-    }
+func dotLeft(n)   { return n[1] }
+func dotRight(n)  { return n[2] }
+func dotLine(n)   { return n[3] }
 
-    if (nodeType == "LetDecl") {
-        print(indent + "  Name: " + letDeclName(node))
-        print(indent + "  Value:")
-        printAST(letDeclValue(node), indent + "    ")
-    }
+// ============================================================
+// StructDecl: [NODE_STRUCT_DECL, name, fields, line]
+// ============================================================
 
-    if (nodeType == "Ident") {
-        print(indent + "  Name: " + identName(node))
-    }
+func makeStructDecl(name, fields, line) {
+    let n = makeNode(NODE_STRUCT_DECL())
+    n = appendArray(n, name)
+    n = appendArray(n, fields)
+    n = appendArray(n, line)
+    return n
+}
 
-    if (nodeType == "IntLiteral") {
-        print(indent + "  Value: " + literalValue(node))
-    }
+func structDeclName(n)    { return n[1] }
+func structDeclFields(n)  { return n[2] }
+func structDeclLine(n)    { return n[3] }
 
-    if (nodeType == "FloatLiteral") {
-        print(indent + "  Value: " + literalValue(node))
-    }
+// ============================================================
+// StructLiteral: [NODE_STRUCT_LIT, typeName, fields, line]
+// ============================================================
 
-    if (nodeType == "StringLiteral") {
-        print(indent + "  Value: " + literalValue(node))
-    }
+func makeStructLit(typeName, fields, line) {
+    let n = makeNode(NODE_STRUCT_LIT())
+    n = appendArray(n, typeName)
+    n = appendArray(n, fields)
+    n = appendArray(n, line)
+    return n
+}
 
-    if (nodeType == "BoolLiteral") {
-        print(indent + "  Value: " + literalValue(node))
-    }
+func structLitName(n)    { return n[1] }
+func structLitFields(n)  { return n[2] }
+func structLitLine(n)    { return n[3] }
 
-    if (nodeType == "BinaryExpr") {
-        print(indent + "  Operator: " + binaryOp(node))
-        print(indent + "  Left:")
-        printAST(binaryLeft(node), indent + "    ")
-        print(indent + "  Right:")
-        printAST(binaryRight(node), indent + "    ")
-    }
+// ============================================================
+// ArrayLiteral: [NODE_ARRAY_LIT, elements, line]
+// ============================================================
 
-    if (nodeType == "UnaryExpr") {
-        print(indent + "  Operator: " + unaryOp(node))
-        print(indent + "  Operand:")
-        printAST(unaryOperand(node), indent + "    ")
-    }
+func makeArrayLit(elements, line) {
+    let n = makeNode(NODE_ARRAY_LIT())
+    n = appendArray(n, elements)
+    n = appendArray(n, line)
+    return n
+}
 
-    if (nodeType == "Call") {
-        print(indent + "  Function: " + callFunc(node))
-        print(indent + "  Arguments:")
-        let args = callArgs(node)
-        let i = 0
-        while (i < len(args)) {
-            printAST(args[i], indent + "    ")
-            i = i + 1
-        }
-    }
+func arrayLitElems(n)  { return n[1] }
+func arrayLitLine(n)   { return n[2] }
 
-    if (nodeType == "Print") {
-        print(indent + "  Expression:")
-        printAST(printExpr(node), indent + "    ")
-    }
+// ============================================================
+// Import: [NODE_IMPORT, name, line]
+// ============================================================
 
-    if (nodeType == "If") {
-        print(indent + "  Condition:")
-        printAST(ifCondition(node), indent + "    ")
-        print(indent + "  Then:")
-        let thenB = ifThen(node)
-        let i = 0
-        while (i < len(thenB)) {
-            printAST(thenB[i], indent + "    ")
-            i = i + 1
-        }
-    }
+func makeImport(name, line) {
+    let n = makeNode(NODE_IMPORT())
+    n = appendArray(n, name)
+    n = appendArray(n, line)
+    return n
+}
 
-    if (nodeType == "Return") {
-        print(indent + "  Expression:")
-        printAST(returnExpr(node), indent + "    ")
-    }
+func importName(n)  { return n[1] }
+func importLine(n)  { return n[2] }
 
-    if (nodeType == "StructDecl") {
-        print(indent + "  Name: " + structName(node))
-    }
+// ============================================================
+// CImport: [NODE_CIMPORT, content, line]
+// ============================================================
 
-    if (nodeType == "While") {
-        print(indent + "  Condition:")
-        printAST(whileCondition(node), indent + "    ")
-    }
+func makeCImport(content, line) {
+    let n = makeNode(NODE_CIMPORT())
+    n = appendArray(n, content)
+    n = appendArray(n, line)
+    return n
+}
 
-    if (nodeType == "For") {
-        print(indent + "  Body:")
-        let body = forBody(node)
-        let i = 0
-        while (i < len(body)) {
-            printAST(body[i], indent + "    ")
-            i = i + 1
-        }
-    }
+func cimportContent(n)  { return n[1] }
+func cimportLine(n)     { return n[2] }
+
+// ============================================================
+// Break/Continue
+// ============================================================
+
+func makeBreak(line) {
+    let n = makeNode(NODE_BREAK())
+    n = appendArray(n, line)
+    return n
+}
+
+func breakLine(n) { return n[1] }
+
+func makeContinue(line) {
+    let n = makeNode(NODE_CONTINUE())
+    n = appendArray(n, line)
+    return n
+}
+
+func continueLine(n) { return n[1] }
+
+// ============================================================
+// Lambda: [NODE_LAMBDA, params, body, line]
+// ============================================================
+
+func makeLambda(params, body, line) {
+    let n = makeNode(NODE_LAMBDA())
+    n = appendArray(n, params)
+    n = appendArray(n, body)
+    n = appendArray(n, line)
+    return n
+}
+
+func lambdaParams(n)  { return n[1] }
+func lambdaBody(n)    { return n[2] }
+func lambdaLine(n)    { return n[3] }
+
+// ============================================================
+// Kernel: [NODE_KERNEL, name, params, body, line]
+// ============================================================
+
+func makeKernel(name, params, body, line) {
+    let n = makeNode(NODE_KERNEL())
+    n = appendArray(n, name)
+    n = appendArray(n, params)
+    n = appendArray(n, body)
+    n = appendArray(n, line)
+    return n
+}
+
+func kernelName(n)    { return n[1] }
+func kernelParams(n)  { return n[2] }
+func kernelBody(n)    { return n[3] }
+func kernelLine(n)    { return n[4] }
+
+// ============================================================
+// Borrow: [NODE_BORROW, operand, mutable, line]
+// ============================================================
+
+func makeBorrow(operand, mutable, line) {
+    let n = makeNode(NODE_BORROW())
+    n = appendArray(n, operand)
+    n = appendArray(n, mutable)
+    n = appendArray(n, line)
+    return n
+}
+
+func borrowOp(n)      { return n[1] }
+func borrowMut(n)     { return n[2] }
+func borrowLine(n)    { return n[3] }
+
+// ============================================================
+// Match: [NODE_MATCH, value, arms, line]
+// ============================================================
+
+func makeMatch(value, arms, line) {
+    let n = makeNode(NODE_MATCH())
+    n = appendArray(n, value)
+    n = appendArray(n, arms)
+    n = appendArray(n, line)
+    return n
+}
+
+func matchValue(n)  { return n[1] }
+func matchArms(n)   { return n[2] }
+func matchLine(n)   { return n[3] }
+
+// ============================================================
+// EnumDecl: [NODE_ENUM_DECL, name, variants, line]
+// ============================================================
+
+func makeEnumDecl(name, variants, line) {
+    let n = makeNode(NODE_ENUM_DECL())
+    n = appendArray(n, name)
+    n = appendArray(n, variants)
+    n = appendArray(n, line)
+    return n
+}
+
+func enumDeclName(n)       { return n[1] }
+func enumDeclVariants(n)   { return n[2] }
+func enumDeclLine(n)       { return n[3] }
+
+// ============================================================
+// String-tag dispatch + compatibility accessors.
+// sema/codegen dispatch on string tags ("If", "Call", ...)
+// while nodes carry integer tags; this bridge maps between them.
+// ============================================================
+
+func getNodeType(node) {
+    let t = nodeType(node)
+    if (t == NODE_PROGRAM()) { return "Program" }
+    if (t == NODE_FUNC_DECL()) { return "FuncDecl" }
+    if (t == NODE_VAR_DECL()) { return "VarDecl" }
+    if (t == NODE_LET_DECL()) { return "LetDecl" }
+    if (t == NODE_RETURN()) { return "Return" }
+    if (t == NODE_IF()) { return "If" }
+    if (t == NODE_WHILE()) { return "While" }
+    if (t == NODE_FOR()) { return "For" }
+    if (t == NODE_FOR_IN()) { return "ForIn" }
+    if (t == NODE_PRINT()) { return "Print" }
+    if (t == NODE_BLOCK()) { return "Block" }
+    if (t == NODE_EXPR_STMT()) { return "ExprStmt" }
+    if (t == NODE_STRUCT_DECL()) { return "StructDecl" }
+    if (t == NODE_ENUM_DECL()) { return "EnumDecl" }
+    if (t == NODE_IDENT()) { return "Ident" }
+    if (t == NODE_INT_LIT()) { return "IntLiteral" }
+    if (t == NODE_FLOAT_LIT()) { return "FloatLiteral" }
+    if (t == NODE_STRING_LIT()) { return "StringLiteral" }
+    if (t == NODE_BOOL_LIT()) { return "BoolLiteral" }
+    if (t == NODE_BINARY()) { return "BinaryExpr" }
+    if (t == NODE_UNARY()) { return "UnaryExpr" }
+    if (t == NODE_CALL()) { return "Call" }
+    if (t == NODE_INDEX()) { return "Index" }
+    if (t == NODE_DOT()) { return "Member" }
+    if (t == NODE_ASSIGN()) { return "Assign" }
+    if (t == NODE_ARRAY_LIT()) { return "ArrayLiteral" }
+    if (t == NODE_MAP_LIT()) { return "MapLiteral" }
+    if (t == NODE_LAMBDA()) { return "Lambda" }
+    if (t == NODE_IMPORT()) { return "Import" }
+    if (t == NODE_CIMPORT()) { return "CImport" }
+    if (t == NODE_BREAK()) { return "Break" }
+    if (t == NODE_CONTINUE()) { return "Continue" }
+    if (t == NODE_MATCH()) { return "Match" }
+    if (t == NODE_STRUCT_LIT()) { return "StructLiteral" }
+    if (t == NODE_SLICE()) { return "Slice" }
+    if (t == NODE_BORROW()) { return "Borrow" }
+    if (t == NODE_MOVE()) { return "Move" }
+    if (t == NODE_RAW_ACCESS()) { return "RawAccess" }
+    if (t == NODE_OPTION_SOME()) { return "OptionSome" }
+    if (t == NODE_OPTION_NONE()) { return "OptionNone" }
+    if (t == NODE_RESULT_OK()) { return "ResultOk" }
+    if (t == NODE_RESULT_ERR()) { return "ResultErr" }
+    if (t == NODE_PROPAGATE()) { return "Propagate" }
+    if (t == NODE_KERNEL()) { return "KernelDecl" }
+    if (t == NODE_GLOBAL_ID()) { return "GlobalId" }
+    if (t == NODE_BARRIER()) { return "Barrier" }
+    if (t == NODE_ACTOR()) { return "Actor" }
+    if (t == NODE_SPAWN()) { return "Spawn" }
+    if (t == NODE_SEND()) { return "Send" }
+    if (t == NODE_RECEIVE()) { return "Receive" }
+    if (t == NODE_MATRIX_DECL()) { return "MatrixDecl" }
+    if (t == NODE_MATRIX_INDEX()) { return "MatrixIndex" }
+    if (t == NODE_QREG_DECL()) { return "QregDecl" }
+    if (t == NODE_GATE_APPLY()) { return "GateApply" }
+    if (t == NODE_MEASURE()) { return "Measure" }
+    if (t == NODE_MACRO()) { return "Macro" }
+    if (t == NODE_QUOTE()) { return "Quote" }
+    if (t == NODE_UNQUOTE()) { return "Unquote" }
+    if (t == NODE_COMPTIME()) { return "Comptime" }
+    if (t == NODE_DERIVE()) { return "Derive" }
+    if (t == NODE_TAG()) { return "Tag" }
+    if (t == NODE_ALLOC()) { return "Alloc" }
+    if (t == NODE_FREE()) { return "Free" }
+    if (t == NODE_ADDR_OF()) { return "AddrOf" }
+    if (t == NODE_DEREF()) { return "Deref" }
+    if (t == NODE_SIMD_BUILTIN()) { return "SimdBuiltin" }
+    if (t == NODE_ATOMIC_OP()) { return "AtomicOp" }
+    if (t == NODE_LINEAR_TYPE()) { return "LinearType" }
+    if (t == NODE_PACKED_STRUCT()) { return "PackedStruct" }
+    return "Unknown"
+}
+
+// Program
+func programStatements(p) { return progStatements(p) }
+
+// If
+func ifThen(n)      { return ifCons(n) }
+func ifElse(n)      { return ifAlt(n) }
+func ifCondition(n) { return ifCond(n) }
+
+// Literals (values are stored as source text)
+func literalValue(n) {
+    let t = nodeType(n)
+    if (t == NODE_INT_LIT()) { return intLitVal(n) }
+    if (t == NODE_FLOAT_LIT()) { return floatLitVal(n) }
+    if (t == NODE_STRING_LIT()) { return stringLitVal(n) }
+    if (t == NODE_BOOL_LIT()) { return boolLitVal(n) }
+    return ""
+}
+
+// Array
+func arrayElements(n) { return arrayLitElems(n) }
+
+// StructDecl
+func structName(n)   { return structDeclName(n) }
+func structFields(n) { return structDeclFields(n) }
+
+// ============================================================
+// MapLiteral: [NODE_MAP_LIT, keys, values, line]
+// ============================================================
+
+func makeMapLit(keys, values, line) {
+    let n = makeNode(NODE_MAP_LIT())
+    n = appendArray(n, keys)
+    n = appendArray(n, values)
+    n = appendArray(n, line)
+    return n
+}
+
+func mapKeys(n)    { return n[1] }
+func mapValues(n)  { return n[2] }
+func mapLitLine(n) { return n[3] }
+
+// ============================================================
+// LetDecl: [NODE_LET_DECL, name, value, typeName, line]
+// Distinct from VarDecl so sema/codegen can enforce
+// let-immutability separately from var.
+// ============================================================
+
+func NODE_LET_DECL() { return 39 }
+
+func makeLetDecl(name, value, typeName, line) {
+    let n = makeNode(NODE_LET_DECL())
+    n = appendArray(n, name)
+    n = appendArray(n, value)
+    n = appendArray(n, typeName)
+    n = appendArray(n, line)
+    return n
+}
+
+func letDeclName(n)  { return n[1] }
+func letDeclValue(n) { return n[2] }
+func letDeclType(n)  { return n[3] }
+func letDeclLine(n)  { return n[4] }
+
+// ============================================================
+// GlobalId: [NODE_GLOBAL_ID, dim, line]
+// ============================================================
+
+func makeGlobalId(dim, line) {
+    let n = makeNode(NODE_GLOBAL_ID())
+    n = appendArray(n, dim)
+    n = appendArray(n, line)
+    return n
+}
+
+func globalIdDim(n)  { return n[1] }
+func globalIdLine(n) { return n[2] }
+
+// ============================================================
+// Kernel workgroup: the language has no workgroup annotation
+// (neither does the Go front end), so kernels always lower
+// with the default 64-lane workgroup unless slot 5 carries
+// an explicit [x, y, z] array.
+// ============================================================
+
+func kernelWorkgroup(node) {
+    if (len(node) > 5) { return node[5] }
+    return ["64"]
 }

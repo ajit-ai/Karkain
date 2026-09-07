@@ -1,133 +1,300 @@
-// Phase 40: Self-hosted Karkain Lexer
-// Scans tokens with TokenKind, Location, string/number literals, keywords, GPU kernel markers
+// Self-hosted Karkain Lexer — Production version
+// Rewritten from pkg/lexer/lexer.go (595 lines Go) to pure Karkain
+// Zero-copy token literals via substr() into source buffer
 
 // ============================================================
-// Character classification helpers
+// Token type constants (integer IDs, matching Go backend)
 // ============================================================
 
-func isLetter(ch) {
-    if (ch == "a") { return 1 }
-    if (ch == "b") { return 1 }
-    if (ch == "c") { return 1 }
-    if (ch == "d") { return 1 }
-    if (ch == "e") { return 1 }
-    if (ch == "f") { return 1 }
-    if (ch == "g") { return 1 }
-    if (ch == "h") { return 1 }
-    if (ch == "i") { return 1 }
-    if (ch == "j") { return 1 }
-    if (ch == "k") { return 1 }
-    if (ch == "l") { return 1 }
-    if (ch == "m") { return 1 }
-    if (ch == "n") { return 1 }
-    if (ch == "o") { return 1 }
-    if (ch == "p") { return 1 }
-    if (ch == "q") { return 1 }
-    if (ch == "r") { return 1 }
-    if (ch == "s") { return 1 }
-    if (ch == "t") { return 1 }
-    if (ch == "u") { return 1 }
-    if (ch == "v") { return 1 }
-    if (ch == "w") { return 1 }
-    if (ch == "x") { return 1 }
-    if (ch == "y") { return 1 }
-    if (ch == "z") { return 1 }
-    if (ch == "A") { return 1 }
-    if (ch == "B") { return 1 }
-    if (ch == "C") { return 1 }
-    if (ch == "D") { return 1 }
-    if (ch == "E") { return 1 }
-    if (ch == "F") { return 1 }
-    if (ch == "G") { return 1 }
-    if (ch == "H") { return 1 }
-    if (ch == "I") { return 1 }
-    if (ch == "J") { return 1 }
-    if (ch == "K") { return 1 }
-    if (ch == "L") { return 1 }
-    if (ch == "M") { return 1 }
-    if (ch == "N") { return 1 }
-    if (ch == "O") { return 1 }
-    if (ch == "P") { return 1 }
-    if (ch == "Q") { return 1 }
-    if (ch == "R") { return 1 }
-    if (ch == "S") { return 1 }
-    if (ch == "T") { return 1 }
-    if (ch == "U") { return 1 }
-    if (ch == "V") { return 1 }
-    if (ch == "W") { return 1 }
-    if (ch == "X") { return 1 }
-    if (ch == "Y") { return 1 }
-    if (ch == "Z") { return 1 }
-    if (ch == "_") { return 1 }
-    return 0
+func TK_EOF()          { return 0 }
+func TK_ILLEGAL()      { return 1 }
+func TK_FUNC()         { return 10 }
+func TK_PRINT()        { return 11 }
+func TK_LET()          { return 12 }
+func TK_VAR()          { return 13 }
+func TK_RETURN()       { return 14 }
+func TK_IF()           { return 15 }
+func TK_ELSE()         { return 16 }
+func TK_IMPORT()       { return 17 }
+func TK_WHILE()        { return 20 }
+func TK_FOR()          { return 21 }
+func TK_IN()           { return 22 }
+func TK_BREAK()        { return 23 }
+func TK_CONTINUE()     { return 24 }
+func TK_STRUCT()       { return 30 }
+func TK_TYPE()         { return 31 }
+func TK_BOOL()         { return 32 }
+func TK_TRUE()         { return 33 }
+func TK_FALSE()        { return 34 }
+func TK_IDENT()        { return 40 }
+func TK_INT_LIT()      { return 41 }
+func TK_FLOAT_LIT()    { return 42 }
+func TK_STRING_LIT()   { return 43 }
+func TK_ASSIGN()       { return 50 }
+func TK_EQ()           { return 51 }
+func TK_NEQ()          { return 52 }
+func TK_LT()           { return 53 }
+func TK_LTE()          { return 54 }
+func TK_GT()           { return 55 }
+func TK_GTE()          { return 56 }
+func TK_PLUS()         { return 57 }
+func TK_MINUS()        { return 58 }
+func TK_STAR()         { return 59 }
+func TK_SLASH()        { return 60 }
+func TK_PERCENT()      { return 61 }
+func TK_AND()          { return 62 }
+func TK_OR()           { return 63 }
+func TK_NOT()          { return 64 }
+func TK_LPAREN()       { return 70 }
+func TK_RPAREN()       { return 71 }
+func TK_LBRACE()       { return 72 }
+func TK_RBRACE()       { return 73 }
+func TK_LBRACKET()     { return 74 }
+func TK_RBRACKET()     { return 75 }
+func TK_COMMA()        { return 76 }
+func TK_DOT()          { return 77 }
+func TK_COLON()        { return 78 }
+func TK_SEMICOLON()    { return 79 }
+func TK_AT()           { return 80 }
+func TK_HASH()         { return 81 }
+func TK_QUESTION()     { return 82 }
+func TK_FAT_ARROW()    { return 83 }
+func TK_ARROW()        { return 84 }
+func TK_KERNEL()       { return 90 }
+func TK_GLOBAL_ID()    { return 91 }
+func TK_BARRIER()      { return 92 }
+func TK_ACTOR()        { return 93 }
+func TK_SPAWN()        { return 94 }
+func TK_SEND()         { return 95 }
+func TK_RECEIVE()      { return 96 }
+func TK_CHANNEL()      { return 97 }
+func TK_MACRO()        { return 100 }
+func TK_COMPTIME()     { return 101 }
+func TK_QUOTE()        { return 102 }
+func TK_UNQUOTE()      { return 103 }
+func TK_MUT()          { return 110 }
+func TK_RAW()          { return 111 }
+func TK_MOVE()         { return 112 }
+func TK_SOME()         { return 120 }
+func TK_NONE()         { return 121 }
+func TK_OK()           { return 122 }
+func TK_ERR()          { return 123 }
+func TK_MATCH()        { return 124 }
+func TK_ENUM()         { return 125 }
+func TK_FN()           { return 126 }
+func TK_PUB()          { return 127 }
+func TK_MATRIX()       { return 130 }
+func TK_ALLOC()        { return 131 }
+func TK_FREE()         { return 132 }
+func TK_ADDR()         { return 133 }
+func TK_DEREF()        { return 134 }
+func TK_INT()          { return 140 }
+func TK_FLOAT64()      { return 141 }
+func TK_STRING()       { return 142 }
+
+// ============================================================
+// Token: [kind, startOffset, length, line, col]
+// ============================================================
+
+func createToken(kind, start, tokLen, line, col) {
+    let tok = []
+    tok = appendArray(tok, kind)
+    tok = appendArray(tok, start)
+    tok = appendArray(tok, tokLen)
+    tok = appendArray(tok, line)
+    tok = appendArray(tok, col)
+    return tok
 }
 
-func isDigit(ch) {
-    if (ch == "0") { return 1 }
-    if (ch == "1") { return 1 }
-    if (ch == "2") { return 1 }
-    if (ch == "3") { return 1 }
-    if (ch == "4") { return 1 }
-    if (ch == "5") { return 1 }
-    if (ch == "6") { return 1 }
-    if (ch == "7") { return 1 }
-    if (ch == "8") { return 1 }
-    if (ch == "9") { return 1 }
-    return 0
-}
+func tokenKind(tok)     { return tok[0] }
+func tokenStart(tok)    { return tok[1] }
+func tokenLen(tok)      { return tok[2] }
+func tokenLine(tok)     { return tok[3] }
+func tokenCol(tok)      { return tok[4] }
 
-func isWhitespace(ch) {
-    if (ch == " ") { return 1 }
-    if (ch == "\t") { return 1 }
-    if (ch == "\n") { return 1 }
-    if (ch == "\r") { return 1 }
-    return 0
+func tokenLiteral(tok, source) {
+    let s = tokenStart(tok)
+    let l = tokenLen(tok)
+    if (l <= 0) { return "" }
+    return substr(source, s, l)
 }
 
 // ============================================================
-// Lexer state
+// Lexer state: [source, pos, line, col]
 // ============================================================
 
 func createLexerState(source) {
     let state = []
-    state = appendArray(state, source)    // 0: source text
-    state = appendArray(state, 0)         // 1: current position
-    state = appendArray(state, 1)         // 2: current line
-    state = appendArray(state, 1)         // 3: current column
+    state = appendArray(state, source)
+    state = appendArray(state, 0)
+    state = appendArray(state, 1)
+    state = appendArray(state, 0)
     return state
 }
 
-func lexerSource(state) { return state[0] }
-func lexerPos(state) { return state[1] }
-func lexerLine(state) { return state[2] }
-func lexerCol(state) { return state[3] }
+func lxSource(state)  { return state[0] }
+func lxPos(state)     { return state[1] }
+func lxLine(state)    { return state[2] }
+func lxCol(state)     { return state[3] }
+func setLxPos(state, v)  { state[1] = v }
+func setLxLine(state, v) { state[2] = v }
+func setLxCol(state, v)  { state[3] = v }
 
-func setLexerPos(state, pos) { state[1] = pos }
-func setLexerLine(state, line) { state[2] = line }
-func setLexerCol(state, col) { state[3] = col }
-
-func peekChar(state) {
-    let src = lexerSource(state)
-    let pos = lexerPos(state)
-    if (pos >= len(src)) { return "" }
+func lxPeek(state) {
+    let src = lxSource(state)
+    let pos = lxPos(state)
+    if (pos >= len(src)) { return 0 }
     return substr(src, pos, 1)
 }
 
-func advanceChar(state) {
-    let src = lexerSource(state)
-    let pos = lexerPos(state)
+func lxAdvance(state) {
+    let src = lxSource(state)
+    let pos = lxPos(state)
+    if (pos >= len(src)) { return 0 }
     let ch = substr(src, pos, 1)
-    pos = pos + 1
-    setLexerPos(state, pos)
-
+    setLxPos(state, pos + 1)
     if (ch == "\n") {
-        setLexerLine(state, lexerLine(state) + 1)
-        setLexerCol(state, 1)
+        setLxLine(state, lxLine(state) + 1)
+        setLxCol(state, 0)
     } else {
-        setLexerCol(state, lexerCol(state) + 1)
+        setLxCol(state, lxCol(state) + 1)
     }
-
     return ch
+}
+
+func lxPeekAt(state, offset) {
+    let src = lxSource(state)
+    let pos = lxPos(state) + offset
+    if (pos >= len(src)) { return 0 }
+    return substr(src, pos, 1)
+}
+
+// ============================================================
+// Character classification (ASCII ranges, not 52 individual ifs)
+// ============================================================
+
+func isKarkLetter(ch) {
+    if (ch == "_") { return 1 }
+    let c = asciiVal(ch)
+    if (c >= 65 && c <= 90)  { return 1 }
+    if (c >= 97 && c <= 122) { return 1 }
+    return 0
+}
+
+func isKarkDigit(ch) {
+    let c = asciiVal(ch)
+    if (c >= 48 && c <= 57) { return 1 }
+    return 0
+}
+
+func isKarkAlphaNum(ch) {
+    if (isKarkLetter(ch) == 1) { return 1 }
+    if (isKarkDigit(ch) == 1)  { return 1 }
+    return 0
+}
+
+// asciiVal returns the ASCII value of a single-character string.
+func asciiVal(ch) {
+    if (ch == "") { return 0 }
+    // Use comparison ladder for ASCII values
+    if (ch == "\0")  { return 0 }
+    if (ch == "\n")  { return 10 }
+    if (ch == "\r")  { return 13 }
+    if (ch == "\t")  { return 9 }
+    if (ch == " ")   { return 32 }
+    if (ch == "!")   { return 33 }
+    if (ch == "\"")  { return 34 }
+    if (ch == "#")   { return 35 }
+    if (ch == "%")   { return 37 }
+    if (ch == "&")   { return 38 }
+    if (ch == "'")   { return 39 }
+    if (ch == "(")   { return 40 }
+    if (ch == ")")   { return 41 }
+    if (ch == "*")   { return 42 }
+    if (ch == "+")   { return 43 }
+    if (ch == ",")   { return 44 }
+    if (ch == "-")   { return 45 }
+    if (ch == ".")   { return 46 }
+    if (ch == "/")   { return 47 }
+    if (ch == "0")   { return 48 }
+    if (ch == "1")   { return 49 }
+    if (ch == "2")   { return 50 }
+    if (ch == "3")   { return 51 }
+    if (ch == "4")   { return 52 }
+    if (ch == "5")   { return 53 }
+    if (ch == "6")   { return 54 }
+    if (ch == "7")   { return 55 }
+    if (ch == "8")   { return 56 }
+    if (ch == "9")   { return 57 }
+    if (ch == ":")   { return 58 }
+    if (ch == ";")   { return 59 }
+    if (ch == "<")   { return 60 }
+    if (ch == "=")   { return 61 }
+    if (ch == ">")   { return 62 }
+    if (ch == "?")   { return 63 }
+    if (ch == "@")   { return 64 }
+    if (ch == "A")   { return 65 }
+    if (ch == "B")   { return 66 }
+    if (ch == "C")   { return 67 }
+    if (ch == "D")   { return 68 }
+    if (ch == "E")   { return 69 }
+    if (ch == "F")   { return 70 }
+    if (ch == "G")   { return 71 }
+    if (ch == "H")   { return 72 }
+    if (ch == "I")   { return 73 }
+    if (ch == "J")   { return 74 }
+    if (ch == "K")   { return 75 }
+    if (ch == "L")   { return 76 }
+    if (ch == "M")   { return 77 }
+    if (ch == "N")   { return 78 }
+    if (ch == "O")   { return 79 }
+    if (ch == "P")   { return 80 }
+    if (ch == "Q")   { return 81 }
+    if (ch == "R")   { return 82 }
+    if (ch == "S")   { return 83 }
+    if (ch == "T")   { return 84 }
+    if (ch == "U")   { return 85 }
+    if (ch == "V")   { return 86 }
+    if (ch == "W")   { return 87 }
+    if (ch == "X")   { return 88 }
+    if (ch == "Y")   { return 89 }
+    if (ch == "Z")   { return 90 }
+    if (ch == "[")   { return 91 }
+    if (ch == "\\")  { return 92 }
+    if (ch == "]")   { return 93 }
+    if (ch == "^")   { return 94 }
+    if (ch == "_")   { return 95 }
+    if (ch == "a")   { return 97 }
+    if (ch == "b")   { return 98 }
+    if (ch == "c")   { return 99 }
+    if (ch == "d")   { return 100 }
+    if (ch == "e")   { return 101 }
+    if (ch == "f")   { return 102 }
+    if (ch == "g")   { return 103 }
+    if (ch == "h")   { return 104 }
+    if (ch == "i")   { return 105 }
+    if (ch == "j")   { return 106 }
+    if (ch == "k")   { return 107 }
+    if (ch == "l")   { return 108 }
+    if (ch == "m")   { return 109 }
+    if (ch == "n")   { return 110 }
+    if (ch == "o")   { return 111 }
+    if (ch == "p")   { return 112 }
+    if (ch == "q")   { return 113 }
+    if (ch == "r")   { return 114 }
+    if (ch == "s")   { return 115 }
+    if (ch == "t")   { return 116 }
+    if (ch == "u")   { return 117 }
+    if (ch == "v")   { return 118 }
+    if (ch == "w")   { return 119 }
+    if (ch == "x")   { return 120 }
+    if (ch == "y")   { return 121 }
+    if (ch == "z")   { return 122 }
+    if (ch == "{")   { return 123 }
+    if (ch == "|")   { return 124 }
+    if (ch == "}")   { return 125 }
+    if (ch == "~")   { return 126 }
+    return 0
 }
 
 // ============================================================
@@ -135,290 +302,176 @@ func advanceChar(state) {
 // ============================================================
 
 func lookupKeyword(ident) {
-    if (ident == "func") { return TK_FUNC() }
-    if (ident == "fn") { return TK_FUNC() }
-    if (ident == "var") { return TK_VAR() }
-    if (ident == "let") { return TK_LET() }
-    if (ident == "return") { return TK_RETURN() }
-    if (ident == "if") { return TK_IF() }
-    if (ident == "else") { return TK_ELSE() }
-    if (ident == "while") { return TK_WHILE() }
-    if (ident == "for") { return TK_FOR() }
-    if (ident == "print") { return TK_PRINT() }
-    if (ident == "kernel") { return TK_KERNEL() }
-    if (ident == "struct") { return TK_STRUCT() }
-    if (ident == "type") { return TK_TYPE() }
-    if (ident == "import") { return TK_IMPORT() }
-    if (ident == "actor") { return TK_ACTOR() }
-    if (ident == "spawn") { return TK_SPAWN() }
-    if (ident == "send") { return TK_SEND() }
-    if (ident == "receive") { return TK_RECEIVE() }
-    if (ident == "channel") { return TK_CHANNEL() }
-    if (ident == "macro") { return TK_MACRO() }
-    if (ident == "comptime") { return TK_COMPTIME() }
-    if (ident == "quote") { return TK_QUOTE() }
-    if (ident == "unquote") { return TK_UNQUOTE() }
-    if (ident == "barrier") { return TK_BARRIER() }
+    if (ident == "func")     { return TK_FUNC() }
+    if (ident == "print")    { return TK_PRINT() }
+    if (ident == "println")  { return TK_PRINT() }
+    if (ident == "let")      { return TK_LET() }
+    if (ident == "var")      { return TK_VAR() }
+    if (ident == "return")   { return TK_RETURN() }
+    if (ident == "if")       { return TK_IF() }
+    if (ident == "else")     { return TK_ELSE() }
+    if (ident == "import")   { return TK_IMPORT() }
+    if (ident == "while")    { return TK_WHILE() }
+    if (ident == "for")      { return TK_FOR() }
+    if (ident == "in")       { return TK_IN() }
+    if (ident == "break")    { return TK_BREAK() }
+    if (ident == "continue") { return TK_CONTINUE() }
+    if (ident == "struct")   { return TK_STRUCT() }
+    if (ident == "type")     { return TK_TYPE() }
+    if (ident == "bool")     { return TK_BOOL() }
+    if (ident == "int")      { return TK_INT() }
+    if (ident == "float64")  { return TK_FLOAT64() }
+    if (ident == "string")   { return TK_STRING() }
+    if (ident == "true")     { return TK_TRUE() }
+    if (ident == "false")    { return TK_FALSE() }
+    if (ident == "kernel")   { return TK_KERNEL() }
     if (ident == "global_id") { return TK_GLOBAL_ID() }
-    if (ident == "matrix") { return TK_MATRIX() }
-    if (ident == "alloc") { return TK_ALLOC() }
-    if (ident == "free") { return TK_FREE() }
-    if (ident == "addr") { return TK_ADDR() }
-    if (ident == "deref") { return TK_DEREF() }
-    if (ident == "true") { return TK_TRUE() }
-    if (ident == "false") { return TK_FALSE() }
-    if (ident == "int") { return TK_INT() }
-    if (ident == "float64") { return TK_FLOAT64() }
-    if (ident == "string") { return TK_STRING() }
-    if (ident == "bool") { return TK_BOOL() }
+    if (ident == "barrier")  { return TK_BARRIER() }
+    if (ident == "actor")    { return TK_ACTOR() }
+    if (ident == "spawn")    { return TK_SPAWN() }
+    if (ident == "send")     { return TK_SEND() }
+    if (ident == "receive")  { return TK_RECEIVE() }
+    if (ident == "channel")  { return TK_CHANNEL() }
+    if (ident == "macro")    { return TK_MACRO() }
+    if (ident == "comptime") { return TK_COMPTIME() }
+    if (ident == "quote")    { return TK_QUOTE() }
+    if (ident == "unquote")  { return TK_UNQUOTE() }
+    if (ident == "matrix")   { return TK_MATRIX() }
+    if (ident == "alloc")    { return TK_ALLOC() }
+    if (ident == "free")     { return TK_FREE() }
+    if (ident == "addr")     { return TK_ADDR() }
+    if (ident == "deref")    { return TK_DEREF() }
+    if (ident == "mut")      { return TK_MUT() }
+    if (ident == "raw")      { return TK_RAW() }
+    if (ident == "move")     { return TK_MOVE() }
+    if (ident == "Some")     { return TK_SOME() }
+    if (ident == "None")     { return TK_NONE() }
+    if (ident == "Ok")       { return TK_OK() }
+    if (ident == "Err")      { return TK_ERR() }
+    if (ident == "match")    { return TK_MATCH() }
+    if (ident == "enum")     { return TK_ENUM() }
+    if (ident == "fn")       { return TK_FN() }
+    if (ident == "public")   { return TK_PUB() }
     return TK_IDENT()
 }
 
 // ============================================================
-// Token scanning
+// Whitespace and comment skipping
 // ============================================================
 
-func skipWhitespaceAndComments(state) {
+func skipWhitespace(state) {
     while (1) {
-        let ch = peekChar(state)
-
-        // Skip whitespace
-        if (isWhitespace(ch) == 1) {
-            advanceChar(state)
+        let ch = lxPeek(state)
+        if (ch == " ") {
+            lxAdvance(state)
+            continue
+        }
+        if (ch == "\t") {
+            lxAdvance(state)
+            continue
+        }
+        if (ch == "\r") {
+            lxAdvance(state)
+            continue
+        }
+        if (ch == "\n") {
+            lxAdvance(state)
             continue
         }
 
-        // Skip single-line comments
-        if (ch == "/" && lexerPos(state) + 1 < len(lexerSource(state))) {
-            let nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
-            if (nextCh == "/") {
-                // Skip until newline
-                while (peekChar(state) != "\n" && peekChar(state) != "") {
-                    advanceChar(state)
-                }
-                continue
+        // Single-line comment: //
+        if (ch == "/" && lxPeekAt(state, 1) == "/") {
+            while (lxPeek(state) != "\n" && lxPeek(state) != "") {
+                lxAdvance(state)
             }
+            continue
         }
 
-        // Skip multi-line comments
-        if (ch == "/" && lexerPos(state) + 1 < len(lexerSource(state))) {
-            let nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
-            if (nextCh == "*") {
-                advanceChar(state) // skip /
-                advanceChar(state) // skip *
-                while (1) {
-                    let c = peekChar(state)
-                    if (c == "") { break }
-                    if (c == "*" && lexerPos(state) + 1 < len(lexerSource(state))) {
-                        let nc = substr(lexerSource(state), lexerPos(state) + 1, 1)
-                        if (nc == "/") {
-                            advanceChar(state) // skip *
-                            advanceChar(state) // skip /
-                            break
-                        }
-                    }
-                    advanceChar(state)
+        // Multi-line comment: /* ... */
+        if (ch == "/" && lxPeekAt(state, 1) == "*") {
+            lxAdvance(state) // skip /
+            lxAdvance(state) // skip *
+            while (1) {
+                let c = lxPeek(state)
+                if (c == "") { break }
+                if (c == "*" && lxPeekAt(state, 1) == "/") {
+                    lxAdvance(state) // skip *
+                    lxAdvance(state) // skip /
+                    break
                 }
-                continue
+                lxAdvance(state)
             }
+            continue
         }
 
         break
     }
 }
 
+// ============================================================
+// Token scanners
+// ============================================================
+
 func scanString(state) {
-    let startPos = lexerPos(state)
-    let startLine = lexerLine(state)
-    let startCol = lexerCol(state)
-    advanceChar(state) // skip opening quote
+    let startLine = lxLine(state)
+    let startCol = lxCol(state)
+    let startPos = lxPos(state) + 1 // skip opening quote
+    lxAdvance(state) // consume "
 
-    let resultStart = lexerPos(state)
     while (1) {
-        let ch = peekChar(state)
+        let ch = lxPeek(state)
         if (ch == "" || ch == "\n") { break }
-        if (ch == "\"") {
-            advanceChar(state) // skip closing quote
-            break
-        }
         if (ch == "\\") {
-            advanceChar(state) // skip backslash
-            advanceChar(state) // skip escaped character
+            lxAdvance(state) // skip backslash
+            lxAdvance(state) // skip escaped char
             continue
         }
-        advanceChar(state)
-    }
-
-    // The closing quote is consumed by the scan loop above, so subtract 1 to
-    // exclude it — otherwise tokenLiteral() re-slices the content plus a
-    // trailing '"' (e.g. a "Hello" string would carry an extra quote).
-    let resultLen = lexerPos(state) - resultStart - 1
-    // Scan the content again to build the unescaped result
-    let savePos = lexerPos(state)
-    setLexerPos(state, resultStart)
-    let result = ""
-    while (1) {
-        let ch = peekChar(state)
         if (ch == "\"") { break }
-        if (ch == "\\") {
-            advanceChar(state) // skip backslash
-            let escaped = advanceChar(state)
-            if (escaped == "n") { result = result + "\n" }
-            if (escaped == "t") { result = result + "\t" }
-            if (escaped == "\\") { result = result + "\\" }
-            if (escaped == "\"") { result = result + "\"" }
-            continue
-        }
-        result = result + ch
-        advanceChar(state)
+        lxAdvance(state)
     }
-    setLexerPos(state, savePos)
 
-    return createToken(TK_STRING_LIT(), resultStart, resultLen, createLocation(startLine, startCol, startPos))
+    let tokLen = lxPos(state) - startPos
+    lxAdvance(state) // consume closing "
+
+    return createToken(TK_STRING_LIT(), startPos, tokLen, startLine, startCol)
 }
 
 func scanNumber(state) {
-    let startPos = lexerPos(state)
-    let startLine = lexerLine(state)
-    let startCol = lexerCol(state)
+    let startLine = lxLine(state)
+    let startCol = lxCol(state)
+    let startPos = lxPos(state)
 
-    let isFloat = 0
-
-    while (isDigit(peekChar(state)) == 1) {
-        advanceChar(state)
+    while (isKarkDigit(lxPeek(state)) == 1) {
+        lxAdvance(state)
     }
 
-    // Check for decimal point
-    if (peekChar(state) == "." && lexerPos(state) + 1 < len(lexerSource(state))) {
-        let nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
-        if (isDigit(nextCh) == 1) {
-            isFloat = 1
-            advanceChar(state) // skip .
-            while (isDigit(peekChar(state)) == 1) {
-                advanceChar(state)
-            }
+    // Float: decimal point followed by digit
+    if (lxPeek(state) == "." && isKarkDigit(lxPeekAt(state, 1)) == 1) {
+        lxAdvance(state) // skip .
+        while (isKarkDigit(lxPeek(state)) == 1) {
+            lxAdvance(state)
         }
+        let tokLen = lxPos(state) - startPos
+        return createToken(TK_FLOAT_LIT(), startPos, tokLen, startLine, startCol)
     }
 
-    let tokenLen = lexerPos(state) - startPos
-
-    if (isFloat == 1) {
-        return createToken(TK_FLOAT_LIT(), startPos, tokenLen, createLocation(startLine, startCol, startPos))
-    }
-    return createToken(TK_INT_LIT(), startPos, tokenLen, createLocation(startLine, startCol, startPos))
+    let tokLen = lxPos(state) - startPos
+    return createToken(TK_INT_LIT(), startPos, tokLen, startLine, startCol)
 }
 
-func scanIdentOrKeyword(state) {
-    let startPos = lexerPos(state)
-    let startLine = lexerLine(state)
-    let startCol = lexerCol(state)
+func scanIdent(state) {
+    let startLine = lxLine(state)
+    let startCol = lxCol(state)
+    let startPos = lxPos(state)
 
-    while (isLetter(peekChar(state)) == 1 || isDigit(peekChar(state)) == 1) {
-        advanceChar(state)
+    while (isKarkAlphaNum(lxPeek(state)) == 1) {
+        lxAdvance(state)
     }
 
-    let tokenLen = lexerPos(state) - startPos
-    // We still need the string for keyword lookup, but we derive it from the source
-    let ident = substr(lexerSource(state), startPos, tokenLen)
+    let tokLen = lxPos(state) - startPos
+    let ident = substr(lxSource(state), startPos, tokLen)
     let kind = lookupKeyword(ident)
-    return createToken(kind, startPos, tokenLen, createLocation(startLine, startCol, startPos))
-}
-
-func scanToken(state) {
-    skipWhitespaceAndComments(state)
-
-    let ch = peekChar(state)
-    if (ch == "") { return createToken(TK_EOF(), lexerPos(state), 0, createLocation(lexerLine(state), lexerCol(state), lexerPos(state))) }
-
-    let startPos = lexerPos(state)
-    let startLine = lexerLine(state)
-    let startCol = lexerCol(state)
-
-    // String literal
-    if (ch == "\"") { return scanString(state) }
-
-    // Number literal
-    if (isDigit(ch) == 1) { return scanNumber(state) }
-
-    // Identifier or keyword
-    if (isLetter(ch) == 1) { return scanIdentOrKeyword(state) }
-
-    // Operators and delimiters
-    advanceChar(state)
-
-    if (ch == "+") { return createToken(TK_PLUS(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == "-") {
-        // Check for arrow ->
-        if (peekChar(state) == ">") {
-            advanceChar(state)
-            return createToken(TK_ARROW(), startPos, 2, createLocation(startLine, startCol, startPos))
-        }
-        return createToken(TK_MINUS(), startPos, 1, createLocation(startLine, startCol, startPos))
-    }
-    if (ch == "*") { return createToken(TK_STAR(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == "/") { return createToken(TK_SLASH(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == "%") { return createToken(TK_PERCENT(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == "(") { return createToken(TK_LPAREN(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == ")") { return createToken(TK_RPAREN(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == "{") { return createToken(TK_LBRACE(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == "}") { return createToken(TK_RBRACE(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == "[") { return createToken(TK_LBRACKET(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == "]") { return createToken(TK_RBRACKET(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == ",") { return createToken(TK_COMMA(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == ".") { return createToken(TK_DOT(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == ":") { return createToken(TK_COLON(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == ";") { return createToken(TK_SEMICOLON(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-    if (ch == "#") { return createToken(TK_HASH(), startPos, 1, createLocation(startLine, startCol, startPos)) }
-
-    // Two-character operators
-    if (ch == "=") {
-        if (peekChar(state) == "=") {
-            advanceChar(state)
-            return createToken(TK_EQ(), startPos, 2, createLocation(startLine, startCol, startPos))
-        }
-        return createToken(TK_ASSIGN(), startPos, 1, createLocation(startLine, startCol, startPos))
-    }
-
-    if (ch == "!") {
-        if (peekChar(state) == "=") {
-            advanceChar(state)
-            return createToken(TK_NEQ(), startPos, 2, createLocation(startLine, startCol, startPos))
-        }
-        return createToken(TK_NOT(), startPos, 1, createLocation(startLine, startCol, startPos))
-    }
-
-    if (ch == "<") {
-        if (peekChar(state) == "=") {
-            advanceChar(state)
-            return createToken(TK_LTE(), startPos, 2, createLocation(startLine, startCol, startPos))
-        }
-        return createToken(TK_LT(), startPos, 1, createLocation(startLine, startCol, startPos))
-    }
-
-    if (ch == ">") {
-        if (peekChar(state) == "=") {
-            advanceChar(state)
-            return createToken(TK_GTE(), startPos, 2, createLocation(startLine, startCol, startPos))
-        }
-        return createToken(TK_GT(), startPos, 1, createLocation(startLine, startCol, startPos))
-    }
-
-    if (ch == "&") {
-        if (peekChar(state) == "&") {
-            advanceChar(state)
-            return createToken(TK_AND(), startPos, 2, createLocation(startLine, startCol, startPos))
-        }
-    }
-
-    if (ch == "|") {
-        if (peekChar(state) == "|") {
-            advanceChar(state)
-            return createToken(TK_OR(), startPos, 2, createLocation(startLine, startCol, startPos))
-        }
-    }
-
-    // Unknown character - return as-is
-    return createToken(TK_EOF(), startPos, 1, createLocation(startLine, startCol, startPos))
+    return createToken(kind, startPos, tokLen, startLine, startCol)
 }
 
 // ============================================================
@@ -430,96 +483,283 @@ func tokenize(source) {
     let tokens = []
 
     while (1) {
-        let tok = scanToken(state)
-        tokens = appendArray(tokens, tok)
-        if (tokenKind(tok) == TK_EOF()) { break }
+        skipWhitespace(state)
+
+        let ch = lxPeek(state)
+        if (ch == "") {
+            tokens = appendArray(tokens, createToken(TK_EOF(), lxPos(state), 0, lxLine(state), lxCol(state)))
+            break
+        }
+
+        let startLine = lxLine(state)
+        let startCol = lxCol(state)
+        let startPos = lxPos(state)
+
+        // String literal
+        if (ch == "\"") {
+            tokens = appendArray(tokens, scanString(state))
+            continue
+        }
+
+        // Number literal
+        if (isKarkDigit(ch) == 1) {
+            tokens = appendArray(tokens, scanNumber(state))
+            continue
+        }
+
+        // Identifier or keyword
+        if (isKarkLetter(ch) == 1) {
+            tokens = appendArray(tokens, scanIdent(state))
+            continue
+        }
+
+        // Single-char tokens
+        lxAdvance(state)
+        let tokLen = 1
+
+        if (ch == "(") {
+            tokens = appendArray(tokens, createToken(TK_LPAREN(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == ")") {
+            tokens = appendArray(tokens, createToken(TK_RPAREN(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == "{") {
+            tokens = appendArray(tokens, createToken(TK_LBRACE(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == "}") {
+            tokens = appendArray(tokens, createToken(TK_RBRACE(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == "[") {
+            tokens = appendArray(tokens, createToken(TK_LBRACKET(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == "]") {
+            tokens = appendArray(tokens, createToken(TK_RBRACKET(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == ",") {
+            tokens = appendArray(tokens, createToken(TK_COMMA(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == ".") {
+            tokens = appendArray(tokens, createToken(TK_DOT(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == ":") {
+            tokens = appendArray(tokens, createToken(TK_COLON(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == ";") {
+            tokens = appendArray(tokens, createToken(TK_SEMICOLON(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == "@") {
+            tokens = appendArray(tokens, createToken(TK_AT(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == "#") {
+            tokens = appendArray(tokens, createToken(TK_HASH(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == "?") {
+            tokens = appendArray(tokens, createToken(TK_QUESTION(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == "+") {
+            tokens = appendArray(tokens, createToken(TK_PLUS(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+        if (ch == "%") {
+            tokens = appendArray(tokens, createToken(TK_PERCENT(), startPos, tokLen, startLine, startCol))
+            continue
+        }
+
+        // Two-char operators
+        if (ch == "=") {
+            if (lxPeek(state) == "=") {
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_EQ(), startPos, 2, startLine, startCol))
+            } else if (lxPeek(state) == ">") {
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_FAT_ARROW(), startPos, 2, startLine, startCol))
+            } else {
+                tokens = appendArray(tokens, createToken(TK_ASSIGN(), startPos, 1, startLine, startCol))
+            }
+            continue
+        }
+
+        if (ch == "!") {
+            if (lxPeek(state) == "=") {
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_NEQ(), startPos, 2, startLine, startCol))
+            } else {
+                tokens = appendArray(tokens, createToken(TK_NOT(), startPos, 1, startLine, startCol))
+            }
+            continue
+        }
+
+        if (ch == "<") {
+            if (lxPeek(state) == "=") {
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_LTE(), startPos, 2, startLine, startCol))
+            } else if (lxPeek(state) == "-") {
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_SEND(), startPos, 2, startLine, startCol))
+            } else {
+                tokens = appendArray(tokens, createToken(TK_LT(), startPos, 1, startLine, startCol))
+            }
+            continue
+        }
+
+        if (ch == ">") {
+            if (lxPeek(state) == "=") {
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_GTE(), startPos, 2, startLine, startCol))
+            } else {
+                tokens = appendArray(tokens, createToken(TK_GT(), startPos, 1, startLine, startCol))
+            }
+            continue
+        }
+
+        if (ch == "-") {
+            if (lxPeek(state) == ">") {
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_ARROW(), startPos, 2, startLine, startCol))
+            } else {
+                tokens = appendArray(tokens, createToken(TK_MINUS(), startPos, 1, startLine, startCol))
+            }
+            continue
+        }
+
+        if (ch == "*") {
+            tokens = appendArray(tokens, createToken(TK_STAR(), startPos, 1, startLine, startCol))
+            continue
+        }
+        if (ch == "/") {
+            tokens = appendArray(tokens, createToken(TK_SLASH(), startPos, 1, startLine, startCol))
+            continue
+        }
+
+        if (ch == "&") {
+            if (lxPeek(state) == "&") {
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_AND(), startPos, 2, startLine, startCol))
+            } else {
+                tokens = appendArray(tokens, createToken(TK_AND(), startPos, 1, startLine, startCol))
+            }
+            continue
+        }
+
+        if (ch == "|") {
+            if (lxPeek(state) == "|") {
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_OR(), startPos, 2, startLine, startCol))
+            } else {
+                tokens = appendArray(tokens, createToken(TK_ILLEGAL(), startPos, 1, startLine, startCol))
+            }
+            continue
+        }
+
+        // Unknown character
+        tokens = appendArray(tokens, createToken(TK_ILLEGAL(), startPos, 1, startLine, startCol))
     }
 
     return tokens
 }
 
 // ============================================================
-// Token printing for debugging
+// Token type name (for diagnostics)
 // ============================================================
 
 func tokenKindName(kind) {
-    if (kind == TK_INT_LIT()) { return "INT_LIT" }
+    if (kind == TK_EOF())       { return "EOF" }
+    if (kind == TK_ILLEGAL())   { return "ILLEGAL" }
+    if (kind == TK_FUNC())      { return "FUNC" }
+    if (kind == TK_PRINT())     { return "PRINT" }
+    if (kind == TK_LET())       { return "LET" }
+    if (kind == TK_VAR())       { return "VAR" }
+    if (kind == TK_RETURN())    { return "RETURN" }
+    if (kind == TK_IF())        { return "IF" }
+    if (kind == TK_ELSE())      { return "ELSE" }
+    if (kind == TK_IMPORT())    { return "IMPORT" }
+    if (kind == TK_WHILE())     { return "WHILE" }
+    if (kind == TK_FOR())       { return "FOR" }
+    if (kind == TK_IN())        { return "IN" }
+    if (kind == TK_BREAK())     { return "BREAK" }
+    if (kind == TK_CONTINUE())  { return "CONTINUE" }
+    if (kind == TK_STRUCT())    { return "STRUCT" }
+    if (kind == TK_TYPE())      { return "TYPE" }
+    if (kind == TK_BOOL())      { return "BOOL" }
+    if (kind == TK_TRUE())      { return "TRUE" }
+    if (kind == TK_FALSE())     { return "FALSE" }
+    if (kind == TK_IDENT())     { return "IDENT" }
+    if (kind == TK_INT_LIT())   { return "INT_LIT" }
     if (kind == TK_FLOAT_LIT()) { return "FLOAT_LIT" }
-    if (kind == TK_STRING_LIT()) { return "STRING_LIT" }
-    if (kind == TK_BOOL_LIT()) { return "BOOL_LIT" }
-    if (kind == TK_IDENT()) { return "IDENT" }
-    if (kind == TK_FUNC()) { return "FUNC" }
-    if (kind == TK_VAR()) { return "VAR" }
-    if (kind == TK_LET()) { return "LET" }
-    if (kind == TK_RETURN()) { return "RETURN" }
-    if (kind == TK_IF()) { return "IF" }
-    if (kind == TK_ELSE()) { return "ELSE" }
-    if (kind == TK_WHILE()) { return "WHILE" }
-    if (kind == TK_FOR()) { return "FOR" }
-    if (kind == TK_PRINT()) { return "PRINT" }
-    if (kind == TK_KERNEL()) { return "KERNEL" }
-    if (kind == TK_STRUCT()) { return "STRUCT" }
-    if (kind == TK_TYPE()) { return "TYPE" }
-    if (kind == TK_IMPORT()) { return "IMPORT" }
-    if (kind == TK_ACTOR()) { return "ACTOR" }
-    if (kind == TK_SPAWN()) { return "SPAWN" }
-    if (kind == TK_SEND()) { return "SEND" }
-    if (kind == TK_RECEIVE()) { return "RECEIVE" }
-    if (kind == TK_CHANNEL()) { return "CHANNEL" }
-    if (kind == TK_MACRO()) { return "MACRO" }
-    if (kind == TK_COMPTIME()) { return "COMPTIME" }
-    if (kind == TK_QUOTE()) { return "QUOTE" }
-    if (kind == TK_UNQUOTE()) { return "UNQUOTE" }
-    if (kind == TK_BARRIER()) { return "BARRIER" }
-    if (kind == TK_GLOBAL_ID()) { return "GLOBAL_ID" }
-    if (kind == TK_MATRIX()) { return "MATRIX" }
-    if (kind == TK_ALLOC()) { return "ALLOC" }
-    if (kind == TK_FREE()) { return "FREE" }
-    if (kind == TK_ADDR()) { return "ADDR" }
-    if (kind == TK_DEREF()) { return "DEREF" }
-    if (kind == TK_TRUE()) { return "TRUE" }
-    if (kind == TK_FALSE()) { return "FALSE" }
-    if (kind == TK_INT()) { return "INT" }
-    if (kind == TK_FLOAT64()) { return "FLOAT64" }
-    if (kind == TK_STRING()) { return "STRING" }
-    if (kind == TK_BOOL()) { return "BOOL" }
-    if (kind == TK_PLUS()) { return "PLUS" }
-    if (kind == TK_MINUS()) { return "MINUS" }
-    if (kind == TK_STAR()) { return "STAR" }
-    if (kind == TK_SLASH()) { return "SLASH" }
-    if (kind == TK_PERCENT()) { return "PERCENT" }
-    if (kind == TK_ASSIGN()) { return "ASSIGN" }
-    if (kind == TK_EQ()) { return "EQ" }
-    if (kind == TK_NEQ()) { return "NEQ" }
-    if (kind == TK_LT()) { return "LT" }
-    if (kind == TK_GT()) { return "GT" }
-    if (kind == TK_LTE()) { return "LTE" }
-    if (kind == TK_GTE()) { return "GTE" }
-    if (kind == TK_AND()) { return "AND" }
-    if (kind == TK_OR()) { return "OR" }
-    if (kind == TK_NOT()) { return "NOT" }
-    if (kind == TK_ARROW()) { return "ARROW" }
-    if (kind == TK_LPAREN()) { return "LPAREN" }
-    if (kind == TK_RPAREN()) { return "RPAREN" }
-    if (kind == TK_LBRACE()) { return "LBRACE" }
-    if (kind == TK_RBRACE()) { return "RBRACE" }
-    if (kind == TK_LBRACKET()) { return "LBRACKET" }
-    if (kind == TK_RBRACKET()) { return "RBRACKET" }
-    if (kind == TK_COMMA()) { return "COMMA" }
-    if (kind == TK_DOT()) { return "DOT" }
-    if (kind == TK_COLON()) { return "COLON" }
+    if (kind == TK_STRING_LIT()){ return "STRING_LIT" }
+    if (kind == TK_INT())       { return "INT" }
+    if (kind == TK_FLOAT64())   { return "FLOAT64" }
+    if (kind == TK_STRING())    { return "STRING" }
+    if (kind == TK_ASSIGN())    { return "ASSIGN" }
+    if (kind == TK_EQ())        { return "EQ" }
+    if (kind == TK_NEQ())       { return "NEQ" }
+    if (kind == TK_LT())        { return "LT" }
+    if (kind == TK_LTE())       { return "LTE" }
+    if (kind == TK_GT())        { return "GT" }
+    if (kind == TK_GTE())       { return "GTE" }
+    if (kind == TK_PLUS())      { return "PLUS" }
+    if (kind == TK_MINUS())     { return "MINUS" }
+    if (kind == TK_STAR())      { return "STAR" }
+    if (kind == TK_SLASH())     { return "SLASH" }
+    if (kind == TK_PERCENT())   { return "PERCENT" }
+    if (kind == TK_AND())       { return "AND" }
+    if (kind == TK_OR())        { return "OR" }
+    if (kind == TK_NOT())       { return "NOT" }
+    if (kind == TK_LPAREN())    { return "LPAREN" }
+    if (kind == TK_RPAREN())    { return "RPAREN" }
+    if (kind == TK_LBRACE())    { return "LBRACE" }
+    if (kind == TK_RBRACE())    { return "RBRACE" }
+    if (kind == TK_LBRACKET())  { return "LBRACKET" }
+    if (kind == TK_RBRACKET())  { return "RBRACKET" }
+    if (kind == TK_COMMA())     { return "COMMA" }
+    if (kind == TK_DOT())       { return "DOT" }
+    if (kind == TK_COLON())     { return "COLON" }
     if (kind == TK_SEMICOLON()) { return "SEMICOLON" }
-    if (kind == TK_HASH()) { return "HASH" }
-    if (kind == TK_EOF()) { return "EOF" }
+    if (kind == TK_AT())        { return "AT" }
+    if (kind == TK_HASH())      { return "HASH" }
+    if (kind == TK_QUESTION())  { return "QUESTION" }
+    if (kind == TK_FAT_ARROW()) { return "FAT_ARROW" }
+    if (kind == TK_ARROW())     { return "ARROW" }
+    if (kind == TK_KERNEL())    { return "KERNEL" }
+    if (kind == TK_GLOBAL_ID()) { return "GLOBAL_ID" }
+    if (kind == TK_BARRIER())   { return "BARRIER" }
+    if (kind == TK_ACTOR())     { return "ACTOR" }
+    if (kind == TK_SPAWN())     { return "SPAWN" }
+    if (kind == TK_SEND())      { return "SEND" }
+    if (kind == TK_RECEIVE())   { return "RECEIVE" }
+    if (kind == TK_CHANNEL())   { return "CHANNEL" }
+    if (kind == TK_MACRO())     { return "MACRO" }
+    if (kind == TK_COMPTIME())  { return "COMPTIME" }
+    if (kind == TK_QUOTE())     { return "QUOTE" }
+    if (kind == TK_UNQUOTE())   { return "UNQUOTE" }
+    if (kind == TK_MUT())       { return "MUT" }
+    if (kind == TK_RAW())       { return "RAW" }
+    if (kind == TK_MOVE())      { return "MOVE" }
+    if (kind == TK_SOME())      { return "SOME" }
+    if (kind == TK_NONE())      { return "NONE" }
+    if (kind == TK_OK())        { return "OK" }
+    if (kind == TK_ERR())       { return "ERR" }
+    if (kind == TK_MATCH())     { return "MATCH" }
+    if (kind == TK_ENUM())      { return "ENUM" }
+    if (kind == TK_FN())        { return "FN" }
+    if (kind == TK_PUB())       { return "PUB" }
+    if (kind == TK_MATRIX())    { return "MATRIX" }
+    if (kind == TK_ALLOC())     { return "ALLOC" }
+    if (kind == TK_FREE())      { return "FREE" }
+    if (kind == TK_ADDR())      { return "ADDR" }
+    if (kind == TK_DEREF())     { return "DEREF" }
     return "UNKNOWN"
-}
-
-func printTokens(tokens, source) {
-    let i = 0
-    while (i < len(tokens)) {
-        let tok = tokens[i]
-        let loc = tokenLoc(tok)
-        print("L" + str(locLine(loc)) + ":" + str(locCol(loc)) + " " + tokenKindName(tokenKind(tok)) + " " + tokenLiteral(tok, source))
-        i = i + 1
-    }
 }
