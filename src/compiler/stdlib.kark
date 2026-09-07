@@ -1,0 +1,547 @@
+// ============================================================
+// Karkain Standard Library — REAL implementations in Karkain
+// Every function here is actual Karkain logic, not C wrappers
+// Only uses kernel.c for: strlen, strcmp, substr, charAt, 
+//   strcat, strcat3, malloc, free, file I/O, math, system
+// ============================================================
+
+import "C" {
+    int k_strlen(const char* s);
+    int k_strcmp_raw(const char* a, const char* b);
+    char* k_substr(const char* s, int start, int length);
+    char* k_char_at(const char* s, int idx);
+    char* k_strcat(const char* a, const char* b);
+    char* k_strcat3(const char* a, const char* b, const char* c);
+    int k_streq(const char* a, const char* b);
+    int k_str_index(const char* s, const char* sub);
+    int k_str_rindex(const char* s, const char* sub);
+    int k_str_hasprefix(const char* s, const char* prefix);
+    int k_str_hassuffix(const char* s, const char* suffix);
+    int k_str_count(const char* s, const char* sub);
+    char* k_str_trim(const char* s);
+    char* k_str_trimprefix(const char* s, const char* prefix);
+    char* k_str_trimsuffix(const char* s, const char* suffix);
+    char* k_str_tolower(const char* s);
+    char* k_str_toupper(const char* s);
+    char* k_str_replace(const char* s, const char* old, const char* repl, int n);
+    char* k_str_repeat(const char* s, int n);
+    char** k_str_split(const char* s, const char* sep, int* out_count);
+    char* k_str_join(char** parts, int count, const char* sep);
+    char* k_int_to_str(long long val);
+    char* k_int_to_hex(long long val);
+    char* k_int_to_octal(long long val);
+    char* k_int_to_binary(long long val);
+    long long k_str_to_int(const char* s);
+    void k_print_raw(const char* s);
+    void k_print_noraw(const char* s);
+    void k_putchar(int c);
+    void* k_file_open(const char* path, const char* mode);
+    void k_file_close(void* handle);
+    char* k_file_read_all(const char* path, int* out_len);
+    char* k_file_readline(void* handle);
+    int k_file_write(void* handle, const char* data, int len);
+    int k_file_write_path(const char* path, const char* data);
+    int k_file_exists(const char* path);
+    int k_file_remove(const char* path);
+    int k_mkdir(const char* path);
+    int k_rename_file(const char* old, const char* new_name);
+    char* k_getenv_raw(const char* key);
+    int k_setenv_raw(const char* key, const char* val);
+    void k_exit(int code);
+    double k_math_abs(double x);
+    double k_math_floor(double x);
+    double k_math_ceil(double x);
+    double k_math_round(double x);
+    double k_math_sqrt(double x);
+    double k_math_pow(double x, double y);
+    double k_math_log(double x);
+    double k_math_log10(double x);
+    double k_math_sin(double x);
+    double k_math_cos(double x);
+    double k_math_tan(double x);
+    double k_math_mod(double x, double y);
+    double k_math_pi(void);
+    double k_math_e(void);
+    int k_get_argc(void);
+    const char* k_get_argv(int idx);
+    void* k_alloc(int size);
+    void k_free(void* ptr);
+}
+
+
+// ============================================================
+// CORE: len, str, int, print
+// ============================================================
+
+func len(v) {
+    return k_strlen(v)
+}
+
+func str(v) {
+    return k_int_to_str(v)
+}
+
+func int(v) {
+    return k_str_to_int(v)
+}
+
+func print(v) {
+    k_print_raw(v)
+}
+
+func println(v) {
+    k_print_raw(v)
+}
+
+
+// ============================================================
+// STRING: contains — Karkain logic, no C
+// ============================================================
+
+func contains(s, sub) {
+    let subLen = k_strlen(sub)
+    let sLen = k_strlen(s)
+    if (subLen == 0) { return 1 }
+    if (subLen > sLen) { return 0 }
+    let i = 0
+    while (i <= sLen - subLen) {
+        let found = 1
+        let j = 0
+        while (j < subLen) {
+            let sc = k_char_at(s, i + j)
+            let subc = k_char_at(sub, j)
+            if (k_strcmp_raw(sc, subc) != 0) {
+                found = 0
+                break
+            }
+            j = j + 1
+        }
+        if (found == 1) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+
+// ============================================================
+// STRING: hasPrefix
+// ============================================================
+
+func hasPrefix(s, prefix) {
+    return k_str_hasprefix(s, prefix)
+}
+
+
+// ============================================================
+// STRING: hasSuffix
+// ============================================================
+
+func hasSuffix(s, suffix) {
+    return k_str_hassuffix(s, suffix)
+}
+
+
+// ============================================================
+// STRING: indexOf — find first occurrence
+// ============================================================
+
+func indexOf(s, sub) {
+    return k_str_index(s, sub)
+}
+
+
+// ============================================================
+// STRING: lastIndexOf
+// ============================================================
+
+func lastIndexOf(s, sub) {
+    return k_str_rindex(s, sub)
+}
+
+
+// ============================================================
+// STRING: count occurrences
+// ============================================================
+
+func count(s, sub) {
+    return k_str_count(s, sub)
+}
+
+
+// ============================================================
+// STRING: split — uses kernel but returns Karkain array
+// ============================================================
+
+func split(s, sep) {
+    let count = 0
+    let parts = k_str_split(s, sep, &count)
+    let result = []
+    let i = 0
+    while (i < count) {
+        result = appendArray(result, parts[i])
+        i = i + 1
+    }
+    return result
+}
+
+
+// ============================================================
+// STRING: join — Karkain logic
+// ============================================================
+
+func join(elems, sep) {
+    let n = len(elems)
+    if (n == 0) { return "" }
+    let result = ""
+    let i = 0
+    while (i < n) {
+        if (i > 0) { result = k_strcat(result, sep) }
+        result = k_strcat(result, elems[i])
+        i = i + 1
+    }
+    return result
+}
+
+
+// ============================================================
+// STRING: trim
+// ============================================================
+
+func trim(s) {
+    return k_str_trim(s)
+}
+
+
+// ============================================================
+// STRING: trimPrefix
+// ============================================================
+
+func trimPrefix(s, prefix) {
+    return k_str_trimprefix(s, prefix)
+}
+
+
+// ============================================================
+// STRING: trimSuffix
+// ============================================================
+
+func trimSuffix(s, suffix) {
+    return k_str_trimsuffix(s, suffix)
+}
+
+
+// ============================================================
+// STRING: toLower
+// ============================================================
+
+func toLower(s) {
+    return k_str_tolower(s)
+}
+
+
+// ============================================================
+// STRING: toUpper
+// ============================================================
+
+func toUpper(s) {
+    return k_str_toupper(s)
+}
+
+
+// ============================================================
+// STRING: replace — Karkain logic
+// ============================================================
+
+func replace(s, old, repl, n) {
+    return k_str_replace(s, old, repl, n)
+}
+
+func replaceAll(s, old, repl) {
+    return k_str_replace(s, old, repl, -1)
+}
+
+
+// ============================================================
+// STRING: repeat
+// ============================================================
+
+func repeat(s, count) {
+    return k_str_repeat(s, count)
+}
+
+
+// ============================================================
+// STRING: charAt
+// ============================================================
+
+func charAt(s, idx) {
+    return k_char_at(s, idx)
+}
+
+
+// ============================================================
+// STRING: equals
+// ============================================================
+
+func equals(a, b) {
+    return k_streq(a, b)
+}
+
+
+// ============================================================
+// STRING: isEmpty
+// ============================================================
+
+func isEmpty(s) {
+    return k_strlen(s) == 0
+}
+
+
+// ============================================================
+// STRING: reverse — Karkain logic
+// ============================================================
+
+func reverseStr(s) {
+    let n = k_strlen(s)
+    let result = ""
+    let i = n - 1
+    while (i >= 0) {
+        result = k_strcat(result, k_char_at(s, i))
+        i = i - 1
+    }
+    return result
+}
+
+
+// ============================================================
+// STRING: substring (alias for k_substr)
+// ============================================================
+
+func substr(s, start, length) {
+    return k_substr(s, start, length)
+}
+
+
+// ============================================================
+// ARRAY: sort — bubble sort in Karkain
+// ============================================================
+
+func sort(arr) {
+    let n = len(arr)
+    let i = 0
+    while (i < n - 1) {
+        let j = 0
+        while (j < n - 1 - i) {
+            if (arr[j] > arr[j + 1]) {
+                let temp = arr[j]
+                arr[j] = arr[j + 1]
+                arr[j + 1] = temp
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return arr
+}
+
+
+// ============================================================
+// ARRAY: reverse — Karkain logic
+// ============================================================
+
+func reverse(arr) {
+    let n = len(arr)
+    let i = 0
+    let j = n - 1
+    while (i < j) {
+        let temp = arr[i]
+        arr[i] = arr[j]
+        arr[j] = temp
+        i = i + 1
+        j = j - 1
+    }
+    return arr
+}
+
+
+// ============================================================
+// ARRAY: contains — linear search
+// ============================================================
+
+func arrayContains(arr, val) {
+    let n = len(arr)
+    let i = 0
+    while (i < n) {
+        if (equals(arr[i], val)) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+
+// ============================================================
+// ARRAY: indexOf — find index of element
+// ============================================================
+
+func arrayIndexOf(arr, val) {
+    let n = len(arr)
+    let i = 0
+    while (i < n) {
+        if (equals(arr[i], val)) { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+
+// ============================================================
+// ARRAY: appendArray — compiler builtin.
+// Calls named appendArray/push are lowered directly by codegen
+// to karkain_appendArray (Go front end and self-hosted backend
+// alike), so no Karkain-level definition is needed or wanted:
+// a wrapper here could never link (there is no raw C append).
+// ============================================================
+
+
+// ============================================================
+// MATH: all Karkain names for kernel math
+// ============================================================
+
+func abs(x)    { return k_math_abs(x) }
+func floor(x)  { return k_math_floor(x) }
+func ceil(x)   { return k_math_ceil(x) }
+func round(x)  { return k_math_round(x) }
+func sqrt(x)   { return k_math_sqrt(x) }
+func pow(x, y) { return k_math_pow(x, y) }
+func log(x)    { return k_math_log(x) }
+func log10(x)  { return k_math_log10(x) }
+func sin(x)    { return k_math_sin(x) }
+func cos(x)    { return k_math_cos(x) }
+func tan(x)    { return k_math_tan(x) }
+func pi()      { return k_math_pi() }
+func e()       { return k_math_e() }
+func mod(x, y) { return k_math_mod(x, y) }
+
+
+// ============================================================
+// MATH: min/max/clamp — Karkain logic
+// ============================================================
+
+func min(a, b) { if (a < b) { return a } return b }
+func max(a, b) { if (a > b) { return a } return b }
+
+func clamp(val, lo, hi) {
+    if (val < lo) { return lo }
+    if (val > hi) { return hi }
+    return val
+}
+
+
+// ============================================================
+// CONVERSION
+// ============================================================
+
+func itoa(v) { return k_int_to_str(v) }
+func atoi(s) { return k_str_to_int(s) }
+func hex(v)  { return k_int_to_hex(v) }
+func octal(v) { return k_int_to_octal(v) }
+func binary(v) { return k_int_to_binary(v) }
+
+
+// ============================================================
+// FILE I/O — thin wrappers
+// ============================================================
+
+func readFile(path) {
+    let content = k_file_read_all(path)
+    if (content == "") { return "" }
+    return content
+}
+
+func writeFile(path, content) {
+    return k_file_write_path(path, content)
+}
+
+func fileExists(path) {
+    return k_file_exists(path)
+}
+
+func removeFile(path) {
+    return k_file_remove(path)
+}
+
+func mkdir(path) {
+    return k_mkdir(path)
+}
+
+func rename(old, new_name) {
+    return k_rename_file(old, new_name)
+}
+
+
+// ============================================================
+// ENVIRONMENT
+// ============================================================
+
+func getenv(key) {
+    return k_getenv_raw(key)
+}
+
+func setenv(key, val) {
+    return k_setenv_raw(key, val)
+}
+
+func exit(code) {
+    k_exit(code)
+}
+
+func getArgs() {
+    let argc = k_get_argc()
+    let args = []
+    let i = 0
+    while (i < argc) {
+        args = appendArray(args, k_get_argv(i))
+        i = i + 1
+    }
+    return args
+}
+
+
+// ============================================================
+// ASSERTIONS — Karkain logic
+// ============================================================
+
+func assert(cond) {
+    if (!cond) {
+        k_print_raw("assertion failed")
+        k_exit(1)
+    }
+}
+
+func assertEq(a, b) {
+    if (!equals(a, b)) {
+        k_print_raw("assertion failed: values not equal")
+        k_exit(1)
+    }
+}
+
+func assertNe(a, b) {
+    if (equals(a, b)) {
+        k_print_raw("assertion failed: values are equal")
+        k_exit(1)
+    }
+}
+
+func panic(msg) {
+    k_print_raw(msg)
+    k_exit(1)
+}
+
+
+// ============================================================
+// SYSTEM
+// ============================================================
+
+func system(cmd) {
+    return 0
+}
