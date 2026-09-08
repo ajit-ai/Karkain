@@ -1,0 +1,4 @@
+// K108: `continue` appears outside any loop.
+func main() {
+    continue
+}

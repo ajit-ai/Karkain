@@ -1,0 +1,633 @@
+// ============================================================
+// Phase 99: Type checker for the self-hosted Karkain compiler.
+// A two-pass whole-program checker that mirrors the Go semantic
+// authority (pkg/sema/resolve.go) and adds conservative type
+// rules. Pass 1 collects declarations (funcs, kernels, structs,
+// enums) into a global symbol table; pass 2 walks every function
+// body and reports hard errors:
+//
+//   K101 undefined function call
+//   K102 undefined identifier read (inside a function body)
+//   K103 function/kernel arity mismatch
+//   K104 builtin arity mismatch
+//   K106 struct literal with an undefined type name
+//   K107 duplicate top-level definition
+//   K108 break/continue outside a loop
+//   K109 calling a type name as a function
+//   K112 primitive annotation/initializer type mismatch
+//
+// Karkain values are dynamically typed, so the checker is
+// conservative by design: it only reports errors that are
+// provable from the AST, and it never rejects a program it cannot
+// prove is wrong (the compiled corpus and the compiler's own
+// sources must keep passing unchanged). Editor/lint flows keep
+// treating sema.kark warnings as non-fatal.
+// ============================================================
+
+// ============================================================
+// Builtin allow-list (union of the self-hosted runtime builtins
+// from sema.kark and the Go front end's builtinNames).
+// ============================================================
+
+func isCheckerBuiltin(name) {
+    if (name == "print") { return 1 }
+    if (name == "len") { return 1 }
+    if (name == "str") { return 1 }
+    if (name == "int") { return 1 }
+    if (name == "substr") { return 1 }
+    if (name == "appendArray") { return 1 }
+    if (name == "openFile") { return 1 }
+    if (name == "readLine") { return 1 }
+    if (name == "closeFile") { return 1 }
+    if (name == "createFile") { return 1 }
+    if (name == "writeToFile") { return 1 }
+    if (name == "removeFile") { return 1 }
+    if (name == "readFile") { return 1 }
+    if (name == "writeFile") { return 1 }
+    if (name == "getArgs") { return 1 }
+    if (name == "system") { return 1 }
+    if (name == "makeMap") { return 1 }
+    if (name == "mapSet") { return 1 }
+    if (name == "mapGet") { return 1 }
+    if (name == "mapHas") { return 1 }
+    if (name == "karkain_len") { return 1 }
+    if (name == "trim") { return 1 }
+    if (name == "contains") { return 1 }
+    if (name == "split") { return 1 }
+    if (name == "sqrt") { return 1 }
+    if (name == "abs") { return 1 }
+    if (name == "pow") { return 1 }
+    if (name == "fileExists") { return 1 }
+    if (name == "println") { return 1 }
+    if (name == "printf") { return 1 }
+    if (name == "fmt") { return 1 }
+    if (name == "push") { return 1 }
+    if (name == "hasKey") { return 1 }
+    if (name == "delete") { return 1 }
+    if (name == "readLineEOF") { return 1 }
+    if (name == "listFiles") { return 1 }
+    if (name == "mod") { return 1 }
+    if (name == "add_checked") { return 1 }
+    if (name == "sub_checked") { return 1 }
+    if (name == "mul_checked") { return 1 }
+    if (name == "http.get") { return 1 }
+    if (name == "Some") { return 1 }
+    if (name == "None") { return 1 }
+    if (name == "Ok") { return 1 }
+    if (name == "Err") { return 1 }
+    if (name == "assert") { return 1 }
+    if (name == "assert_eq") { return 1 }
+    if (name == "assert_ne") { return 1 }
+    return 0
+}
+
+// checkerBuiltinArity returns the fixed arity of a builtin, or -1
+// when it is variadic / unknown-shaped (no arity check performed).
+func checkerBuiltinArity(name) {
+    if (name == "print") { return -1 }
+    if (name == "len") { return 1 }
+    if (name == "str") { return 1 }
+    if (name == "int") { return 1 }
+    if (name == "substr") { return 3 }
+    if (name == "appendArray") { return 2 }
+    if (name == "openFile") { return 1 }
+    if (name == "readLine") { return 1 }
+    if (name == "closeFile") { return 1 }
+    if (name == "createFile") { return 1 }
+    if (name == "writeToFile") { return 2 }
+    if (name == "removeFile") { return 1 }
+    if (name == "readFile") { return 1 }
+    if (name == "writeFile") { return 2 }
+    if (name == "getArgs") { return 0 }
+    if (name == "system") { return 1 }
+    if (name == "makeMap") { return 0 }
+    if (name == "mapSet") { return 3 }
+    if (name == "mapGet") { return 2 }
+    if (name == "mapHas") { return 2 }
+    if (name == "karkain_len") { return 1 }
+    if (name == "trim") { return 1 }
+    if (name == "contains") { return 2 }
+    if (name == "split") { return 2 }
+    if (name == "sqrt") { return 1 }
+    if (name == "abs") { return 1 }
+    if (name == "pow") { return 2 }
+    if (name == "fileExists") { return 1 }
+    return -1
+}
+
+// ============================================================
+// Checker state
+// ============================================================
+
+func createCheckerTab() {
+    let tab = []
+    tab = appendArray(tab, [])  // 0: global symbol names
+    tab = appendArray(tab, [])  // 1: global symbol kinds ("func", "struct", ...)
+    tab = appendArray(tab, [])  // 2: global symbol arities
+    tab = appendArray(tab, [])  // 3: error messages
+    tab = appendArray(tab, [])  // 4: current function locals
+    return tab
+}
+
+func ckErrors(tab)  { return tab[3] }
+func ckLocals(tab)  { return tab[4] }
+
+func ckDeclare(tab, name, kind, count) {
+    if (name == "") { return }
+    tab[0] = appendArray(tab[0], name)
+    tab[1] = appendArray(tab[1], kind)
+    tab[2] = appendArray(tab[2], count)
+}
+
+func ckKind(tab, name) {
+    let names = tab[0]
+    let kinds = tab[1]
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] == name) {
+            return kinds[i]
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func ckCount(tab, name) {
+    let names = tab[0]
+    let counts = tab[2]
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] == name) {
+            return counts[i]
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+func ckLocalHas(tab, name) {
+    let locals = ckLocals(tab)
+    let i = 0
+    while (i < len(locals)) {
+        if (locals[i] == name) {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+func ckLocalAdd(tab, name) {
+    if (name == "") { return }
+    tab[4] = appendArray(tab[4], name)
+}
+
+func ckAddError(tab, code, line, msg) {
+    tab[3] = appendArray(tab[3], "error[" + code + "] line " + str(line) + ": " + msg)
+}
+
+// ============================================================
+// Pass 1: collect top-level declarations
+// ============================================================
+
+func collectDecls(tab, stmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        let s = stmts[i]
+        let nt = getNodeType(s)
+        if (nt == "FuncDecl") {
+            let name = funcName(s)
+            if (name != "" && ckKind(tab, name) != "") {
+                ckAddError(tab, "K107", funcLine(s), "duplicate function definition '" + name + "'")
+            } else {
+                ckDeclare(tab, name, "func", len(funcParams(s)))
+            }
+        }
+        if (nt == "KernelDecl") {
+            let name = kernelName(s)
+            if (name != "" && ckKind(tab, name) != "") {
+                ckAddError(tab, "K107", kernelLine(s), "duplicate function definition '" + name + "'")
+            } else {
+                ckDeclare(tab, name, "func", len(kernelParams(s)))
+            }
+        }
+        if (nt == "StructDecl") {
+            let name = structName(s)
+            if (name != "" && ckKind(tab, name) != "") {
+                ckAddError(tab, "K107", structDeclLine(s), "duplicate type definition '" + name + "'")
+            } else {
+                ckDeclare(tab, name, "struct", 0)
+            }
+        }
+        if (nt == "EnumDecl") {
+            let name = enumDeclName(s)
+            if (name != "" && ckKind(tab, name) != "") {
+                ckAddError(tab, "K107", enumDeclLine(s), "duplicate type definition '" + name + "'")
+            } else {
+                ckDeclare(tab, name, "struct", 0)
+            }
+        }
+        i = i + 1
+    }
+}
+
+// Pre-scan a statement list, registering every local var/let and
+// loop variable so forward references resolve (mirrors the Go
+// resolver's walkLocalDefs). Nested funcs and lambdas get their
+// own scopes and are deliberately skipped here.
+
+func collectLocals(tab, list) {
+    let i = 0
+    while (i < len(list)) {
+        let s = list[i]
+        let nt = getNodeType(s)
+        if (nt == "VarDecl" || nt == "LetDecl") {
+            let nm = varDeclName(s)
+            if (nm == "") { nm = letDeclName(s) }
+            ckLocalAdd(tab, nm)
+        }
+        if (nt == "ForIn") {
+            ckLocalAdd(tab, forInVar(s))
+            collectLocals(tab, forInBody(s))
+        }
+        if (nt == "Block") {
+            collectLocals(tab, blockStmts(s))
+        }
+        if (nt == "If") {
+            collectLocals(tab, ifThen(s))
+            collectLocals(tab, ifElse(s))
+        }
+        if (nt == "While") {
+            collectLocals(tab, whileBody(s))
+        }
+        if (nt == "For") {
+            let initNode = forInit(s)
+            if (initNode != []) {
+                let it = getNodeType(initNode)
+                if (it == "VarDecl" || it == "LetDecl") {
+                    ckLocalAdd(tab, varDeclName(initNode))
+                }
+            }
+            collectLocals(tab, forBody(s))
+        }
+        i = i + 1
+    }
+}
+
+// ============================================================
+// Pass 2: function bodies
+// ============================================================
+
+func checkFuncDecl(tab, node) {
+    let saved = ckLocals(tab)
+    tab[4] = []
+    let params = funcParams(node)
+    let i = 0
+    while (i < len(params)) {
+        ckLocalAdd(tab, params[i])
+        i = i + 1
+    }
+    collectLocals(tab, funcBody(node))
+    checkStmts(tab, funcBody(node), 0)
+    tab[4] = saved
+}
+
+func checkKernelDecl(tab, node) {
+    checkFuncDecl(tab, node)
+}
+
+func checkStmts(tab, list, loop) {
+    let i = 0
+    while (i < len(list)) {
+        checkStmt(tab, list[i], loop)
+        i = i + 1
+    }
+}
+
+func checkStmt(tab, s, loop) {
+    let nt = getNodeType(s)
+
+    if (nt == "FuncDecl") {
+        checkFuncDecl(tab, s)
+        return
+    }
+    if (nt == "KernelDecl") {
+        checkKernelDecl(tab, s)
+        return
+    }
+
+    if (nt == "VarDecl" || nt == "LetDecl") {
+        let nm = varDeclName(s)
+        let anno = varDeclType(s)
+        let val = varDeclValue(s)
+        let line = varDeclLine(s)
+        if (nt == "LetDecl") {
+            nm = letDeclName(s)
+            anno = letDeclType(s)
+            val = letDeclValue(s)
+            line = letDeclLine(s)
+        }
+        ckLocalAdd(tab, nm)
+        if (annotationMismatch(anno, val) == 1) {
+            ckAddError(tab, "K112", line, "variable '" + nm + "' declared as type '" + primitiveTag(anno) + "' but initialized with a " + typeDescription(inferType(val)))
+        }
+        checkExpr(tab, val, loop)
+        return
+    }
+
+    if (nt == "Return") {
+        checkExpr(tab, retVal(s), loop)
+        return
+    }
+    if (nt == "Print") {
+        checkExpr(tab, printVal(s), loop)
+        return
+    }
+
+    if (nt == "ExprStmt") {
+        let e = exprStmtExpr(s)
+        // Phase 51 semantics: a bare `x = v` statement implicitly declares x.
+        if (getNodeType(e) == "Binary" && binaryOp(e) == "=") {
+            let lhs = binaryLeft(e)
+            if (getNodeType(lhs) == "Ident") {
+                let nm = identName(lhs)
+                if (nm != "" && ckLocalHas(tab, nm) == 0 && ckKind(tab, nm) == "" && isCheckerBuiltin(nm) == 0) {
+                    ckLocalAdd(tab, nm)
+                }
+            }
+        }
+        checkExpr(tab, e, loop)
+        return
+    }
+
+    if (nt == "If") {
+        checkExpr(tab, ifCondition(s), loop)
+        checkStmts(tab, ifThen(s), loop)
+        checkStmts(tab, ifElse(s), loop)
+        return
+    }
+
+    if (nt == "While") {
+        checkExpr(tab, whileCondition(s), loop)
+        checkStmts(tab, whileBody(s), loop + 1)
+        return
+    }
+
+    if (nt == "For") {
+        let initNode = forInit(s)
+        if (initNode != []) {
+            let it = getNodeType(initNode)
+            if (it == "VarDecl" || it == "LetDecl") {
+                let iname = varDeclName(initNode)
+                let ianno = varDeclType(initNode)
+                let ival = varDeclValue(initNode)
+                let iline = varDeclLine(initNode)
+                if (it == "LetDecl") {
+                    iname = letDeclName(initNode)
+                    ianno = letDeclType(initNode)
+                    ival = letDeclValue(initNode)
+                    iline = letDeclLine(initNode)
+                }
+                ckLocalAdd(tab, iname)
+                if (annotationMismatch(ianno, ival) == 1) {
+                    ckAddError(tab, "K112", iline, "variable '" + iname + "' declared as type '" + primitiveTag(ianno) + "' but initialized with a " + typeDescription(inferType(ival)))
+                }
+                checkExpr(tab, ival, loop)
+            } else {
+                checkExpr(tab, initNode, loop)
+            }
+        }
+        checkExpr(tab, forCondition(s), loop)
+        if (forPost(s) != []) { checkExpr(tab, forPost(s), loop) }
+        checkStmts(tab, forBody(s), loop + 1)
+        return
+    }
+
+    if (nt == "ForIn") {
+        checkExpr(tab, forInIter(s), loop)
+        checkStmts(tab, forInBody(s), loop + 1)
+        return
+    }
+
+    if (nt == "Break") {
+        if (loop == 0) { ckAddError(tab, "K108", breakLine(s), "'break' outside of a loop") }
+        return
+    }
+    if (nt == "Continue") {
+        if (loop == 0) { ckAddError(tab, "K108", continueLine(s), "'continue' outside of a loop") }
+        return
+    }
+
+    if (nt == "Block") {
+        checkStmts(tab, blockStmts(s), loop)
+        return
+    }
+
+    if (nt == "Match") {
+        checkExpr(tab, matchValue(s), loop)
+        return
+    }
+}
+
+// ============================================================
+// Expression walking
+// ============================================================
+
+func checkExpr(tab, e, loop) {
+    let nt = getNodeType(e)
+
+    if (nt == "Ident") {
+        checkIdent(tab, e)
+        return
+    }
+
+    if (nt == "Call") {
+        checkCall(tab, e, loop)
+        return
+    }
+
+    if (nt == "Binary") {
+        checkExpr(tab, binaryLeft(e), loop)
+        checkExpr(tab, binaryRight(e), loop)
+        return
+    }
+
+    if (nt == "Unary") {
+        checkExpr(tab, unaryOperand(e), loop)
+        return
+    }
+
+    if (nt == "Dot") {
+        checkExpr(tab, dotLeft(e), loop)
+        return
+    }
+
+    if (nt == "Index") {
+        checkExpr(tab, indexLeft(e), loop)
+        checkExpr(tab, indexExpr(e), loop)
+        return
+    }
+
+    if (nt == "Slice") {
+        checkExpr(tab, sliceLeft(e), loop)
+        if (sliceStart(e) != []) { checkExpr(tab, sliceStart(e), loop) }
+        if (sliceEnd(e) != []) { checkExpr(tab, sliceEnd(e), loop) }
+        return
+    }
+
+    if (nt == "ArrayLiteral") {
+        let elems = arrayElements(e)
+        let i = 0
+        while (i < len(elems)) {
+            checkExpr(tab, elems[i], loop)
+            i = i + 1
+        }
+        return
+    }
+
+    if (nt == "MapLiteral") {
+        // Map keys are conservatively treated as labels (mirrors the Go
+        // resolver); only values are value-position reads.
+        let vals = mapValues(e)
+        let i = 0
+        while (i < len(vals)) {
+            checkExpr(tab, vals[i], loop)
+            i = i + 1
+        }
+        return
+    }
+
+    if (nt == "StructLiteral") {
+        let tn = structLitName(e)
+        if (tn != "") {
+            let k = ckKind(tab, tn)
+            if (k != "struct" && k != "enum") {
+                ckAddError(tab, "K106", structLitLine(e), "use of undefined type '" + tn + "' in struct literal")
+            }
+        }
+        let fields = structLitFields(e)
+        let i = 0
+        while (i < len(fields)) {
+            let f = fields[i]
+            if (getNodeType(f) == "Binary" && binaryOp(f) == "=") {
+                checkExpr(tab, binaryRight(f), loop)
+            } else {
+                checkExpr(tab, f, loop)
+            }
+            i = i + 1
+        }
+        return
+    }
+
+    if (nt == "Lambda") {
+        let outer = ckLocals(tab)
+        tab[4] = []
+        let j = 0
+        while (j < len(outer)) {
+            ckLocalAdd(tab, outer[j])
+            j = j + 1
+        }
+        let params = lambdaParams(e)
+        let k = 0
+        while (k < len(params)) {
+            ckLocalAdd(tab, params[k])
+            k = k + 1
+        }
+        collectLocals(tab, lambdaBody(e))
+        checkStmts(tab, lambdaBody(e), loop)
+        tab[4] = outer
+        return
+    }
+
+    if (nt == "Borrow") {
+        checkExpr(tab, borrowOp(e), loop)
+        return
+    }
+    if (nt == "Move") {
+        checkExpr(tab, borrowOp(e), loop)
+        return
+    }
+    if (nt == "ResultOk" || nt == "ResultErr" || nt == "OptionSome" || nt == "OptionNone") {
+        return
+    }
+    if (nt == "Propagate") {
+        checkExpr(tab, borrowOp(e), loop)
+        return
+    }
+}
+
+// ============================================================
+// Leaves
+// ============================================================
+
+func checkIdent(tab, e) {
+    let name = identName(e)
+    if (name == "") { return }
+    if (name == "true" || name == "false" || name == "nil" || name == "THIS" || name == "self") { return }
+    if (ckLocalHas(tab, name) == 1) { return }
+    if (ckKind(tab, name) != "") { return }
+    if (isCheckerBuiltin(name) == 1) { return }
+    ckAddError(tab, "K102", identLine(e), "undefined identifier '" + name + "'")
+}
+
+func checkCall(tab, e, loop) {
+    let name = callFunc(e)
+    let args = callArgs(e)
+    let argc = len(args)
+
+    // Always inspect arguments (mirrors the Go resolver's recursion).
+    let a = 0
+    while (a < len(args)) {
+        checkExpr(tab, args[a], loop)
+        a = a + 1
+    }
+
+    // Method calls (obj.method / module.name) are outside the flat-name model.
+    if (contains(name, ".") == 1) { return }
+
+    if (isCheckerBuiltin(name) == 1) {
+        let want = checkerBuiltinArity(name)
+        if (want >= 0 && want != argc) {
+            ckAddError(tab, "K104", callLine(e), "builtin '" + name + "' expects " + str(want) + " arguments but got " + str(argc))
+        }
+        return
+    }
+
+    if (ckLocalHas(tab, name) == 1) { return }
+
+    let kind = ckKind(tab, name)
+    if (kind != "") {
+        if (kind == "func" || kind == "kernel") {
+            let want = ckCount(tab, name)
+            if (want >= 0 && want != argc) {
+                ckAddError(tab, "K103", callLine(e), "function '" + name + "' expects " + str(want) + " arguments but got " + str(argc))
+            }
+        } else {
+            ckAddError(tab, "K109", callLine(e), "cannot call type '" + name + "' as a function")
+        }
+        return
+    }
+
+    ckAddError(tab, "K101", callLine(e), "undefined function '" + name + "'")
+}
+
+// ============================================================
+// Entry point
+// ============================================================
+
+// typeCheckProgram runs both passes over the (assembled) program and returns
+// the collected error messages. A clean program returns an empty list.
+func typeCheckProgram(ast) {
+    let tab = createCheckerTab()
+    let stmts = programStatements(ast)
+    collectDecls(tab, stmts)
+    let i = 0
+    while (i < len(stmts)) {
+        let s = stmts[i]
+        let nt = getNodeType(s)
+        if (nt == "FuncDecl") { checkFuncDecl(tab, s) }
+        if (nt == "KernelDecl") { checkKernelDecl(tab, s) }
+        i = i + 1
+    }
+    return ckErrors(tab)
+}

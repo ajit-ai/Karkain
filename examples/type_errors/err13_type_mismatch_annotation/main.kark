@@ -1,0 +1,6 @@
+// K112: a variable carries a primitive annotation but an initializer of a
+// different primitive static type.
+func main() {
+    let n: string = 42
+    print(n)
+}

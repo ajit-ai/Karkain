@@ -1,0 +1,12 @@
+// K107: the same function name is defined twice.
+func helper() {
+    return 1
+}
+
+func helper() {
+    return 2
+}
+
+func main() {
+    print(helper())
+}

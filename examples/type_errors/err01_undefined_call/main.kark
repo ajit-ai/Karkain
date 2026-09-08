@@ -1,0 +1,5 @@
+// K101: call to a function that is not declared anywhere in the program.
+func main() {
+    let answer = computeAnswer(42)
+    print(answer)
+}

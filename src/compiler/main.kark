@@ -109,6 +109,19 @@ func checkFile(path) {
         return
     }
 
+    // Phase 99: run the two-pass type checker. Its error[K1XX] diagnostics are
+    // the semantic gate for `karkain check` — when any are present the file is
+    // NOT reported as `[ok]`, so the CLI maps the result to ExitCompile.
+    let typeErrs = typeCheckProgram(ast)
+    if (len(typeErrs) > 0) {
+        let ei = 0
+        while (ei < len(typeErrs)) {
+            print(typeErrs[ei])
+            ei = ei + 1
+        }
+        return
+    }
+
     print("[ok] " + path + " parsed successfully")
 }
 

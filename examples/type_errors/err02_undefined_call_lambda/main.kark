@@ -1,0 +1,5 @@
+// K101: undefined function referenced as an argument deep inside an expression.
+func main() {
+    let n = len(fetchData(0))
+    print(n)
+}

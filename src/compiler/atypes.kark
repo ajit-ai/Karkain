@@ -1,0 +1,88 @@
+// ============================================================
+// Phase 99: Static type inference module for the self-hosted
+// type checker. Values in Karkain are dynamically typed, so the
+// checker stays conservative: it never rejects programs whose
+// types cannot be proven statically (the compiled corpus and the
+// compiler's own sources must keep passing).
+//
+// NOTE on the filename: sibling modules are concatenated in
+// sorted order by the assembler, and Karkain emits C top-down
+// (definitions must precede use). "atypes.kark" sorts immediately
+// after ast.kark and before checker.kark, so the type helpers are
+// defined before the checker that consumes them.
+//
+// inferType() classifies a node's *static* best-effort type tag:
+//   "int" "float" "string" "bool" "array" "map" "struct"
+//   "function" or "unknown"
+// The checker uses these tags for annotation-vs-initializer
+// mismatches and for human-readable diagnostics; Phase 100
+// (typed codegen) can build on the same lattice.
+// ============================================================
+
+func inferType(node) {
+    let nt = getNodeType(node)
+    if (nt == "IntLiteral") { return "int" }
+    if (nt == "FloatLiteral") { return "float" }
+    if (nt == "StringLiteral") { return "string" }
+    if (nt == "BoolLiteral") { return "bool" }
+    if (nt == "ArrayLiteral") { return "array" }
+    if (nt == "MapLiteral") { return "map" }
+    if (nt == "StructLiteral") { return "struct" }
+    if (nt == "Lambda") { return "function" }
+    if (nt == "Ident") {
+        let name = identName(node)
+        if (name == "true" || name == "false") { return "bool" }
+    }
+    return "unknown"
+}
+
+// primitiveTag maps a declared type annotation to a primitive
+// static tag, or "" when the annotation is not a simple primitive
+// (empty annotations and container/struct names produce "" so the
+// checker never flags them).
+func primitiveTag(anno) {
+    let t = trim(anno)
+    if (t == "int" || t == "i64" || t == "u64" || t == "i32" || t == "byte") { return "int" }
+    if (t == "float" || t == "double" || t == "f64" || t == "f32") { return "float" }
+    if (t == "string" || t == "str") { return "string" }
+    if (t == "bool") { return "bool" }
+    return ""
+}
+
+// isPrimitiveTag reports whether a tag is one of the primitive
+// static categories (used to decide whether a mismatch check is
+// meaningful at all).
+func isPrimitiveTag(tag) {
+    if (tag == "int") { return 1 }
+    if (tag == "float") { return 1 }
+    if (tag == "string") { return 1 }
+    if (tag == "bool") { return 1 }
+    return 0
+}
+
+// typeDescription renders a static tag for diagnostics.
+func typeDescription(tag) {
+    if (tag == "int") { return "int" }
+    if (tag == "float") { return "float" }
+    if (tag == "string") { return "string" }
+    if (tag == "bool") { return "bool" }
+    if (tag == "array") { return "array" }
+    if (tag == "map") { return "map" }
+    if (tag == "struct") { return "struct" }
+    if (tag == "function") { return "function" }
+    return "value"
+}
+
+// annotationMismatch returns 1 when a variable carries a primitive
+// type annotation but its initializer is a literal of a different
+// primitive static type. Non-literal initializers and non-primitive
+// annotations never mismatch (conservative).
+func annotationMismatch(anno, value) {
+    let want = primitiveTag(anno)
+    if (want == "") { return 0 }
+    let got = inferType(value)
+    if (got == "unknown") { return 0 }
+    if (isPrimitiveTag(got) == 0) { return 0 }
+    if (want == got) { return 0 }
+    return 1
+}
