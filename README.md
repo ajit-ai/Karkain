@@ -26,6 +26,7 @@ Karkain is a statically typed, high-performance systems programming language des
 - [Key Features](#key-features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+- [Developer Showcase](#developer-showcase)
 - [CLI Reference](#cli-reference)
 - [Package Manager (KPM)](#package-manager-kpm)
 - [Project Structure](#project-structure)
@@ -485,6 +486,50 @@ fn main() {
     // Kernel runs on GPU (auto-detected)
 }
 ```
+
+---
+
+## Developer Showcase
+
+Real, validated `.kark` programs live in [`examples/showcase/`](examples/showcase/).
+Every working example below was checked and run with the real CLI on the
+default self-hosted (`kcc`) engine, and each one pins the verified output.
+
+```
+karkain check examples/showcase/<category>/<name>/main.kark
+karkain run   examples/showcase/<category>/<name>/main.kark
+```
+
+| # | Category | Status |
+|---|----------|--------|
+| 01 | Fundamentals | WORKING TODAY |
+| 02 | Algorithms | WORKING TODAY |
+| 03 | Systems | WORKING TODAY |
+| 04 | Networking | NOT CURRENTLY SUPPORTED |
+| 05 | Data | WORKING TODAY |
+| 06 | Database | NOT CURRENTLY SUPPORTED |
+| 07 | Web | NOT CURRENTLY SUPPORTED |
+| 08 | Concurrency | NOT CURRENTLY SUPPORTED |
+| 09 | AI | WORKING TODAY |
+| 10 | ML | WORKING TODAY |
+| 11 | Quantum | NOT CURRENTLY SUPPORTED |
+| 12 | Scientific Computing | WORKING TODAY |
+| 13 | Finance | WORKING TODAY |
+| 14 | Security | WORKING TODAY (non-cryptographic) |
+| 15 | Developer Tools | WORKING TODAY |
+
+Highlights: a FIFO queue, a file-processing pipeline, text statistics, vector
+math + nearest-neighbor (AI), least-squares linear regression (ML), Newton
+sqrt + trapezoid integration + deterministic Monte Carlo pi (Scientific),
+finance calculations, a non-cryptographic checksum, and a multi-file banking
+app with `karkain test` (4/4) and a `karkain fmt` demo.
+
+The showcase honestly documents real current-capability findings, including
+engines gaps: `int(string)` works only on the Go engine (not the default kcc
+engine), arrays are passed by value into functions, there is no map iteration
+API, and Networking / Database / Web / Concurrency / Quantum are not
+available today. See [`examples/showcase/README.md`](examples/showcase/README.md)
+for the full matrix and findings.
 
 ---
 

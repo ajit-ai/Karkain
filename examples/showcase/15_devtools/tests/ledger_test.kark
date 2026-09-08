@@ -1,0 +1,44 @@
+// ledger_test.kark - test_* functions run by `karkain test`.
+//
+//   karkain test examples/showcase/15_devtools/tests
+//
+// The runner discovers this *_test.kark file and compiles each test_ function
+// in its own file scope. Test files are self-contained units: the helpers the
+// tests exercise are declared here (they mirror ledger.kark / utils.kark,
+// which drive `karkain run main.kark`). Cross-directory, manifest-scoped
+// test assembly exists (Phase 97 dependency machinery), but same-directory
+// sibling helpers are duplicated into the test driver today - a limitation
+// documented by this showcase.
+//
+// Summary format: N passed; M failed; S skipped; T total
+
+func applyCredit(balance, amount) {
+    return balance + amount
+}
+
+func applyDebit(balance, amount) {
+    if (amount > balance) {
+        return balance
+    }
+    return balance - amount
+}
+
+func formatAmount(amount) {
+    return "$" + str(amount)
+}
+
+func test_credit_increases_balance() {
+    assert_eq(applyCredit(100, 50), 150)
+}
+
+func test_debit_reduces_balance() {
+    assert_eq(applyDebit(100, 30), 70)
+}
+
+func test_debit_above_balance_refused() {
+    assert_eq(applyDebit(100, 9999), 100)
+}
+
+func test_format_amount() {
+    assert_eq(formatAmount(42), "$42")
+}

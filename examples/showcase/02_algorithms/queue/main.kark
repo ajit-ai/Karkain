@@ -1,0 +1,57 @@
+// Karkain Algorithms - a FIFO queue built on an array plus a head pointer.
+//
+// This shows a classic data structure implemented on the plain runtime
+// surface. Note: queues here are a pure data structure; Karkain currently
+// has no concurrency primitives (see category 08).
+
+func queueNew() {
+    return []
+}
+
+func enqueue(q, v) {
+    return push(q, v)
+}
+
+// A FIFO dequeue returns the removed front element AND the rebuilt queue as a
+// two-element array: [value, newQueue].
+func dequeue(q) {
+    let front = q[0]
+    let rest = []
+    let i = 1
+    while (i < len(q)) {
+        push(rest, q[i])
+        i = i + 1
+    }
+    return [front, rest]
+}
+
+func is_empty(q) {
+    if (len(q) == 0) {
+        return 1
+    }
+    return 0
+}
+
+func main() {
+    let jobs = queueNew()
+
+    // Arrays are passed by value to functions, so append operations re-assign
+    // the result where the caller can see it.
+    jobs = enqueue(jobs, 10)
+    jobs = enqueue(jobs, 20)
+    jobs = enqueue(jobs, 30)
+
+    print(jobs[0])          // head of queue              -> 10
+    print(is_empty(jobs))   // 0 = not empty              -> 0
+
+    let out1 = dequeue(jobs)
+    print(out1[0])          // removed front              -> 10
+    jobs = out1[1]
+
+    let out2 = dequeue(jobs)
+    print(out2[0])          // removed front              -> 20
+    jobs = out2[1]
+
+    print(jobs[0])          // remaining head             -> 30
+    print(len(jobs))        // remaining length           -> 1
+}

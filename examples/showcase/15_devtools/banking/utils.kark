@@ -1,0 +1,15 @@
+// utils.kark - formatting helpers for the multi-file banking demo.
+
+func formatAmount(amount) {
+    return "$" + str(amount)
+}
+
+func describe(balance) {
+    if (balance >= 1000) {
+        return "comfortable"
+    }
+    if (balance >= 0) {
+        return "careful"
+    }
+    return "overdrawn"
+}

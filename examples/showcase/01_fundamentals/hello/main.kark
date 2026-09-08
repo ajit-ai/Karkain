@@ -1,0 +1,63 @@
+// Karkain Fundamentals - Hello World, variables, primitive types,
+// expressions, conditionals, loops, functions, strings and arrays.
+//
+// Developer workflow for this example:
+//   karkain check examples/showcase/01_fundamentals/hello/main.kark
+//   karkain run  examples/showcase/01_fundamentals/hello/main.kark
+
+func fib(n) {
+    if (n <= 1) {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+func classify(x) {
+    if (x < 0) { return "negative" }
+    if (x == 0) { return "zero" }
+    return "positive"
+}
+
+func sumSquares(arr) {
+    let total = 0
+    let i = 0
+    while (i < len(arr)) {
+        total = total + arr[i] * arr[i]
+        i = i + 1
+    }
+    return total
+}
+
+func main() {
+    print("Hello, Karkain!")
+
+    let count = 10        // dynamic typing, like most values in Karkain
+    let rate: float = 2.5 // explicit annotations are optional and enforced
+    let name = "Karkain"
+    let ok = true
+
+    print(count + 3)      // integer arithmetic           -> 13
+    print(rate * 4.0)     // float arithmetic             -> 10
+    print(name + " v2")   // string concatenation         -> Karkain v2
+    if ok {
+        print("flag set")
+    }
+
+    print(classify(-5))   // -> negative
+    print(classify(0))    // -> zero
+    print(classify(7))    // -> positive
+
+    let i = 1
+    while (i <= 5) {
+        print(i * i)      // 1 4 9 16 25
+        i = i + 1
+    }
+
+    print(fib(10))        // recursion                    -> 55
+
+    let xs = [3, 1, 4, 1, 5]
+    print(len(xs))        // array length                 -> 5
+    print(sumSquares(xs)) // 9 + 1 + 16 + 1 + 25          -> 52
+    push(xs, 9)
+    print(xs[5])          // appended element             -> 9
+}

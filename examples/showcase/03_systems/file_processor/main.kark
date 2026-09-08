@@ -1,0 +1,26 @@
+// Karkain Systems - file processing with the built-in file I/O surface:
+// writeFile, readFile, removeFile, plus command-line arguments via getArgs.
+//
+// The program writes a small ledger, reads it back, reduces the lines to a
+// total, and cleans up after itself. File paths are relative to the sandbox
+// that karkain run/build create, so this example is fully self-contained.
+//
+//   karkain run examples/showcase/03_systems/file_processor/main.kark
+
+func main() {
+    let path = "ledger.txt"
+
+    writeFile(path, "alpha\nbeta\ngamma\n")
+
+    let data = trim(readFile(path))
+    let lines = split(data, "\n")
+    print("lines=" + str(len(lines)))
+    print("first=" + lines[0])
+    print("last=" + lines[len(lines) - 1])
+
+    let args = getArgs()
+    print("args=" + str(len(args)))
+
+    removeFile(path)
+    print("cleaned")
+}

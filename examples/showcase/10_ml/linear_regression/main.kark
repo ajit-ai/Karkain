@@ -1,0 +1,42 @@
+// Karkain ML - least-squares linear regression computed with float
+// arithmetic on plain arrays. This is the "mathematical computation" layer
+// of ML: fitting a line to training data and predicting new values.
+//
+// Training data is stored as integers; the fit itself runs in floats.
+// Model: slope = (n*Sxy - Sx*Sy) / (n*Sxx - Sx^2), intercept = (Sy - m*Sx)/n
+
+func fit(xs, ys) {
+    let n = len(xs)
+    let sx = 0
+    let sy = 0
+    let sxy = 0
+    let sxx = 0
+    let i = 0
+    while (i < n) {
+        sx = sx + xs[i]
+        sy = sy + ys[i]
+        sxy = sxy + xs[i] * ys[i]
+        sxx = sxx + xs[i] * xs[i]
+        i = i + 1
+    }
+    let denom = (n * sxx) - (sx * sx)
+    let slope = (((n * sxy) - (sx * sy)) * 1.0) / (denom * 1.0)
+    let intercept = ((sy * 1.0) - (slope * (sx * 1.0))) / (n * 1.0)
+    return [slope, intercept]
+}
+
+func predict(model, x) {
+    return (model[0] * (x * 1.0)) + model[1]
+}
+
+func main() {
+    // y = 2x + 1 for x = 0..4 - a perfect line, so the fit is exact.
+    let xs = [0, 1, 2, 3, 4]
+    let ys = [1, 3, 5, 7, 9]
+
+    let model = fit(xs, ys)
+    print("slope=" + str(model[0]))          // 2
+    print("intercept=" + str(model[1]))      // 1
+    print("predict(10)=" + str(predict(model, 10)))   // 21
+    print("predict(-3)=" + str(predict(model, -3)))   // -5
+}

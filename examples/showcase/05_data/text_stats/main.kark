@@ -1,0 +1,42 @@
+// Karkain Data - text statistics over a document using strings and arrays.
+//
+// A small analysis pipeline that runs entirely on the standard runtime:
+// tokenizing, searching, and float statistics with no external libraries.
+
+func wordCount(text) {
+    let words = split(text, " ")
+    return len(words)
+}
+
+func longestWord(text) {
+    let words = split(text, " ")
+    let best = ""
+    let i = 0
+    while (i < len(words)) {
+        if (len(words[i]) > len(best)) {
+            best = words[i]
+        }
+        i = i + 1
+    }
+    return best
+}
+
+func averageWordLength(text) {
+    let words = split(text, " ")
+    let chars = 0
+    let i = 0
+    while (i < len(words)) {
+        chars = chars + len(words[i])
+        i = i + 1
+    }
+    return (chars * 1.0) / len(words)
+}
+
+func main() {
+    let doc = "the quick brown fox jumps over the lazy dog"
+
+    print("characters=" + str(len(doc)))
+    print("words=" + str(wordCount(doc)))
+    print("longest=" + longestWord(doc))
+    print("avg_word_length=" + str(averageWordLength(doc))) // 35 chars / 9 words -> 3.88889
+}
