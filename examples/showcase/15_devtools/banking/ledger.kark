@@ -1,0 +1,17 @@
+// ledger.kark - account logic for the multi-file banking demo.
+// Sibling sources are assembled into the same compilation unit as main.kark.
+
+func openingBalance() {
+    return 1000
+}
+
+func applyCredit(balance, amount) {
+    return balance + amount
+}
+
+func applyDebit(balance, amount) {
+    if (amount > balance) {
+        return balance
+    }
+    return balance - amount
+}

@@ -1,0 +1,30 @@
+// Karkain Developer Tools - a small multi-file "banking" app proving the
+// real developer workflow:
+//
+//   karkain check examples/showcase/15_devtools/banking/main.kark
+//   karkain build examples/showcase/15_devtools/banking/main.kark
+//   karkain run   examples/showcase/15_devtools/banking/main.kark
+//   karkain test  examples/showcase/15_devtools/tests
+//   karkain fmt --check examples/showcase/15_devtools/formatting/messy.kark
+//
+// Functions live in sibling files (ledger.kark, utils.kark): the assembler
+// concatenates them into one compilation unit, then karkain run executes it.
+// Unit tests live apart (../tests/ledger_test.kark) and are self-contained
+// compilation units, following the conformance convention.
+
+func main() {
+    let balance = openingBalance()
+    print("opening=" + formatAmount(balance))
+
+    balance = applyCredit(balance, 250)
+    print("after_credit=" + formatAmount(balance))
+
+    balance = applyDebit(balance, 80)
+    print("after_debit=" + formatAmount(balance))
+
+    // A debit larger than the balance is refused.
+    balance = applyDebit(balance, 9999)
+    print("after_overdraft_attempt=" + formatAmount(balance))
+
+    print(describe(balance))
+}

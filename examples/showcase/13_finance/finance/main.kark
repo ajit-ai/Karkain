@@ -1,0 +1,88 @@
+// Karkain Finance - compound interest, moving averages, volatility (standard
+// deviation of returns) and an EMI-style loan payment computed in floats.
+//
+// Everything uses plain arithmetic on arrays/values - no external libraries.
+
+func fsqrt(x) {
+    if (x <= 0.0) {
+        return 0.0
+    }
+    let guess = x / 2.0
+    let i = 0
+    while (i < 40) {
+        guess = (guess + x / guess) / 2.0
+        i = i + 1
+    }
+    return guess
+}
+
+func compound(principal, rate, years) {
+    let amount = principal
+    let i = 0
+    while (i < years) {
+        amount = amount * (1.0 + rate)
+        i = i + 1
+    }
+    return amount
+}
+
+func movingAverage(prices, window) {
+    let out = []
+    let i = window
+    while (i <= len(prices)) {
+        let sum = 0.0
+        let j = i - window
+        while (j < i) {
+            sum = sum + prices[j]
+            j = j + 1
+        }
+        push(out, sum / (window * 1.0))
+        i = i + 1
+    }
+    return out
+}
+
+func volatility(prices) {
+    let n = len(prices)
+    let m = 0.0
+    let i = 0
+    while (i < n) {
+        m = m + prices[i]
+        i = i + 1
+    }
+    m = m / (n * 1.0)
+    let acc = 0.0
+    let j = 0
+    while (j < n) {
+        let d = prices[j] - m
+        acc = acc + (d * d)
+        j = j + 1
+    }
+    return fsqrt(acc / (n * 1.0))
+}
+
+func emi(principal, annualRate, months) {
+    let monthly = annualRate / 12.0
+    let factor = 1.0
+    let k = 0
+    while (k < months) {
+        factor = factor * (1.0 + monthly)
+        k = k + 1
+    }
+    if ((factor - 1.0) == 0.0) {
+        return principal / (months * 1.0)
+    }
+    return (principal * monthly * factor) / (factor - 1.0)
+}
+
+func main() {
+    print("compound_1000@5pct_10y=" + str(compound(1000.0, 0.05, 10)))
+
+    let prices = [100.0, 102.0, 101.0, 105.0, 110.0, 108.0]
+    let ma = movingAverage(prices, 3)
+    print("ma3[0]=" + str(ma[0]))          // (100+102+101)/3      -> 101
+    print("ma3[1]=" + str(ma[1]))          // (102+101+105)/3      -> 102.667
+    print("volatility=" + str(volatility(prices)))
+
+    print("emi_100k@8pct_12mo=" + str(emi(100000.0, 0.08, 12)))
+}

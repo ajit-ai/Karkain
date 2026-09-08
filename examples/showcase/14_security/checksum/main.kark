@@ -1,0 +1,64 @@
+// Karkain Security - a pure-Karkain integrity checksum and input validation.
+//
+// HONEST SCOPE: the current runtime provides NO cryptographic primitives
+// (no hash/HMAC/cipher/secure RNG). What a developer CAN do today is
+// deterministic checksumming and validation arithmetic entirely in the
+// language. This example is exactly that - it is NOT a security boundary.
+
+func checksum(data) {
+    // Deterministic 32-bit rolling hash modulo a large prime.
+    let h = 5381
+    let i = 0
+    while (i < len(data)) {
+        h = ((h * 33) + data[i]) % 1000000007
+        i = i + 1
+    }
+    return h
+}
+
+// Accepts only canonical unsigned decimal strings, checked character by
+// character. (Numeric conversion via int(string) is a separate, Go-engine-only
+// capability today - noted honestly in the showcase README.)
+func isUnsignedInt(s) {
+    if (len(s) == 0) {
+        return 0
+    }
+    let i = 0
+    while (i < len(s)) {
+        let c = s[i]
+        let okDigit = (c >= "0") && (c <= "9")
+        if (okDigit != 1) {
+            return 0
+        }
+        i = i + 1
+    }
+    return 1
+}
+
+// Simple heuristic password score (length + digit presence). Not a policy.
+func ratePassword(s) {
+    let score = 0
+    if (len(s) >= 8) {
+        score = score + 1
+    }
+    if (len(s) >= 12) {
+        score = score + 1
+    }
+    if (contains(s, "0") || contains(s, "1") || contains(s, "2")) {
+        score = score + 1
+    }
+    return score
+}
+
+func main() {
+    let payload = [10, 20, 30, 40]
+    print("checksum=" + str(checksum(payload)))
+    print("checksum_changed=" + str(checksum([10, 20, 31, 40])))
+
+    print("valid_12345=" + str(isUnsignedInt("12345")))
+    print("valid_12a45=" + str(isUnsignedInt("12a45")))
+    print("valid_empty=" + str(isUnsignedInt("")))
+
+    print("password_abcdef=" + str(ratePassword("abcdef")))
+    print("password_str0ng!=" + str(ratePassword("str0ng!")))
+}

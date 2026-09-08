@@ -1,0 +1,96 @@
+// Karkain AI - classical vector/matrix math directly on arrays: dot product,
+// matrix multiplication, cosine similarity and a 1-nearest-neighbor lookup.
+// This is the arithmetic layer many classical ML approaches build on.
+//
+// Float square root is implemented by Newton's method, because the current
+// stdlib sqrt/abs/pow builtins operate on integers only.
+
+// Newton iteration for sqrt(x) using float arithmetic alone.
+func fsqrt(x) {
+    if (x <= 0.0) {
+        return 0.0
+    }
+    let guess = x / 2.0
+    let i = 0
+    while (i < 40) {
+        guess = (guess + x / guess) / 2.0
+        i = i + 1
+    }
+    return guess
+}
+
+func dot(a, b) {
+    let sum = 0
+    let i = 0
+    while (i < len(a)) {
+        sum = sum + a[i] * b[i]
+        i = i + 1
+    }
+    return sum
+}
+
+func matmul(a, b) {
+    let res = []
+    let i = 0
+    while (i < len(a)) {
+        let row = []
+        let j = 0
+        while (j < len(b[0])) {
+            let acc = 0
+            let k = 0
+            while (k < len(b)) {
+                acc = acc + a[i][k] * b[k][j]
+                k = k + 1
+            }
+            push(row, acc)
+            j = j + 1
+        }
+        push(res, row)
+        i = i + 1
+    }
+    return res
+}
+
+func cosine(a, b) {
+    let na = fsqrt(dot(a, a) * 1.0)
+    let nb = fsqrt(dot(b, b) * 1.0)
+    return (dot(a, b) * 1.0) / (na * nb)
+}
+
+@target(cpu)
+func nearest(q, rows) {
+    // Cosine similarity: keep the row with the HIGHEST score.
+    let best = -1
+    let bestD = -1.0
+    let i = 0
+    while (i < len(rows)) {
+        let d = cosine(q, rows[i])
+        if (best == -1 || d > bestD) {
+            best = i
+            bestD = d
+        }
+        i = i + 1
+    }
+    return best
+}
+
+func main() {
+    let a = [1, 2, 3]
+    let b = [4, 5, 6]
+    print("dot=" + str(dot(a, b)))              // 4 + 10 + 18            -> 32
+
+    let m1 = [[1, 2], [3, 4]]
+    let m2 = [[5, 6], [7, 8]]
+    let prod = matmul(m1, m2)
+    print("matmul[0][1]=" + str(prod[0][1]))    // 1*6 + 2*8              -> 22
+    print("matmul[1][0]=" + str(prod[1][0]))    // 3*5 + 4*7              -> 43
+
+    let v1 = [1.0, 2.0, 3.0]
+    let v2 = [4.0, 5.0, 6.0]
+    print("cosine=" + str(cosine(v1, v2)))      // ~0.974632 (see README)
+
+    let queries = [[1.0, 0.0], [0.0, 1.0]]
+    let bank = [[0.9, 0.1], [0.95, 0.05], [0.2, 0.8]]
+    print("nearest_q0=" + str(nearest(queries[0], bank))) // most similar     -> 1
+    print("nearest_q1=" + str(nearest(queries[1], bank))) // most similar     -> 2
+}

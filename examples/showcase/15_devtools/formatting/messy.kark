@@ -1,0 +1,14 @@
+// messy.kark - intentionally unformatted, but valid Karkain.
+// Used to demonstrate the white-space canonicalizing formatter:
+//
+//   karkain fmt --check examples/showcase/15_devtools/formatting/messy.kark
+//   karkain fmt          examples/showcase/15_devtools/formatting/messy.kark
+
+func messyAdd(a, b) {
+return a + b
+}
+func main() {
+let x = 1
+let y = 2
+print(messyAdd(x, y))
+}
