@@ -56,10 +56,12 @@ func main() {
 
     if (command == "test") {
         if (argc < 3) {
-            print("Usage: karkain test <path>")
+            print("Usage: karkain test <path> [filter]")
             return
         }
-        runTests(args[2])
+        let filter = ""
+        if (argc >= 4) { filter = args[3] }
+        runTests(args[2], filter)
         return
     }
 
@@ -257,25 +259,223 @@ func loadSourceWithSiblings(path) {
 
 // ============================================================
 // Test runner - discovers and runs *_test.kark files
+//
+// Phase 96: the self-hosted engine owns the test runner. Discovery
+// mirrors the Go CLI contract (findTestFiles): a directory yields every
+// *_test.kark file (sorted), a single path is used as-is. For each test
+// file the runner parses it, collects the test_* functions, synthesizes a
+// driver program (the file's source + a main that calls the selected test
+// functions) and compiles and executes it through gcc. Exit code 0 means
+// every assertion held; asserts exit(1), so a nonzero code flags failure.
+// The output mirrors the Go runner's summary contract so the Go wrapper
+// can parse `N passed; M failed; S skipped; T total`.
 // ============================================================
 
-func runTests(testPath) {
-    print("Running tests in: " + testPath)
-    let source = readFile(testPath)
-    if (source == "") {
-        print("Error: cannot read " + testPath)
+func runTests(testPath, filter) {
+    let files = collectTestFiles(testPath)
+    if (len(files) == 0) {
+        print("No test files found.")
         return
     }
-    let tokens = tokenize(source)
-    let state = createParserState(tokens, source)
-    let ast = parse(tokens, source)
+    let total = 0
+    let passed = 0
+    let failed = 0
+    let fi = 0
+    while (fi < len(files)) {
+        let file = files[fi]
+        print("=== Running tests in " + file + " ===")
+        let source = readFile(file)
+        if (source == "") {
+            print("  error reading " + file)
+            fi = fi + 1
+            continue
+        }
+        let tokens = tokenize(source)
+        let state = createParserState(tokens, source)
+        let ast = parse(tokens, source)
+        if (hasParserErrors(state)) {
+            printParserErrors(state)
+            fi = fi + 1
+            continue
+        }
+        let tests = applyFilter(collectTestNames(ast), filter)
+        let tn = len(tests)
+        if (tn == 0) {
+            fi = fi + 1
+            continue
+        }
+        // Fast path: one driver calling every selected test. A clean exit
+        // means all passed; a nonzero exit isolates the failing tests.
+        let allDriver = source + "\nfunc main() {\n" + buildCallList(tests) + "}\n"
+        let allCode = compileRunDriver(allDriver)
+        if (allCode == 0) {
+            let ti = 0
+            while (ti < tn) {
+                print("  PASS " + tests[ti])
+                passed = passed + 1
+                total = total + 1
+                ti = ti + 1
+            }
+        } else {
+            let ti = 0
+            while (ti < tn) {
+                let tname = tests[ti]
+                let driver = source + "\nfunc main() {\n    " + tname + "()\n}\n"
+                let code = compileRunDriver(driver)
+                if (code == 0) {
+                    print("  PASS " + tname)
+                    passed = passed + 1
+                } else {
+                    print("  FAIL " + tname)
+                    failed = failed + 1
+                }
+                total = total + 1
+                ti = ti + 1
+            }
+        }
+        fi = fi + 1
+    }
+    // Go-parity summary output (see printTestSummary + summaryLine).
+    print("")
+    print("=== Test Summary: " + str(total) + " tests, " + str(passed) + " passed, " + str(failed) + " failed, 0 skipped ===")
+    print(str(passed) + " passed; " + str(failed) + " failed; 0 skipped; " + str(total) + " total")
+}
+
+// Discover *_test.kark files under a directory or accept a single file path
+// directly (mirrors findTestFiles / TestCommandFiltered semantics).
+func collectTestFiles(testPath) {
+    let files = []
+    let entries = listFiles(testPath)
+    if (len(entries) > 0) {
+        let n = len(entries)
+        let i = 0
+        while (i < n) {
+            let name = entries[i]
+            if (endsWith(name, "_test.kark")) {
+                files = appendArray(files, testPath + "/" + name)
+            }
+            i = i + 1
+        }
+    } else {
+        // No named entries: either a single test file or a directory whose
+        // top-level listing is empty. Adopt the path as a single file when it
+        // looks like a test file or reads back as source (a directory yields
+        // "" on Windows fopen, and listFiles already returned nothing).
+        let isTestFile = endsWith(testPath, "_test.kark")
+        if (isTestFile) {
+            files = appendArray(files, testPath)
+        } else if (readFile(testPath) != "") {
+            files = appendArray(files, testPath)
+        }
+    }
+    return sortStrings(files)
+}
+
+// Collect every top-level test_* function name from a parsed program.
+func collectTestNames(ast) {
+    let names = []
+    let stmts = programStatements(ast)
+    let n = len(stmts)
+    let i = 0
+    while (i < n) {
+        let stmt = stmts[i]
+        if (getNodeType(stmt) == "FuncDecl") {
+            let fname = funcName(stmt)
+            let pl = len(fname)
+            if (pl >= 5) {
+                if (substr(fname, 0, 5) == "test_") {
+                    names = appendArray(names, fname)
+                }
+            }
+        }
+        i = i + 1
+    }
+    return sortStrings(names)
+}
+
+// Substring filter over the test name, matching pkg/testing.Filter.
+func applyFilter(names, filter) {
+    if (len(filter) == 0) { return names }
+    let out = []
+    let i = 0
+    while (i < len(names)) {
+        if (contains(names[i], filter) == 1) {
+            out = appendArray(out, names[i])
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// Build the body of a synthesized main that invokes every listed test.
+func buildCallList(names) {
+    let s = ""
+    let i = 0
+    while (i < len(names)) {
+        s = s + "    " + names[i] + "()\n"
+        i = i + 1
+    }
+    return s
+}
+
+// Tokenize/parse/generate/compile/run one synthesized test driver. Returns the
+// driver's exit code (0 = all assertions held); cleanup is always performed.
+func compileRunDriver(driver) {
+    let tokens = tokenize(driver)
+    let state = createParserState(tokens, driver)
+    let ast = parse(tokens, driver)
     if (hasParserErrors(state)) {
         printParserErrors(state)
-        return
+        return 1
     }
-    // Run semantic analysis
-    let symTable = analyze(ast)
-    print("PASS " + testPath)
+    let cCode = generate(ast, "c23")
+    let tempPath = "karkain_test.c"
+    let f = createFile(tempPath)
+    writeToFile(f, cCode)
+    closeFile(f)
+    let compileCmd = "gcc -std=c99 -x c -o karkain_test " + tempPath + " -lgmp -lm"
+    let cc = system(compileCmd)
+    if (cc != 0) {
+        removeFile(tempPath)
+        return 1
+    }
+    // gcc adds .exe on Windows; resolve the actual artifact name.
+    let exe = "karkain_test"
+    if (openFile("karkain_test.exe") != "") { exe = "karkain_test.exe" }
+    // Windows cmd does not accept a "./" prefix; bare names run from the
+    // current working directory, whereas POSIX shells need "./" to execute
+    // a file that is not on PATH.
+    let code = 0
+    if (endsWith(exe, ".exe")) {
+        code = system(exe)
+    } else {
+        code = system("./" + exe)
+    }
+    removeFile(tempPath)
+    removeFile("karkain_test")
+    removeFile("karkain_test.exe")
+    return code
+}
+
+// Deterministic lexicographic insertion sort over an array of strings. The
+// self-hosted runtime lacks a built-in sort, but string < / > comparisons are
+// supported through binary_op, and index assignment through index_set.
+func sortStrings(arr) {
+    let n = len(arr)
+    let i = 1
+    while (i < n) {
+        let key = arr[i]
+        let j = i - 1
+        while (j >= 0) {
+            let gt = arr[j] > key
+            if (gt == 0) { break }
+            arr[j + 1] = arr[j]
+            j = j - 1
+        }
+        arr[j + 1] = key
+        i = i + 1
+    }
+    return arr
 }
 
 // ============================================================

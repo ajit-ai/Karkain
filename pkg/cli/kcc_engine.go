@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"karkain/pkg/codegen"
@@ -160,7 +162,16 @@ func buildKCC(root string, w io.Writer) (string, error) {
 // runKCC executes the self-hosted compiler binary with the given arguments and
 // returns its combined output (stdout + stderr).
 func runKCC(bin string, args ...string) (string, int) {
+	return runKCCDir(bin, "", args...)
+}
+
+// runKCCDir is runKCC with a working directory (used to sandbox kcc's
+// synthesized test-driver artifacts).
+func runKCCDir(bin, dir string, args ...string) (string, int) {
 	cmd := exec.Command(bin, args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	out, err := cmd.CombinedOutput()
 	code := 0
 	if err != nil {
@@ -284,6 +295,61 @@ if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: msg}
 	}
 	return CommandResult{ExitCode: ExitSuccess, Message: msg}
+}
+
+// kccSummaryRe matches the compact result line emitted by the self-hosted test
+// runner (identical format to Go's summaryLine): "N passed; M failed; S skipped; T total".
+var kccSummaryRe = regexp.MustCompile(`(\d+) passed;\s*(\d+) failed;\s*(\d+) skipped;\s*(\d+) total`)
+
+// KCCTestCommand routes `karkain test` through the self-hosted engine. kcc
+// discovers *_test.kark files, synthesizes drivers and reports per-test
+// PASS/FAIL plus the aggregate summary. Because the kcc process itself exits 0
+// (generated main always returns 0), the Go wrapper maps the parsed summary to
+// the ExitTest(4) exit code, exactly like TestCommandFiltered. The kcc process
+// runs in a temp sandbox so its synthesized driver artifacts never land in the
+// user's working directory.
+func KCCTestCommand(w io.Writer, testPath, filter string) CommandResult {
+	bin, err := kccBinaryPath(w)
+	if err != nil {
+		return CommandResult{ExitCode: ExitEnv, Message: err.Error()}
+	}
+	abs, err := filepath.Abs(testPath)
+	if err != nil {
+		abs = testPath
+	}
+	sandbox, err := os.MkdirTemp("", "karkain-kcc-test")
+	if err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+	defer func() {
+		for i := 0; i < 25; i++ {
+			if err := os.RemoveAll(sandbox); err == nil {
+				return
+			}
+			os.RemoveAll(sandbox)
+		}
+	}()
+
+	args := []string{"test", abs}
+	if filter != "" {
+		args = append(args, filter)
+	}
+	out, _ := runKCCDir(bin, sandbox, args...)
+	out = strings.TrimSpace(out)
+
+	// No test files / clean directory: mirror TestCommandFiltered.
+	if strings.Contains(out, "No test files found.") {
+		return CommandResult{ExitCode: ExitSuccess, Message: out}
+	}
+	m := kccSummaryRe.FindStringSubmatch(out)
+	if m == nil {
+		return CommandResult{ExitCode: ExitFailure, Message: out}
+	}
+	failed, _ := strconv.Atoi(m[2])
+	if failed > 0 {
+		return CommandResult{ExitCode: ExitTest, Message: out}
+	}
+	return CommandResult{ExitCode: ExitSuccess, Message: out}
 }
 
 // replaceExt swaps a path's extension for a new one while preserving the base.
