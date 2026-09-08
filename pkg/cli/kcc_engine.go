@@ -26,13 +26,17 @@ const (
 	EngineKCC
 )
 
-// EngineFromEnv resolves the engine selection. KARKAIN_ENGINE=kcc selects the
-// self-hosted engine; anything else (and no value) keeps the Go engine.
+// EngineFromEnv resolves the engine selection. Phase 97: the self-hosted
+// engine (kcc) is the DEFAULT engine. KARKAIN_ENGINE=go explicitly selects the
+// Go front end; anything else (and no value) uses kcc. The parity gates
+// (phase95/phase96) prove kcc reproduces the conformance corpus, probe goldens
+// and the test runner, so routing the core pipeline through kcc by default is
+// safe while keeping the Go engine reachable.
 func EngineFromEnv() EngineKind {
-	if v := os.Getenv("KARKAIN_ENGINE"); v == "kcc" {
-		return EngineKCC
+	if v := os.Getenv("KARKAIN_ENGINE"); v == "go" || v == "Go" || v == "GO" {
+		return EngineGo
 	}
-	return EngineGo
+	return EngineKCC
 }
 
 // EngineFlag recomputes the engine after a CLI --engine flag was parsed.
@@ -186,12 +190,36 @@ func runKCCDir(bin, dir string, args ...string) (string, int) {
 
 // KCCCheckCommand routes `karkain check` through the self-hosted engine. The
 // corpus contract is the same as the Go path: parsing had better be clean.
+// Phase 97: the source is assembled (manifest dependencies + siblings) into a
+// temp file so kcc check validates the full project, matching the Go check
+// pipeline (resolveSourcesCheck).
 func KCCCheckCommand(w io.Writer, file string, verbose bool) CommandResult {
 	bin, err := kccBinaryPath(w)
 	if err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: err.Error()}
 	}
-	out, code := runKCC(bin, "check", file)
+	prog, err := kccAssembleSource(file)
+	if err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+	sandbox, err := os.MkdirTemp("", "karkain-kcc-check")
+	if err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+	defer func() {
+		for i := 0; i < 25; i++ {
+			if err := os.RemoveAll(sandbox); err == nil {
+				return
+			}
+			os.RemoveAll(sandbox)
+		}
+	}()
+	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+	checkFile := filepath.Join(sandbox, base+".kark")
+	if err := os.WriteFile(checkFile, []byte(prog), 0o644); err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+	out, code := runKCC(bin, "check", checkFile)
 	if code == 0 && strings.Contains(out, "[ok]") {
 		return CommandResult{ExitCode: ExitSuccess, Message: out}
 	}
@@ -200,20 +228,53 @@ func KCCCheckCommand(w io.Writer, file string, verbose bool) CommandResult {
 
 // KCCBuildCommand routes `karkain build` through the self-hosted engine. It
 // compiles the Karkain source to C23 and, unless compile-only, links a native
-// executable with gcc. The C artifact is written next to the source (the kcc
-// contract) so `--compile-only` mirrors the Go CLI's behavior.
+// executable with gcc. Phase 97: the Go-side assembler (resolveSources) pulls in
+// manifest dependencies and sibling modules so the self-hosted engine compiles
+// the full project, not just the root file. Assembly happens in a temp sandbox
+// (as KCCRunCommand does) so kcc only ever loads the single assembled file and
+// build artifacts never sit next to the source.
 func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, verbose bool) CommandResult {
 	bin, err := kccBinaryPath(w)
 	if err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: err.Error()}
 	}
-	out, code := runKCC(bin, "build", file, "--target", "c23")
+	prog, err := kccAssembleSource(file)
+	if err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+
+	sandbox, err := os.MkdirTemp("", "karkain-kcc-build")
+	if err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+	defer func() {
+		for i := 0; i < 25; i++ {
+			if err := os.RemoveAll(sandbox); err == nil {
+				return
+			}
+			os.RemoveAll(sandbox)
+		}
+	}()
+	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+	srcFile := filepath.Join(sandbox, base+".kark")
+	if err := os.WriteFile(srcFile, []byte(prog), 0o644); err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+
+	out, code := runKCC(bin, "build", srcFile, "--target", "c23")
 	if code != 0 || !strings.Contains(out, "[ok]") {
 		return CommandResult{ExitCode: ExitCompile, Message: out}
 	}
+	// kcc writes the C23 artifact next to the assembled source, in the sandbox.
+	artifact := replaceExt(srcFile, ".c23")
 
-	c23 := replaceExt(file, ".c23")
 	if cfg.CompileOnly {
+		// Surface the C artifact next to the source like the classic kcc
+		// contract (src/<base>.c23) so --compile-only callers can consume it.
+		userC23 := replaceExt(file, ".c23")
+		if data, rerr := os.ReadFile(artifact); rerr == nil {
+			_ = os.WriteFile(userC23, data, 0o644)
+		}
 		return CommandResult{ExitCode: ExitSuccess, Message: out}
 	}
 
@@ -222,20 +283,90 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 	}
 	exe := outputPath
 	if exe == "" {
-		base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
 		exe = filepath.Join(filepath.Dir(file), base)
 		if filepath.Ext(exe) == "" {
 			exe += ".exe"
 		}
 	}
-	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", c23, "-o", exe, "-lgmp", "-lm")
-	if out, err := linkCmd.CombinedOutput(); err != nil {
-		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(out))}
+	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", artifact, "-o", exe, "-lgmp", "-lm")
+	if lout, err := linkCmd.CombinedOutput(); err != nil {
+		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}
 	}
 	if verbose && w != nil {
 		fmt.Fprintf(w, "linked %s\n", exe)
 	}
 	return CommandResult{ExitCode: ExitSuccess, Message: out}
+}
+
+// kccAssembleSource returns the fully assembled Karkain source for a target
+// file, mirroring the Go engine's resolveSources: project manifest dependencies
+// (local/workspace/registry/git) plus same-directory sibling modules upstream,
+// with the root file appended last as the entry point. For non-project files it
+// falls back to the classic sibling-join (identical to kcc's own
+// loadSourceWithSiblings), keeping flat/single-file builds unchanged.
+func kccAssembleSource(file string) (string, error) {
+	return resolveSources(file)
+}
+
+// kccTestSource returns the dependency-aware content for a test file: the
+// project module scope (projectModuleSources — local/workspace/registry/git
+// dependency sources + sibling modules without `func main`) prepended to the
+// original file. Flat/non-project files return their verbatim content.
+func kccTestSource(testFile string) (string, error) {
+	orig, err := os.ReadFile(testFile)
+	if err != nil {
+		return "", err
+	}
+	modSrc, err := projectModuleSources(testFile)
+	if err != nil {
+		return "", err
+	}
+	if modSrc == "" {
+		return string(orig), nil
+	}
+	return modSrc + "\n\n" + string(orig), nil
+}
+
+// kccMirrorTestDir recursively copies a test directory into dst, prepending the
+// project module scope to every *_test.kark (dependency-aware test drivers).
+// Non-test files are copied verbatim so the compiler/toolchain layout is
+// preserved. Returns an error only when the source cannot be read.
+func kccMirrorTestDir(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		srcPath := filepath.Join(src, e.Name())
+		dstPath := filepath.Join(dst, e.Name())
+		if e.IsDir() {
+			if err := os.MkdirAll(dstPath, 0o755); err != nil {
+				return err
+			}
+			if err := kccMirrorTestDir(srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+		if strings.HasSuffix(e.Name(), "_test.kark") {
+			prog, perr := kccTestSource(srcPath)
+			if perr != nil {
+				return perr
+			}
+			if werr := os.WriteFile(dstPath, []byte(prog), 0o644); werr != nil {
+				return werr
+			}
+			continue
+		}
+		data, rerr := os.ReadFile(srcPath)
+		if rerr != nil {
+			return rerr
+		}
+		if werr := os.WriteFile(dstPath, data, 0o644); werr != nil {
+			return werr
+		}
+	}
+	return nil
 }
 
 // KCCRunCommand routes `karkain run` through the self-hosted engine: build to
@@ -261,11 +392,15 @@ base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
 		}
 	}()
 	copyPath := filepath.Join(sandbox, base+".kark")
-	data, err := os.ReadFile(file)
+	// Phase 97: assemble the full project/module source (manifest dependencies
+	// and same-directory siblings upstream, root file last) rather than a plain
+	// copy of the target. Non-project files fall back to the sibling join, so
+	// single-file builds are unchanged.
+	prog, err := kccAssembleSource(file)
 	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
-	if err := os.WriteFile(copyPath, data, 0o644); err != nil {
+	if err := os.WriteFile(copyPath, []byte(prog), 0o644); err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
 
@@ -307,7 +442,12 @@ var kccSummaryRe = regexp.MustCompile(`(\d+) passed;\s*(\d+) failed;\s*(\d+) ski
 // (generated main always returns 0), the Go wrapper maps the parsed summary to
 // the ExitTest(4) exit code, exactly like TestCommandFiltered. The kcc process
 // runs in a temp sandbox so its synthesized driver artifacts never land in the
-// user's working directory.
+// user's working directory. Phase 97: when the test files live inside a Karkain
+// project, each test source is prefixed with the project module scope
+// (projectModuleSources — manifest dependencies + sibling modules, no `func
+// main`) so the self-hosted test drivers can exercise project code, matching
+// the Go test pipeline. Flat/non-project directories are copied verbatim and
+// behave exactly as before.
 func KCCTestCommand(w io.Writer, testPath, filter string) CommandResult {
 	bin, err := kccBinaryPath(w)
 	if err != nil {
@@ -330,7 +470,29 @@ func KCCTestCommand(w io.Writer, testPath, filter string) CommandResult {
 		}
 	}()
 
-	args := []string{"test", abs}
+	target := abs
+	if info, serr := os.Stat(abs); serr == nil {
+		if info.IsDir() {
+			// Mirror the directory into the sandbox, injecting the project
+			// module scope into each *_test.kark.
+			if err := kccMirrorTestDir(abs, sandbox); err != nil {
+				return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+			}
+			target = sandbox
+		} else {
+			prog, aerr := kccTestSource(abs)
+			if aerr != nil {
+				return CommandResult{ExitCode: ExitFailure, Message: aerr.Error()}
+			}
+			staged := filepath.Join(sandbox, filepath.Base(abs))
+			if werr := os.WriteFile(staged, []byte(prog), 0o644); werr != nil {
+				return CommandResult{ExitCode: ExitFailure, Message: werr.Error()}
+			}
+			target = staged
+		}
+	}
+
+	args := []string{"test", target}
 	if filter != "" {
 		args = append(args, filter)
 	}

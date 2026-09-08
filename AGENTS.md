@@ -13,7 +13,25 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-96** — Phases 50–96 complete.
+Current phase: **post-97** — Phases 50–97 complete.
+Also completed: **97** — Default kcc Engine + Manifest Dependency Resolution
+(kcc is now the DEFAULT engine: `EngineFromEnv` returns `EngineKCC` for empty
+env/unrelated `KARKAIN_ENGINE` values, Go selected only via explicit
+`KARKAIN_ENGINE=go|Go|GO`; `--engine go|kcc` unchanged; manifest dependency
+resolution wired into the source-assembly pipeline: new `kccAssembleSource`
+(local deps → siblings → root last) feeds `KCCCheckCommand`/`KCCBuildCommand`/
+`KCCRunCommand` temp-sandbox builds, `projectModuleSources` prepended to each
+test driver in `KCCTestCommand` (dependency-aware test compilation), and
+`resolveSources` (check/build/run) + `projectModuleSources` (test) pull
+`pm.DependencySources` entries (local & workspace) for all engines; bootstrap
+pipeline pins `KARKAIN_ENGINE=go` (`forceGoEngine` in `pkg/bootstrap`) so stage-1
+still emits `src/compiler/main.c` through the Go front end; E2E exit-code tests
+pin Go deterministically; parity gate `pkg/cli/phase97_parity_test.go` (6 tests:
+default-engine flip, explicit Go fallback, local & workspace deps in assembly,
+end-to-end kcc run using a dependency function, shared check/build/run/test
+dependency-aware pipeline), plus existing parity gates (95/96) green and
+`TestBootstrap_BitwiseIdentity` stage2==stage3 bitwise identical; docs under
+`docs/audit/PHASE-97-FINAL-REPORT.md`).
 Also completed: **96** — Self-Hosted kcc Owns the Test Runner
 (kcc is the primary engine for `karkain test`: self-hosted discovery in
 `src/compiler/main.kark` (`collectTestFiles` mirrors Go `findTestFiles` —

@@ -75,6 +75,7 @@ func runCmdOutput(dir, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	setSourceDateEpoch(cmd)
+	forceGoEngine(cmd)
 	return cmd.CombinedOutput()
 }
 
@@ -88,6 +89,16 @@ func setSourceDateEpoch(cmd *exec.Cmd) {
 		}
 	}
 	cmd.Env = append(os.Environ(), "SOURCE_DATE_EPOCH="+reproducibleEpoch)
+}
+
+// forceGoEngine pins KARKAIN_ENGINE=go on the compiler-invoking commands. The
+// bootstrap pipeline is definitionally the Go bootstrap: stage-1 requires the Go
+// front end to emit src/compiler/main.c (kcc both defaults to the self-hosted
+// engine since Phase 97 and emits C23 artifacts to a temp sandbox, not the
+// source directory). Without this pin, the bootstrap would recurse into kcc and
+// never produce the expected C artifact.
+func forceGoEngine(cmd *exec.Cmd) {
+	cmd.Env = append(cmd.Env, "KARKAIN_ENGINE=go")
 }
 
 // RunBootstrap executes the 3-stage bootstrap pipeline.

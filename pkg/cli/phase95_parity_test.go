@@ -214,9 +214,15 @@ func TestPhase95_EngineSelection(t *testing.T) {
 	if EngineFromEnv() != EngineKCC {
 		t.Errorf("EngineFromEnv with KARKAIN_ENGINE=kcc expected EngineKCC")
 	}
-	t.Setenv("KARKAIN_ENGINE", "")
+	t.Setenv("KARKAIN_ENGINE", "go")
 	if EngineFromEnv() != EngineGo {
-		t.Errorf("EngineFromEnv with empty KARKAIN_ENGINE expected EngineGo")
+		t.Errorf("EngineFromEnv with KARKAIN_ENGINE=go expected EngineGo")
+	}
+	// Phase 97: kcc is now the default engine (mirrors the parity proof that
+	// kcc reproduces the conformance corpus, probe goldens and test runner).
+	t.Setenv("KARKAIN_ENGINE", "")
+	if EngineFromEnv() != EngineKCC {
+		t.Errorf("EngineFromEnv with empty KARKAIN_ENGINE expected EngineKCC (default)")
 	}
 }
 

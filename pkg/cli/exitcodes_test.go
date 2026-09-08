@@ -73,6 +73,9 @@ func TestExitCodeConstants(t *testing.T) {
 }
 
 func TestCLI_ExitCodes_E2E(t *testing.T) {
+	// Phase 97: kcc is the default engine. These tests assert the Go engine's
+	// exit-code contract (usage=2, compile=3), so pin the Go engine explicitly.
+	t.Setenv("KARKAIN_ENGINE", "go")
 	bin := buildKarkain(t)
 	root := t.TempDir()
 
@@ -140,6 +143,10 @@ func TestCLI_TestFailure_ExitCode_E2E(t *testing.T) {
 	if _, err := exec.LookPath("gcc"); err != nil {
 		t.Skip("gcc not available")
 	}
+	// Phase 97: pin the Go engine so this asserts the Go runner's exit-4
+	// contract deterministically (kcc's test-runner exit path is covered by the
+	// phase95/96 parity gates instead).
+	t.Setenv("KARKAIN_ENGINE", "go")
 	bin := buildKarkain(t)
 	root := t.TempDir()
 
