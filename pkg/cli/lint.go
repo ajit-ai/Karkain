@@ -81,6 +81,22 @@ func LintCommand(targetFile string, verbose bool) CommandResult {
 		fmt.Printf("E-K-SEM\n")
 	}
 
+	// Semantic analysis: @target(...) function attributes (Phase 98).
+	npuAnalyzer := sema.NewNPUAnalyzer()
+	npuSemaIssues := 0
+	for _, ne := range npuAnalyzer.Analyze(prog) {
+		npuSemaIssues++
+		col := 1
+		if ne.Col > 0 {
+			col = ne.Col + 1
+		}
+		issues = append(issues, lintIssue{Code: string(diagnostics.CodeSema), Line: ne.Line, Msg: ne.Msg})
+		fmt.Fprint(os.Stderr, reporter.Report(diagnostics.SeverityError, ne.Line, col, ne.Msg))
+	}
+	if npuSemaIssues > 0 {
+		fmt.Printf("E-K-SEM\n")
+	}
+
 	// Borrow checker: ownership/lifetime violations.
 	if borrowErrs := runBorrowCheck(prog); len(borrowErrs) > 0 {
 		fmt.Printf("E-K-BRW\n")

@@ -95,9 +95,46 @@ func AnalyzeSource(file string, src string, srcMap sema.SourceMap) (diags []diag
 		return kernelDiags, nil, len(prog.Statements)
 	}
 
+	// NPU target attribute stage (Phase 98): validate @target(...) placement
+	// and target names. Placement is enforced by the parser; this stage
+	// rejects unknown/unsupported execution targets.
+	if npuDiags := npuTargetDiagnostics(file, src); len(npuDiags) > 0 {
+		return npuDiags, nil, len(prog.Statements)
+	}
+
 	// Warning pass: only runs for programs that survived resolution, so a
 	// missing name can never cascade into bogus unused-variable findings.
 	return nil, collectUnusedWarnings(file, src, sema.UnusedVars(prog)), len(prog.Statements)
+}
+
+// npuTargetDiagnostics validates every @target(...) attribute in src with the
+// Go front-end analyzer and returns one diagnostic per unknown/unsupported
+// execution target. It is deliberately parse-only (no name resolution, no type
+// checking) so it can be run over sources whose deeper validation is performed
+// by another front end — specifically, the self-hosted engine's check/build/run
+// paths, which preserve @target as inert C comments and therefore cannot reject
+// an invalid target themselves. Syntax errors are not reported here: the engine
+// that owns the parse reports them with its own spans.
+func npuTargetDiagnostics(file, src string) []diagnostics.Diagnostic {
+	l := lexer.New(src)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+	if len(p.Errors) > 0 {
+		return nil
+	}
+	prog = parser.ApplyMacroExpansion(prog)
+	npuAnalyzer := sema.NewNPUAnalyzer()
+	var npuDiags []diagnostics.Diagnostic
+	for _, ne := range npuAnalyzer.Analyze(prog) {
+		col := 1
+		if ne.Col > 0 {
+			col = ne.Col + 1
+		}
+		d := diagnostics.ErrorDiagnostic(file, ne.Line, col, diagnostics.CodeSema, ne.Msg)
+		d.Excerpt = source.Excerpt(src, ne.Line, 80)
+		npuDiags = append(npuDiags, d)
+	}
+	return npuDiags
 }
 
 // collectUnusedWarnings converts sema name-warnings into structured

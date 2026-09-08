@@ -13,7 +13,32 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-97** — Phases 50–97 complete.
+Current phase: **post-98** — Phases 50–98 complete.
+Also completed: **98** — NPU Integration into Compiler
+(`@target(...)` function attribute implemented end-to-end: parser attaches the
+attribute to `FuncDecl` (`pkg/parser/ast.go` `Target`, `parseTargetAttr` in
+`pkg/parser/parser.go`, preserved by `pkg/parser/macro.go` expansion), semantic
+validation in `pkg/sema/npu_check.go` (`targets: cpu, npu` — unknown targets
+rejected with `error[K004]`, exit 3), C codegen emits a `// @target(...)`
+comment marker, and `pkg/codegen/npu_compiler.go` adds the `NPUDispatcher`
+with `DispatchRequest`/`DispatchResult` and matrix multiplication as the first
+concrete NPU operation: `OpMatMul` dispatches to an available vendor NPU
+adapter (intel/qualcomm/apple/amd/arm — `backend->Execute` must return computed
+values) and ALWAYS falls back to the CPU reference backend (`pkg/backend/cpu`,
+the correctness oracle) when no adapter is available, the adapter errors, or it
+stubs out — so `@target(npu)` functions compile and run everywhere with no
+NPU/SDK/driver/cloud dependency; the self-hosted compiler was taught the
+attribute too (`src/compiler/parser.kark` `parseTargetAttr` claims top-level
+`@target(name)` before `func`, `ast.kark` `setFuncTarget`/`funcTarget`, `codegen.kark`
+emits the C comment instead of an invalid `target(npu);` statement), and the
+default kcc engine's check/build/run/test paths run a Go-side NPU target
+preflight (`kccTargetPreflight`/`kccStagedPreflight`) so `karkain check`
+rejects unknown targets on BOTH engines; CLI wiring in `pkg/cli/checker.go`
+(`npuTargetDiagnostics` in `AnalyzeSource`) + `pkg/cli/lint.go`; parity tests
+`pkg/sema/phase98_npu_test.go` (8), `pkg/codegen/phase98_npu_test.go` (10,
+mock NPU backend with software-emulated execute proving NPU==CPU results) and
+`pkg/cli/phase98_npu_test.go` (8) all green; docs under
+`docs/npu-targeting.md` + `docs/audit/PHASE-98-FINAL-REPORT.md`).
 Also completed: **97** — Default kcc Engine + Manifest Dependency Resolution
 (kcc is now the DEFAULT engine: `EngineFromEnv` returns `EngineKCC` for empty
 env/unrelated `KARKAIN_ENGINE` values, Go selected only via explicit

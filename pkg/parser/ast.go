@@ -29,6 +29,7 @@ type FuncDecl struct {
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 	Captures      []string           // Phase 54: free variables captured from enclosing scope (lambdas only)
 	Public        bool               // Phase 80: visibility modifier (public decl usable across files/modules)
+	Target        string             // Phase 98: execution target from @target(...); "" = default (cpu)
 	Line          int
 	Col           int                // Phase 83: 0-based byte column of the function name token
 	EndCol        int                // Phase 83: 0-based byte column just past the function name
