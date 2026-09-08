@@ -1195,7 +1195,13 @@ func main() {
 		if testPath == "" {
 			testPath = "."
 		}
-		result := cli.TestCommandFiltered(testPath, cfg, verbose, testFilter)
+		var result cli.CommandResult
+		if engine == cli.EngineKCC {
+			// Phase 96: the self-hosted engine owns the native test runner.
+			result = cli.KCCTestCommand(nil, testPath, testFilter)
+		} else {
+			result = cli.TestCommandFiltered(testPath, cfg, verbose, testFilter)
+		}
 		fmt.Print(result.Message)
 		os.Exit(result.ExitCode)
 	}

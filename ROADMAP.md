@@ -532,8 +532,23 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 | 89 | Self-Hosted Runtime & Toolchain: Karkain-owned runtime boundary (Value type system, container ops, I/O primitives, platform abstraction, initialization contract), runtime/ directory with 5 boundary docs, acceptance test proving self-hosted compiler → C23 → gcc → native executable pipeline, 12 focused Go tests | COMPLETE (`runtime/types.kark`, `runtime/io.kark`, `runtime/platform.kark`, `runtime/init.kark`, `runtime/boundary.kark`, `kcc-tests/acceptance.kark`, `pkg/cli/phase89_test.go`, `docs/runtime.md`) |
 | 90 | Production Release Gate / Karkain 1.0: production build workflow verified, CLI commands validated (check/build/fmt/lint), stdlib imports work, runtime type discrepancy resolved as intentional bootstrap limitation, release acceptance test, 15 focused Go tests, version 1.0.0 consistent | COMPLETE (`kcc-tests/release.kark`, `kcc-tests/stdlib_import_test.kark`, `pkg/cli/phase90_test.go`, `docs/audit/PHASE-90-FINAL-REPORT.md`) |
 | 91 | Comprehensive Validation & Release Decision: documentation audit (SPEC.md 0.14.0→1.0.0, Phase 56→88 ref, stdlib.md async/gpu), regression suite GREEN across all packages, release decision KARKAIN 1.0 — RELEASE READY | COMPLETE (`docs/audit/PHASE-91-FINAL-REPORT.md`) |
+| 92 | HIR Infrastructure: High-Level IR with typed nodes (20 expression kinds, 16 statement kinds, 19 type kinds), AST→HIR lowering via `BuildHIR()`, `Format()` debug output, 7 passing tests including 5-program round-trip | COMPLETE (`pkg/ir/hir/`) |
+| 93 | Typed SSA IR: TypeRegistry, TypeBits/TypePromote/TypeIsCompatible type-lattice, Cooper et al. dominance tree, iterative liveness, SSA verifier, 30 tests | COMPLETE (`pkg/ir/ssa/typed.go`, `dom.go`, `liveness.go`) |
+| 94 | SSA Optimization Pipeline: Mem2Reg, FoldConst with algebraic simplification, CSE, DCE, LICM, Pipeline orchestrator with fixpoint iteration and stats, 49 passing tests including benchmarks | COMPLETE (`pkg/ir/ssa/`) |
+| 95 | Self-Hosted kcc Owns the Core Pipeline: `src/compiler` self-hosted compiler is the primary engine for lex+parse+sema+C codegen (`--engine=kcc`/`KARKAIN_ENGINE=kcc`), staleness-checked rebuild, Go fallback for LSP/exotic backends, parity gate reproducing all 12 probe goldens + 11 conformance files (59 assertions), bootstrap bitwise identity | COMPLETE (`pkg/cli/kcc_engine.go`, `cmd/karkain/main.go`, `pkg/cli/phase95_parity_test.go`, `docs/audit/PHASE-95-FINAL-REPORT.md`) |
+| 96 | Self-Hosted kcc Owns the Test Runner: `karkain test --engine=kcc` runs through the self-hosted engine — `*_test.kark` discovery mirroring Go `findTestFiles`, per-test synthesized drivers with PASS/FAIL, `--filter`, Go-parity summary parsed by `KCCTestCommand` (`failed>0` → `ExitTest(4)`), temp-sandboxed; root-cause fixes for `INT==BOOL` comparison, Windows `system("./")`, and empty-directory classification; phase-96 parity gate (conformance 59 assertions, failing test, single-file+filter, empty dir); bootstrap bitwise identity preserved | COMPLETE (`src/compiler/main.kark`, `pkg/cli/kcc_engine.go`, `cmd/karkain/main.go`, `pkg/cli/phase96_parity_test.go`, `docs/audit/PHASE-96-FINAL-REPORT.md`) |
 
 ### Current phase
 
-**PHASE 91 COMPLETE** — Karkain 1.0 released.
-Comprehensive validation complete; all documentation reconciled; regression suite GREEN.
+**PHASE 96 COMPLETE** — Self-Hosted kcc Owns the Test Runner.
+`karkain test --engine=kcc` / `KARKAIN_ENGINE=kcc` delegates the native test
+runner to the self-hosted compiler: discovery (`*_test.kark` recursive, sorted,
+single-file and empty-directory semantics parity with Go), per-test driver
+synthesis and gcc compile+run with PASS/FAIL output, `--filter` substring
+filtering, and the Go-parity `N passed; M failed; S skipped; T total` summary
+parsed by `KCCTestCommand` (failed>0 → exit 4). Three root-cause bugs fixed:
+`INT==BOOL` `values_equal` mismatch (`endsWith(...) == true` → bare
+truthiness), Windows `system("./x")` rejects `./` prefix (bare `.exe` name),
+and empty-directory misclassification vs single-file fallback. Parity gate
+59/59 conformance via kcc, phase-96 gate green, `TestBootstrap_BitwiseIdentity`
+stage2==stage3 bitwise identical.

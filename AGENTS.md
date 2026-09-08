@@ -13,7 +13,26 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-95** — Phases 50–95 complete.
+Current phase: **post-96** — Phases 50–96 complete.
+Also completed: **96** — Self-Hosted kcc Owns the Test Runner
+(kcc is the primary engine for `karkain test`: self-hosted discovery in
+`src/compiler/main.kark` (`collectTestFiles` mirrors Go `findTestFiles` —
+recursive `*_test.kark` discovery, sorted, single-file fallback, empty
+directory reports "No test files found."), per-test driver synthesis
+(parse → collect `test_*` → generated `main` calling selected tests),
+gcc compile+run with per-test PASS/FAIL, full-file fast path, `--filter`
+substring support, and Go-parity summary output (`N passed; M failed;
+S skipped; T total`) parsed by `KCCTestCommand` (`karkain test
+--engine=kcc` / `KARKAIN_ENGINE=kcc`) which maps `failed>0` → `ExitTest(4)`
+and runs kcc in a temp sandbox; root-cause fixes: `INT==BOOL` `values_equal`
+mismatch from `endsWith(...) == true` → bare truthiness for INT/BOOL, Windows
+`system("./x")` → bare `.exe` name, empty-directory vs single-file
+classification via `readFile`/suffix probe; parity gate
+`pkg/cli/phase96_parity_test.go` (conformance parity 59 assertions, failing
+test, single-file+filter, empty directory); bootstrap identity
+`TestBootstrap_BitwiseIdentity` stage2==stage3 bitwise identical
+(stage2/stage3 SHA `f39111a2…`) and conformance corpus 59/59 all pass;
+docs under `docs/audit/PHASE-96-FINAL-REPORT.md`).
 Also completed: **95** — Self-Hosted kcc Owns the Core Pipeline
 (self-hosted compiler from `src/compiler` is the primary engine for
 lex+parse+sema+C codegen; `karkain check/build/run --engine=kcc` or
