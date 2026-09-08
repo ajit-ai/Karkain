@@ -57,6 +57,21 @@ Each phase has:
 **Files:** `pkg/ir/quantum/quantum.go`, `pkg/ir/quantum/optimizer.go`, `pkg/ir/quantum/verify.go`
 **Gate:** 10-gate circuit optimized to 6-gate equivalent, correctness verified by simulation
 **Blocks:** None (independent)
+**Status:** ✅ Re-purposed & Complete — **Default kcc Engine + Manifest Dependency
+Resolution** (see AGENTS.md). kcc became the DEFAULT engine (`EngineFromEnv`
+returns `EngineKCC` for empty/unrelated env; Go only via explicit
+`KARKAIN_ENGINE=go|Go|GO`; `--engine go|kcc` unchanged); manifest dependencies
+(`pm.DependencySources`: local & workspace) feed `resolveSources`
+(check/build/run) and `projectModuleSources` (test) for every engine, with kcc's
+`KCCCheckCommand`/`KCCBuildCommand`/`KCCRunCommand`/`KCCTestCommand` assembling
+deps→siblings→root through new `kccAssembleSource`/`kccTestSource`/`kccMirrorTestDir`;
+bootstrap pins `KARKAIN_ENGINE=go` (`pkg/bootstrap.forceGoEngine`) so stage-1
+still emits `src/compiler/main.c`; E2E exit-code tests pin Go; parity gate
+`pkg/cli/phase97_parity_test.go` (6 tests: default flip, Go fallback, local &
+workspace deps in assembly, end-to-end kcc run using a dependency function,
+shared check/build/run/test dependency-aware pipeline) plus 95/96 gates green and
+`TestBootstrap_BitwiseIdentity` stage2==stage3 bitwise identical; docs under
+`docs/audit/PHASE-97-FINAL-REPORT.md`.
 
 ### Phase 98 — NPU Integration into Compiler
 **Deliverable:** `@target(npu)` attribute dispatches to vendor adapters with CPU fallback
