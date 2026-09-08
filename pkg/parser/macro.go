@@ -88,6 +88,7 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			GenericParams: n.GenericParams,
 			Captures:      n.Captures,
 			Public:        n.Public,
+			Target:        n.Target,
 			Body:          []Node{},
 			Line:          n.Line,
 			Col:           n.Col,

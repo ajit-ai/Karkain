@@ -1649,6 +1649,13 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	if fnName == "main" && sig == "" {
 		sig = "int _karkain_argc, char** _karkain_argv"
 	}
+	// Phase 98: mark @target(...) functions in the emitted C. The body is
+	// emitted with normal (CPU-fallback) semantics so the program always
+	// builds and runs correctly; accelerator dispatch is owned by the
+	// NPUDispatcher rather than by duplicating the pipeline.
+	if fn.Target != "" {
+		fmt.Fprintf(&sb, "// @target(%s)\n", fn.Target)
+	}
 	fmt.Fprintf(&sb, "%s %s(%s) {\n", retType, fnName, sig)
 
 	// Phase 14: Initialize quantum runtime in main

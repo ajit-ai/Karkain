@@ -94,6 +94,12 @@ func (p *Parser) ParseProgram() *Program {
 			if stmt := p.parseFunc(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
+		} else if p.curToken.Type == lexer.TokenAt {
+			progressed = true
+			// Phase 98: @target(npu) func ... — function-level execution target.
+			if stmt := p.parseTargetAttr(); stmt != nil {
+				prog.Statements = append(prog.Statements, stmt)
+			}
 		} else if p.curToken.Type == lexer.TokenActor {
 			progressed = true
 			if stmt := p.parseActor(); stmt != nil {
@@ -158,6 +164,50 @@ func (p *Parser) ParseProgram() *Program {
 		}
 	}
 	return prog
+}
+
+func (p *Parser) parseTargetAttr() *FuncDecl {
+	// curToken is '@'. Parse `@target(<name>) func ...` and attach the target
+	// to the following function declaration. Phase 98: only the attribute
+	// syntax is owned here; semantic target validation lives in pkg/sema.
+	p.nextToken() // consume '@'
+	if p.curToken.Type != lexer.TokenIdent || p.curToken.Literal(p.src) != "target" {
+		p.addError(fmt.Sprintf("expected '@target(...)' attribute, got '@%s'", p.curToken.Literal(p.src)))
+		p.nextToken()
+		return nil
+	}
+	p.nextToken() // consume 'target'
+	if p.curToken.Type != lexer.TokenLParen {
+		p.addError("expected '(' after '@target'")
+		p.nextToken()
+		return nil
+	}
+	p.nextToken() // consume '('
+	targetName := ""
+	if p.curToken.Type == lexer.TokenIdent {
+		targetName = p.curToken.Literal(p.src)
+		p.nextToken() // consume target name
+	} else {
+		p.addError("expected target name in '@target(...)'")
+		p.nextToken()
+		return nil
+	}
+	if p.curToken.Type != lexer.TokenRParen {
+		p.addError("expected ')' after '@target(...)'")
+		p.nextToken()
+		return nil
+	}
+	p.nextToken() // consume ')'
+	if p.curToken.Type != lexer.TokenFunc {
+		p.addError(fmt.Sprintf("'@target(%s)' must be followed by 'func'", targetName))
+		p.nextToken()
+		return nil
+	}
+	fn := p.parseFunc()
+	if fn != nil {
+		fn.Target = targetName
+	}
+	return fn
 }
 
 func (p *Parser) parseFunc() *FuncDecl {

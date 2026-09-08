@@ -3,6 +3,7 @@
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,6 +52,42 @@ func EngineFlag(v string) (EngineKind, error) {
 	default:
 		return EngineGo, fmt.Errorf("unknown engine %q (supported: go, kcc)", v)
 	}
+}
+
+// kccTargetPreflight validates every @target(...) attribute in the assembled
+// source with the Go front-end analyzer before the self-hosted engine runs.
+// kcc preserves the attribute as an inert C comment (Phase 98) and cannot
+// reject an unknown target by itself, so the Go NPU analyzer is the semantic
+// authority here, just as it is for `karkain check` on the Go engine. When it
+// reports, the diagnostics have been rendered and the caller must terminate
+// with ExitCompile (the check path) so `@target(unknown)` never silently
+// compiles into an inert comment.
+func kccTargetPreflight(file, src string) (bool, int) {
+	diags := npuTargetDiagnostics(file, src)
+	if len(diags) == 0 {
+		return false, 0
+	}
+	renderDiagnostics(src, diags)
+	return true, len(diags)
+}
+
+// kccStagedPreflight runs npuTargetDiagnostics over every .kark file staged in
+// a sandbox directory (used by the self-hosted test runner for mirrored test
+// dirs), returning the aggregate failure count so the caller can stop before
+// kcc compiles inert @target comments.
+func kccStagedPreflight(dir string) (bool, int) {
+	bad := 0
+	filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".kark") {
+			return nil
+		}
+		b, _ := os.ReadFile(path)
+		if bFailed, n := kccTargetPreflight(path, string(b)); bFailed {
+			bad += n
+		}
+		return nil
+	})
+	return bad > 0, bad
 }
 
 // kccRepoRoot locates the Karkain repository root (the directory containing
@@ -202,6 +239,9 @@ func KCCCheckCommand(w io.Writer, file string, verbose bool) CommandResult {
 	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
+	if bad, n := kccTargetPreflight(file, prog); bad {
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageSema, n)}
+	}
 	sandbox, err := os.MkdirTemp("", "karkain-kcc-check")
 	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
@@ -241,6 +281,9 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 	prog, err := kccAssembleSource(file)
 	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+	if bad, n := kccTargetPreflight(file, prog); bad {
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageSema, n)}
 	}
 
 	sandbox, err := os.MkdirTemp("", "karkain-kcc-build")
@@ -400,6 +443,9 @@ base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
 	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
+	if bad, n := kccTargetPreflight(file, prog); bad {
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageSema, n)}
+	}
 	if err := os.WriteFile(copyPath, []byte(prog), 0o644); err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
@@ -490,6 +536,12 @@ func KCCTestCommand(w io.Writer, testPath, filter string) CommandResult {
 			}
 			target = staged
 		}
+	}
+
+	// Preflight every staged test source: kcc treats @target(...) as inert C
+	// comments, so invalid targets are rejected here before any test runs.
+	if bad, n := kccStagedPreflight(sandbox); bad {
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageSema, n)}
 	}
 
 	args := []string{"test", target}

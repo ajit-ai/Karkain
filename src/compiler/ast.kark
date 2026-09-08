@@ -124,6 +124,20 @@ func funcBody(n)      { return n[3] }
 func funcLine(n)      { return n[4] }
 func funcCol(n)       { return n[5] }
 
+// setFuncTarget attaches a @target(...) attribute to a FuncDecl node. The
+// target slot is optional (index 6); unset functions keep the 6-field shape.
+func setFuncTarget(n, target) {
+    if (target == "") { return n }
+    n = appendArray(n, target)
+    return n
+}
+
+// funcTarget returns the function's @target(...) name, or "" when unset.
+func funcTarget(n) {
+    if (len(n) > 6) { return n[6] }
+    return ""
+}
+
 // ============================================================
 // VarDecl node: [NODE_VAR_DECL, name, value, typeName, line]
 // ============================================================

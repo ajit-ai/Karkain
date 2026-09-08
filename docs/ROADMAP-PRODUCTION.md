@@ -73,11 +73,12 @@ shared check/build/run/test dependency-aware pipeline) plus 95/96 gates green an
 `TestBootstrap_BitwiseIdentity` stage2==stage3 bitwise identical; docs under
 `docs/audit/PHASE-97-FINAL-REPORT.md`.
 
-### Phase 98 — NPU Integration into Compiler
-**Deliverable:** `@target(npu)` attribute dispatches to vendor adapters with CPU fallback
-**Files:** `pkg/sema/npu_check.go`, `pkg/codegen/npu_compiler.go`
-**Gate:** Matrix multiply with `@target(npu)` → dispatches to NPU when available, CPU fallback works
-**Blocks:** None (independent)
+### Phase 98 — NPU Integration into Compiler ✅ COMPLETE
+**Deliverable (implemented, not deferred):** `@target(npu)` attribute dispatches to vendor adapters with CPU fallback
+**Files:** `pkg/sema/npu_check.go`, `pkg/codegen/npu_compiler.go` + parser attribute wiring (`pkg/parser/ast.go`, `pkg/parser/parser.go`, `pkg/parser/macro.go`), CLI integration (`pkg/cli/checker.go`, `pkg/cli/lint.go`, `pkg/cli/kcc_engine.go`), self-hosted compiler (`src/compiler/parser.kark`, `src/compiler/ast.kark`, `src/compiler/codegen.kark`)
+**Gate met:** Matrix multiply with `@target(npu)` → dispatches to NPU when available, CPU fallback works everywhere; unknown targets rejected on both engines (exit 3); self-hosted kcc accepts the attribute instead of emitting invalid C
+**Tests:** `pkg/sema/phase98_npu_test.go` (8), `pkg/codegen/phase98_npu_test.go` (10, mock NPU backend proving NPU==CPU results), `pkg/cli/phase98_npu_test.go` (8) — all green
+**Status:** Released. See `docs/npu-targeting.md` + `docs/audit/PHASE-98-FINAL-REPORT.md`. Repurposed the original `src/compiler` expansion note: Phase 99 now carries the fuller self-hosted parser/type checker.
 
 ### Phase 99 — Self-Hosted Parser & Type Checker
 **Deliverable:** Complete recursive descent parser + type checker written in Karkain, replacing minimal `src/compiler/parser.kark`

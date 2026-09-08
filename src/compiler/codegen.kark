@@ -637,7 +637,11 @@ func emitC11Stmt(state, node) {
     if (nt == "FuncDecl") {
         let fnName = funcName(node)
         let params = funcParams(node)
+        let trapTarget = funcTarget(node)
         state[8] = fnName
+        if (trapTarget != "") {
+            emitLine(state, "// @target(" + trapTarget + ")")
+        }
         if (fnName == "main") {
             emitLine(state, "int main(int _karkain_argc, char** _karkain_argv) {")
             state[2] = codegenIndent(state) + 1

@@ -218,9 +218,26 @@ func parse(tokens, source) {
 
         // func name(params) { body }
         if (kind == TK_FUNC()) {
-            let funcNode = parseFunc(state)
+            let funcNode = parseFunc(state, "")
             if (funcNode != []) { stmts = appendArray(stmts, funcNode) }
             continue
+        }
+
+        // @target(ident) func name(params) { body } — Phase 98.
+        // The attribute is consumed here so it is never treated as a call
+        // expression; the target is attached to the FuncDecl node.
+        if (kind == TK_AT()) {
+            let tv = parseTargetAttr(state)
+            if (tv != "") {
+                if (psCurKind(state) != TK_FUNC()) {
+                    psAddError(state, "@target(...) must be followed by 'func'")
+                    continue
+                }
+                let funcNode = parseFunc(state, tv)
+                if (funcNode != []) { stmts = appendArray(stmts, funcNode) }
+                continue
+            }
+            // Not a @target attribute — fall through to the expression path.
         }
 
         // type Name struct { field type, ... }
@@ -343,7 +360,31 @@ func parseCBlock(state) {
 // Parse function declaration
 // ============================================================
 
-func parseFunc(state) {
+func parseTargetAttr(state) {
+    // Current token is '@'. Parse `@target(<name>)` and return the target
+    // name, leaving the parser just before the following 'func' keyword.
+    // Returns "" (having consumed the '@') when the syntax does not begin a
+    // @target attribute.
+    psAdvance(state) // consume '@'
+    if (psCurKind(state) != TK_IDENT() || psCurLiteral(state) != "target") {
+        return ""
+    }
+    psAdvance(state) // consume 'target'
+    if (psCurKind(state) != TK_LPAREN()) { return "" }
+    psAdvance(state) // consume '('
+    let tname = ""
+    if (psCurKind(state) == TK_IDENT()) {
+        tname = psCurLiteral(state)
+        psAdvance(state) // consume target name
+    }
+    if (psCurKind(state) == TK_RPAREN()) {
+        psAdvance(state) // consume ')'
+        return tname
+    }
+    return ""
+}
+
+func parseFunc(state, target) {
     let line = psLine(state)
     let startCol = 0
     let pos = psPos(state)
@@ -391,7 +432,7 @@ func parseFunc(state) {
 
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
 
-    return makeFuncDecl(name, params, body, line, startCol)
+    return setFuncTarget(makeFuncDecl(name, params, body, line, startCol), target)
 }
 
 // ============================================================
