@@ -43,10 +43,14 @@ func TestPhase88_SelfHostedCompilerBuild(t *testing.T) {
 
 	srcFile := filepath.Join(root, "src", "compiler", "main.kark")
 	cmd := exec.Command(karkain, "build", srcFile, "--target", "c23")
+	// Phase 88 predates the self-hosted (kcc) default engine: these tests assert
+	// the bootstrap contract that the Go front end emits C23 next to the source
+	// (src/compiler/main.c). Pin the Go engine so the assertion holds regardless
+	// of the engine default.
+	cmd.Env = append(os.Environ(), "KARKAIN_ENGINE=go")
 	out, err := cmd.CombinedOutput()
-	t.Logf("output: %s", string(out))
 	if err != nil {
-		t.Fatalf("bootstrap compiler failed to build self-hosted compiler: %v", err)
+		t.Fatalf("bootstrap compiler failed to build self-hosted compiler: %v\n%s", err, string(out))
 	}
 	if !strings.Contains(string(out), "successful") {
 		t.Fatalf("unexpected output: %s", string(out))

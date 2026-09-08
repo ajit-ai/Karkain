@@ -1,0 +1,4 @@
+// K102: reading an identifier that was never declared.
+func main() {
+    print(totalCount)
+}

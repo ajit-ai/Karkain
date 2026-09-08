@@ -1,0 +1,4 @@
+// K104: builtin called with too few arguments.
+func main() {
+    print(substr("hello", 2))
+}

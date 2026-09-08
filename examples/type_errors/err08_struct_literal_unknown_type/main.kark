@@ -1,0 +1,5 @@
+// K106: struct literal uses a type name that was never declared.
+func main() {
+    let p = Point{ x: 1, y: 2 }
+    print(p)
+}

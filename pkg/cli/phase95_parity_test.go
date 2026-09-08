@@ -68,6 +68,13 @@ func phase95KCC(t *testing.T) string {
 	mainFile := filepath.Join(comp, "main.kark")
 	build := exec.Command(karkain, "build", mainFile)
 	build.Dir = comp
+	// Stage-1 bootstrap builds are definitionally Go front-end transpiles (the
+	// same pin pkg/bootstrap applies). The isolated kcc is produced the way
+	// karkain-compiler1 is: Go engine -> emitted C -> gcc. This also keeps the
+	// build independent of the invoking karkain binary's default engine, which
+	// since Phase 97 is the self-hosted engine (and kccRepoRoot cannot be
+	// resolved from a %TEMP%-based sandbox directory).
+	build.Env = append(os.Environ(), "KARKAIN_ENGINE=go")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("stage-1 build failed: %v\n%s", err, string(out))
 	}

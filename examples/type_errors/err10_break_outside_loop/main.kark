@@ -1,0 +1,4 @@
+// K108: `break` appears outside any loop.
+func main() {
+    break
+}

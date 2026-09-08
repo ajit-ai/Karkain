@@ -1,0 +1,6 @@
+// K109: a type name is invoked as if it were a function.
+type Pair struct { x int, y int }
+
+func main() {
+    print(Pair(1, 2))
+}

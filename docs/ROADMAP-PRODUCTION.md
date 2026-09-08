@@ -80,10 +80,11 @@ shared check/build/run/test dependency-aware pipeline) plus 95/96 gates green an
 **Tests:** `pkg/sema/phase98_npu_test.go` (8), `pkg/codegen/phase98_npu_test.go` (10, mock NPU backend proving NPU==CPU results), `pkg/cli/phase98_npu_test.go` (8) — all green
 **Status:** Released. See `docs/npu-targeting.md` + `docs/audit/PHASE-98-FINAL-REPORT.md`. Repurposed the original `src/compiler` expansion note: Phase 99 now carries the fuller self-hosted parser/type checker.
 
-### Phase 99 — Self-Hosted Parser & Type Checker
-**Deliverable:** Complete recursive descent parser + type checker written in Karkain, replacing minimal `src/compiler/parser.kark`
-**Files:** `src/compiler/parser_full.kark`, `src/compiler/types.kark`, `src/compiler/checker.kark`
-**Gate:** Self-hosted parser parses all 25 example programs, type checker catches 10 hand-crafted error cases
+### Phase 99 — Self-Hosted Parser & Type Checker ✅ COMPLETE
+**Deliverable (implemented, not deferred):** Self-hosted parser + two-pass type checker written in Karkain, check-only wired into `karkain check`
+**Files:** `src/compiler/atypes.kark`, `src/compiler/checker.kark`, `src/compiler/main.kark`, `pkg/cli/phase99_selfhosted_test.go`, `examples/type_errors/`
+**Gate met:** kcc parses the full corpus and type-checks programs itself: 43/43 corpus programs accept, 14/14 hand-crafted K1XX error fixtures rejected (exit 3), cross-file duplicates detected at assembly scope, the compiler's own 214,127-byte assembled source tree types clean; bootstrap identity stage2==stage3 bitwise (SHA `aff1d624d9e52c2d`)
+**Status:** ✅ Complete / Certified — READY TO COMMIT WITH DOCUMENTED ENVIRONMENTAL LIMITATION (awaiting commit authorization; Phase 100 NOT started). See `docs/audit/PHASE-99-FINAL-REPORT.md`. **Environmental limitation recorded separately from implementation correctness:** on the ~4GB-RAM limited-paging host, concurrent full-tree `go test ./pkg/...` stalls `TestBootstrap_BitwiseIdentity` and `TestConformanceCorpus_RunsClean`; both pass in isolation — a resource-contention limitation, not a compiler defect.
 **Blocks:** Phase 100
 
 ### Phase 100 — Self-Hosted Codegen & Backend
@@ -447,7 +448,7 @@ karkain_runtime.o
 | 96 | PENDING | — |
 | 97 | PENDING | — |
 | 98 | PENDING | — |
-| 99 | PENDING | — |
+| 99 | COMPLETE | 2026-09-08 |
 | 100 | PENDING | — |
 | 101 | PENDING | — |
 | 102 | PENDING | — |

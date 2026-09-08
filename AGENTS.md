@@ -13,7 +13,37 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-98** — Phases 50–98 complete.
+Current phase: **post-99** — Phases 50–99 complete.
+Also completed: **99** — Self-Hosted Parser & Type Checker
+(Certified: READY TO COMMIT WITH DOCUMENTED ENVIRONMENTAL LIMITATION — awaiting
+commit/merge/push authorization; Phase 100 NOT started.) The self-hosted
+compiler now parses the full language surface and type-checks programs itself:
+`src/compiler/atypes.kark` (conservative static type inference: `inferType`,
+`primitiveTag`, `isPrimitiveTag`, `typeDescription`, `annotationMismatch`; the
+"a" prefix sorts it after `ast.kark` for the letter-order assembler) and
+`src/compiler/checker.kark` (two-pass checker mirroring `pkg/sema/resolve.go`:
+pass 1 `collectDecls`/`collectLocals`, pass 2 `checkStmt`/`checkExpr`/
+`checkCall`/`checkIdent`; K101 undefined call, K102 undefined identifier,
+K103 function/kernel arity, K104 builtin arity, K106 undefined struct type,
+K107 duplicate definition, K108 break/continue outside loop, K109 calling a
+type name, K112 primitive annotation/initializer mismatch — conservative,
+provable-from-AST only, so the compiled corpus and the compiler's own sources
+keep passing). `src/compiler/main.kark` `checkFile` runs `typeCheckProgram(ast)`
+check-only: `error[K1XX]` lines map to exit 3, clean files still print `[ok]`;
+build/run/test codegen untouched (bit-identical to Phase 98). Gate
+`pkg/cli/phase99_selfhosted_test.go` (CorpusAccept, CrossFileDuplicateDetected
+at assembly scope, ErrorFixturesRejected 14/14, CompilerSourcesTypeCheck —
+assembled sources 214,127 bytes type-check clean) — PASS 54.58s; fixtures under
+`examples/type_errors/`. Bootstrap identity PASS 347.60s, stage2==stage3,
+1,432,956 bytes, SHA `aff1d624d9e52c2d`; isolated `pkg/cli` 634.128s and
+`pkg/bootstrap` 571.688s; `go vet` clean. Harness stabilizers: bootstrap
+subprocess timeout 2min→5min (measured clean transpile ~145–174s exceeded the
+120s budget), and `phase88`/`phase95` tests pin `KARKAIN_ENGINE=go` (legacy
+contract + stage-1 determinism) — no production semantics changed. Known
+environmental limitation (documented, NOT a defect): on the ~4GB-RAM
+limited-paging host, concurrent full-tree `go test ./pkg/...` runs stall
+`TestBootstrap_BitwiseIdentity` and `TestConformanceCorpus_RunsClean`; both pass
+in isolation. Full report: `docs/audit/PHASE-99-FINAL-REPORT.md`.
 Also completed: **98** — NPU Integration into Compiler
 (`@target(...)` function attribute implemented end-to-end: parser attaches the
 attribute to `FuncDecl` (`pkg/parser/ast.go` `Target`, `parseTargetAttr` in

@@ -1,0 +1,4 @@
+// K104: builtin called with too many arguments.
+func main() {
+    print(appendArray([], 1, 2))
+}
