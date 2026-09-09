@@ -216,6 +216,32 @@ func parse(tokens, source) {
             continue
         }
 
+        // public func/type/enum — Phase 103 export modifier.
+        if (kind == TK_PUB()) {
+            psAdvance(state)
+            let pk = psCurKind(state)
+            if (pk == TK_FUNC()) {
+                let funcNode = parseFunc(state, "")
+                if (funcNode != []) { funcNode = setFuncPublic(funcNode) }
+                if (funcNode != []) { stmts = appendArray(stmts, funcNode) }
+                continue
+            }
+            if (pk == TK_TYPE()) {
+                let sd = parseStructDecl(state)
+                if (sd != []) { sd = setStructPublic(sd, "1") }
+                if (sd != []) { stmts = appendArray(stmts, sd) }
+                continue
+            }
+            if (pk == TK_ENUM()) {
+                let ed = parseEnumDecl(state)
+                if (ed != []) { ed = setEnumPublic(ed, "1") }
+                if (ed != []) { stmts = appendArray(stmts, ed) }
+                continue
+            }
+            psAddError(state, "unexpected token after 'public' modifier (expected func/type/enum)")
+            continue
+        }
+
         // func name(params) { body }
         if (kind == TK_FUNC()) {
             let funcNode = parseFunc(state, "")
@@ -987,7 +1013,13 @@ func parseIdentOrCall(state) {
                 if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
             }
             if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
-            return makeCall(name + "." + field, args, line, col)
+            // Phase 103: emit the bare right-hand name so module-qualified
+            // calls (math.twice(21)) and record-idiom receiver calls
+            // (acc.deposit(10)) lower onto the flat user-function namespace.
+            // C.* keeps its dotted name for raw C binds.
+            let callName = field
+            if (name == "C") { callName = "C." + field }
+            return makeCall(callName, args, line, col)
         }
 
         return makeDot(makeIdent(name, line, col), field, line)

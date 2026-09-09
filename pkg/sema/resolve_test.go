@@ -1,6 +1,7 @@
 package sema
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -322,5 +323,116 @@ func TestResolver_UndefinedIdentifierSpanSurvivesMacroExpansion(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected undefined-identifier error, got: %s", errLines(errs))
+	}
+}
+
+// ---- Phase 103: module-qualified call resolution ----
+
+// moduleUnit returns a program whose compile unit spans lib.kark (greet +
+// hidden), other.kark (otherFn) and main.kark (main), with real line numbers,
+// plus the SourceMap tying each declaration line to its file.
+func moduleUnit(t *testing.T, imports string, mainBody string) (*parser.Program, SourceMap) {
+	t.Helper()
+	src := imports +
+		"public func greet() { print(1) }\n" +
+		"func hidden() { print(1) }\n" +
+		"public func otherFn() { print(1) }\n" +
+		"func main() { " + mainBody + " }\n"
+	prog := parseTestProg(t, src)
+	importLines := strings.Count(imports, "\n")
+	// decl lines: greet/hidden in lib.kark, otherFn in other.kark, main in main.kark
+	sm := SourceMap{
+		importLines + 1: "lib.kark",
+		importLines + 2: "lib.kark",
+		importLines + 3: "other.kark",
+		importLines + 4: "main.kark",
+	}
+	return prog, sm
+}
+
+func TestResolver_QualifiedCall_PublicExport(t *testing.T) {
+	prog, sm := moduleUnit(t, "import lib\nimport other\n", "lib.greet()")
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	for _, e := range errs {
+		t.Errorf("public module call should be clean: %s", e.Msg)
+	}
+}
+
+func TestResolver_QualifiedCall_PrivateRejected(t *testing.T) {
+	prog, sm := moduleUnit(t, "import lib\nimport other\n", "lib.hidden()")
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	if !hasErr(errs, "private") {
+		t.Errorf("expected private-export error, got: %s", errLines(errs))
+	}
+}
+
+func TestResolver_QualifiedCall_WrongModule(t *testing.T) {
+	prog, sm := moduleUnit(t, "import lib\nimport other\n", "lib.otherFn()")
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	if !hasErr(errs, "not exported by module 'lib'") {
+		t.Errorf("expected not-exported error, got: %s", errLines(errs))
+	}
+}
+
+func TestResolver_QualifiedCall_UndefinedFunc(t *testing.T) {
+	prog, sm := moduleUnit(t, "import lib\nimport other\n", "lib.nope()")
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	if !hasErr(errs, "function 'nope' is not defined") {
+		t.Errorf("expected undefined-function error, got: %s", errLines(errs))
+	}
+}
+
+func TestResolver_QualifiedCall_NotImported(t *testing.T) {
+	prog, sm := moduleUnit(t, "import other\n", "lib.greet()")
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	if !hasErr(errs, "module 'lib' is not imported; add 'import lib'") {
+		t.Errorf("expected not-imported error, got: %s", errLines(errs))
+	}
+}
+
+func TestResolver_QualifiedCall_ReceiverMethodSkipped(t *testing.T) {
+	prog, sm := moduleUnit(t, "import lib\n", "let s = \"hi\"\ns.len()")
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	for _, e := range errs {
+		if strings.Contains(e.Msg, "module") && strings.Contains(e.Msg, "not") {
+			t.Errorf("receiver method call must not be treated as a module call: %s", e.Msg)
+		}
+	}
+}
+
+func TestResolver_ImportValidation_DottedStd(t *testing.T) {
+	src := "import std.string\nfunc main() { print(1) }\n"
+	prog := parseTestProg(t, src)
+	sm := SourceMap{1: "string.kark", 2: "main.kark", 3: "main.kark"}
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	if hasErr(errs, "module 'std.string' not found") {
+		t.Errorf("dotted std import should resolve to the string module: %s", errLines(errs))
+	}
+}
+
+// TestResolver_QualifiedCall_StdlibExempt locks the Phase 103 stdlib exemption:
+// a qualified call into a stdlib/<module>/ file must NOT trip the private-export
+// error even when the stdlib function is not marked `public` (physical markers
+// land with the stdlib-v2 boundary).
+func TestResolver_QualifiedCall_StdlibExempt(t *testing.T) {
+	src := "import std.string\n" +
+		"func trim(s) { return s }\n" +
+		"func main() { print(string.trim(\" x \")) }\n"
+	prog := parseTestProg(t, src)
+	stdlibFile := filepath.Join("repo", "stdlib", "string", "string.kark")
+	sm := SourceMap{2: stdlibFile, 3: "main.kark"}
+	r := NewResolver(prog, sm)
+	errs := r.Resolve()
+	for _, e := range errs {
+		if strings.Contains(e.Msg, "private") {
+			t.Errorf("stdlib module export must be exempt from the private rule: %s", e.Msg)
+		}
 	}
 }

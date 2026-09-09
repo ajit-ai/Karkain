@@ -1,0 +1,10 @@
+// lib.kark — Phase 103 error-fixture support module. helper is public
+// (callable cross-module); hiddenSecret is private (unit-internal only).
+
+public func helper() {
+    return 7
+}
+
+func hiddenSecret() {
+    return 1
+}

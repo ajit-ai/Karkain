@@ -624,7 +624,7 @@ func SubstituteTemplate(node parser.Node, vars map[string]parser.Node, expander 
 		for i, arg := range n.Args {
 			args[i] = SubstituteTemplate(arg, vars, expander)
 		}
-		return &parser.CallExpr{Function: n.Function, Args: args, IsCFunc: n.IsCFunc}
+return &parser.CallExpr{Function: n.Function, Module: n.Module, Args: args, IsCFunc: n.IsCFunc}
 	case *parser.VarDeclStmt:
 		return &parser.VarDeclStmt{
 			Name:  n.Name,
@@ -930,7 +930,7 @@ func (me *MacroExpander) expandCallExpr(n *parser.CallExpr) (parser.Node, error)
 		}
 		args[i] = expanded
 	}
-	return &parser.CallExpr{Function: n.Function, Args: args, IsCFunc: n.IsCFunc}, nil
+	return &parser.CallExpr{Function: n.Function, Module: n.Module, Args: args, IsCFunc: n.IsCFunc}, nil
 }
 
 func (me *MacroExpander) expandFuncDecl(n *parser.FuncDecl) (parser.Node, error) {

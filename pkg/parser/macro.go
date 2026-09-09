@@ -126,6 +126,7 @@ func (me *MacroExpander) expandNode(node Node) Node {
 		}
 		return &CallExpr{
 			Function: n.Function,
+			Module:   n.Module,
 			Args:     newArgs,
 			IsCFunc:  n.IsCFunc,
 			Line:     n.Line,

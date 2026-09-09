@@ -537,18 +537,33 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 | 94 | SSA Optimization Pipeline: Mem2Reg, FoldConst with algebraic simplification, CSE, DCE, LICM, Pipeline orchestrator with fixpoint iteration and stats, 49 passing tests including benchmarks | COMPLETE (`pkg/ir/ssa/`) |
 | 95 | Self-Hosted kcc Owns the Core Pipeline: `src/compiler` self-hosted compiler is the primary engine for lex+parse+sema+C codegen (`--engine=kcc`/`KARKAIN_ENGINE=kcc`), staleness-checked rebuild, Go fallback for LSP/exotic backends, parity gate reproducing all 12 probe goldens + 11 conformance files (59 assertions), bootstrap bitwise identity | COMPLETE (`pkg/cli/kcc_engine.go`, `cmd/karkain/main.go`, `pkg/cli/phase95_parity_test.go`, `docs/audit/PHASE-95-FINAL-REPORT.md`) |
 | 96 | Self-Hosted kcc Owns the Test Runner: `karkain test --engine=kcc` runs through the self-hosted engine — `*_test.kark` discovery mirroring Go `findTestFiles`, per-test synthesized drivers with PASS/FAIL, `--filter`, Go-parity summary parsed by `KCCTestCommand` (`failed>0` → `ExitTest(4)`), temp-sandboxed; root-cause fixes for `INT==BOOL` comparison, Windows `system("./")`, and empty-directory classification; phase-96 parity gate (conformance 59 assertions, failing test, single-file+filter, empty dir); bootstrap bitwise identity preserved | COMPLETE (`src/compiler/main.kark`, `pkg/cli/kcc_engine.go`, `cmd/karkain/main.go`, `pkg/cli/phase96_parity_test.go`, `docs/audit/PHASE-96-FINAL-REPORT.md`) |
+| 97 | Default kcc Engine + Manifest Dependency Resolution: kcc is the DEFAULT engine (`EngineFromEnv`), `--engine go|kcc` unchanged, manifest dependency resolution wired into source assembly (`kccAssembleSource`, `projectModuleSources`), bootstrap pipeline pinned Go, parity gate 6 tests | COMPLETE (`pkg/cli/phase97_parity_test.go`, `docs/audit/PHASE-97-FINAL-REPORT.md`) |
+| 98 | NPU Integration into Compiler: `@target(...)` attribute end-to-end (parser → sema validation `targets: cpu, npu` → C comment → `NPUDispatcher` with CPU oracle fallback; self-hosted parser/codegen parity; `kccTargetPreflight` on both engines; 26 parity tests) | COMPLETE (`pkg/sema/npu_check.go`, `pkg/codegen/npu_compiler.go`, `docs/npu-targeting.md`, `docs/audit/PHASE-98-FINAL-REPORT.md`) |
+| 99 | Self-Hosted Parser & Type Checker: `src/compiler/atypes.kark` (type inference) + `src/compiler/checker.kark` (two-pass mirror of `pkg/sema/resolve.go`), `checkFile` gate `error[K1XX]`→exit 3, 14 error fixtures, compiler sources type-check clean (assembled 214,127 bytes), bootstrap identity stage2==stage3, harness stabilizers (kcc subprocess 5min timeout, Go engine pins) | COMPLETE (`pkg/cli/phase99_selfhosted_test.go`, `examples/type_errors/`, `docs/audit/PHASE-99-FINAL-REPORT.md`) |
+| 100 | Runtime Error Model: `karkain_runtime_error()` + checked div/mod/indexing on both engines, `runtime error: <kind> at <file>:<line>` + exit(1), source-file tracking, string concat int/float/bool, 7 runtime-error fixtures + positive control, parity gates | COMPLETE (`pkg/codegen/codegen.go`, `src/compiler/codegen.kark`, `examples/runtime_errors/`, `pkg/cli/phase100_runtime_test.go`, `docs/audit/PHASE-100-FINAL-REPORT.md`) |
+| 101 | Libc-Free Runtime Foundation: `runtime/freestanding/` arena allocator + raw OS/I/O/string/math primitives (compile+link WITHOUT libc), runtime-error stack traces end-to-end (`KARKAIN_MAX_FRAMES` 128, `stack:` dump parity `inner:2/outer:5/main:9`), self-hosted checker guards, GMP boundary deferred to 109 | COMPLETE (`pkg/cli/phase101_stacktrace_test.go`, `pkg/runtime/phase101_freestanding_test.go`, `docs/audit/PHASE-101-FINAL-REPORT.md`) |
+| 102 | Native Runtime Core: `runtime/core/` libc-free heap (alloc/calloc/realloc/free, coalescing free list), tagged `Value` (int/float/bool/string/array), length-prefixed `NativeString`, `NativeArray`, value-level I/O; freestanding arena rewrite (`add>=used+need`), compiled `-ffreestanding -nostdlib` without libc, GMP/map/option stay behind Phase 109 | COMPLETE (`runtime/core/`, `pkg/runtime/phase102_core_test.go`, `docs/audit/PHASE-102-FINAL-REPORT.md`) |
+| 102-F | Language Foundation Completion: 13 golden targets `examples/language_foundation/` byte-identical on Go+kcc engines; parity fixes (kcc `parseStructDecl` `;` separator, Go BorrowChecker `fnRoot`, kcc `for` init forms, Go `genForStmt` double-`;;`); foundation/compiler-self-check gates | COMPLETE (`pkg/cli/phase102_foundation_test.go`, `docs/audit/PHASE-102-LANGUAGE-FOUNDATION-FINAL-REPORT.md`) |
+| 103 | Module System v2 (Core): export sets (`public` func/type/enum) on BOTH engines, qualified-name resolution (`math.twice(21)` → module export set), cross-module private/missing-import/undefined/wrong-module/duplicate diagnostics on the Go resolver, self-hosted kcc `public` parse + qualified-call lowering, stdlib private-export exemption, module acceptance program + 4 rejection fixtures | COMPLETE (`pkg/sema/resolve.go`, `src/compiler/parser.kark`, `src/compiler/ast.kark`, `examples/module_system/`, `examples/module_system_errors/`, `pkg/cli/phase103_module_test.go`, `docs/audit/PHASE-103-MODULE-SYSTEM-FINAL-REPORT.md`) |
 
 ### Current phase
 
-**PHASE 96 COMPLETE** — Self-Hosted kcc Owns the Test Runner.
-`karkain test --engine=kcc` / `KARKAIN_ENGINE=kcc` delegates the native test
-runner to the self-hosted compiler: discovery (`*_test.kark` recursive, sorted,
-single-file and empty-directory semantics parity with Go), per-test driver
-synthesis and gcc compile+run with PASS/FAIL output, `--filter` substring
-filtering, and the Go-parity `N passed; M failed; S skipped; T total` summary
-parsed by `KCCTestCommand` (failed>0 → exit 4). Three root-cause bugs fixed:
-`INT==BOOL` `values_equal` mismatch (`endsWith(...) == true` → bare
-truthiness), Windows `system("./x")` rejects `./` prefix (bare `.exe` name),
-and empty-directory misclassification vs single-file fallback. Parity gate
-59/59 conformance via kcc, phase-96 gate green, `TestBootstrap_BitwiseIdentity`
-stage2==stage3 bitwise identical.
+**PHASE 103 COMPLETE** — Module System v2 (Core).
+`public` is now a real export modifier accepted by BOTH engines (Go parser +
+self-hosted kcc), and qualified calls `math.twice(21)` resolve against the
+imported module's export set instead of silently flattening to the bare name.
+The Go resolver (`checkQualifiedCall` in `pkg/sema/resolve.go`) enforces the
+module contract with precise diagnostics: private cross-module calls, missing
+`import`, undefined module functions, wrong-module targets, and cross-module
+name collisions all exit 3. The self-hosted parser gained a `TK_PUB` branch
+(`public func/type/enum` mirrors Go's parse-error contract — `public let` is
+rejected on both engines) and lowers dotted calls onto the flat
+`karkain_user_*` namespace (`math.twice(21)` and `acc.deposit(10)` identically
+emit the bare callee), keeping C-interop (`C.*`) dotted. Stdlib files are
+exempt from the private-export rule (framework API surface; physical `public`
+markers land with the stdlib-v2 Phase 109 boundary). Module acceptance target
+`examples/module_system/` runs byte-identical on both engines; 4 rejection
+fixtures under `examples/module_system_errors/` pin the diagnostics. Full
+regression sweep green: parser/sema/codegen/vet, Phase 97/99/100/101/102
+gates, conformance 59/59, foundation Go+kcc goldens, compiler-sources
+self-check under kcc.

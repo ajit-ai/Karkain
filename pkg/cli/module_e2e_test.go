@@ -150,10 +150,11 @@ func main() {
 
 // TestModuleE2E_CheckResolvesImports: CheckCommand feeds the module assembly
 // (text + source map) into the name-resolution pass, so a valid cross-file
-// call must pass cleanly.
+// call to a module's public export must pass cleanly (Phase 103 export model:
+// the module must mark its exports `public`).
 func TestModuleE2E_CheckResolvesImports(t *testing.T) {
 	dir := t.TempDir()
-	writeKark(t, dir, "math.kark", `func twice(x) {
+	writeKark(t, dir, "math.kark", `public func twice(x) {
     return x * 2
 }
 `)
@@ -207,7 +208,7 @@ func TestModuleE2E_SourceIsolation_StrayExcluded(t *testing.T) {
     return ghost()
 }
 `)
-	writeKark(t, dir, "used.kark", `func twice(x) {
+	writeKark(t, dir, "used.kark", `public func twice(x) {
     return x * 2
 }
 `)

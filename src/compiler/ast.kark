@@ -139,6 +139,21 @@ func funcTarget(n) {
     return ""
 }
 
+// setFuncPublic marks a FuncDecl public (Phase 103). The public flag lives at
+// index 7; index 6 is reserved for the optional @target attribute, padded with
+// "" when only public is set so the slot layout stays stable.
+func setFuncPublic(n) {
+    if (len(n) <= 6) { n = appendArray(n, "") }
+    n = appendArray(n, "1")
+    return n
+}
+
+// funcPublic reports whether a FuncDecl was declared public.
+func funcPublic(n) {
+    if (len(n) > 7) { return n[7] == "1" }
+    return false
+}
+
 // ============================================================
 // VarDecl node: [NODE_VAR_DECL, name, value, typeName, line]
 // ============================================================
@@ -473,6 +488,19 @@ func structDeclName(n)    { return n[1] }
 func structDeclFields(n)  { return n[2] }
 func structDeclLine(n)    { return n[3] }
 
+// setStructPublic marks a StructDecl public (Phase 103), optional slot index 4.
+func setStructPublic(n, flag) {
+    if (flag != "1") { return n }
+    n = appendArray(n, "1")
+    return n
+}
+
+// structDeclPublic reports whether a StructDecl was declared public.
+func structDeclPublic(n) {
+    if (len(n) > 4) { return n[4] == "1" }
+    return false
+}
+
 // ============================================================
 // StructLiteral: [NODE_STRUCT_LIT, typeName, fields, line]
 // ============================================================
@@ -649,6 +677,19 @@ func makeEnumDecl(name, variants, line) {
 func enumDeclName(n)       { return n[1] }
 func enumDeclVariants(n)   { return n[2] }
 func enumDeclLine(n)       { return n[3] }
+
+// setEnumPublic marks an EnumDecl public (Phase 103), optional slot index 4.
+func setEnumPublic(n, flag) {
+    if (flag != "1") { return n }
+    n = appendArray(n, "1")
+    return n
+}
+
+// enumDeclPublic reports whether an EnumDecl was declared public.
+func enumDeclPublic(n) {
+    if (len(n) > 4) { return n[4] == "1" }
+    return false
+}
 
 // ============================================================
 // String-tag dispatch + compatibility accessors.
