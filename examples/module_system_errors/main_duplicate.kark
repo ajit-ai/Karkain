@@ -1,0 +1,13 @@
+// main_duplicate.kark — must be rejected: `helper` is already exported by the
+// lib module, and the flat compile unit cannot hold two definitions (Go
+// engine check, exit 3).
+
+import lib
+
+func helper() {
+    return 0
+}
+
+func main() {
+    print(lib.helper())
+}

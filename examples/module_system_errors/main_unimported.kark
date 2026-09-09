@@ -1,0 +1,7 @@
+// main_unimported.kark — must be rejected: lib.helper() is a qualified call
+// but the lib module was never declared with `import lib` (Go engine check,
+// exit 3).
+
+func main() {
+    print(lib.helper())
+}

@@ -146,6 +146,7 @@ type BinaryExpr struct {
 
 type CallExpr struct {
 	Function string
+	Module   string // Phase 103: module qualifier for `mod.fn(...)`; "" = bare call
 	Args     []Node
 	IsCFunc  bool // True if this is a C function call (e.g., C.sqrt)
 	Line     int

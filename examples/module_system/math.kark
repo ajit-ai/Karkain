@@ -1,0 +1,15 @@
+// math.kark — Phase 103 module export model. This sibling module's public
+// functions are callable from other modules via `import math` + the qualified
+// name math.*. Private helpers are unit-internal only.
+
+public func twice(n) {
+    return n * 2
+}
+
+public func square(n) {
+    return n * n
+}
+
+func secret(n) {
+    return n + 1
+}

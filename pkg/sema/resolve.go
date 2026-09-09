@@ -48,6 +48,9 @@ type Resolver struct {
 	publicFuncs      map[string]bool   // name → true if declared public
 	callerFile       map[string]string // caller func name → source file path
 	callerBodyOffset map[string]int    // caller func name → line of its body start
+	// module tracking (Phase 103)
+	modules  map[string]string // module name (file basename) → source file path
+	imported map[string]bool   // declared `import <name>` names
 }
 
 // builtinNames is the set of language/standard-library functions handled
@@ -75,12 +78,21 @@ var builtinNames = map[string]bool{
 // that each module import references a source file present in the compile unit.
 func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 	r := &Resolver{
-		funcs:      make(map[string]bool),
-		types:      make(map[string]bool),
-		builtin:    builtinNames,
-		declFile:   make(map[string]string),
+		funcs:       make(map[string]bool),
+		types:       make(map[string]bool),
+		builtin:     builtinNames,
+		declFile:    make(map[string]string),
 		publicFuncs: make(map[string]bool),
-		callerFile: make(map[string]string),
+		callerFile:  make(map[string]string),
+		modules:    make(map[string]string),
+		imported:   make(map[string]bool),
+	}
+	for _, imp := range prog.Imports {
+		r.imported[imp.Name] = true
+		r.imported[moduleBasename(imp.Name)] = true
+	}
+	if sm != nil {
+		r.indexModules(sm)
 	}
 	r.collectDefs(prog.Statements, sm)
 	if sm != nil && len(prog.Imports) > 0 {
@@ -89,24 +101,52 @@ func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 	return r
 }
 
-// validateImports checks that each import <name> matches a source file in the
-// compile unit (a file whose basename, minus the .kark extension, equals name).
-func (r *Resolver) validateImports(imports []*parser.ModuleImport, sm SourceMap) {
-	// Build a set of known module names from file paths in the SourceMap.
-	knownModules := make(map[string]bool)
-	for _, fpath := range sm {
-		base := filepath.Base(fpath)
-		name := strings.TrimSuffix(base, ".kark")
-		if name != "" && name != base {
-			knownModules[name] = true
+// moduleBasename returns the module name a dotted import resolves to: the
+// final path segment (import std.string → "string"). Plain names map to
+// themselves.
+func moduleBasename(name string) string {
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		return name[i+1:]
+	}
+	return name
+}
+
+// moduleFile resolves a qualified module name to its source file path.
+// Dotted std.* imports map onto the file whose basename is the last segment.
+func (r *Resolver) moduleFile(module string) (string, bool) {
+	if f, ok := r.modules[module]; ok {
+		return f, true
+	}
+	if strings.HasPrefix(module, "std.") {
+		if f, ok := r.modules[module[len("std."):]]; ok {
+			return f, true
 		}
 	}
+	return "", false
+}
+
+// validateImports checks that each import <name> matches a source file in the
+// compile unit (a file whose basename, minus the .kark extension, equals name).
+// std.* imports resolve to the file whose basename is the last path segment.
+func (r *Resolver) validateImports(imports []*parser.ModuleImport, sm SourceMap) {
 	for _, imp := range imports {
-		if !knownModules[imp.Name] {
+		if _, ok := r.moduleFile(imp.Name); !ok {
 			r.errors = append(r.errors, ResolveError{
 				Line: imp.Line,
 				Msg:  fmt.Sprintf("module '%s' not found in compile unit", imp.Name),
 			})
+		}
+	}
+}
+
+// indexModules maps each compile-unit source file's basename to its path so
+// qualified calls and imports can resolve module names to files.
+func (r *Resolver) indexModules(sm SourceMap) {
+	for _, fpath := range sm {
+		base := filepath.Base(fpath)
+		name := strings.TrimSuffix(base, ".kark")
+		if name != "" && name != base {
+			r.modules[name] = fpath
 		}
 	}
 }
@@ -398,6 +438,12 @@ func (r *Resolver) checkCallExpr(n *parser.CallExpr, locals map[string]bool, cal
 		return
 	}
 	name := n.Function
+	// Module-qualified calls (mod.fn) resolve against the module's export set
+	// (Phase 103); method/DotExpr-style and C calls are outside this model.
+	if n.Module != "" {
+		r.checkQualifiedCall(n, locals, callerName, sm)
+		return
+	}
 	// Method calls (obj.method / Some/Enum constructors), C imports, and
 	// dynamic receiver calls are outside the flat-name model: skip.
 	if strings.Contains(name, ".") {
@@ -432,6 +478,105 @@ func (r *Resolver) checkCallExpr(n *parser.CallExpr, locals map[string]bool, cal
 		Msg:    fmt.Sprintf("undefined function '%s'", name),
 	})
 	// Still recurse into args to find nested undefined calls.
+	for _, a := range n.Args {
+		r.checkExpr(a, locals, callerName, sm)
+	}
+}
+
+// checkQualifiedCall validates a module-qualified call `mod.fn(...)` against
+// the module's export set (Phase 103). The qualifier is a module when it was
+// declared via `import`; otherwise it may be a record-idiom method receiver
+// (a local/param) and is skipped like the pre-Phase-103 dotted-call model.
+// Requirements for a true module call:
+//
+//   - the module is imported and resolves to a file in the compile unit
+//   - the function exists in that module's file
+//   - the function is declared public (so other modules may call it)
+func (r *Resolver) checkQualifiedCall(n *parser.CallExpr, locals map[string]bool, callerName string, sm SourceMap) {
+	name := n.Function
+	module := n.Module
+	mod := moduleBasename(module)
+	imported := r.imported[module] || r.imported[mod]
+	if !imported {
+		if locals[module] {
+			// Record-idiom method call on a local/param receiver: outside the
+			// module model (legacy dotted-call skip).
+			r.recurseArgs(n, locals, callerName, sm)
+			return
+		}
+		if _, ok := r.moduleFile(module); ok {
+			r.errors = append(r.errors, ResolveError{
+				Line:   n.Line,
+				Col:    n.Col,
+				EndCol: n.EndCol,
+				Msg:    fmt.Sprintf("module '%s' is not imported; add 'import %s'", module, module),
+			})
+		}
+		r.recurseArgs(n, locals, callerName, sm)
+		return
+	}
+	file, known := r.moduleFile(module)
+	if !known {
+		r.errors = append(r.errors, ResolveError{
+			Line:   n.Line,
+			Col:    n.Col,
+			EndCol: n.EndCol,
+			Msg:    fmt.Sprintf("module '%s' is not part of the compile unit", module),
+		})
+		r.recurseArgs(n, locals, callerName, sm)
+		return
+	}
+	if !r.funcs[name] {
+		r.errors = append(r.errors, ResolveError{
+			Line:   n.Line,
+			Col:    n.Col,
+			EndCol: n.EndCol,
+			Msg:    fmt.Sprintf("function '%s' is not defined", name),
+		})
+		r.recurseArgs(n, locals, callerName, sm)
+		return
+	}
+	decl := r.declFile[name]
+	if decl != "" && decl != file {
+		r.errors = append(r.errors, ResolveError{
+			Line:   n.Line,
+			Col:    n.Col,
+			EndCol: n.EndCol,
+			Msg:    fmt.Sprintf("function '%s' is not exported by module '%s' (defined in '%s')", name, module, decl),
+		})
+		r.recurseArgs(n, locals, callerName, sm)
+		return
+	}
+	// Stdlib modules are exempt from the private-export rule: their functions
+	// are framework-level API surface, and physical `public` markers land with
+	// stdlib v2 (Phase 109 boundary). Any other module's non-public function is
+	// unit-internal and cannot be called across modules.
+	if !r.publicFuncs[name] && !isStdlibFile(file) {
+		r.errors = append(r.errors, ResolveError{
+			Line:   n.Line,
+			Col:    n.Col,
+			EndCol: n.EndCol,
+			Msg:    fmt.Sprintf("function '%s' in module '%s' is private and cannot be called by another module", name, module),
+		})
+		r.recurseArgs(n, locals, callerName, sm)
+		return
+	}
+	r.recurseArgs(n, locals, callerName, sm)
+}
+
+// isStdlibFile reports whether a source file belongs to the stdlib tree
+// (stdlib/<module>/<module>.kark), whose exports are self-owned and not
+// subject to the user-module public/private rule.
+func isStdlibFile(path string) bool {
+	if path == "" {
+		return false
+	}
+	return strings.Contains(path, string(filepath.Separator)+"stdlib"+string(filepath.Separator)) ||
+		strings.Contains(path, "/stdlib/")
+}
+
+// recurseArgs continues the walk into a call's argument expressions.
+func (r *Resolver) recurseArgs(n *parser.CallExpr, locals map[string]bool, callerName string, sm SourceMap) {
 	for _, a := range n.Args {
 		r.checkExpr(a, locals, callerName, sm)
 	}

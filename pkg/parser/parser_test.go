@@ -323,9 +323,10 @@ func TestParser_CImportSkippedGracefully(t *testing.T) {
 }
 
 // TestParser_DottedCallNormalized locks the module-call model: a
-// module-qualified call math.twice(21) must lower to the bare callee name
-// (flat namespace over the concatenated unit), while C.twice(2) keeps its
-// qualifier so codegen can emit a raw C invocation.
+// module-qualified call math.twice(21) keeps its module qualifier (Phase 103)
+// so the resolver can validate it against the module's export set, while the
+// emitted function name stays bare. C.twice(2) keeps its qualifier inside the
+// name so codegen can emit a raw C invocation.
 func TestParser_DottedCallNormalized(t *testing.T) {
 	prog := parseSource(t, `import math
 func main() {
@@ -344,6 +345,9 @@ func main() {
 	if call.Function != "twice" {
 		t.Errorf("module call: want bare name 'twice', got %q", call.Function)
 	}
+	if call.Module != "math" {
+		t.Errorf("module call: want module 'math', got %q", call.Module)
+	}
 	if call.IsCFunc {
 		t.Error("module call must not be marked as a C call")
 	}
@@ -353,6 +357,9 @@ func main() {
 	}
 	if !cCall.IsCFunc {
 		t.Error("C.sqrt must be marked as a C call")
+	}
+	if cCall.Module != "" {
+		t.Errorf("C.sqrt must not carry a module qualifier, got %q", cCall.Module)
 	}
 }
 
