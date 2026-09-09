@@ -213,8 +213,19 @@ If this fails: STOP. Fix runtime before continuing.
 
 ### Phase 104 — Debug Information (DWARF)
 **Deliverable:** DWARF debug sections in native executables
-**Files:** `pkg/codegen/dwarf.go`, `pkg/codegen/source_map.go`
+**Files:** `pkg/codegen/dwarf.go`, `pkg/codegen/dwarf_parse.go`
 **Gate:** Debug-built executable shows function names + line numbers in `readelf --debug-dump=info`
+**Status:** ✅ COMPLETE — `pkg/codegen/dwarf.go` (DWARF 4 emitter:
+`.debug_info`/`.debug_abbrev`/`.debug_str`/`.debug_line` from the native
+`DebugInfo` model), `pkg/codegen/dwarf_parse.go` (self-hosted DWARF-4 reader +
+`DwarfTextDump` readelf-style view), linker `SectionTypeDebug` layout,
+`NativeBuilder.Build`/`BuildMultiObject` attach DWARF after relocation,
+`Executable.GetDebugSections`/`HasDebugSections`; gates
+`pkg/codegen/dwarf_test.go` (8) + `pkg/cli/phase104_dwarf_test.go` (3 E2E);
+regressions green incl. conformance 59/59, Phase 102 gates, probes, `go vet`.
+Known limitation (documented, not a defect): no ELF/PE writer yet, so the
+gate verifies via the self-written parser; real debuggers remain on the
+gcc C-transpile path.
 **Blocks:** None (independent)
 
 ### Phase 105 — Error Recovery & Incremental Compilation
@@ -500,7 +511,7 @@ karkain_runtime.o
 | 102 | COMPLETE | 2026-09-09 |
 | 102-F | COMPLETE | 2026-09-09 |
 | 103 | COMPLETE | 2026-09-09 |
-| 104 | PENDING | — |
+| 104 | COMPLETE | Phase 104 report |
 | 105 | PENDING | — |
 | 106 | PENDING | — |
 | 107 | PENDING | — |

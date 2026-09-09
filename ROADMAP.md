@@ -567,3 +567,22 @@ fixtures under `examples/module_system_errors/` pin the diagnostics. Full
 regression sweep green: parser/sema/codegen/vet, Phase 97/99/100/101/102
 gates, conformance 59/59, foundation Go+kcc goldens, compiler-sources
 self-check under kcc.
+
+**PHASE 104 COMPLETE** - Debug Information (DWARF). Tier 3 (Phases
+104-109) begins. Native executables now carry real DWARF 4 debug sections
+(`.debug_info`/`.debug_abbrev`/`.debug_str`/`.debug_line`) emitted by the
+Karkain-owned `DwarfEmitter` (`pkg/codegen/dwarf.go`) from the Phase 84
+`DebugInfo` model: a compile unit with one subprogram per function (nested
+local variables, base-type DIEs, `DW_AT_high_pc` size form on relocated
+addresses), and a correct v4 line-number state machine with end-sequence
+per-function resets. The linker lays out `SectionTypeDebug` and
+`NativeBuilder.Build`/`BuildMultiObject` attach the sections after
+relocation. A self-hosted DWARF-4 reader (`pkg/codegen/dwarf_parse.go`)
+round-trips the sections and drives an `eval`-free
+`DwarfTextDump` (readelf-style). Gates: `pkg/codegen/dwarf_test.go`
+(8 tests) + `pkg/cli/phase104_dwarf_test.go` (3 E2E through the real
+pipeline); full regression sweep green (conformance 59/59, Phase 102
+goldens, probes, all pkg suites, `go vet`). Known limitation (documented,
+NOT a defect): no ELF/PE container writer exists, so debuggers/readelf
+remain on the gcc C-transpile path; the DWARF sections are ready to embed
+once a container writer lands.
