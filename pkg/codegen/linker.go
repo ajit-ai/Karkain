@@ -148,8 +148,10 @@ func (l *Linker) layoutSections() ([]*Section, error) {
 		}
 	}
 	
-	// Layout sections with proper alignment
-	for _, sectionType := range []SectionType{SectionTypeText, SectionTypeROData, SectionTypeData, SectionTypeBSS} {
+	// Layout sections with proper alignment.
+	// Debug sections (SectionTypeDebug) are laid out after all loadable
+	// sections; they carry no relocations or symbols.
+	for _, sectionType := range []SectionType{SectionTypeText, SectionTypeROData, SectionTypeData, SectionTypeBSS, SectionTypeDebug} {
 		for _, sect := range sectionMap {
 			if sect.Type == sectionType {
 				// Align to section alignment
@@ -262,6 +264,22 @@ func (exec *Executable) GetSection(name string) *Section {
 		}
 	}
 	return nil
+}
+
+// GetDebugSections returns the DWARF debug sections attached to the executable.
+func (exec *Executable) GetDebugSections() []*Section {
+	out := make([]*Section, 0)
+	for _, sect := range exec.Sections {
+		if sect.Type == SectionTypeDebug {
+			out = append(out, sect)
+		}
+	}
+	return out
+}
+
+// HasDebugSections reports whether the executable carries DWARF sections.
+func (exec *Executable) HasDebugSections() bool {
+	return len(exec.GetDebugSections()) > 0
 }
 
 // GetSymbol returns a symbol by name

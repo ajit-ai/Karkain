@@ -449,7 +449,7 @@ function calls use the `C.` prefix (`C.sqrt(...)`). FFI package
 | `test` | Ã¢Å“â€¦ | Discover/run `*_test.kark` |
 | `lsp` | Ã°Å¸Å¸Â¡ | Go-based LSP server (`pkg/lsp`) |
 | `jit` | Ã°Å¸Å¸Â¡ | `pkg/jit` JIT/FFI |
-| Debug mode | Ã¢Å“â€¦ | `-g` emits `#line` + `-line N "file.kark"` directives |
+| Debug mode | Ã¢Å“â€¦ | `-g` emits `#line` + `-line N "file.kark"` directives; native pipeline emits DWARF 4 sections `.debug_info`/`.debug_abbrev`/`.debug_str`/`.debug_line` (`pkg/codegen/dwarf.go` + self-hosted `dwarf_parse.go` reader) |
 | Verbose | Ã¢Å“â€¦ | `--verbose` pipeline logging |
 | Targets | Ã°Å¸Å¸Â¡ | native, wasm32-wasi |
 
