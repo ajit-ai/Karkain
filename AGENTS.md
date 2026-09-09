@@ -13,7 +13,26 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-103** — Phases 50–100, 101, 102, 102‑F, 103 complete.
+Current phase: **post-104** — Phases 50–103 complete.
+Also completed: **104** — Debug Information (DWARF)
+(Karkain-owned DWARF 4 debug sections in native executables:
+`.debug_info`/`.debug_abbrev`/`.debug_str`/`.debug_line` emitted by
+`DwarfEmitter` in `pkg/codegen/dwarf.go` from the Phase 84 `DebugInfo`
+model — compile unit, subprogram per function with nested local variables,
+base-type DIEs, `DW_AT_high_pc` size form over relocated addresses, and a
+correct v4 line-number state machine with per-function end-sequence resets.
+Self-hosted DWARF-4 reader `pkg/codegen/dwarf_parse.go` round-trips the
+sections and powers the readelf-style `DwarfTextDump`; linker lays out
+`SectionTypeDebug`; `NativeBuilder.Build`/`BuildMultiObject` attach DWARF
+after `relocateDebugAddresses`; new `Executable.GetSection`,
+`GetDebugSections`, `HasDebugSections`. Gates `pkg/codegen/dwarf_test.go`
+(8 tests) + `pkg/cli/phase104_dwarf_test.go` (3 E2E through the real
+pipeline) — all PASS; regressions green: conformance 59/59, Phase 102
+Go+kcc goldens, compiler-sources self-check, probes, all pkg suites,
+`go vet`. Known limitation (documented, NOT a defect): no ELF/PE container
+writer yet, so debuggers/readelf remain on the gcc C-transpile path; the
+DWARF sections are ready for embedding when a container writer lands.
+Tier 3 (Phases 104–109) is now in progress.)
 Also completed: **103** — Module System v2 (Core)
 (`public` is a real export modifier accepted by BOTH engines: Go parser sets
 `.Public` on func/type/enum; self-hosted kcc gained a `TK_PUB` branch mirroring
