@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"karkain/pkg/codegen"
 	"karkain/pkg/diagnostics"
@@ -65,6 +66,15 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 	cg := codegen.New(cfg)
 
 	if err := cg.GenerateAndCompile(prog, targetFile); err != nil {
+		// Phase 100: a program that fails at runtime (e.g. a source-located
+		// runtime error that aborts via exit(1)) is a program failure
+		// (ExitFailure), not a compilation failure. The self-hosted engine
+		// already reports non-zero program exits as ExitFailure; this aligns
+		// the Go engine with the documented contract.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Execution Error: %v", err)}
+		}
 		return CommandResult{ExitCode: classifyCompileError(err), Message: fmt.Sprintf("Execution Error: %v", err)}
 	}
 	return CommandResult{ExitCode: ExitSuccess, Message: ""}

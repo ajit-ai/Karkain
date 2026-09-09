@@ -1,0 +1,12 @@
+func inner(x) {
+    return 10 / x;
+}
+
+func outer() {
+    return inner(0);
+}
+
+func main() {
+    let v = outer();
+    print(v);
+}

@@ -9,9 +9,9 @@ import (
 type Type uint8
 
 const (
-	Void    Type = iota
-	I            // integer (i64 semantics)
-	F            // float64
+	Void Type = iota
+	I         // integer (i64 semantics)
+	F         // float64
 	Bool
 	Str
 	Value // dynamic boxed Karkain value
@@ -43,7 +43,7 @@ type Operand struct {
 	Reg   string // empty means constant
 	IsCst bool
 	// Constant payload (valid when IsCst):
-	CstKind Type   // I, F, Bool, Str
+	CstKind Type // I, F, Bool, Str
 	IntVal  int64
 	FltVal  float64
 	BoolVal bool
@@ -52,10 +52,10 @@ type Operand struct {
 
 func Reg(name string) Operand { return Operand{Reg: name} }
 
-func ConstInt(v int64) Operand  { return Operand{IsCst: true, CstKind: I, IntVal: v} }
+func ConstInt(v int64) Operand   { return Operand{IsCst: true, CstKind: I, IntVal: v} }
 func ConstFlt(v float64) Operand { return Operand{IsCst: true, CstKind: F, FltVal: v} }
-func ConstBool(v bool) Operand  { return Operand{IsCst: true, CstKind: Bool, BoolVal: v} }
-func ConstStr(v string) Operand { return Operand{IsCst: true, CstKind: Str, StrVal: v} }
+func ConstBool(v bool) Operand   { return Operand{IsCst: true, CstKind: Bool, BoolVal: v} }
+func ConstStr(v string) Operand  { return Operand{IsCst: true, CstKind: Str, StrVal: v} }
 
 func (o Operand) String() string {
 	if !o.IsCst {
@@ -81,31 +81,32 @@ func (o Operand) String() string {
 type OpKind uint8
 
 const (
-	OpConst OpKind = iota
-	OpBinOp          // %d = binop %a OP %b
-	OpUnOp           // %d = unop OP %a ("-" or "!")
-	OpCall           // %d = call name(%a...)
-	OpCallVoid       // call name(%a...)
-	OpBr             // br %cond ? ^then : ^else   (block args via BranchArgs)
-	OpJmp            // jmp ^target                (block args via BranchArgs)
-	OpRet            // ret %v (or ret void when Dest=="" and no Args)
-	OpIndexGet       // %d = index_get %arr, %i
-	OpIndexSet       // index_set %arr, %i, %v
-	OpPrint          // print %v
-	OpLoad           // %d = load cell        (variable read)
-	OpStore          // store cell, %v        (variable write)
-	OpRawC           // ESCAPE HATCH: opaque pre-rendered C expression (dest) or statement (no dest)
+	OpConst    OpKind = iota
+	OpBinOp           // %d = binop %a OP %b
+	OpUnOp            // %d = unop OP %a ("-" or "!")
+	OpCall            // %d = call name(%a...)
+	OpCallVoid        // call name(%a...)
+	OpBr              // br %cond ? ^then : ^else   (block args via BranchArgs)
+	OpJmp             // jmp ^target                (block args via BranchArgs)
+	OpRet             // ret %v (or ret void when Dest=="" and no Args)
+	OpIndexGet        // %d = index_get %arr, %i
+	OpIndexSet        // index_set %arr, %i, %v
+	OpPrint           // print %v
+	OpLoad            // %d = load cell        (variable read)
+	OpStore           // store cell, %v        (variable write)
+	OpRawC            // ESCAPE HATCH: opaque pre-rendered C expression (dest) or statement (no dest)
 )
 
 // Instr — one SSA instruction inside a block.
 type Instr struct {
-	Op     OpKind
-	Dest   string // register written, "" if none
-	Ty     Type   // type of Dest (or result)
-	Args   []Operand
-	OpStr  string   // binop operator / call target name
-	RawC   string   // OpRawC payload
-	Cell   string   // OpLoad/OpStore variable cell name
+	Op    OpKind
+	Dest  string // register written, "" if none
+	Ty    Type   // type of Dest (or result)
+	Args  []Operand
+	OpStr string // binop operator / call target name
+	RawC  string // OpRawC payload
+	Cell  string // OpLoad/OpStore variable cell name
+	Line  int    // source line for runtime diagnostics (0 = unknown)
 	// Branch payloads:
 	ThenTarget, ElseTarget string      // OpBr
 	JmpTarget              string      // OpJmp
@@ -130,6 +131,7 @@ type Function struct {
 	Name       string
 	Params     []BlockParam
 	ReturnType Type
+	Line       int // source line of the function declaration (0 = unknown)
 	Blocks     []*Block
 	Entry      *Block
 	regCount   int
@@ -304,4 +306,3 @@ func constBool(in Instr) bool {
 	}
 	return false
 }
-

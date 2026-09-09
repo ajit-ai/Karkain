@@ -123,7 +123,7 @@ func (l *fnLowerer) lowerExpr(e parser.Node) ssa.Operand {
 		a := l.ensureReg(l.lowerExpr(n.Left), "lhs")
 		b := l.ensureReg(l.lowerExpr(n.Right), "rhs")
 		dest := l.fn.NewReg("bin")
-		l.cur.Emit(ssa.Instr{Op: ssa.OpBinOp, Dest: dest, Ty: ssa.Value, Args: []ssa.Operand{ssa.Reg(a), ssa.Reg(b)}, OpStr: n.Operator})
+		l.cur.Emit(ssa.Instr{Op: ssa.OpBinOp, Dest: dest, Ty: ssa.Value, Args: []ssa.Operand{ssa.Reg(a), ssa.Reg(b)}, OpStr: n.Operator, Line: n.Line})
 		return ssa.Reg(dest)
 	case *parser.CallExpr:
 		if !n.IsCFunc && !strings.Contains(n.Function, ".") &&

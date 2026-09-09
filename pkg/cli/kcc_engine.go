@@ -1,4 +1,4 @@
-﻿package cli
+package cli
 
 import (
 	"fmt"
@@ -107,7 +107,7 @@ func kccRepoRoot() string {
 		if parent == dir {
 			return ""
 		}
-dir = parent
+		dir = parent
 	}
 }
 
@@ -128,7 +128,7 @@ func kccBinaryPath(w io.Writer) (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("cannot locate src/compiler to build the self-hosted engine (set KARKAIN_KCC)")
 	}
-bin := filepath.Join(root, "kcc.exe")
+	bin := filepath.Join(root, "kcc.exe")
 	if _, err := os.Stat(bin); err == nil && !kccStale(root, bin) {
 		return bin, nil
 	}
@@ -183,6 +183,11 @@ func buildKCC(root string, w io.Writer) (string, error) {
 
 	buildCmd := exec.Command(karkain, "build", filepath.Join(srcDir, "main.kark"))
 	buildCmd.Dir = srcDir
+	// Bootstrap contract: stage-1 must emit src/compiler/main.c through the Go
+	// front end (pkg/bootstrap forceGoEngine). Pinning the engine here prevents
+	// a default-kcc re-entry that would otherwise recurse through buildKCC when
+	// the on-disk kcc.exe is stale (the very condition this rebuild is fixing).
+	buildCmd.Env = append(os.Environ(), "KARKAIN_ENGINE=go")
 	if out, err := buildCmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("stage-1 build failed: %v\n%s", err, string(out))
 	}
@@ -419,7 +424,7 @@ func KCCRunCommand(w io.Writer, file string, cfg codegen.Config, verbose bool) C
 	if err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: err.Error()}
 	}
-base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
 
 	// Work in a temp sandbox so build artifacts never sit next to the source.
 	sandbox, err := os.MkdirTemp("", "karkain-kcc-run")
@@ -472,7 +477,7 @@ base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
 		}
 		msg += strings.TrimSpace(string(runOut))
 	}
-if err != nil {
+	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: msg}
 	}
 	return CommandResult{ExitCode: ExitSuccess, Message: msg}

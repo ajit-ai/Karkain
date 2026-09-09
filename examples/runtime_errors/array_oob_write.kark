@@ -1,0 +1,5 @@
+func main() {
+    let xs = [10, 20, 30]
+    xs[7] = 99
+    print(xs[0])
+}

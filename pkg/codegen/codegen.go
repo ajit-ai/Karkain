@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -64,6 +65,17 @@ type Generator struct {
 func New(cfg Config) *Generator {
 	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl),
 		closureVars: make(map[string]bool), userFuncs: make(map[string]bool)}
+}
+
+// sourceBaseC returns the quoted base file name (extension included, e.g.
+// "prog.kark") used inside runtime-error diagnostics. It mirrors the file name
+// reported by the self-hosted engine so both engines produce identical
+// diagnostics for the same program. Empty when the source path is unknown.
+func (g *Generator) sourceBaseC() string {
+	if g.sourceFile == "" {
+		return `""`
+	}
+	return fmt.Sprintf("%q", filepath.Base(g.sourceFile))
 }
 
 func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
@@ -1114,12 +1126,26 @@ Value binary_op(Value left, const char* op, Value right) {
         if (strcmp(op, "<=") == 0) return make_int(c <= 0);
         if (strcmp(op, ">=") == 0) return make_int(c >= 0);
     }
-    // String concatenation
-    if (strcmp(op, "+") == 0 && left.type == TYPE_STRING && right.type == TYPE_STRING) {
-        size_t len = strlen(left.strVal) + strlen(right.strVal);
+    // String concatenation. Strings concatenate with strings; a string operand
+    // also absorbs int/float/bool concatenands (converted like karkain_str).
+    // The self-hosted compiler depends on this to embed integer line numbers
+    // into the C it emits ("...", + line + ")").
+    if (strcmp(op, "+") == 0 && (left.type == TYPE_STRING || right.type == TYPE_STRING)) {
+        char abuf[64], bbuf[64];
+        const char* ls;
+        const char* rs;
+        if (left.type == TYPE_STRING) { ls = left.strVal ? left.strVal : ""; }
+        else if (left.type == TYPE_INT || left.type == TYPE_BOOL) { snprintf(abuf, 64, "%lld", left.intVal); ls = abuf; }
+        else if (left.type == TYPE_FLOAT64) { snprintf(abuf, 64, "%g", left.floatVal); ls = abuf; }
+        else { ls = "?"; }
+        if (right.type == TYPE_STRING) { rs = right.strVal ? right.strVal : ""; }
+        else if (right.type == TYPE_INT || right.type == TYPE_BOOL) { snprintf(bbuf, 64, "%lld", right.intVal); rs = bbuf; }
+        else if (right.type == TYPE_FLOAT64) { snprintf(bbuf, 64, "%g", right.floatVal); rs = bbuf; }
+        else { rs = "?"; }
+        size_t len = strlen(ls) + strlen(rs);
         char* buf = (char*)malloc(len + 1);
-        strcpy(buf, left.strVal);
-        strcat(buf, right.strVal);
+        strcpy(buf, ls);
+        strcat(buf, rs);
         Value result = make_string(buf);
         free(buf);
         return result;
@@ -1226,6 +1252,107 @@ Value binary_op(Value left, const char* op, Value right) {
         return make_int(values_equal(left, right));
     }
     return make_int(0);
+}
+
+// Phase 100: runtime failure model. Operations that previously silenced an
+// invalid computation (integer/float division and modulo by zero, and
+// out-of-range array/string indexing all used to silently return zero) now
+// report a source-located runtime error on stderr and terminate with exit(1),
+// so a failing program can never masquerade as a successful one. The checked
+// helpers below are emitted at division/modulo and index-usage sites; the
+// generic binary_op/array_or_string_get/index_set runtime functions retain
+// their arithmetic behavior for every other call site. Phase 101: every
+// generated function pushes a named frame (enter/leave/set_line); a raise
+// then reports the Karkain call chain with a source file and line per frame.
+void karkain_set_line(long long n);
+void karkain_frame_enter(const char* func, const char* file);
+void karkain_frame_leave(void);
+#define KARKAIN_MAX_FRAMES 128
+typedef struct { const char* func; const char* file; long long line; } karkain_frame;
+static karkain_frame karkain_frames[KARKAIN_MAX_FRAMES];
+static int karkain_frame_depth = 0;
+static long long karkain_current_line = 0;
+void karkain_set_line(long long n) {
+    karkain_current_line = n;
+    if (karkain_frame_depth > 0) karkain_frames[karkain_frame_depth - 1].line = n;
+}
+void karkain_frame_enter(const char* func, const char* file) {
+    if (karkain_frame_depth < KARKAIN_MAX_FRAMES) {
+        karkain_frames[karkain_frame_depth].func = func;
+        karkain_frames[karkain_frame_depth].file = file;
+        karkain_frames[karkain_frame_depth].line = karkain_current_line;
+        karkain_frame_depth++;
+    }
+}
+void karkain_frame_leave(void) {
+    if (karkain_frame_depth > 0) karkain_frame_depth--;
+}
+void karkain_runtime_error(const char* kind, const char* file, long long line) {
+    karkain_set_line(line);
+    if (file != NULL && file[0] != '\0' && line > 0) {
+        fprintf(stderr, "runtime error: %s at %s:%lld\n", kind, file, line);
+    } else if (file != NULL && file[0] != '\0') {
+        fprintf(stderr, "runtime error: %s at %s\n", kind, file);
+    } else if (line > 0) {
+        fprintf(stderr, "runtime error: %s at line %lld\n", kind, line);
+    } else {
+        fprintf(stderr, "runtime error: %s\n", kind);
+    }
+    if (karkain_frame_depth > 0) {
+        fprintf(stderr, "  stack:\n");
+        int i;
+        for (i = karkain_frame_depth - 1; i >= 0; i--) {
+            fprintf(stderr, "    %s (%s:%lld)\n", karkain_frames[i].func,
+                    karkain_frames[i].file, karkain_frames[i].line);
+        }
+    }
+    fflush(stderr);
+    exit(1);
+}
+
+Value karkain_checked_div(Value l, Value r, const char* file, long long line) {
+    if (l.type == TYPE_FLOAT64 || r.type == TYPE_FLOAT64) {
+        double b = (r.type == TYPE_FLOAT64) ? r.floatVal : (double)r.intVal;
+        if (b == 0.0) karkain_runtime_error("division by zero", file, line);
+    } else if ((l.type == TYPE_INT || l.type == TYPE_BOOL) && (r.type == TYPE_INT || r.type == TYPE_BOOL)) {
+        if (r.intVal == 0) karkain_runtime_error("integer division by zero", file, line);
+    }
+    return binary_op(l, "/", r);
+}
+
+Value karkain_checked_mod(Value l, Value r, const char* file, long long line) {
+    if (l.type == TYPE_FLOAT64 || r.type == TYPE_FLOAT64) {
+        double b = (r.type == TYPE_FLOAT64) ? r.floatVal : (double)r.intVal;
+        if (b == 0.0) karkain_runtime_error("modulo by zero", file, line);
+    } else if ((l.type == TYPE_INT || l.type == TYPE_BOOL) && (r.type == TYPE_INT || r.type == TYPE_BOOL)) {
+        if (r.intVal == 0) karkain_runtime_error("integer modulo by zero", file, line);
+    }
+    return binary_op(l, "%", r);
+}
+
+Value karkain_checked_get(Value container, Value idx, const char* file, long long line) {
+    if (container.type == TYPE_STRING) {
+        if (idx.type == TYPE_INT) {
+            long long i = idx.intVal;
+            long long n = (long long)strlen(container.strVal);
+            if (i < 0 || i >= n) karkain_runtime_error("string index out of range", file, line);
+        }
+    } else if (container.type == TYPE_ARRAY) {
+        if (idx.type == TYPE_INT) {
+            int i = (int)idx.intVal;
+            if (i < 0 || i >= container.arrVal.length) karkain_runtime_error("array index out of range", file, line);
+        }
+    }
+    return array_or_string_get(container, idx);
+}
+
+void karkain_checked_set(Value* container, Value idx, Value val, const char* file, long long line) {
+    if (!container) return;
+    if (container->type == TYPE_ARRAY && idx.type == TYPE_INT) {
+        int i = (int)idx.intVal;
+        if (i < 0 || i >= container->arrVal.length) karkain_runtime_error("array index out of range", file, line);
+    }
+    index_set(container, idx, val);
 }
 
 int is_truthy(Value v) {
@@ -1620,11 +1747,14 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	if fnName == "getArgs" {
 		var gb strings.Builder
 		gb.WriteString("Value getArgs(void) {\n")
+		gb.WriteString("\tkarkain_frame_enter(\"getArgs\", " + g.sourceBaseC() + ");\n")
+		gb.WriteString("\tkarkain_set_line(0);\n")
 		gb.WriteString("\tValue _args = make_array();\n")
 		gb.WriteString("\tint _i;\n")
 		gb.WriteString("\tfor (_i = 0; _i < _karkain_gargc; _i++) {\n")
 		gb.WriteString("\t\tarray_push(&_args, make_string(_karkain_gargv[_i]));\n")
 		gb.WriteString("\t}\n")
+		gb.WriteString("\tkarkain_frame_leave();\n")
 		gb.WriteString("\treturn _args;\n")
 		gb.WriteString("}\n\n")
 		return gb.String()
@@ -1658,6 +1788,11 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	}
 	fmt.Fprintf(&sb, "%s %s(%s) {\n", retType, fnName, sig)
 
+	// Phase 101: push a named frame so runtime errors report the Karkain call
+	// chain with a source file and line for each function.
+	fmt.Fprintf(&sb, "\tkarkain_frame_enter(%s, %s);\n", strconv.Quote(fn.Name), g.sourceBaseC())
+	fmt.Fprintf(&sb, "\tkarkain_set_line(%d);\n", fn.Line)
+
 	// Phase 14: Initialize quantum runtime in main
 	if fnName == "main" {
 		sb.WriteString("\t_karkain_gargc = _karkain_argc; _karkain_gargv = _karkain_argv;\n")
@@ -1669,8 +1804,10 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	sb.WriteString(closureUndefs)
 
 	if fnName == "main" {
+		sb.WriteString("\tkarkain_frame_leave();\n")
 		sb.WriteString("\treturn 0;\n")
 	} else {
+		sb.WriteString("\tkarkain_frame_leave();\n")
 		sb.WriteString("\treturn make_int(0);\n")
 	}
 	sb.WriteString("}\n\n")
@@ -1861,10 +1998,12 @@ func (g *Generator) genSIMDExpr(node *parser.SIMDBuiltinExpr) string {
 func KarkainSIMDSSE() bool { return true }
 
 // simdVectorCType maps a "[N]f32"-style lane-vector type to a C type.
-//   [4]f32 -> __m128 (SSE)
-//   [8]f32 -> __m256 (AVX)
-//   [2]f64 -> __m128d
-//   [4]f64 -> __m256d
+//
+//	[4]f32 -> __m128 (SSE)
+//	[8]f32 -> __m256 (AVX)
+//	[2]f64 -> __m128d
+//	[4]f64 -> __m256d
+//
 // Unknown combos fall back to an aligned float array so code still compiles.
 func simdVectorCType(typeStr string) string {
 	lanes, elem, ok := parser.ParseSIMDVectorType(typeStr)
@@ -1928,11 +2067,12 @@ func memoryOrderC(order string) string {
 
 // genAtomicExpr emits C11 stdatomic operations with explicit memory orderings.
 // Surface (ordering defaults to seq_cst when the trailing string is omitted):
-//   @atomic_load(ptr, [order])        -> atomic_load(ptr, order)
-//   @atomic_store(ptr, v, [order])    -> atomic_store(ptr, v, order)
-//   @atomic_fetch_add(ptr, v, [order])-> atomic_fetch_add(ptr, v, order)
-//   @atomic_fetch_sub(ptr, v, [order])-> atomic_fetch_sub(ptr, v, order)
-//   @atomic_cas(ptr, cmp, v, [order]) -> atomic_compare_exchange...
+//
+//	@atomic_load(ptr, [order])        -> atomic_load(ptr, order)
+//	@atomic_store(ptr, v, [order])    -> atomic_store(ptr, v, order)
+//	@atomic_fetch_add(ptr, v, [order])-> atomic_fetch_add(ptr, v, order)
+//	@atomic_fetch_sub(ptr, v, [order])-> atomic_fetch_sub(ptr, v, order)
+//	@atomic_cas(ptr, cmp, v, [order]) -> atomic_compare_exchange...
 func (g *Generator) genAtomicExpr(node *parser.AtomicOp) string {
 	order := memoryOrderC(node.Order)
 	n := len(node.Args)
@@ -2018,7 +2158,10 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 		// For dynamic types, use Value wrapper
 		return fmt.Sprintf("\tValue %s = %s;\n", node.Name, g.genExpr(node.Value))
 	case *parser.ReturnStmt:
-		return fmt.Sprintf("\treturn %s;\n", g.genExpr(node.Value))
+		// Phase 101: if the return expression itself raises (e.g. a checked
+		// call) the frame must still be on the stack, so compute into a temp
+		// first, then pop and return. Guarded at runtime for nested/lambda use.
+		return "\t{ Value _karkain_fret = " + g.genExpr(node.Value) + "; karkain_frame_leave(); return _karkain_fret; }\n"
 	case *parser.PrintStmt:
 		// Check if this is a matrix index expression
 		if matrixIdx, ok := node.Value.(*parser.MatrixIndexExpr); ok {
@@ -2255,7 +2398,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 		sb.WriteString("_m; })")
 		return sb.String()
 	case *parser.IndexExpr:
-		return fmt.Sprintf("array_or_string_get(%s, %s)", g.genExpr(n.Left), g.genExpr(n.Index))
+		return fmt.Sprintf("karkain_checked_get(%s, %s, %s, %d)", g.genExpr(n.Left), g.genExpr(n.Index), g.sourceBaseC(), n.Line)
 	case *parser.SliceExpr:
 		end := "make_int(-1)"
 		if n.End != nil {
@@ -2283,14 +2426,14 @@ func (g *Generator) genExpr(node parser.Node) string {
 			left := g.genExpr(n.Left)
 			right := g.genExpr(n.Right)
 
-			// Phase 52: Index assignment â€” m[k] = v â†’ index_set(&m, k, v) (mutates variable directly)
+			// Phase 52: Index assignment â€” m[k] = v â†’ karkain_checked_set(&m, k, v) (mutates variable directly)
 			if idxExpr, ok := n.Left.(*parser.IndexExpr); ok {
 				index := g.genExpr(idxExpr.Index)
 				if ident, ok := idxExpr.Left.(*parser.Identifier); ok {
-					return fmt.Sprintf("index_set(&%s, %s, %s)", ident.Name, index, right)
+					return fmt.Sprintf("karkain_checked_set(&%s, %s, %s, %s, %d)", ident.Name, index, right, g.sourceBaseC(), n.Line)
 				}
 				target := g.genExpr(idxExpr.Left)
-				return fmt.Sprintf("({ Value _iset_tgt = %s; index_set(&_iset_tgt, %s, %s); _iset_tgt; })", target, index, right)
+				return fmt.Sprintf("({ Value _iset_tgt = %s; karkain_checked_set(&_iset_tgt, %s, %s, %s, %d); _iset_tgt; })", target, index, right, g.sourceBaseC(), n.Line)
 			}
 
 			// Phase 52: Dot assignment â€” p.name = v â†’ map_set(&p, "name", v) (mutates variable directly)
@@ -2320,6 +2463,12 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Operator == "||" {
 			return fmt.Sprintf("make_int(is_truthy(%s) || is_truthy(%s))", g.genExpr(n.Left), g.genExpr(n.Right))
+		}
+		if n.Operator == "/" {
+			return fmt.Sprintf("karkain_checked_div(%s, %s, %s, %d)", g.genExpr(n.Left), g.genExpr(n.Right), g.sourceBaseC(), n.Line)
+		}
+		if n.Operator == "%" {
+			return fmt.Sprintf("karkain_checked_mod(%s, %s, %s, %d)", g.genExpr(n.Left), g.genExpr(n.Right), g.sourceBaseC(), n.Line)
 		}
 		return fmt.Sprintf("binary_op(%s, %q, %s)", g.genExpr(n.Left), n.Operator, g.genExpr(n.Right))
 	case *parser.CallExpr:
@@ -2450,7 +2599,7 @@ func (g *Generator) genExpr(node parser.Node) string {
 			return fmt.Sprintf("({ Value _del_m = %s; karkain_delete(&_del_m, %s); _del_m; })", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		if n.Function == "mod" {
-			return fmt.Sprintf("binary_op(%s, \"%%\", %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+			return fmt.Sprintf("karkain_checked_mod(%s, %s, %s, %d)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]), g.sourceBaseC(), n.Line)
 		}
 		if n.Function == "add_checked" {
 			return fmt.Sprintf("karkain_add_checked(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))

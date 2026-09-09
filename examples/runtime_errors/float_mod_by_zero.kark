@@ -1,0 +1,6 @@
+func main() {
+    let a = 5.5
+    let b = 0.0
+    let c = a % b
+    print(c)
+}
