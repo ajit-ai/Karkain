@@ -57,6 +57,27 @@ support int/float/bool operands for diagnostic embedding. Test fixtures under
 `examples/runtime_errors/` (7 error cases + 1 positive control), parity gates
 `pkg/cli/phase100_runtime_test.go` and `pkg/codegen/phase100_runtime_test.go` —
 all PASS.)
+Also completed: **101** — Libc-Free Runtime Foundation
+(libc-free/libm-free Karkain-owned runtime layer established: `runtime/freestanding/`
+with arena allocator (`karkain_memory.c`), raw OS abstraction (`karkain_platform.c/h`),
+I/O, string and math primitives that compile and link WITHOUT libc — gate
+`pkg/runtime/phase101_freestanding_test.go` compiles and runs a hello program;
+runtime error stack traces added end-to-end: `KARKAIN_MAX_FRAMES` 128,
+`karkain_frame_enter/leave`, `karkain_set_line`, runtime-error `stack:` dump on both
+engines (kcc and Go produce identical `inner:2/outer:5/main:9` frames for
+`examples/runtime_errors/stack_chain.kark`); Go side: `pkg/codegen/codegen.go`,
+`pkg/ir/ssa/ssa.go` (`Function.Line`), `emit_ir.go`; self-hosted side:
+`src/compiler/codegen.kark` (frame helpers, `FuncDecl` prologue, return wrapper
+`{ Value _karkain_fret = ...; karkain_frame_leave(); return _karkain_fret; }`);
+latent self-hosted checker crash fixed (`kcc check` OOB on bare `return` empty
+value nodes — empty-node guards in `src/compiler/checker.kark`) plus `parseFunc`
+func-token line fix in `src/compiler/parser.kark`; regression gates
+`pkg/cli/phase99_selfhosted_test.go` / `phase100_runtime_test.go` /
+`phase101_stacktrace_test.go` all PASS (CompilerSourcesTypeCheck clean on all 9
+self-hosted sources); GMP remains an intentional isolated boundary deferred to
+Phase 109; pre-existing limitation (not a blocker): closure/`fn` codegen is broken
+on both engines, covered by no gate, out of Phase 101 scope — docs under
+`docs/audit/PHASE-101-FINAL-REPORT.md`).
 Also completed: **98** — NPU Integration into Compiler
 (`@target(...)` function attribute implemented end-to-end: parser attaches the
 attribute to `FuncDecl` (`pkg/parser/ast.go` `Target`, `parseTargetAttr` in

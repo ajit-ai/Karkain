@@ -384,8 +384,15 @@ func parseTargetAttr(state) {
     return ""
 }
 
+// Phase 101 note: funcLine must be the line of the `func` token itself, not the
+// last consumed token (psLine), so ancestor frames in runtime stack traces show
+// the true definition line and stay in parity with the Go parser, which records
+// the function's opening token line. This matters when blank lines separate
+// declarations: the previous token's line can be off by the gap count.
 func parseFunc(state, target) {
-    let line = psLine(state)
+    let cur = psCurToken(state)
+    let line = 0
+    if (len(cur) > 0) { line = tokenLine(cur) }
     let startCol = 0
     let pos = psPos(state)
     let tokens = psTokens(state)
