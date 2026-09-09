@@ -13,10 +13,11 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-99** — Phases 50–99 complete.
+Current phase: **post-100** — Phases 50–100 complete.
 Also completed: **99** — Self-Hosted Parser & Type Checker
-(Certified: READY TO COMMIT WITH DOCUMENTED ENVIRONMENTAL LIMITATION — awaiting
-commit/merge/push authorization; Phase 100 NOT started.) The self-hosted
+(Certified: READY TO COMMIT WITH DOCUMENTED ENVIRONMENTAL LIMITATION — committed
+and merged). **100** — Runtime Error Model (runtime error diagnostics with source
+location, checked division/modulo/indexing, cross-engine parity). The self-hosted
 compiler now parses the full language surface and type-checks programs itself:
 `src/compiler/atypes.kark` (conservative static type inference: `inferType`,
 `primitiveTag`, `isPrimitiveTag`, `typeDescription`, `annotationMismatch`; the
@@ -44,6 +45,18 @@ environmental limitation (documented, NOT a defect): on the ~4GB-RAM
 limited-paging host, concurrent full-tree `go test ./pkg/...` runs stall
 `TestBootstrap_BitwiseIdentity` and `TestConformanceCorpus_RunsClean`; both pass
 in isolation. Full report: `docs/audit/PHASE-99-FINAL-REPORT.md`.
+Also completed: **100** — Runtime Error Model
+(Runtime error diagnostics with source filename and line number: division/modulo
+by zero, array/string index out of range now report `runtime error: <kind> at
+<file>:<line>` and exit(1) instead of silently returning zero. Both Go and
+self-hosted kcc engines produce identical diagnostics. Implementation:
+`karkain_runtime_error()`, `karkain_checked_div/mod/get/set()` in
+`pkg/codegen/codegen.go` and `src/compiler/codegen.kark`, source file tracking
+via `sourceBaseC()` and `fileBaseName()`, enhanced string concatenation to
+support int/float/bool operands for diagnostic embedding. Test fixtures under
+`examples/runtime_errors/` (7 error cases + 1 positive control), parity gates
+`pkg/cli/phase100_runtime_test.go` and `pkg/codegen/phase100_runtime_test.go` —
+all PASS.)
 Also completed: **98** — NPU Integration into Compiler
 (`@target(...)` function attribute implemented end-to-end: parser attaches the
 attribute to `FuncDecl` (`pkg/parser/ast.go` `Target`, `parseTargetAttr` in

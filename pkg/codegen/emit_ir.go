@@ -105,11 +105,14 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 	// dispatch on it), but the lowered placeholder body is replaced here.
 	if fn.Name == "getArgs" {
 		sb.WriteString("Value getArgs(void) {\n")
+		sb.WriteString("\tkarkain_frame_enter(\"getArgs\", " + g.sourceBaseC() + ");\n")
+		sb.WriteString("\tkarkain_set_line(0);\n")
 		sb.WriteString("\tValue _args = make_array();\n")
 		sb.WriteString("\tint _i;\n")
 		sb.WriteString("\tfor (_i = 0; _i < _karkain_gargc; _i++) {\n")
 		sb.WriteString("\t\tarray_push(&_args, make_string(_karkain_gargv[_i]));\n")
 		sb.WriteString("\t}\n")
+		sb.WriteString("\tkarkain_frame_leave();\n")
 		sb.WriteString("\treturn _args;\n")
 		sb.WriteString("}\n")
 		return sb.String()
@@ -130,6 +133,10 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 		}
 		fmt.Fprintf(&sb, "Value %s(%s) {\n", userFuncC(fn.Name), strings.Join(params, ", "))
 	}
+	// Phase 101: push a named frame so runtime errors report the Karkain call
+	// chain with a source file and line for each function.
+	fmt.Fprintf(&sb, "\tkarkain_frame_enter(%s, %s);\n", strconv.Quote(fn.Name), g.sourceBaseC())
+	fmt.Fprintf(&sb, "\tkarkain_set_line(%d);\n", fn.Line)
 	// Function parameters are bound directly by the signature — no copies needed.
 	// Their names serve as the variable cells.
 
@@ -177,7 +184,14 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 		case ssa.OpConst:
 			fmt.Fprintf(&sb, "\t%s = %s;\n", dest, arg(0))
 		case ssa.OpBinOp:
-			fmt.Fprintf(&sb, "\t%s = binary_op(%s, %q, %s);\n", dest, arg(0), in.OpStr, arg(1))
+			switch in.OpStr {
+			case "/":
+				fmt.Fprintf(&sb, "\t%s = karkain_checked_div(%s, %s, %s, %d);\n", dest, arg(0), arg(1), g.sourceBaseC(), in.Line)
+			case "%":
+				fmt.Fprintf(&sb, "\t%s = karkain_checked_mod(%s, %s, %s, %d);\n", dest, arg(0), arg(1), g.sourceBaseC(), in.Line)
+			default:
+				fmt.Fprintf(&sb, "\t%s = binary_op(%s, %q, %s);\n", dest, arg(0), in.OpStr, arg(1))
+			}
 		case ssa.OpUnOp:
 			fn2 := "karkain_negate"
 			if in.OpStr == "!" {
@@ -230,6 +244,7 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 			}
 			fmt.Fprintf(&sb, "\tgoto L_%s;\n", sanitizeC(in.JmpTarget))
 		case ssa.OpRet:
+			sb.WriteString("\tkarkain_frame_leave();\n")
 			if isMain {
 				sb.WriteString("\treturn 0;\n")
 			} else if len(in.Args) == 0 {
@@ -238,9 +253,9 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 				fmt.Fprintf(&sb, "\treturn %s;\n", arg(0))
 			}
 		case ssa.OpIndexGet:
-			fmt.Fprintf(&sb, "\t%s = array_or_string_get(%s, %s);\n", dest, arg(0), arg(1))
+			fmt.Fprintf(&sb, "\t%s = karkain_checked_get(%s, %s, %s, 0);\n", dest, arg(0), arg(1), g.sourceBaseC())
 		case ssa.OpIndexSet:
-			fmt.Fprintf(&sb, "\tindex_set(&%s, %s, %s);\n", arg(0), arg(1), arg(2))
+			fmt.Fprintf(&sb, "\tkarkain_checked_set(&%s, %s, %s, %s, 0);\n", arg(0), arg(1), arg(2), g.sourceBaseC())
 		case ssa.OpPrint:
 			fmt.Fprintf(&sb, "\tprint_value(%s);\n", arg(0))
 		case ssa.OpLoad:
@@ -264,6 +279,7 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 			emitInstr(in, b)
 		}
 	}
+	sb.WriteString("\tkarkain_frame_leave();\n")
 	sb.WriteString("}\n")
 	return sb.String()
 }
@@ -279,6 +295,7 @@ func (g *Generator) emitFunctionViaIR(prog *parser.Program, fn *parser.FuncDecl)
 
 	mod := &ssa.Module{}
 	sfn := mod.NewFunction(fn.Name)
+	sfn.Line = fn.Line
 	for _, p := range fn.Params {
 		sfn.Params = append(sfn.Params, ssa.BlockParam{Name: p, Ty: ssa.Value})
 	}

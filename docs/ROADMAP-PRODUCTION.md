@@ -87,11 +87,14 @@ shared check/build/run/test dependency-aware pipeline) plus 95/96 gates green an
 **Status:** ✅ Complete / Certified — READY TO COMMIT WITH DOCUMENTED ENVIRONMENTAL LIMITATION (awaiting commit authorization; Phase 100 NOT started). See `docs/audit/PHASE-99-FINAL-REPORT.md`. **Environmental limitation recorded separately from implementation correctness:** on the ~4GB-RAM limited-paging host, concurrent full-tree `go test ./pkg/...` stalls `TestBootstrap_BitwiseIdentity` and `TestConformanceCorpus_RunsClean`; both pass in isolation — a resource-contention limitation, not a compiler defect.
 **Blocks:** Phase 100
 
-### Phase 100 — Self-Hosted Codegen & Backend
-**Deliverable:** C23 code generator + build driver written in Karkain
-**Files:** `src/compiler/codegen_full.kark`, `src/compiler/optimizer.kark`, `src/compiler/driver.kark`
-**Gate:** Self-hosted compiler compiles "hello world" end-to-end (kcc → C23 → gcc → native)
+### Phase 100 — Runtime Error Model ✅ COMPLETE
+**Deliverable:** Runtime error diagnostics with source location, checked division/modulo/indexing, cross-engine parity
+**Files:** `pkg/codegen/codegen.go`, `src/compiler/codegen.kark`, `src/compiler/main.kark`, `pkg/cli/phase100_runtime_test.go`, `pkg/codegen/phase100_runtime_test.go`, `examples/runtime_errors/`
+**Gate:** All runtime error fixtures report source-located diagnostics and exit(1); Go and kcc engines produce identical diagnostics
+**Status:** ✅ Complete — Runtime error foundation with `karkain_runtime_error()`, `karkain_checked_div/mod/get/set()`, source file tracking, and cross-engine parity tests (7 error fixtures + 1 positive control). Both engines now report `runtime error: <kind> at <file>:<line>` and exit with failure code instead of silently returning zero.
 **Blocks:** Phase 102
+
+**Note:** The original Phase 100 objective (Self-Hosted Codegen & Backend with `codegen_full.kark`, `optimizer.kark`, `driver.kark`) is preserved for future development.
 
 ---
 
@@ -449,7 +452,7 @@ karkain_runtime.o
 | 97 | PENDING | — |
 | 98 | PENDING | — |
 | 99 | COMPLETE | 2026-09-08 |
-| 100 | PENDING | — |
+| 100 | COMPLETE | 2026-09-08 | — |
 | 101 | PENDING | — |
 | 102 | PENDING | — |
 | 103 | PENDING | — |

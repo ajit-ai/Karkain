@@ -1,0 +1,5 @@
+func main() {
+    let s = "hello"
+    let c = s[9]
+    print(c)
+}

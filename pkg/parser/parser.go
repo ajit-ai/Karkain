@@ -859,12 +859,12 @@ func (p *Parser) parseIdentStatement() Node {
 			}
 			// Single index: arr[i] = val or arr[i]
 			p.nextToken() // consume ']'
-			target = &IndexExpr{Left: target, Index: first}
+			target = &IndexExpr{Left: target, Index: first, Line: line}
 		}
 		if p.curToken.Type == lexer.TokenAssign {
 			p.nextToken() // consume '='
 			val := p.parseExpr()
-			return p.exprStmtAt(&BinaryExpr{Left: target, Operator: "=", Right: val}, line)
+			return p.exprStmtAt(&BinaryExpr{Left: target, Operator: "=", Right: val, Line: line}, line)
 		}
 		return p.exprStmtAt(target, line)
 	}

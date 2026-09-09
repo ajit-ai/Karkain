@@ -143,7 +143,7 @@ func buildFile(path, target) {
     }
 
     // Generate code
-    let output = generate(ast, target)
+    let output = generate(ast, target, fileBaseName(path))
 
     // Output result
     let outPath = replaceExtension(path, "." + target)
@@ -172,7 +172,7 @@ func runFile(path) {
     }
 
     // Generate C23 code
-    let cCode = generate(ast, "c23")
+    let cCode = generate(ast, "c23", fileBaseName(path))
 
     // Write to temp file
     let tempPath = "karkain_temp.c"
@@ -192,6 +192,24 @@ func runFile(path) {
     // Cleanup
     removeFile(tempPath)
     removeFile("karkain_temp")
+}
+
+// fileBaseName strips any leading directory components from a path (both "/"
+// and "\" separators) returning just the file name, e.g. "prog.kark". Runtime
+// error diagnostics embed this base name so every engine reports the same file.
+func fileBaseName(path) {
+    let i = len(path) - 1
+    let slash = -1
+    while (i >= 0) {
+        let ch = substr(path, i, 1)
+        if (ch == "/" || ch == "\\") {
+            slash = i
+            break
+        }
+        i = i - 1
+    }
+    if (slash == -1) { return path }
+    return substr(path, slash + 1, len(path) - slash - 1)
 }
 
 func replaceExtension(path, newExt) {
@@ -441,7 +459,7 @@ func compileRunDriver(driver) {
         printParserErrors(state)
         return 1
     }
-    let cCode = generate(ast, "c23")
+    let cCode = generate(ast, "c23", "karkain_test.c")
     let tempPath = "karkain_test.c"
     let f = createFile(tempPath)
     writeToFile(f, cCode)
