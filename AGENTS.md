@@ -13,8 +13,26 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-102** — Phases 50–100, 101, 102 complete (plus 102‑F
-language-foundation completion, committed).
+Current phase: **post-103** — Phases 50–100, 101, 102, 102‑F, 103 complete.
+Also completed: **103** — Module System v2 (Core)
+(`public` is a real export modifier accepted by BOTH engines: Go parser sets
+`.Public` on func/type/enum; self-hosted kcc gained a `TK_PUB` branch mirroring
+Go's parse-error contract (`public let` rejected on both engines). Qualified
+calls `math.twice(21)` now resolve against the imported module's export set in
+the Go resolver (`checkQualifiedCall`, `pkg/sema/resolve.go`) with precise
+diagnostics — private cross-module call, missing `import`, undefined module
+function, wrong-module target, cross-module duplicate — all exit 3. The
+self-hosted parser lowers dotted calls onto the flat `karkain_user_*`
+namespace identically for module qualifiers and record-idiom receivers
+(`acc.deposit(10)` == `math.twice(21)` == bare callee); `C.*` stays dotted for
+C-interop. Stdlib files are exempt from the private-export rule (framework API
+surface; physical `public` markers deferred to the Phase 109 stdlib-v2
+boundary). Acceptance: `examples/module_system/` byte-identical output on both
+engines; 4 rejection fixtures `examples/module_system_errors/`; gate
+`pkg/cli/phase103_module_test.go` (Go golden 4.8s, kcc golden 10.6s, kcc
+accept-check, rejections, compiler-sources self-check 41.9s); regressions:
+sema/parser/codegen/vet + Phase 97/99/100/101/102 + conformance 59/59 —
+all green. Report: `docs/audit/PHASE-103-MODULE-SYSTEM-FINAL-REPORT.md`.)
 Also completed: **99** — Self-Hosted Parser & Type Checker
 (Certified: READY TO COMMIT WITH DOCUMENTED ENVIRONMENTAL LIMITATION — committed
 and merged). **100** — Runtime Error Model (runtime error diagnostics with source

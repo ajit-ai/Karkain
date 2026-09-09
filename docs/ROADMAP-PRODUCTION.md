@@ -168,10 +168,26 @@ struct-literal keys); kcc `for` with empty init and `let`/`var` init; Go
 and compile units are the next language-layer deliverable.
 
 ### Phase 103 — Module System v2
-**Deliverable:** Proper module system with visibility, re-exports, compilation units
-**Files:** `pkg/pm/module.go`, `pkg/pm/compile_unit.go`
-**Gate:** Two-package project with `pub fn` → importing package compiles and calls correctly
-**Blocks:** None (independent)
+**Status: COMPLETE** (see `docs/audit/PHASE-103-MODULE-SYSTEM-FINAL-REPORT.md`)
+**Deliverable:** Core module system: export sets (`public` on func/type/enum),
+qualified-name resolution (`math.twice(21)` binds to the math module's public
+export), and the public/private cross-module visibility contract on BOTH
+engines (Go resolver + self-hosted kcc accepts `public` and lowers qualified
+calls onto the flat user-function namespace). Local/dotted `import` validated
+against the compile unit; stdlib modules exempt from the private-export rule
+(framework API surface; physical `public` markers deferred to stdlib v2).
+Re-exports/aliasing deferred to Module System v2.1.
+**Files:** `pkg/parser/ast.go` (`CallExpr.Module`), `pkg/parser/parser.go`,
+`pkg/parser/macro.go`, `pkg/sema/resolve.go` (`checkQualifiedCall`,
+`indexModules`, `isStdlibFile`), `src/compiler/ast.kark` (public slots),
+`src/compiler/parser.kark` (TK_PUB branch, qualified-call lowering),
+`examples/module_system/`, `examples/module_system_errors/`
+**Gate:** `pkg/cli/phase103_module_test.go` — Go golden (4.8s), kcc golden
+(10.6s, isolated kcc), kcc accept-check, 4 cross-module rejection fixtures
+(exit 3), compiler-sources self-check under kcc (41.9s); regressions:
+sema/parser/codegen/vet/Phase 97/99/100/101/102 green + conformance corpus
+59/59.
+**Blocks:** Tier 2 runtime adoption (codegen embedded-runtime + native build).
 
 ---
 
@@ -483,7 +499,7 @@ karkain_runtime.o
 | 101 | COMPLETE | 2026-09-09 |
 | 102 | COMPLETE | 2026-09-09 |
 | 102-F | COMPLETE | 2026-09-09 |
-| 103 | PENDING | — |
+| 103 | COMPLETE | 2026-09-09 |
 | 104 | PENDING | — |
 | 105 | PENDING | — |
 | 106 | PENDING | — |

@@ -494,8 +494,10 @@ gated by `pkg/cli/phase102_foundation_test.go`.
 | Maps | Y | literal, get/set/has, default-value semantics |
 | Structs | Y | `type T struct { ... }`, `,` and `;` field separators |
 | Records as methods | Y | record-as-first-argument idiom (no receiver syntax) |
-| Multi-file modules | Y | sibling assembly in one directory (kcc) |
+| Multi-file modules | Y | sibling assembly in one directory; qualified access `math.twice(21)` (Phase 103) |
 | Application layout | Y | parts of a project across files call each other |
+| Module `import` (sibling) | Y | `import math` qualifies calls within an assembly unit (Phase 103); no external package import |
+| Visibility (`public`) | Y | `public func/type/enum`; private cross-module calls rejected, exit 3 (Phase 103) |
 | Runtime error diagnostics | Y | div/mod-by-zero, array/string OOB (Phase 100) |
 | Stack traces on runtime error | Y | identical frames on both engines (Phase 101) |
 | `float64()` / `bool()` / `string()` casts | N | not accepted by either engine |
@@ -503,6 +505,63 @@ gated by `pkg/cli/phase102_foundation_test.go`.
 | `const` declarations | N | not part of the engine surface |
 | User `import` | N | deferred; sibling/module assembly only |
 | Visibility rules | N | deferred to module system v2 (Phase 103) |
+
+---
+
+## 15. Module System v2 (Core) — Phase 103
+
+Multi-file programs are compiled as a single assembly unit (sibling files in
+one directory, dependency files first, root file last). Within a unit,
+files form modules by name and calls resolve through the module contract.
+
+### 15.1 `public` export modifier
+
+`public` may prefix `func`, `type`, or `enum` declarations. It is the gate for
+cross-module access: a declaration without `public` is private to its file and
+cannot be called by another module.
+
+```
+# math.kark
+public func twice(x int) int { return x * 2 }
+func secret(x int) int { return x * 3 }   # private
+
+# main.kark
+import math
+func main() {
+    println(math.twice(21))     # 42
+}
+```
+
+`public` before `let`/`var` is a parse error on both engines (only
+func/type/enum are exportable in the Core phase). Stdlib files are exempt from
+the private rule: stdlib functions are framework API surface and physical
+`public` markers land with the stdlib-v2 boundary (Phase 109).
+
+### 15.2 Qualified calls
+
+`module.function(args)` — in expression and statement position — binds to the
+named module's public export. The self-hosted engine lowers qualified calls to
+the same flat user-function symbol as bare calls; record-idiom receiver calls
+(`acc.deposit(10)`) use the same AST shape and are interchangeable in codegen.
+`C.*` remains reserved for C interop (dotted, not module-resolved).
+
+### 15.3 Diagnostics (exit 3)
+
+| Condition | Diagnostic |
+|-----------|------------|
+| caller lacks `import module` | `module 'm' is not imported; add 'import m'` |
+| qualifier is not a unit file | `module 'm' is not part of the compile unit` |
+| undefined function | `function 'x' is not defined` |
+| wrong module | `function 'x' is not exported by module 'm' (defined in '...')` |
+| private | `function 'x' in module 'm' is private and cannot be called by another module` |
+| collision | existing flat-unit duplicate-definition diagnostic |
+
+### 15.4 Deferred to Module System v2.1
+
+Re-exports (`import math.expose ...`), aliasing (`import math as m`),
+`public let/var` value exports, and cross-module qualified *construction* of
+private types (parsing records `.Public` on struct/enum; check stays
+conservative in Core).
 
 ---
 

@@ -50,3 +50,5 @@ temp/
 /src/compiler/main.c
 examples/language_foundation/**/*.c
 examples/language_foundation/**/*.c23
+examples/module_system/**/*.c
+examples/module_system/**/*.c23

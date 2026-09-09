@@ -1,0 +1,11 @@
+// main.kark — Phase 103 module consumption. Imports the sibling math module
+// and calls its public exports with qualified names; a private cross-module
+// call must be rejected by `karkain check` on the Go engine.
+// Run (from inside module_system/):  karkain run main.kark
+
+import math
+
+func main() {
+    print(math.twice(21))
+    print(math.square(3))
+}
