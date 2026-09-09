@@ -1,0 +1,9 @@
+// main_wrongmodule.kark — must be rejected: lib does not export any
+// `nothere`, so the qualified call names an undefined function (Go engine
+// check, exit 3).
+
+import lib
+
+func main() {
+    print(lib.nothere())
+}

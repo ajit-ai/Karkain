@@ -1,0 +1,8 @@
+// main_private.kark — must be rejected: hiddenSecret is not public, so a
+// cross-module qualified call is illegal (Go engine check, exit 3).
+
+import lib
+
+func main() {
+    print(lib.hiddenSecret())
+}

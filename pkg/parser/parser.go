@@ -919,10 +919,19 @@ func (p *Parser) parseIdentStatement() Node {
 				p.advanceIfStalled(start, "function call arguments")
 			}
 			p.nextToken() // consume ')'
+			callName := rightIdent
+			isCFunc := ident == "C"
+			module := ""
+			if isCFunc {
+				callName = "C." + rightIdent
+			} else if ident != "" {
+				module = ident
+			}
 			return p.exprStmtAt(&CallExpr{
-				Function: ident + "." + rightIdent,
+				Function: callName,
+				Module:   module,
 				Args:     args,
-				IsCFunc:  ident == "C",
+				IsCFunc:  isCFunc,
 				Line:     line,
 				Col:      identCol,
 				EndCol:   identCol + len(ident) + 1 + len(rightIdent),
@@ -1504,17 +1513,22 @@ func (p *Parser) parseIdentExpr() Node {
 				return &EnumVariantExpr{EnumName: ident, Variant: rightIdent, Value: val}
 			}
 
-			// Module-qualified calls (e.g. math.twice(...)) compile into the same
-			// flat namespace as bare calls: the concatenated unit defines every
-			// symbol globally, so the module prefix is normalized away. C.* calls
-			// keep their qualifier so codegen can emit raw C invocations.
+			// Module-qualified calls (e.g. math.twice(...)) keep their module
+			// qualifier so the resolver can validate the call against the
+			// module's export set (Phase 103). The flat C symbol model means
+			// the emitted function name stays bare. C.* calls keep their
+			// qualifier inside the name so codegen can emit raw C invocations.
 			callName := rightIdent
 			isCFunc := ident == "C"
+			module := ""
 			if isCFunc {
 				callName = "C." + rightIdent
+			} else if ident != "" {
+				module = ident
 			}
 			return &CallExpr{
 				Function: callName,
+				Module:   module,
 				Args:     args,
 				IsCFunc:  isCFunc,
 				Col:      identCol,
