@@ -78,6 +78,25 @@ self-hosted sources); GMP remains an intentional isolated boundary deferred to
 Phase 109; pre-existing limitation (not a blocker): closure/`fn` codegen is broken
 on both engines, covered by no gate, out of Phase 101 scope — docs under
 `docs/audit/PHASE-101-FINAL-REPORT.md`).
+Also completed: **102** — Native Runtime Core
+(Karkain-owned libc-free runtime foundation `runtime/core/` stacked directly on
+the Phase 101 freestanding layer: `karkain_mem` heap with real
+`alloc/calloc/realloc/free` on an address-sorted coalescing free list; tagged
+`Value` int/float/bool/string/array with codegen-parity naming/layout
+(`ValueType`, `TYPE_*`, `make_int/…/make_array`, `values_equal`,
+`value_truthy`); length-prefixed native strings `NativeString` (concat/slice/
+compare/startswith/Value round-trip); native arrays `NativeArray`
+(push/pop/get/set/clear, codegen-parity `Value** items` storage); value-level
+I/O on freestanding write primitives; gate `pkg/runtime/phase102_core_test.go`
+compiles core+freestanding with `-ffreestanding -nostdlib` and asserts exact
+output. Directly-related freestanding fixes: `karkain_memory.c` rewritten as a
+linked-segment arena (old arena reloc'd every outstanding pointer on grow and
+could fail to make room — only guaranteed `add>=need`, not `add>=used+need`;
+the old hello gate only ever allocated once, so it never tripped) +
+`karkain_arena_reset`; `karkain_mem_reset` clears heap bookkeeping after arena
+teardown. Compilers untouched (both engines keep passing); GMP/bigfloat and
+map/option/result stay behind the Phase 109 boundary; codegen embedded-runtime
+adoption is a future phase. Docs under `docs/audit/PHASE-102-FINAL-REPORT.md`).
 Also completed: **98** — NPU Integration into Compiler
 (`@target(...)` function attribute implemented end-to-end: parser attaches the
 attribute to `FuncDecl` (`pkg/parser/ast.go` `Target`, `parseTargetAttr` in

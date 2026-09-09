@@ -118,27 +118,35 @@ If this fails: STOP. Fix self-hosted compiler before continuing.
 **Goal: Karkain programs run without libc**
 
 ### Phase 101 — Karkain Runtime Library (libc-free)
+**Status: COMPLETE** (see `docs/audit/PHASE-101-FINAL-REPORT.md`)
 **Deliverable:** Self-contained C runtime with arena allocator, raw syscalls, no libc
 **Files:**
 ```
 runtime/
 ├── karkain_runtime.c      # Entry point, panic, print
-├── karkain_memory.c       # Arena allocator (mmap/VirtualAlloc)
+├── karkain_memory.c       # Linked-segment arena allocator (mmap/VirtualAlloc)
 ├── karkain_string.c       # String operations
 ├── karkain_io.c           # File I/O via syscalls
 ├── karkain_math.c         # Math (no libm)
 ├── karkain_platform.h     # Linux/macOS/Windows syscall abstraction
-├── karkain_threads.c      # Thread pool
-└── karkain_tls.c          # Thread-local storage
+└── karkain_platform.c     # Windows/POSIX raw-syscall implementation
 ```
-**Gate:** Runtime compiles with `gcc -ffreestanding -nostdlib` on Linux, produces working executable that prints "hello" and exits
+**Gate:** Runtime compiles with `gcc -ffreestanding -nostdlib` on Windows/Linux, produces working executable that prints "hello" and exits
 **Blocks:** Phase 102
 
-### Phase 102 — Integrated Build System
-**Deliverable:** `karkain build --target=native` drives full pipeline without user invoking GCC
-**Files:** `pkg/cli/build_v2.go`, `pkg/cli/run_v2.go`
-**Gate:** `karkain build --target=native examples/hello.kark` produces working executable, user never sees GCC
-**Blocks:** Phase 103
+### Phase 102 — Native Runtime Core
+**Status: COMPLETE** (see `docs/audit/PHASE-102-FINAL-REPORT.md`)
+**Deliverable:** Karkain-owned libc-free runtime core on the freestanding
+layer: memory management (alloc/calloc/realloc/free), tagged `Value`,
+native strings, native arrays, value-level I/O — layout-compatible with the
+codegen embedded runtime for drop-in adoption.
+**Files:** `runtime/core/` (`karkain_mem.c`, `karkain_value.c`,
+`karkain_nstr.c`, `karkain_narr.c`, `karkain_core_io.c`)
+**Gate:** `go test ./pkg/runtime/ -run TestPhase102` compiles
+core+freestanding with `gcc -ffreestanding -nostdlib`, runs a program
+exercising all core components, asserts exact output
+**Blocks:** Phase 103 (codegen embedded-runtime adoption + native build
+system remain future work under the runtime-independence umbrella)
 
 ### Phase 103 — Module System v2
 **Deliverable:** Proper module system with visibility, re-exports, compilation units
