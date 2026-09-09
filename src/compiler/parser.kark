@@ -631,7 +631,12 @@ func parseFor(state) {
         let varName = psCurLiteral(state)
         psAdvance(state) // var
         psAdvance(state) // in
+        // Keep the upcoming body '{' from being absorbed as a struct or map
+        // literal continuation of the iterator expression.
+        let saved = psNoStructAtBrace(state)
+        setPsNoStructAtBrace(state, 1)
         let iter = parseExpr(state)
+        setPsNoStructAtBrace(state, saved)
         if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
         let body = parseBlock(state)
         if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
@@ -643,7 +648,11 @@ func parseFor(state) {
 
     let init = []
     if (psCurKind(state) != TK_SEMICOLON()) {
-        init = parseExpr(state)
+        if (psCurKind(state) == TK_LET() || psCurKind(state) == TK_VAR()) {
+            init = parseVarDecl(state)
+        } else {
+            init = parseExpr(state)
+        }
     }
     if (psCurKind(state) == TK_SEMICOLON()) { psAdvance(state) }
 
@@ -685,6 +694,7 @@ func parseStructDecl(state) {
         psAdvance(state)
         fields = appendArray(fields, fieldName + ":" + fieldType)
         if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+        if (psCurKind(state) == TK_SEMICOLON()) { psAdvance(state) }
     }
 
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
@@ -906,6 +916,31 @@ func parsePrimary(state) {
         return parseIdentOrCall(state)
     }
 
+    // Match expression
+    if (kind == TK_MATCH()) {
+        return parseMatchExpr(state)
+    }
+
+    // Builtin cast call: int(x). The int type keyword is also a cast name;
+    // the Go lexer emits an ident for it, so calls parse there and not here.
+    if (kind == TK_INT()) {
+        let tname = psCurLiteral(state)
+        let tline = psLine(state)
+        psAdvance(state)
+        if (psCurKind(state) == TK_LPAREN()) {
+            psAdvance(state)
+            let targs = []
+            while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
+                let targ = parseExpr(state)
+                if (targ != []) { targs = appendArray(targs, targ) }
+                if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+            }
+            if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+            return makeCall(tname, targs, tline, 0)
+        }
+        return []
+    }
+
     return []
 }
 
@@ -1022,4 +1057,116 @@ func parseMapLit(state) {
 
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
     return makeMapLit(keys, values, line)
+}
+
+// ============================================================
+// Parse match expression: match value { pattern => body, ... }
+// Mirrors Go pkg/parser.parseMatchExpr (Phase 42).
+// ============================================================
+
+func parseMatchExpr(state) {
+    let line = psLine(state)
+    psAdvance(state) // consume 'match'
+
+    // Parse the match value without going through parseIdentOrCall, so an
+    // identifier is not mistaken for a struct literal at the arm opener '{'.
+    let value = []
+    let vk = psCurKind(state)
+    if (vk == TK_IDENT()) {
+        value = makeIdent(psCurLiteral(state), psLine(state), 0)
+        psAdvance(state)
+    } else if (vk == TK_INT_LIT() || vk == TK_STRING_LIT() || vk == TK_FLOAT_LIT() || vk == TK_TRUE() || vk == TK_FALSE()) {
+        value = parsePrimary(state)
+    } else if (vk == TK_LPAREN()) {
+        psAdvance(state)
+        value = parseExpr(state)
+        if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    } else {
+        value = parseExpr(state)
+    }
+
+    if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
+
+    let arms = []
+    while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
+        let pType = ""
+        let pBinding = ""
+        let pValue = []
+        let pkind = psCurKind(state)
+
+        if (pkind == TK_SOME()) {
+            pType = "Some"
+            psAdvance(state)
+            if (psCurKind(state) == TK_LPAREN()) {
+                psAdvance(state)
+                pBinding = psCurLiteral(state)
+                psAdvance(state)
+                if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+            }
+        } else if (pkind == TK_NONE()) {
+            pType = "None"
+            psAdvance(state)
+        } else if (pkind == TK_OK()) {
+            pType = "Ok"
+            psAdvance(state)
+            if (psCurKind(state) == TK_LPAREN()) {
+                psAdvance(state)
+                pBinding = psCurLiteral(state)
+                psAdvance(state)
+                if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+            }
+        } else if (pkind == TK_ERR()) {
+            pType = "Err"
+            psAdvance(state)
+            if (psCurKind(state) == TK_LPAREN()) {
+                psAdvance(state)
+                pBinding = psCurLiteral(state)
+                psAdvance(state)
+                if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+            }
+        } else if (pkind == TK_INT_LIT() || pkind == TK_STRING_LIT() || pkind == TK_FLOAT_LIT() || pkind == TK_TRUE() || pkind == TK_FALSE()) {
+            pType = "literal"
+            pValue = parsePrimary(state)
+        } else if (pkind == TK_IDENT()) {
+            let nm = psCurLiteral(state)
+            if (nm == "_") {
+                pType = "wildcard"
+                psAdvance(state)
+            } else {
+                pType = "binding"
+                pBinding = nm
+                psAdvance(state)
+            }
+        } else {
+            // Unknown pattern token: skip it so the loop cannot stall.
+            psAdvance(state)
+        }
+
+        if (psCurKind(state) == TK_FAT_ARROW()) { psAdvance(state) }
+
+        // Body: block, print statement, or a bare expression.
+        let body = []
+        let bk = psCurKind(state)
+        if (bk == TK_LBRACE()) {
+            psAdvance(state)
+            let inner = parseBlock(state)
+            if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
+            body = makeBlock(inner)
+        } else if (bk == TK_PRINT()) {
+            body = parsePrint(state)
+        } else {
+            let bexpr = parseExpr(state)
+            if (bexpr != []) { body = makeExprStmt(bexpr, psLine(state)) }
+        }
+
+        arms = appendArray(arms, makeMatchArm(pType, pBinding, pValue, body, psLine(state)))
+
+        if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+        if (psCurKind(state) != TK_COMMA() && psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
+            psAdvance(state)
+        }
+    }
+
+    if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
+    return makeMatch(value, arms, line)
 }

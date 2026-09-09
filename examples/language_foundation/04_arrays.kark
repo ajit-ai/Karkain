@@ -1,0 +1,24 @@
+// 04_arrays.kark — arrays: index access, mutation, append, slicing, iteration.
+// Run:  karkain run examples/language_foundation/04_arrays.kark
+
+func main() {
+    let nums = [1, 2, 3, 4, 5]
+    print(len(nums))
+    print(nums[0])
+    nums[4] = 99
+    print(nums[4])
+    appendArray(nums, 6)
+    print(len(nums))
+
+    let grid = [[1, 2], [3, 4]]
+    print(grid[1][0])
+
+    let sliced = nums[1:3]
+    print(sliced)
+
+    let total = 0
+    for v in nums {
+        total = total + v
+    }
+    print(total)
+}

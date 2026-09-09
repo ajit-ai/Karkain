@@ -1,0 +1,9 @@
+// main.kark — entry point for the modules example. double/square/describeMath
+// live in the sibling module file math.kark (same directory).
+// Run:  karkain run examples/language_foundation/modules/main.kark
+
+func main() {
+    print(double(21))
+    print(square(9))
+    print(describeMath())
+}

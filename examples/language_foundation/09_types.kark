@@ -1,0 +1,19 @@
+// 09_types.kark — typed variables, arithmetic, math builtins, casts.
+// Run:  karkain run examples/language_foundation/09_types.kark
+
+func main() {
+    let a: int = 10
+    let b: int = 4
+    let f: float64 = 9.0
+    print(a + b)
+    print(a - b)
+    print(a * b)
+    print(a / b)
+    print(a % b)
+    print(f / 2)
+    print(sqrt(16))
+    print(abs(-3))
+    print(pow(2, 10))
+    print(int(f))
+    print(str(a))
+}

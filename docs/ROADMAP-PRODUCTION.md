@@ -148,6 +148,25 @@ exercising all core components, asserts exact output
 **Blocks:** Phase 103 (codegen embedded-runtime adoption + native build
 system remain future work under the runtime-independence umbrella)
 
+### Phase 102-F — Language Foundation Completion (implemented within 102)
+**Status: COMPLETE** (see `docs/audit/PHASE-102-LANGUAGE-FOUNDATION-FINAL-REPORT.md`)
+**Deliverable:** The baseline language surface round-tripped on BOTH engines
+(Go front end and self-hosted kcc) with a golden-output corpus. Cross-engine
+parity fixes: kcc `parseStructDecl` `;` field-separator drop (lost every
+function after `{ owner string; balance int }`); Go BorrowChecker `fnRoot`
+scope flag (function params no longer poison the global scope / false-flag
+struct-literal keys); kcc `for` with empty init and `let`/`var` init; Go
+`genForStmt` double-`;;`.
+**Files:** `examples/language_foundation/` (13 targets incl. `modules/` and
+`application/`), `pkg/cli/phase102_foundation_test.go`, fixes in
+`src/compiler/parser.kark`, `src/compiler/codegen.kark`,
+`pkg/sema/borrow_checker.go`, `pkg/codegen/codegen.go`
+**Gate:** `go test ./pkg/cli -run TestPhase102` — Go golden (44.6s), kcc golden
+(30.5s, isolated kcc), compiler-sources self-check under kcc (55.6s); Phase
+99/100/101 regressions green; `go vet` clean.
+**Blocks:** Phase 103 (Module System v2) — user `import`, visibility re-exports,
+and compile units are the next language-layer deliverable.
+
 ### Phase 103 — Module System v2
 **Deliverable:** Proper module system with visibility, re-exports, compilation units
 **Files:** `pkg/pm/module.go`, `pkg/pm/compile_unit.go`
@@ -453,16 +472,17 @@ karkain_runtime.o
 | Phase | Status | Date Completed |
 |-------|--------|----------------|
 | 92 | COMPLETE | 2026-09-06 |
-| 93 | PENDING | — |
-| 94 | PENDING | — |
-| 95 | PENDING | — |
-| 96 | PENDING | — |
-| 97 | PENDING | — |
-| 98 | PENDING | — |
+| 93 | COMPLETE | 2026-09-06 |
+| 94 | COMPLETE | 2026-09-06 |
+| 95 | COMPLETE | 2026-09-06 |
+| 96 | COMPLETE | 2026-09-06 |
+| 97 | COMPLETE | 2026-09-08 |
+| 98 | COMPLETE | 2026-09-08 |
 | 99 | COMPLETE | 2026-09-08 |
-| 100 | COMPLETE | 2026-09-08 | — |
-| 101 | PENDING | — |
-| 102 | PENDING | — |
+| 100 | COMPLETE | 2026-09-08 |
+| 101 | COMPLETE | 2026-09-09 |
+| 102 | COMPLETE | 2026-09-09 |
+| 102-F | COMPLETE | 2026-09-09 |
 | 103 | PENDING | — |
 | 104 | PENDING | — |
 | 105 | PENDING | — |

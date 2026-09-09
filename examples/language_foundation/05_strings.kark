@@ -1,0 +1,18 @@
+// 05_strings.kark — strings: concat, length, indexing, slicing, comparison, casts.
+// Run:  karkain run examples/language_foundation/05_strings.kark
+
+func main() {
+    let hello = "Hello"
+    let world = "World"
+    let greeting = hello + ", " + world + "!"
+    print(greeting)
+    print(len(greeting))
+    print(greeting[0])
+    print(greeting[7])
+    print(greeting[1:5])
+    print(hello == "Hello")
+    print(hello != world)
+    print(str(42))
+    print(int("99"))
+    print(str(3.5))
+}

@@ -1621,6 +1621,8 @@ func (p *Parser) parseStructDecl() *StructDeclStmt {
 		fields = append(fields, StructField{Name: fieldName, Type: fieldType})
 		if p.curToken.Type == lexer.TokenComma {
 			p.nextToken() // consume ','
+		} else if p.curToken.Type == lexer.TokenSemicolon {
+			p.nextToken() // consume ';'
 		}
 	}
 	p.nextToken() // consume '}'

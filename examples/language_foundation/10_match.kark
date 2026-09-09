@@ -1,0 +1,31 @@
+// 10_match.kark — checked arithmetic returning Option, matched with Some/None;
+// match as a value-producing expression.
+// Run:  karkain run examples/language_foundation/10_match.kark
+
+func main() {
+    let r1 = add_checked(100, 200)
+    match r1 {
+        Some(v) => print(v),
+        None => print("overflow")
+    }
+
+    let r2 = mul_checked(4611686018427387904, 2)
+    match r2 {
+        Some(v) => print(v),
+        None => print("overflow")
+    }
+
+    let r3 = sub_checked(10, 3)
+    match r3 {
+        Some(v) => print(v),
+        None => print("underflow")
+    }
+
+    let x = 3
+    let label = match x {
+        1 => "one",
+        3 => "three",
+        _ => "other"
+    }
+    print(label)
+}

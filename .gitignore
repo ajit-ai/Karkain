@@ -48,3 +48,5 @@ kcc-tests/*.c
 temp/
 # Bootstrap stage-1 generated self-host output
 /src/compiler/main.c
+examples/language_foundation/**/*.c
+examples/language_foundation/**/*.c23

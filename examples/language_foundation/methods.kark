@@ -1,0 +1,25 @@
+// methods.kark — the repository's method pattern: records plus free functions
+// that take the record as their first argument. Karkain has no receiver-method
+// syntax; this is the supported idiom.
+// Run:  karkain run examples/language_foundation/methods.kark
+
+type Counter struct { value int }
+
+func increment(c, by) {
+    c.value = c.value + by
+    return c
+}
+
+func read(c) {
+    return c.value
+}
+
+func main() {
+    let c = Counter{value: 0}
+    let c2 = increment(c, 5)
+    print(read(c2))
+
+    let c3 = increment(c, 10)
+    print(read(c3))
+    print(c.value)
+}

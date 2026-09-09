@@ -1,0 +1,19 @@
+// 02_functions.kark — function declarations, parameters, returns.
+// Run:  karkain run examples/language_foundation/02_functions.kark
+
+func add(a, b) { return a + b }
+
+func sub(a, b) { return a - b }
+
+func describe(x) {
+    print("value is " + str(x))
+    return x * 10
+}
+
+func main() {
+    print(add(10, 20))
+    print(sub(10, 20))
+    let r = describe(7)
+    print(r)
+    print(add(add(1, 2), add(3, 4)))
+}

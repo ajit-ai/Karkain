@@ -468,6 +468,42 @@ function calls use the `C.` prefix (`C.sqrt(...)`). FFI package
 | Concurrency stdlib | Actor/coroutine runtimes partial | Phases 57, 63 |
 | wasm32-wasi | Compile-only, no runtime execution | Ã¢â‚¬â€ |
 
+| Capability summary | See section 14 (Language Foundation) | Phase 102-F |
+
+---
+
+## 14. Capability Summary (Language Foundation)
+
+Status legend: **Y** = works identically on both engines (Go front end and the
+self-hosted `kcc` engine); **N** = not supported on either engine (kept out of
+the foundation corpus; parity preserved). Golden-output corpus:
+`examples/language_foundation/` (13 targets incl. `modules/` and `application/`),
+gated by `pkg/cli/phase102_foundation_test.go`.
+
+| Capability | Status | Notes |
+|------------|--------|-------|
+| Variables, `let`/`var` | Y | int/float/bool/string scalar typing |
+| Literals & arithmetic | Y | `+ - * / %`, precedence, comparisons |
+| Functions & returns | Y | params, named returns, multiple call sites |
+| Recursion | Y | factorial / fibonacci / fib-sum probes |
+| Arrays | Y | literal, `push`/`pop`/`get`/`set`, length, index assign |
+| Strings | Y | concat, index, length, prefix check |
+| `if` / `elif` / `else` | Y | incl. unparenthesized condition |
+| Loops | Y | `while`; C-style `for` with empty init; `for (let i = ...)` |
+| `match` | Y | int and string discriminants, wildcard arm |
+| Maps | Y | literal, get/set/has, default-value semantics |
+| Structs | Y | `type T struct { ... }`, `,` and `;` field separators |
+| Records as methods | Y | record-as-first-argument idiom (no receiver syntax) |
+| Multi-file modules | Y | sibling assembly in one directory (kcc) |
+| Application layout | Y | parts of a project across files call each other |
+| Runtime error diagnostics | Y | div/mod-by-zero, array/string OOB (Phase 100) |
+| Stack traces on runtime error | Y | identical frames on both engines (Phase 101) |
+| `float64()` / `bool()` / `string()` casts | N | not accepted by either engine |
+| Closures / `fn` codegen | N | known broken on both engines |
+| `const` declarations | N | not part of the engine surface |
+| User `import` | N | deferred; sibling/module assembly only |
+| Visibility rules | N | deferred to module system v2 (Phase 103) |
+
 ---
 
 ## Appendix A: Keyword Reference Table

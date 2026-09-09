@@ -1,0 +1,10 @@
+// math.kark — a user module. User modules are plain sibling-source files in
+// the same directory: the compiler assembles them in deterministic order, so
+// main.kark can call double/square/describeMath directly (no import statement).
+// Run:  karkain run examples/language_foundation/modules/main.kark
+
+func double(x) { return 2 * x }
+
+func square(x) { return x * x }
+
+func describeMath() { return "module math" }
