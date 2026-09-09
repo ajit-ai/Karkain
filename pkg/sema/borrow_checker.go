@@ -48,6 +48,13 @@ type scope struct {
 	// Phase 51: names whose binding lifetime ended at this scope. An identifier
 	// resolving to a dead name (with no live shadow) is a use-after-scope-end.
 	dead map[string]bool
+	// fnRoot marks the top-level scope of a function declaration. Popping a
+	// function root scope must NOT propagate dead names into the enclosing
+	// (program/global) scope: otherwise a parameter of an earlier function
+	// (e.g. "balance") would poison later identifiers with the same name
+	// anywhere in the assembled program (struct field keys, member names),
+	// producing false use-after-scope-end diagnostics across functions.
+	fnRoot bool
 }
 
 func (s *scope) lookup(name string) (*varEntry, *scope) {
@@ -107,12 +114,14 @@ func (bc *BorrowChecker) popScope() {
 	}
 	// Mark every binding introduced in this scope as dead in the parent. Any
 	// later reference to these names (with no live shadow) is a use-after-scope.
-	parent := bc.scope.parent
-	if parent != nil {
+parent := bc.scope.parent
+if parent != nil && !bc.scope.fnRoot {
 		for _, name := range bc.scope.decls {
 			parent.dead[name] = true
 		}
-		// Propagate usage counts to parent for linear type checking
+	}
+	// Propagate usage counts to parent for linear type checking
+	if parent != nil {
 		for name, count := range bc.scope.usage {
 			parent.usage[name] += count
 		}
@@ -331,6 +340,7 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 		bc.popScope()
 	case *parser.LambdaExpr:
 		bc.pushScope()
+		bc.scope.fnRoot = true
 		for i, param := range n.Params {
 			typeName := ""
 			if i < len(n.ParamTypes) {
@@ -355,6 +365,7 @@ func (bc *BorrowChecker) checkBlock(block []parser.Node) {
 
 func (bc *BorrowChecker) checkFuncDecl(n *parser.FuncDecl) {
 	bc.pushScope()
+	bc.scope.fnRoot = true
 	// Declare every owned function parameter as a live binding in the
 	// function's scope. A parameter is alive for the entire function body.
 	// Without this, a reference to a parameter would be treated as an unknown

@@ -13,7 +13,8 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-100** — Phases 50–100 complete.
+Current phase: **post-102** — Phases 50–100, 101, 102 complete (plus 102‑F
+language-foundation completion, committed).
 Also completed: **99** — Self-Hosted Parser & Type Checker
 (Certified: READY TO COMMIT WITH DOCUMENTED ENVIRONMENTAL LIMITATION — committed
 and merged). **100** — Runtime Error Model (runtime error diagnostics with source
@@ -97,6 +98,35 @@ the old hello gate only ever allocated once, so it never tripped) +
 teardown. Compilers untouched (both engines keep passing); GMP/bigfloat and
 map/option/result stay behind the Phase 109 boundary; codegen embedded-runtime
 adoption is a future phase. Docs under `docs/audit/PHASE-102-FINAL-REPORT.md`).
+Also completed: **102‑F** — Language Foundation Completion
+(Language surface round-trip proven on BOTH engines with a golden-output
+corpus: 13 targets under `examples/language_foundation/` (variables→functions→
+recursion→arrays→strings→collections→control flow→structs→methods(record
+idiom)→modules(sibling assembly)→application layout→error handling) producing
+byte-identical stdout + exit codes on Go and kcc engines. Cross-engine parity
+bugs fixed: kcc `parseStructDecl` dropped every top-level function after a `;`
+field separator (`{ owner string; balance int }` ate the source to the next
+`}`) — the application `deposit()` regression; Go BorrowChecker `fnRoot`
+flag stops dead-name propagation out of function/lambda root scopes (params no
+longer poison the global scope and false-flag struct-literal keys like
+`Counter{ value: 0 }` as "used after scope end"); kcc C-style `for` empty-init
+`for (; k < 3; ...)` and `for (let i = 0; ...)` (parseFor let/var init +
+`"; "`/`is_truthy()` emission in `src/compiler/parser.kark`/`codegen.kark`);
+Go `genForStmt` double-`;;` on let-init trim in `pkg/codegen/codegen.go`.
+Gates `pkg/cli/phase102_foundation_test.go`: Go golden 44.6s PASS, kcc golden
+(13 targets, isolated kcc) 30.5s PASS, compiler-sources self-check
+(`check --engine kcc` of `src/compiler/main.kark`, Phase 99 gate survival)
+55.6s PASS; targeted regressions green: Phase 99 self-hosted
+(CorpusAccept/CrossFileDuplicate/ErrorFixtures 14/14/CompilerSourcesTypeCheck
+58.8s), Phase 100 runtime parity, Phase 101 stack parity, pkg/codegen Phase 100,
+pkg/sema Phase 51 borrow; `go vet` clean; `karkain fmt` semantic-preserving.
+Not supported on either engine (kept out of corpus, parity preserved):
+`float64()/bool()/string()` casts, closures/`fn` codegen, `const`, user
+`import`, visibility. Known environmental limitation (not a defect): on the
+~4GB-RAM host kcc BUILD mode for the full compiler sources OOM-stalls/SEGFAULTs
+(known class, see Phase 99/101 notes); the low-memory `check` path passes.
+Docs under `docs/audit/PHASE-102-LANGUAGE-FOUNDATION-FINAL-REPORT.md` +
+SPEC §14 Capability Summary).
 Also completed: **98** — NPU Integration into Compiler
 (`@target(...)` function attribute implemented end-to-end: parser attaches the
 attribute to `FuncDecl` (`pkg/parser/ast.go` `Target`, `parseTargetAttr` in

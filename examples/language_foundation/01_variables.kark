@@ -1,0 +1,22 @@
+// 01_variables.kark — variables, literals, types, arithmetic.
+// Run:  karkain run examples/language_foundation/01_variables.kark
+
+func main() {
+    let name = "Karkain"
+    var age = 29
+    let pi = 3.14159
+    let ok = true
+    let count = 100
+
+    age = age + 1
+    print(name)
+    print(age)
+    print(pi)
+    print(ok)
+    print(count * 2)
+
+    let a: int = 5
+    let b: float64 = 2.5
+    print(a)
+    print(b)
+}

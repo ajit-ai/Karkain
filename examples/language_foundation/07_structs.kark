@@ -1,0 +1,26 @@
+// 07_structs.kark — records: type declaration, construction, field access/mutation.
+// Run:  karkain run examples/language_foundation/07_structs.kark
+
+type Person struct { name string; age int }
+
+type Point struct { x int; y int }
+
+func birthday(p) {
+    p.age = p.age + 1
+    return p
+}
+
+func main() {
+    let alice = Person{name: "Alice", age: 30}
+    print(alice.name)
+    print(alice.age)
+    alice.age = 31
+    print(alice.age)
+
+    let aged = birthday(alice)
+    print(aged.age)
+
+    let origin = Point{x: 0, y: 0}
+    print(origin.x)
+    print(origin.y)
+}

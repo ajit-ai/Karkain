@@ -1,0 +1,18 @@
+// 03_recursion.kark — recursion: factorial and fibonacci.
+// Run:  karkain run examples/language_foundation/03_recursion.kark
+
+func factorial(n) {
+    if (n <= 1) { return 1 }
+    return n * factorial(n - 1)
+}
+
+func fib(n) {
+    if (n <= 1) { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+func main() {
+    print(factorial(10))
+    print(factorial(0))
+    print(fib(10))
+}

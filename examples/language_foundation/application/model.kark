@@ -1,0 +1,13 @@
+// model.kark — data model for the multi-file application example.
+// Run (from inside application/):  karkain run main.kark
+
+type Account struct { owner string; balance int }
+
+func deposit(a, amount) {
+    a.balance = a.balance + amount
+    return a
+}
+
+func formatAccount(a) {
+    return a.owner + ": " + str(a.balance)
+}

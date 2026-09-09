@@ -1,0 +1,14 @@
+// main.kark — multi-file application entry point. The Account type and helpers
+// live in the sibling files model.kark and math.kark (same directory).
+// Run (from inside application/):  karkain run main.kark
+
+func main() {
+    let acc = Account{owner: "Ada", balance: 1000}
+    print(formatAccount(acc))
+
+    let grown = deposit(acc, 250)
+    print(formatAccount(grown))
+
+    print(interest(grown.balance, 5))
+    print(interest(1000, 10))
+}

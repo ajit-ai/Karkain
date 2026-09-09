@@ -1,0 +1,6 @@
+// math.kark — shared arithmetic helpers for the application example.
+// Run (from inside application/):  karkain run main.kark
+
+func interest(balance, rate) {
+    return balance * rate / 100
+}

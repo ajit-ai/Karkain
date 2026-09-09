@@ -1,0 +1,30 @@
+// 06_control_flow.kark — while, for-in, C-style for, break/continue, if/else.
+// Run:  karkain run examples/language_foundation/06_control_flow.kark
+
+func main() {
+    let i = 0
+    while (i < 5) {
+        print(i)
+        i = i + 1
+    }
+
+    for j in [0, 1, 2] {
+        print(j)
+    }
+
+    let k = 0
+    for (; k < 3; k = k + 1) {
+        print(k)
+    }
+
+    let n = 0
+    while (true) {
+        n = n + 1
+        if (n == 3) { continue }
+        if (n > 5) { break }
+        print(n)
+    }
+
+    if (3 > 2) { print("big") } else { print("small") }
+    if (1 > 2) { print("no") } else if (2 > 1) { print("elif") } else { print("no") }
+}

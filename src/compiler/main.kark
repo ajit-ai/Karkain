@@ -183,15 +183,29 @@ func runFile(path) {
     // Compile with gcc
     let compileCmd = "gcc -o karkain_temp " + tempPath + " -lm"
     print("Compiling: " + compileCmd)
-    system(compileCmd)
+    let cc = system(compileCmd)
+    if (cc != 0) {
+        removeFile(tempPath)
+        return
+    }
 
     // Run
     print("--- Output ---")
-    system("./karkain_temp")
+    let exe = "karkain_temp"
+    if (openFile("karkain_temp.exe") != "") { exe = "karkain_temp.exe" }
+    // Windows cmd does not accept a "./" prefix; bare names run from the
+    // current working directory, whereas POSIX shells need "./" to execute
+    // a file that is not on PATH.
+    if (endsWith(exe, ".exe")) {
+        system(exe)
+    } else {
+        system("./" + exe)
+    }
 
     // Cleanup
     removeFile(tempPath)
     removeFile("karkain_temp")
+    if (openFile("karkain_temp.exe") != "") { removeFile("karkain_temp.exe") }
 }
 
 // fileBaseName strips any leading directory components from a path (both "/"

@@ -41,6 +41,7 @@ func NODE_CIMPORT()       { return 41 }
 func NODE_BREAK()         { return 42 }
 func NODE_CONTINUE()      { return 43 }
 func NODE_MATCH()         { return 44 }
+func NODE_MATCH_ARM()     { return 59 }
 func NODE_STRUCT_LIT()    { return 45 }
 func NODE_SLICE()         { return 46 }
 func NODE_BORROW()        { return 50 }
@@ -88,7 +89,7 @@ func makeNode(nodeType) {
     return n
 }
 
-func nodeType(n) { return n[0] }
+func nodeType(n) { if (len(n) == 0) { return [] } return n[0] }
 
 // ============================================================
 // Program node
@@ -616,6 +617,23 @@ func matchValue(n)  { return n[1] }
 func matchArms(n)   { return n[2] }
 func matchLine(n)   { return n[3] }
 
+// MatchArm: [NODE_MATCH_ARM, patternType, binding, patternValue, body, line]
+func makeMatchArm(patternType, binding, patternValue, body, line) {
+    let n = makeNode(NODE_MATCH_ARM())
+    n = appendArray(n, patternType)
+    n = appendArray(n, binding)
+    n = appendArray(n, patternValue)
+    n = appendArray(n, body)
+    n = appendArray(n, line)
+    return n
+}
+
+func armPatternType(n)   { return n[1] }
+func armBinding(n)       { return n[2] }
+func armPatternValue(n)  { return n[3] }
+func armBody(n)          { return n[4] }
+func armLine(n)          { return n[5] }
+
 // ============================================================
 // EnumDecl: [NODE_ENUM_DECL, name, variants, line]
 // ============================================================
@@ -673,6 +691,7 @@ func getNodeType(node) {
     if (t == NODE_BREAK()) { return "Break" }
     if (t == NODE_CONTINUE()) { return "Continue" }
     if (t == NODE_MATCH()) { return "Match" }
+    if (t == NODE_MATCH_ARM()) { return "MatchArm" }
     if (t == NODE_STRUCT_LIT()) { return "StructLiteral" }
     if (t == NODE_SLICE()) { return "Slice" }
     if (t == NODE_BORROW()) { return "Borrow" }

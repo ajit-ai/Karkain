@@ -1,0 +1,20 @@
+// 08_maps.kark — maps: creation, get/set, missing keys, hasKey, delete, len.
+// Run:  karkain run examples/language_foundation/08_maps.kark
+
+func main() {
+    let m = {"name": "Karkain", "version": 6}
+    print(m["name"])
+    print(m["version"])
+
+    m["version"] = 7
+    print(m["version"])
+
+    print(m["missing"])
+    print(len(m))
+    print(hasKey(m, "name"))
+    print(hasKey(m, "nom"))
+
+    delete(m, "name")
+    print(len(m))
+    print(hasKey(m, "name"))
+}

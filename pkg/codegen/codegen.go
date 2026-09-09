@@ -1844,7 +1844,7 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 			}
 			cond = "(_match_val.type == TYPE_RESULT && _match_val.resVal.tag == 1)"
 		case "literal":
-			litExpr := g.mapLiteralToC(arm.Pattern.Value)
+			litExpr := g.matchLiteralPatternToC(arm.Pattern.Value)
 			cond = fmt.Sprintf("is_truthy(binary_op(_match_val, \"==\", %s))", litExpr)
 		case "wildcard":
 			cond = "1"
@@ -1889,6 +1889,21 @@ func (g *Generator) genMatchExpr(node *parser.MatchExpr) string {
 	}
 	sb.WriteString(" _match_result; })")
 	return sb.String()
+}
+
+// matchLiteralPatternToC renders a match literal pattern as a Value
+// constructor, so it can be compared with binary_op == against _match_val.
+// (mapLiteralToC returns raw C scalars for quantum/raw contexts and would
+// hand an int to binary_op, failing to compile.)
+func (g *Generator) matchLiteralPatternToC(node parser.Node) string {
+	switch n := node.(type) {
+	case *parser.IntLiteral:
+		return "make_int(" + n.Value + ")"
+	case *parser.Float64Literal:
+		return "make_float(" + n.Value + ")"
+	default:
+		return g.genExpr(node)
+	}
 }
 
 func (g *Generator) genArmBody(body parser.Node, sb *strings.Builder) {
@@ -2977,8 +2992,8 @@ func (g *Generator) genForStmt(node *parser.ForStmt) string {
 	var sb strings.Builder
 	sb.WriteString("\tfor (")
 	if node.Init != nil {
-		initStmt := g.genStatement(node.Init)
-		sb.WriteString(strings.TrimRight(initStmt, "\n"))
+		initStmt := strings.TrimRight(g.genStatement(node.Init), ";\n \t")
+		sb.WriteString(initStmt)
 	}
 	sb.WriteString("; ")
 	if node.Condition != nil {

@@ -81,7 +81,10 @@ func emitC11Preamble(state) {
 // the Value model used by the Go bootstrap backend so that generated programs
 // are dynamic, self-contained, and compile with `gcc -std=c2x -lm -lgmp`.
 func emitC11ValueRuntime(state) {
-    emitLine(state, "typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL } ValueType;")
+    emitLine(state, "typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL, TYPE_OPTION, TYPE_RESULT } ValueType;")
+    emitLine(state, "typedef struct Value Value;")
+    emitLine(state, "typedef struct { int tag; Value* inner; } OptionVal;")
+    emitLine(state, "typedef struct { int tag; Value* okVal; Value* errVal; } ResultVal;")
     emitLine(state, "typedef struct Value {")
     emitLine(state, "    ValueType type;")
     emitLine(state, "    long long intVal;")
@@ -92,6 +95,8 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "    char** keys;")
     emitLine(state, "    struct Value** values;")
     emitLine(state, "    int mlen;")
+    emitLine(state, "    OptionVal optVal;")
+    emitLine(state, "    ResultVal resVal;")
     emitLine(state, "} Value;")
     emitNewline(state)
     emitLine(state, "static Value make_int(long long v) { Value r; r.type=TYPE_INT; r.intVal=v; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
@@ -159,8 +164,15 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value karkain_checked_mod(Value l, Value r, const char* file, long long line) { if(l.type==TYPE_FLOAT64||r.type==TYPE_FLOAT64){ double b=r.type==TYPE_FLOAT64?r.floatVal:(double)r.intVal; if(b==0.0) karkain_runtime_error(\"modulo by zero\", file, line); } else if((l.type==TYPE_INT||l.type==TYPE_BOOL)&&(r.type==TYPE_INT||r.type==TYPE_BOOL)){ if(r.intVal==0) karkain_runtime_error(\"integer modulo by zero\", file, line); } return binary_op(l, \"%\", r); }")
     emitLine(state, "static Value karkain_checked_get(Value a, Value i, const char* file, long long line) { if(a.type==TYPE_STRING&&i.type==TYPE_INT){ int si=(int)i.intVal; int sl=strlen(a.strVal?a.strVal:\"\"); if(si<0||si>=sl) karkain_runtime_error(\"string index out of range\", file, line); } if(a.type==TYPE_ARRAY&&i.type==TYPE_INT){ int idx=(int)i.intVal; if(idx<0||idx>=a.length) karkain_runtime_error(\"array index out of range\", file, line); } return array_get(a, i); }")
     emitLine(state, "static void karkain_checked_set(Value* a, Value i, Value v, const char* file, long long line) { if(!a) return; if(a->type==TYPE_ARRAY&&i.type==TYPE_INT){ int idx=(int)i.intVal; if(idx<0||idx>=a->length) karkain_runtime_error(\"array index out of range\", file, line); } index_set(a, i, v); }")
+    emitLine(state, "static Value option_none(void) { Value v; v.type=TYPE_OPTION; v.optVal.tag=0; v.optVal.inner=0; return v; }")
+    emitLine(state, "static Value option_some(Value inner) { Value v; v.type=TYPE_OPTION; v.optVal.tag=1; v.optVal.inner=(Value*)malloc(sizeof(Value)); *v.optVal.inner=inner; return v; }")
+    emitLine(state, "static Value result_ok(Value val) { Value v; v.type=TYPE_RESULT; v.resVal.tag=0; v.resVal.okVal=(Value*)malloc(sizeof(Value)); *v.resVal.okVal=val; return v; }")
+    emitLine(state, "static Value result_err(Value val) { Value v; v.type=TYPE_RESULT; v.resVal.tag=1; v.resVal.errVal=(Value*)malloc(sizeof(Value)); *v.resVal.errVal=val; return v; }")
+    emitLine(state, "static Value karkain_checked_add(Value a, Value b) { if((a.type==TYPE_INT||a.type==TYPE_BOOL)&&(b.type==TYPE_INT||b.type==TYPE_BOOL)){ long long r; if(__builtin_add_overflow(a.intVal,b.intVal,&r)) return option_none(); return option_some(make_int(r)); } return option_some(binary_op(a, \"+\", b)); }")
+    emitLine(state, "static Value karkain_checked_sub(Value a, Value b) { if((a.type==TYPE_INT||a.type==TYPE_BOOL)&&(b.type==TYPE_INT||b.type==TYPE_BOOL)){ long long r; if(__builtin_sub_overflow(a.intVal,b.intVal,&r)) return option_none(); return option_some(make_int(r)); } return option_some(binary_op(a, \"-\", b)); }")
+    emitLine(state, "static Value karkain_checked_mul(Value a, Value b) { if((a.type==TYPE_INT||a.type==TYPE_BOOL)&&(b.type==TYPE_INT||b.type==TYPE_BOOL)){ long long r; if(__builtin_mul_overflow(a.intVal,b.intVal,&r)) return option_none(); return option_some(make_int(r)); } return option_some(binary_op(a, \"*\", b)); }")
     emitLine(state, "static Value karkain_str(Value v) { char buf[64]; if(v.type==TYPE_INT){ snprintf(buf,64,\"%lld\",v.intVal); return make_string(buf); } if(v.type==TYPE_FLOAT64){ snprintf(buf,64,\"%g\",v.floatVal); return make_string(buf); } if(v.type==TYPE_BOOL){ return make_string(v.intVal?\"true\":\"false\"); } if(v.type==TYPE_STRING){ return make_string(v.strVal?v.strVal:\"\"); } return make_string(\"?\"); }")
-    emitLine(state, "static void print_value(Value v) { if(v.type==TYPE_INT) printf(\"%lld\", v.intVal); else if(v.type==TYPE_FLOAT64) printf(\"%g\", v.floatVal); else if(v.type==TYPE_BOOL) printf(\"%s\", v.intVal?\"true\":\"false\"); else if(v.type==TYPE_STRING) printf(\"%s\", v.strVal?v.strVal:\"\"); else if(v.type==TYPE_ARRAY){ printf(\"[\"); int i; for(i=0;i<v.length;i++){ if(i) printf(\", \"); print_value(*v.items[i]); } printf(\"]\"); } else printf(\"?\"); }")
+    emitLine(state, "static void print_value(Value v) { if(v.type==TYPE_INT) printf(\"%lld\", v.intVal); else if(v.type==TYPE_FLOAT64) printf(\"%g\", v.floatVal); else if(v.type==TYPE_BOOL) printf(\"%s\", v.intVal?\"true\":\"false\"); else if(v.type==TYPE_STRING) printf(\"%s\", v.strVal?v.strVal:\"\"); else if(v.type==TYPE_ARRAY){ printf(\"[\"); int i; for(i=0;i<v.length;i++){ if(i) printf(\", \"); print_value(*v.items[i]); } printf(\"]\"); } else if(v.type==TYPE_OPTION){ if(v.optVal.tag==0) printf(\"None\\n\"); else { printf(\"Some(\"); print_value(*v.optVal.inner); printf(\")\\n\"); } } else if(v.type==TYPE_RESULT){ if(v.resVal.tag==0){ printf(\"Ok(\"); print_value(*v.resVal.okVal); printf(\")\\n\"); } else if(v.resVal.tag==1){ printf(\"Err(\"); print_value(*v.resVal.errVal); printf(\")\\n\"); } } else printf(\"?\"); }")
     emitLine(state, "static Value _karkain_array(int n, ...) { va_list ap; va_start(ap,n); Value a=make_array(); int i; for(i=0;i<n;i++){ Value e=va_arg(ap,Value); array_push(&a,e); } va_end(ap); return a; }")
     emitLine(state, "static Value _karkain_get_args(void) { Value _args=make_array(); int _i; for(_i=0;_i<_karkain_gargc;_i++){ array_push(&_args, make_string(_karkain_gargv[_i])); } return _args; }")
     emitLine(state, "static Value karkain_listFiles(Value dir) { Value arr=make_array(); const char* dname=dir.type==TYPE_STRING?(dir.strVal?dir.strVal:\"\"):\"\"; DIR* d=opendir(dname); if(!d) return arr; struct dirent* e; while((e=readdir(d))!=NULL){ if(e->d_name[0]=='.') continue; array_push(&arr, make_string(e->d_name)); } closedir(d); return arr; }")
@@ -464,6 +476,33 @@ func emitC11Expr(state, node) {
                 a6 = a6 + 1
             }
             emit(state, ")")
+        } else if (fname == "add_checked") {
+            emit(state, "karkain_checked_add(")
+            let a7 = 0
+            while (a7 < argc) {
+                if (a7 > 0) { emit(state, ", ") }
+                emitC11Expr(state, args[a7])
+                a7 = a7 + 1
+            }
+            emit(state, ")")
+        } else if (fname == "sub_checked") {
+            emit(state, "karkain_checked_sub(")
+            let a8 = 0
+            while (a8 < argc) {
+                if (a8 > 0) { emit(state, ", ") }
+                emitC11Expr(state, args[a8])
+                a8 = a8 + 1
+            }
+            emit(state, ")")
+        } else if (fname == "mul_checked") {
+            emit(state, "karkain_checked_mul(")
+            let a9 = 0
+            while (a9 < argc) {
+                if (a9 > 0) { emit(state, ", ") }
+                emitC11Expr(state, args[a9])
+                a9 = a9 + 1
+            }
+            emit(state, ")")
         } else {
             emit(state, fname + "(")
             let i = 0
@@ -474,6 +513,42 @@ func emitC11Expr(state, node) {
             }
             emit(state, ")")
         }
+    }
+
+    if (nt == "Match") {
+        emit(state, "({ Value _match_val = ")
+        emitC11Expr(state, matchValue(node))
+        emit(state, "; Value _match_result = _match_val; ")
+        let arms = matchArms(node)
+        let narm = len(arms)
+        let ai = 0
+        while (ai < narm) {
+            let arm = arms[ai]
+            if (ai > 0) { emit(state, " else ") }
+            emit(state, "if (")
+            let pt = armPatternType(arm)
+            if (pt == "Some") { emit(state, "_match_val.type == TYPE_OPTION && _match_val.optVal.tag == 1") }
+            else if (pt == "None") { emit(state, "_match_val.type == TYPE_OPTION && _match_val.optVal.tag == 0") }
+            else if (pt == "Ok") { emit(state, "_match_val.type == TYPE_RESULT && _match_val.resVal.tag == 0") }
+            else if (pt == "Err") { emit(state, "_match_val.type == TYPE_RESULT && _match_val.resVal.tag == 1") }
+            else if (pt == "literal") {
+                emit(state, "is_truthy(binary_op(_match_val, \"==\", ")
+                emitC11Expr(state, armPatternValue(arm))
+                emit(state, "))")
+            } else { emit(state, "1") }
+            emit(state, ") { ")
+            let binding = armBinding(arm)
+            if (binding != "" && binding != "_") {
+                if (pt == "Some") { emit(state, "Value " + binding + " = *_match_val.optVal.inner; ") }
+                else if (pt == "Ok") { emit(state, "Value " + binding + " = *_match_val.resVal.okVal; ") }
+                else if (pt == "Err") { emit(state, "Value " + binding + " = *_match_val.resVal.errVal; ") }
+                else { emit(state, "Value " + binding + " = _match_val; ") }
+            }
+            emitMatchArmBody(state, armBody(arm))
+            emit(state, " }")
+            ai = ai + 1
+        }
+        emit(state, " _match_result; })")
     }
 
     if (nt == "GlobalId") {
@@ -555,6 +630,36 @@ func emitC11Expr(state, node) {
     }
 }
 
+func emitMatchArmBody(state, body) {
+    let bt = getNodeType(body)
+    if (bt == "Block") {
+        let stmts = blockStmts(body)
+        let i = 0
+        let bn = len(stmts)
+        while (i < bn) {
+            emitC11Stmt(state, stmts[i])
+            if (i == bn - 1 && getNodeType(stmts[i]) == "ExprStmt") {
+                emit(state, "_match_result = ")
+                emitC11Expr(state, exprStmtExpr(stmts[i]))
+                emit(state, "; ")
+            }
+            i = i + 1
+        }
+    } else if (bt == "Print") {
+        emit(state, "print_value(")
+        emitC11Expr(state, printVal(body))
+        emit(state, "); printf(\"\\n\"); ")
+    } else if (bt == "ExprStmt") {
+        emit(state, "_match_result = ")
+        emitC11Expr(state, exprStmtExpr(body))
+        emit(state, "; ")
+    } else {
+        emit(state, "_match_result = ")
+        emitC11Expr(state, body)
+        emit(state, "; ")
+    }
+}
+
 func emitC11Stmt(state, node) {
     let nt = getNodeType(node)
 
@@ -604,6 +709,21 @@ func emitC11Stmt(state, node) {
         emitLine(state, "continue;")
     }
 
+    if (nt == "ForIn") {
+        emit(state, "{ Value _iter = ")
+        emitC11Expr(state, forInIter(node))
+        emit(state, "; int _len = (_iter.type == TYPE_ARRAY) ? _iter.length : 0; ")
+        emit(state, "for (int _i = 0; _i < _len; _i++) { ")
+        emit(state, "Value " + forInVar(node) + " = *_iter.items[_i];")
+        let fib = forInBody(node)
+        let fi = 0
+        while (fi < len(fib)) {
+            emitC11Stmt(state, fib[fi])
+            fi = fi + 1
+        }
+        emitLine(state, "} }")
+    }
+
     if (nt == "BinaryExpr") {
         emitC11Expr(state, node)
     }
@@ -651,9 +771,15 @@ func emitC11Stmt(state, node) {
 
     if (nt == "For") {
         emit(state, "for (")
-        emitC11Stmt(state, forInit(node))
+        let iNode = forInit(node)
+        if (iNode != []) {
+            emitC11Stmt(state, iNode)
+        } else {
+            emit(state, "; ")
+        }
+        emit(state, "is_truthy(")
         emitC11Expr(state, forCondition(node))
-        emit(state, "; ")
+        emit(state, "); ")
         emitC11Expr(state, forPost(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
