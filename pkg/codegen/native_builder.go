@@ -85,6 +85,17 @@ func (nb *NativeBuilder) Build(prog *parser.Program, sourceFile string) (*Native
 	// Relocate debug info addresses to match linked section layout
 	relocateDebugAddresses(obj.DebugInfo, exec.Sections)
 
+	// Emit DWARF debug sections and attach them to the executable
+	if err := emitAndAttachDWARF(exec, obj.DebugInfo); err != nil {
+		nb.diags.AddError(1, 1, diagnostics.CodeCodegen,
+			fmt.Sprintf("dwarf emission failed: %v", err))
+		return &NativeBuildResult{
+			Object:      obj,
+			Executable:  exec,
+			Diagnostics: nb.diags.GetDiagnostics(),
+		}, err
+	}
+
 	// Step 3: Build source-address map from debug info
 	var sourceMap *SourceAddressMap
 	if obj.DebugInfo != nil {
@@ -128,6 +139,26 @@ func relocateDebugAddresses(dbg *DebugInfo, sections []*Section) {
 	}
 }
 
+// emitAndAttachDWARF emits DWARF debug sections from the (relocated) debug
+// info and appends them to the executable's section list.
+func emitAndAttachDWARF(exec *Executable, dbg *DebugInfo) error {
+	if dbg == nil {
+		return nil
+	}
+	var textBase, textSize uint64
+	if sect := exec.GetSection(".text"); sect != nil {
+		textBase = sect.Address
+		textSize = sect.Size
+	}
+	emitter := NewDwarfEmitter()
+	sections, err := emitter.Emit(dbg, textBase, textSize)
+	if err != nil {
+		return err
+	}
+	exec.Sections = append(exec.Sections, sections...)
+	return nil
+}
+
 // BuildMultiObject links multiple objects into a single executable
 func (nb *NativeBuilder) BuildMultiObject(objects []*Object, entryPoint string) (*NativeBuildResult, error) {
 	nb.diags = NewCodegenDiagnostics("multi-object")
@@ -161,6 +192,14 @@ func (nb *NativeBuilder) BuildMultiObject(objects []*Object, entryPoint string) 
 		sourceMap = NewSourceAddressMap()
 		sourceMap.BuildFromDebugInfo(objects[0].DebugInfo)
 		exec.DebugInfo = objects[0].DebugInfo
+		if err := emitAndAttachDWARF(exec, objects[0].DebugInfo); err != nil {
+			nb.diags.AddError(1, 1, diagnostics.CodeCodegen,
+				fmt.Sprintf("dwarf emission failed: %v", err))
+			return &NativeBuildResult{
+				Executable:  exec,
+				Diagnostics: nb.diags.GetDiagnostics(),
+			}, err
+		}
 	}
 
 	return &NativeBuildResult{
