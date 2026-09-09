@@ -45,6 +45,10 @@ void karkain_panic(const char* msg);
 /* Allocation from a page-backed bump arena. Never freed. Returns null on OOM. */
 void* karkain_arena_alloc(size_t size);
 
+/* Release all arena pages and reset to empty. All prior arena pointers are
+ * invalidated. */
+void karkain_arena_reset(void);
+
 /* ---------- Files ---------- */
 
 /* Read an entire file into an arena buffer (NUL-terminated). NULL on error. */
