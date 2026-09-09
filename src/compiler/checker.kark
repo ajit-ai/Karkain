@@ -305,6 +305,10 @@ func checkStmts(tab, list, loop) {
 }
 
 func checkStmt(tab, s, loop) {
+    // Empty nodes arrive from constructs the self-hosted parser cannot fully
+    // realize (e.g. a bare `return` yields an empty value node). They carry no
+    // semantics to check, so skip them instead of dereferencing node[kind].
+    if (len(s) < 1) { return }
     let nt = getNodeType(s)
 
     if (nt == "FuncDecl") {
@@ -434,6 +438,9 @@ func checkStmt(tab, s, loop) {
 // ============================================================
 
 func checkExpr(tab, e, loop) {
+    // Same tolerance as checkStmt: an empty expression node (bare `return`,
+    // unparseable primary) has nothing to check.
+    if (len(e) < 1) { return }
     let nt = getNodeType(e)
 
     if (nt == "Ident") {
