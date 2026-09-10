@@ -236,6 +236,14 @@ func runKCCDir(bin, dir string, args ...string) (string, int) {
 // temp file so kcc check validates the full project, matching the Go check
 // pipeline (resolveSourcesCheck).
 func KCCCheckCommand(w io.Writer, file string, verbose bool) CommandResult {
+	// Phase 105: run the Go-side multi-file syntax preflight before handing to
+	// the self-hosted engine, so BOTH engine paths surface every recoverable
+	// syntax error in one invocation with precise per-file spans. Consistent
+	// with kccTargetPreflight, which already runs Go-side for both engines.
+	if errDiags := projectSyntaxDiagnostics(file); len(errDiags) > 0 {
+		renderDiagnostics("", errDiags)
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageSyntax, len(errDiags))}
+	}
 	bin, err := kccBinaryPath(w)
 	if err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: err.Error()}

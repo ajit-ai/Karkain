@@ -1,0 +1,21 @@
+// main.kark — Phase 105 multi-module incremental example.
+//
+// Build incrementally (Go engine) and rebuild to observe the cache:
+//   karkain build --incremental main.kark
+//   karkain build --incremental main.kark        (no-op: all reused)
+//   karkain clean .                              (removes .karkain-cache)
+//
+// Expected stdout when run:
+//   41
+//   42
+//   Hello karkain
+
+import math
+import strings
+
+func main() {
+    let sum = math.add(40, 1)
+    print(sum)
+    print(math.twice(21))
+    print(strings.greeting("karkain"))
+}

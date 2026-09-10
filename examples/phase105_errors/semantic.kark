@@ -1,0 +1,19 @@
+// Phase 105 semantic multi-error fixture: this file parses cleanly and carries
+// multiple independent name-resolution errors. The type checker must report all
+// of them in a single invocation (exit 3) without cascading or crashing.
+//
+// Note: `add(1, 2, 3)` is an arity error reported by a later stage; the name
+// resolution stage here surfaces missing_one, missing_two and
+// undefined_type_call together.
+
+func add(a int, b int) int {
+	return a + b
+}
+
+func main() {
+	let x = missing_one
+	let y = missing_two(1, 2)
+	let z = add(1, 2, 3)
+	let w = undefined_type_call()
+	print(x + y + z + w)
+}
