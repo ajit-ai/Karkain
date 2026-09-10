@@ -1,26 +1,40 @@
 // Karkain Standard Library - String Module
-// String manipulation utilities built on Karkain's native string support
+// String manipulation utilities built on Karkain's native string support.
+//
+// Karkain strings are UTF-8 byte strings: len() returns the byte length and
+// s[i] returns the single byte at i as a 1-character string. The ASCII
+// case-mapping helpers here operate byte-wise (table-based, no char
+// arithmetic) so they work identically on both engines.
+
+// The ASCII alphabet tables used for case mapping.
+func ascii_lower() {
+    return "abcdefghijklmnopqrstuvwxyz"
+}
+
+func ascii_upper() {
+    return "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+}
 
 // str_len returns the length of a string. Delegates to the builtin len().
-func str_len(s: string) -> int {
+func str_len(s) {
     return len(s)
 }
 
 // str_empty returns true if the string has zero length.
-func str_empty(s: string) -> bool {
+func str_empty(s) {
     return len(s) == 0
 }
 
 // str_concat concatenates two strings. Uses the + operator.
-func str_concat(a: string, b: string) -> string {
+func str_concat(a, b) {
     return a + b
 }
 
 // str_repeat repeats a string n times.
-func str_repeat(s: string, n: int) -> string {
+func str_repeat(s, n) {
     let result = ""
     let i = 0
-    while i < n {
+    while(i < n ) {
         result = result + s
         i = i + 1
     }
@@ -28,12 +42,12 @@ func str_repeat(s: string, n: int) -> string {
 }
 
 // str_starts_with checks if a string starts with the given prefix.
-func str_starts_with(s: string, prefix: string) -> bool {
+func str_starts_with(s, prefix) {
     if len(prefix) > len(s) {
         return false
     }
     let i = 0
-    while i < len(prefix) {
+    while(i < len(prefix) ) {
         if s[i] != prefix[i] {
             return false
         }
@@ -43,13 +57,13 @@ func str_starts_with(s: string, prefix: string) -> bool {
 }
 
 // str_ends_with checks if a string ends with the given suffix.
-func str_ends_with(s: string, suffix: string) -> bool {
+func str_ends_with(s, suffix) {
     if len(suffix) > len(s) {
         return false
     }
     let start = len(s) - len(suffix)
     let i = 0
-    while i < len(suffix) {
+    while(i < len(suffix) ) {
         if s[start + i] != suffix[i] {
             return false
         }
@@ -60,13 +74,13 @@ func str_ends_with(s: string, suffix: string) -> bool {
 
 // str_contains checks if a string contains the given substring.
 // Delegates to the builtin contains().
-func str_contains(s: string, sub: string) -> bool {
+func str_contains(s, sub) {
     return contains(s, sub)
 }
 
 // str_index_of returns the index of the first occurrence of sub in s,
 // or -1 if not found.
-func str_index_of(s: string, sub: string) -> int {
+func str_index_of(s, sub) {
     if len(sub) == 0 {
         return 0
     }
@@ -74,13 +88,13 @@ func str_index_of(s: string, sub: string) -> int {
         return -1
     }
     let i = 0
-    while i <= len(s) - len(sub) {
+    while(i <= len(s) - len(sub) ) {
         let found = true
         let j = 0
-        while j < len(sub) {
+        while(j < len(sub) ) {
             if s[i + j] != sub[j] {
                 found = false
-                j = len(sub) // break
+                j = len(sub)
             }
             j = j + 1
         }
@@ -94,7 +108,7 @@ func str_index_of(s: string, sub: string) -> int {
 
 // str_last_index_of returns the index of the last occurrence of sub in s,
 // or -1 if not found.
-func str_last_index_of(s: string, sub: string) -> int {
+func str_last_index_of(s, sub) {
     if len(sub) == 0 {
         return len(s)
     }
@@ -103,13 +117,13 @@ func str_last_index_of(s: string, sub: string) -> int {
     }
     let last = -1
     let i = 0
-    while i <= len(s) - len(sub) {
+    while(i <= len(s) - len(sub) ) {
         let found = true
         let j = 0
-        while j < len(sub) {
+        while(j < len(sub) ) {
             if s[i + j] != sub[j] {
                 found = false
-                j = len(sub) // break
+                j = len(sub)
             }
             j = j + 1
         }
@@ -122,36 +136,47 @@ func str_last_index_of(s: string, sub: string) -> int {
 }
 
 // str_sub returns a substring from start to end (exclusive).
-func str_sub(s: string, start: int, end: int) -> string {
+func str_sub(s, start, end) {
     return substr(s, start, end - start)
 }
 
 // str_slice returns a substring from start with the given length.
 // Delegates to the builtin substr().
-func str_slice(s: string, start: int, length: int) -> string {
+func str_slice(s, start, length) {
     return substr(s, start, length)
 }
 
 // str_trim removes leading and trailing whitespace.
 // Delegates to the builtin trim().
-func str_trim(s: string) -> string {
+func str_trim(s) {
     return trim(s)
 }
 
 // str_split splits a string by a delimiter.
 // Delegates to the builtin split().
-func str_split(s: string, delimiter: string) -> string[] {
+func str_split(s, delimiter) {
     return split(s, delimiter)
 }
 
 // str_to_upper converts ASCII lowercase letters to uppercase.
-func str_to_upper(s: string) -> string {
+func str_to_upper(s) {
     let result = ""
+    let lower = ascii_lower()
+    let upper = ascii_upper()
     let i = 0
-    while i < len(s) {
+    while(i < len(s) ) {
         let ch = s[i]
-        if ch >= "a" && ch <= "z" {
-            result = result + str(ch - 32)
+        let mapped = ""
+        let j = 0
+        while(j < 26 ) {
+            if ch == lower[j] {
+                mapped = upper[j]
+                j = 26
+            }
+            j = j + 1
+        }
+        if len(mapped) == 1 {
+            result = result + mapped
         } else {
             result = result + ch
         }
@@ -161,13 +186,24 @@ func str_to_upper(s: string) -> string {
 }
 
 // str_to_lower converts ASCII uppercase letters to lowercase.
-func str_to_lower(s: string) -> string {
+func str_to_lower(s) {
     let result = ""
+    let lower = ascii_lower()
+    let upper = ascii_upper()
     let i = 0
-    while i < len(s) {
+    while(i < len(s) ) {
         let ch = s[i]
-        if ch >= "A" && ch <= "Z" {
-            result = result + str(ch + 32)
+        let mapped = ""
+        let j = 0
+        while(j < 26 ) {
+            if ch == upper[j] {
+                mapped = lower[j]
+                j = 26
+            }
+            j = j + 1
+        }
+        if len(mapped) == 1 {
+            result = result + mapped
         } else {
             result = result + ch
         }
@@ -177,14 +213,14 @@ func str_to_lower(s: string) -> string {
 }
 
 // str_replace returns a new string with all occurrences of old replaced by new.
-func str_replace(s: string, old: string, new: string) -> string {
+func str_replace(s, old, new) {
     let result = ""
     let i = 0
-    while i < len(s) {
+    while(i < len(s) ) {
         if i <= len(s) - len(old) {
             let found = true
             let j = 0
-            while j < len(old) {
+            while(j < len(old) ) {
                 if s[i + j] != old[j] {
                     found = false
                     j = len(old)
@@ -207,10 +243,10 @@ func str_replace(s: string, old: string, new: string) -> string {
 }
 
 // str_reverse returns a new string with characters in reverse order.
-func str_reverse(s: string) -> string {
+func str_reverse(s) {
     let result = ""
     let i = len(s) - 1
-    while i >= 0 {
+    while(i >= 0 ) {
         result = result + s[i]
         i = i - 1
     }
@@ -218,7 +254,7 @@ func str_reverse(s: string) -> string {
 }
 
 // str_char_at returns the character at the given index as a string.
-func str_char_at(s: string, index: int) -> string {
+func str_char_at(s, index) {
     if index < 0 || index >= len(s) {
         return ""
     }
@@ -226,36 +262,36 @@ func str_char_at(s: string, index: int) -> string {
 }
 
 // str_to_int converts a string to an integer using the builtin int().
-func str_to_int(s: string) -> int {
+func str_to_int(s) {
     return int(s)
 }
 
 // str_from_int converts an integer to a string using the builtin str().
-func str_from_int(n: int) -> string {
+func str_from_int(n) {
     return str(n)
 }
 
 // str_from_float converts a float to a string.
-func str_from_float(f: float64) -> string {
+func str_from_float(f) {
     return str(f)
 }
 
 // str_is_empty returns true if the string has zero length.
-func str_is_empty(s: string) -> bool {
+func str_is_empty(s) {
     return len(s) == 0
 }
 
 // str_count returns the number of non-overlapping occurrences of sub in s.
-func str_count(s: string, sub: string) -> int {
+func str_count(s, sub) {
     if len(sub) == 0 {
         return 0
     }
     let count = 0
     let i = 0
-    while i <= len(s) - len(sub) {
+    while(i <= len(s) - len(sub) ) {
         let found = true
         let j = 0
-        while j < len(sub) {
+        while(j < len(sub) ) {
             if s[i + j] != sub[j] {
                 found = false
                 j = len(sub)
@@ -273,10 +309,10 @@ func str_count(s: string, sub: string) -> int {
 }
 
 // str_join joins an array of strings with a separator.
-func str_join(arr: string[], sep: string) -> string {
+func str_join(arr, sep) {
     let result = ""
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         if i > 0 {
             result = result + sep
         }
@@ -287,9 +323,9 @@ func str_join(arr: string[], sep: string) -> string {
 }
 
 // str_trim_left removes leading whitespace from a string.
-func str_trim_left(s: string) -> string {
+func str_trim_left(s) {
     let i = 0
-    while i < len(s) {
+    while(i < len(s) ) {
         let ch = s[i]
         if ch != " " && ch != "\t" && ch != "\n" && ch != "\r" {
             break
@@ -300,9 +336,9 @@ func str_trim_left(s: string) -> string {
 }
 
 // str_trim_right removes trailing whitespace from a string.
-func str_trim_right(s: string) -> string {
+func str_trim_right(s) {
     let end = len(s) - 1
-    while end >= 0 {
+    while(end >= 0 ) {
         let ch = s[end]
         if ch != " " && ch != "\t" && ch != "\n" && ch != "\r" {
             break

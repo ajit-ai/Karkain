@@ -311,6 +311,27 @@ these; runtime provided by `runtime.c` supporting the compiler itself).
 > The general-purpose standard library beyond the above is still being
 > formalized (Phases 60).
 
+### 6.2b Standard Library v2 (Phase 109)
+
+The importable standard library surface (`import std.<name>`, both engines,
+byte-identical) comprises:
+
+| Module | Surface |
+|--------|---------|
+| `std.string` | `str_len`, `str_empty`, `str_concat`, `str_repeat`, `str_starts_with`, `str_ends_with`, `str_contains`, `str_index_of`, `str_last_index_of`, `str_sub`, `str_slice`, `str_trim`, `str_trim_left`, `str_trim_right`, `str_split`, `str_to_upper`, `str_to_lower`, `str_replace`, `str_reverse`, `str_char_at`, `str_to_int`, `str_from_int`, `str_from_float`, `str_is_empty`, `str_count`, `str_join` |
+| `std.collections` | `array_contains`, `array_contains_str`, `array_index_of`, `array_reverse`, `array_reverse_str`, `array_copy`, `array_fill`, `array_slice`, `array_remove`, `array_remove_at`, `array_insert`, `array_unique`, `array_flatten`, `array_sum`, `array_min`, `array_max`, `map_keys` |
+| `std.io` | `io_open_write`, `io_append`, `io_create_file`, `io_file_exists`, `io_delete_file`, `io_is_file`, `io_is_dir`, `io_write`, `io_writeln`, `io_read_line`, `io_read_lines`, `io_read_all`, `io_close`, `io_list_files`, `io_path_sep`, `io_home_dir` |
+| `std.encoding` | `hex_encode`, `hex_decode`, `base64_encode`, `base64_decode`, `utf8_valid`, `utf8_encode`, `utf8_decode` |
+| `std.crypto` | `sha256`, `sha512` |
+
+Strings are UTF-8 byte strings: `len()` is the byte length and indexing is
+byte-wise; case conversion is ASCII-only and leaves multibyte text untouched.
+Malformed hex/base64 raise the Phase 100 runtime-error model
+(`runtime error: invalid hex string at <file>:<line>`, exit non-zero) rather
+than returning incorrect data. Digests are hex-lowercase, deterministic and
+verified against NIST vectors. `stdlib/{core,math,system,gpu,async}` remain
+outside the importable surface (see Phase 109 report).
+
 ### 6.3 SIMD & vector types (Phase 106)
 Lane-vector variables are declared with array-of-scalar annotations
 `[N]f32` / `[N]f64` / `[N]i32` / `[N]i64`. Supported widths:
@@ -561,8 +582,10 @@ func main() {
 
 `public` before `let`/`var` is a parse error on both engines (only
 func/type/enum are exportable in the Core phase). Stdlib files are exempt from
-the private rule: stdlib functions are framework API surface and physical
-`public` markers land with the stdlib-v2 boundary (Phase 109).
+the private rule: stdlib functions are framework API surface. Phase 109
+(Standard Library v2) ships the importable `std.*` modules without physical
+`public` markers — the exemption is retained and physical markers are deferred
+to a future stdlib hardening phase.
 
 ### 15.2 Qualified calls
 

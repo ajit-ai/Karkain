@@ -1,0 +1,39 @@
+// Karkain Standard Library v2 - String UTF-8 demo.
+//
+// Karkain strings are UTF-8 byte strings: len() reports the byte length,
+// s[i] returns a single byte, and the encoding module can validate bytes and
+// round-trip them through hex/base64. The ASCII case-mapping helpers operate
+// byte-wise and leave multibyte characters untouched — UTF-8 bytes are never
+// silently treated as ASCII.
+
+import std.string
+import std.encoding
+
+func main() {
+    let text = "héllo wörld"
+
+    // Byte length (h + é(2) + llo + space + w + ö(2) + rld = 13).
+    print(len(text))
+
+    // The multibyte bytes are valid UTF-8.
+    print(utf8_valid(text))
+
+    // Byte round-trips: hex-encode the UTF-8 bytes, decode back, compare.
+    let hex = hex_encode(text)
+    print(hex)
+    print(hex_decode(hex) == text)
+
+    // Base64 round-trip (RFC 4648 form of "héllo").
+    let b64 = base64_encode("héllo")
+    print(b64)
+    print(base64_decode(b64) == "héllo")
+
+    // An empty string is trivially valid UTF-8.
+    print(utf8_valid(""))
+
+    // ASCII case mapping is byte-wise and leaves multibyte text untouched:
+    // only h->H, l->L, o->O, w->W change; the multibyte characters pass
+    // through unmodified.
+    print(str_to_upper("karkain"))
+    print(str_to_upper(text))
+}

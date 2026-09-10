@@ -70,6 +70,14 @@ func isCheckerBuiltin(name) {
     if (name == "add_checked") { return 1 }
     if (name == "sub_checked") { return 1 }
     if (name == "mul_checked") { return 1 }
+    if (name == "hex_encode_bytes") { return 1 }
+    if (name == "hex_decode_bytes") { return 1 }
+    if (name == "base64_encode_bytes") { return 1 }
+    if (name == "base64_decode_bytes") { return 1 }
+    if (name == "utf8_valid_bytes") { return 1 }
+    if (name == "sha256_hex") { return 1 }
+    if (name == "sha512_hex") { return 1 }
+    if (name == "map_keys_of") { return 1 }
     if (name == "http.get") { return 1 }
     if (name == "Some") { return 1 }
     if (name == "None") { return 1 }
@@ -112,6 +120,14 @@ func checkerBuiltinArity(name) {
     if (name == "abs") { return 1 }
     if (name == "pow") { return 2 }
     if (name == "fileExists") { return 1 }
+    if (name == "hex_encode_bytes") { return 1 }
+    if (name == "hex_decode_bytes") { return 1 }
+    if (name == "base64_encode_bytes") { return 1 }
+    if (name == "base64_decode_bytes") { return 1 }
+    if (name == "utf8_valid_bytes") { return 1 }
+    if (name == "sha256_hex") { return 1 }
+    if (name == "sha512_hex") { return 1 }
+    if (name == "map_keys_of") { return 1 }
     return -1
 }
 

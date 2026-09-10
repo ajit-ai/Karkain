@@ -1,0 +1,6 @@
+// Phase 109 negative fixture: malformed base64 input must raise a
+// source-located runtime error on BOTH engines. Direct builtin call keeps the
+// assembled text identical on both engines (call below is line 5).
+func main() {
+    print(base64_decode_bytes("a!b!"))
+}

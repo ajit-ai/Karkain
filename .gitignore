@@ -52,3 +52,6 @@ examples/language_foundation/**/*.c
 examples/language_foundation/**/*.c23
 examples/module_system/**/*.c
 examples/module_system/**/*.c23
+examples/stdlib/**/*.c
+examples/stdlib_v2/*.c
+examples/stdlib_errors/**/*.c

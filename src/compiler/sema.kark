@@ -118,6 +118,16 @@ func isBuiltinFunc(name) {
     if (name == "abs") { return 1 }
     if (name == "pow") { return 1 }
     if (name == "fileExists") { return 1 }
+    if (name == "readLineEOF") { return 1 }
+    if (name == "listFiles") { return 1 }
+    if (name == "hex_encode_bytes") { return 1 }
+    if (name == "hex_decode_bytes") { return 1 }
+    if (name == "base64_encode_bytes") { return 1 }
+    if (name == "base64_decode_bytes") { return 1 }
+    if (name == "utf8_valid_bytes") { return 1 }
+    if (name == "sha256_hex") { return 1 }
+    if (name == "sha512_hex") { return 1 }
+    if (name == "map_keys_of") { return 1 }
     return 0
 }
 
@@ -151,6 +161,16 @@ func builtinArity(name) {
     if (name == "abs") { return 1 }
     if (name == "pow") { return 2 }
     if (name == "fileExists") { return 1 }
+    if (name == "readLineEOF") { return 1 }
+    if (name == "listFiles") { return 1 }
+    if (name == "hex_encode_bytes") { return 1 }
+    if (name == "hex_decode_bytes") { return 1 }
+    if (name == "base64_encode_bytes") { return 1 }
+    if (name == "base64_decode_bytes") { return 1 }
+    if (name == "utf8_valid_bytes") { return 1 }
+    if (name == "sha256_hex") { return 1 }
+    if (name == "sha512_hex") { return 1 }
+    if (name == "map_keys_of") { return 1 }
     return -1
 }
 
