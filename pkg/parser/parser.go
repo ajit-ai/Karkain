@@ -1314,8 +1314,46 @@ func (p *Parser) parsePrimaryExpr() Node {
 		return p.parseMatchExpr()
 	case lexer.TokenFn:
 		return p.parseLambda()
+	case lexer.TokenSpawn:
+		return p.parseSpawn() // Phase 107: spawn(fn, args...) in expression position
+	case lexer.TokenReceive:
+		// Phase 107: receive(ch) in expression position -> ChRecvExpr.
+		ch := p.parseReceiveChannel()
+		return &ChRecvExpr{Channel: ch}
+	case lexer.TokenChannel:
+		// Phase 107: channel(cap) in expression position -> bare CallExpr.
+		name := p.curToken.Literal(p.src)
+		p.nextToken() // consume 'channel'
+		return p.parseKeywordCall(name)
+	case lexer.TokenActor:
+		// Phase 107: actor("handler", state) in expression position -> bare
+		// CallExpr. (At statement top level TokenActor means an actor
+		// declaration; this branch only fires inside expressions.)
+		name := p.curToken.Literal(p.src)
+		p.nextToken() // consume 'actor'
+		return p.parseKeywordCall(name)
 	}
 	return nil
+}
+
+// parseKeywordCall parses `( args )` directly after a keyword used in function
+// position (channel(...), actor(...)) and returns a plain CallExpr.
+func (p *Parser) parseKeywordCall(name string) Node {
+	if p.curToken.Type != lexer.TokenLParen {
+		return nil
+	}
+	p.nextToken() // consume '('
+	args := []Node{}
+	for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+		start := p.curToken.Start
+		args = append(args, p.parseExpr())
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+		}
+		p.advanceIfStalled(start, name+" arguments")
+	}
+	p.nextToken() // consume ')'
+	return &CallExpr{Function: name, Args: args}
 }
 
 // Phase 42: match value { pattern => expr, ... }
@@ -2003,16 +2041,26 @@ func (p *Parser) parseActor() *ActorDeclStmt {
 	return actor
 }
 
+// parseSpawn parses the Phase 107 spawn form: spawn(fn, args...) — a user
+// function name followed by the argument list. Returns a SpawnExpr whose
+// ActorName holds the target function name. The legacy `spawn(actor)(args)`
+// actor-class syntax is superseded.
 func (p *Parser) parseSpawn() *SpawnExpr {
 	p.nextToken() // consume 'spawn'
 	p.nextToken() // consume '('
-	actorName := p.curToken.Literal(p.src)
-	p.nextToken() // consume actor name
-	p.nextToken() // consume ')'
+
+	fnName := ""
+	if p.curToken.Type == lexer.TokenIdent {
+		fnName = p.curToken.Literal(p.src)
+		p.nextToken() // consume function name
+	} else {
+		p.addError(fmt.Sprintf("expected function name in spawn(...), got '%s'", p.curToken.Literal(p.src)))
+		p.nextToken()
+	}
 
 	args := []Node{}
-	if p.curToken.Type == lexer.TokenLParen {
-		p.nextToken() // consume '('
+	if p.curToken.Type == lexer.TokenComma {
+		p.nextToken() // consume ','
 		for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
 			start := p.curToken.Start
 			args = append(args, p.parseExpr())
@@ -2021,17 +2069,25 @@ func (p *Parser) parseSpawn() *SpawnExpr {
 			}
 			p.advanceIfStalled(start, "spawn arguments")
 		}
-		p.nextToken() // consume ')'
 	}
+	p.nextToken() // consume ')'
 
-	return &SpawnExpr{ActorName: actorName, Args: args}
+	return &SpawnExpr{ActorName: fnName, Args: args}
 }
 
-func (p *Parser) parseReceive() *ReceiveStmt {
+// parseReceiveChannel consumes `receive ( <expr> )` and returns the channel
+// expression. Shared by the phase-16 receive-statement form (receive(ch) -> var)
+// and the Phase 107 expression form (ChRecvExpr).
+func (p *Parser) parseReceiveChannel() Node {
 	p.nextToken() // consume 'receive'
 	p.nextToken() // consume '('
 	channel := p.parseExpr()
 	p.nextToken() // consume ')'
+	return channel
+}
+
+func (p *Parser) parseReceive() *ReceiveStmt {
+	channel := p.parseReceiveChannel()
 
 	varName := ""
 	if p.curToken.Type == lexer.TokenIdent {

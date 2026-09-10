@@ -70,6 +70,11 @@ var builtinNames = map[string]bool{
 	"http.get": true,
 	"Some":     true, "None": true, "Ok": true, "Err": true,
 	"assert": true, "assert_eq": true, "assert_ne": true,
+	// Phase 107: concurrency builtins (channels, tasks, actors).
+	"channel": true, "send": true, "chanSend": true, "chanClose": true,
+	"join": true, "wait_all": true,
+	"actor": true, "actorSend": true, "actorState": true,
+	"setActorState": true, "actorStop": true,
 }
 
 // NewResolver creates a Resolver over the given program. If sourceMap is
