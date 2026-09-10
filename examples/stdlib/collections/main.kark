@@ -1,0 +1,46 @@
+// Phase 109: Standard Library v2 — Collections module demo.
+// Exercises the std.collections import surface (arrays + map iteration)
+// through the normal toolchain on both engines with byte-identical output.
+// Run:            karkain run main.kark
+// Cross-engine:   karkain run main.kark --engine go
+import std.collections
+
+func main() {
+    let arr = [5, 2, 8, 1, 9, 2]
+    print(array_contains(arr, 8))          // 1
+    print(array_index_of(arr, 9))          // 4
+    print(array_sum(arr))                  // 27
+    print(array_min(arr))                  // 1
+    print(array_max(arr))                  // 9
+    print(len(array_unique(arr)))          // 5
+    let rev = array_reverse(arr)
+    print(rev[0])                          // 2
+    print(rev[5])                          // 5
+    let sl = array_slice(arr, 1, 3)
+    print(len(sl))                         // 2
+    print(sl[0])                           // 2
+    print(sl[1])                           // 8
+    let filled = array_fill(7, 4)
+    print(len(filled))                     // 4
+    print(filled[3])                       // 7
+    let cut = array_remove_at(arr, 0)
+    print(cut[0])                          // 2
+    let words = ["one", "two", "three"]
+    print(array_contains_str(words, "two")) // 1
+    print(array_index_of_str(words, "three")) // 2
+    let cpy = array_copy(words)
+    print(cpy[2])                          // three
+    let m = {"a": 10, "b": 20, "c": 30}
+    print(map_contains_key(m, "b"))        // 1
+    let keys = map_keys(m)
+    let keySum = 0
+    let kk = 0
+    while(kk < len(keys)) {
+        keySum = keySum + len(keys[kk])
+        kk = kk + 1
+    }
+    print(keySum)                          // 3 (1+1+1)
+    let vals = map_values(m)
+    print(len(vals))                       // 3
+    print(vals[0] + vals[1] + vals[2])     // 60
+}

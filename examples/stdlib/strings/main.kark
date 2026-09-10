@@ -1,0 +1,40 @@
+// Phase 109: Standard Library v2 — Strings module demo.
+// Exercises the std.string import surface through the normal toolchain on
+// BOTH engines (Go and self-hosted kcc) with byte-identical output.
+// Run:            karkain run main.kark
+// Cross-engine:   karkain run main.kark --engine go
+import std.string
+
+func main() {
+    print(str_len("hello"))                // 5
+    print(str_empty(""))                   // 1 (true)
+    print(str_concat("foo", "bar"))        // foobar
+    print(str_repeat("ab", 3))             // ababab
+    print(str_starts_with("karkain", "k")) // 1
+    print(str_ends_with("karkain", "in"))  // 1
+    print(str_contains("karkain", "rka"))  // 1
+    print(str_index_of("hello world", "world")) // 6
+    print(str_last_index_of("hello hello", "hello")) // 6
+    print(str_sub("hello world", 0, 5))    // hello
+    print(str_slice("hello world", 6, 5))  // world
+    print(str_trim("  padded  "))          // padded
+    print(str_trim_left("  pad"))          // pad
+    print(str_trim_right("pad  "))         // pad
+    print(str_to_upper("Hello World"))     // HELLO WORLD
+    print(str_to_lower("Hello World"))     // hello world
+    print(str_replace("a-b-c", "-", "+"))  // a+b+c
+    print(str_reverse("abc"))              // cba
+    print(str_char_at("hello", 1))         // e
+    print(str_to_int("42") + 1)            // 43
+    print(str_from_int(7))                 // 7
+    print(str_count("ababab", "ab"))       // 3
+    print(str_is_empty("x"))               // 0 (false)
+    let parts = str_split("a,b,c", ",")
+    print(len(parts))                      // 3
+    let i = 0
+    while(i < len(parts)) {
+        print(parts[i])                    // a b c
+        i = i + 1
+    }
+    print(str_join(["x", "y", "z"], "-"))  // x-y-z
+}

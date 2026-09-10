@@ -1,10 +1,14 @@
 // Karkain Standard Library - Collections Module
-// Array and map utility operations
+// Array and map utility operations.
+//
+// Written in canonical Karkain (untyped params, no type annotations) so it
+// parses and compiles identically on BOTH the Go engine and the self-hosted
+// kcc engine. Map iteration is provided by the runtime builtin `map_keys_of`.
 
 // array_contains checks if an array contains a specific integer value.
-func array_contains(arr: int[], val: int) -> bool {
+func array_contains(arr, val) {
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         if arr[i] == val {
             return true
         }
@@ -14,9 +18,9 @@ func array_contains(arr: int[], val: int) -> bool {
 }
 
 // array_contains_str checks if a string array contains a specific value.
-func array_contains_str(arr: string[], val: string) -> bool {
+func array_contains_str(arr, val) {
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         if arr[i] == val {
             return true
         }
@@ -26,9 +30,21 @@ func array_contains_str(arr: string[], val: string) -> bool {
 }
 
 // array_index_of returns the index of the first occurrence of val, or -1.
-func array_index_of(arr: int[], val: int) -> int {
+func array_index_of(arr, val) {
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
+        if arr[i] == val {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// array_index_of_str returns the index of the first string occurrence, or -1.
+func array_index_of_str(arr, val) {
+    let i = 0
+    while(i < len(arr) ) {
         if arr[i] == val {
             return i
         }
@@ -38,10 +54,10 @@ func array_index_of(arr: int[], val: int) -> int {
 }
 
 // array_reverse returns a new array with elements in reverse order.
-func array_reverse(arr: int[]) -> int[] {
-    let result: int[] = []
+func array_reverse(arr) {
+    let result = []
     let i = len(arr) - 1
-    while i >= 0 {
+    while(i >= 0 ) {
         push(result, arr[i])
         i = i - 1
     }
@@ -49,10 +65,10 @@ func array_reverse(arr: int[]) -> int[] {
 }
 
 // array_reverse_str returns a new string array with elements in reverse order.
-func array_reverse_str(arr: string[]) -> string[] {
-    let result: string[] = []
+func array_reverse_str(arr) {
+    let result = []
     let i = len(arr) - 1
-    while i >= 0 {
+    while(i >= 0 ) {
         push(result, arr[i])
         i = i - 1
     }
@@ -60,10 +76,10 @@ func array_reverse_str(arr: string[]) -> string[] {
 }
 
 // array_copy returns a shallow copy of an integer array.
-func array_copy(arr: int[]) -> int[] {
-    let result: int[] = []
+func array_copy(arr) {
+    let result = []
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         push(result, arr[i])
         i = i + 1
     }
@@ -71,10 +87,10 @@ func array_copy(arr: int[]) -> int[] {
 }
 
 // array_copy_str returns a shallow copy of a string array.
-func array_copy_str(arr: string[]) -> string[] {
-    let result: string[] = []
+func array_copy_str(arr) {
+    let result = []
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         push(result, arr[i])
         i = i + 1
     }
@@ -82,10 +98,10 @@ func array_copy_str(arr: string[]) -> string[] {
 }
 
 // array_fill creates an array of n elements all set to val.
-func array_fill(val: int, n: int) -> int[] {
-    let result: int[] = []
+func array_fill(val, n) {
+    let result = []
     let i = 0
-    while i < n {
+    while(i < n ) {
         push(result, val)
         i = i + 1
     }
@@ -93,10 +109,10 @@ func array_fill(val: int, n: int) -> int[] {
 }
 
 // array_slice returns a sub-array from start to end (exclusive).
-func array_slice(arr: int[], start: int, end: int) -> int[] {
-    let result: int[] = []
+func array_slice(arr, start, end) {
+    let result = []
     let i = start
-    while i < end && i < len(arr) {
+    while(i < end && i < len(arr) ) {
         push(result, arr[i])
         i = i + 1
     }
@@ -104,10 +120,10 @@ func array_slice(arr: int[], start: int, end: int) -> int[] {
 }
 
 // array_slice_str returns a sub-array of strings from start to end (exclusive).
-func array_slice_str(arr: string[], start: int, end: int) -> string[] {
-    let result: string[] = []
+func array_slice_str(arr, start, end) {
+    let result = []
     let i = start
-    while i < end && i < len(arr) {
+    while(i < end && i < len(arr) ) {
         push(result, arr[i])
         i = i + 1
     }
@@ -116,11 +132,11 @@ func array_slice_str(arr: string[], start: int, end: int) -> string[] {
 
 // array_remove removes the first occurrence of val from an array.
 // Returns a new array without the element.
-func array_remove(arr: int[], val: int) -> int[] {
-    let result: int[] = []
+func array_remove(arr, val) {
+    let result = []
     let removed = false
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         if arr[i] == val && !removed {
             removed = true
         } else {
@@ -133,10 +149,10 @@ func array_remove(arr: int[], val: int) -> int[] {
 
 // array_remove_at removes the element at the given index.
 // Returns a new array without that element.
-func array_remove_at(arr: int[], index: int) -> int[] {
-    let result: int[] = []
+func array_remove_at(arr, index) {
+    let result = []
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         if i != index {
             push(result, arr[i])
         }
@@ -146,10 +162,10 @@ func array_remove_at(arr: int[], index: int) -> int[] {
 }
 
 // array_insert inserts a value at the given index, shifting elements right.
-func array_insert(arr: int[], index: int, val: int) -> int[] {
-    let result: int[] = []
+func array_insert(arr, index, val) {
+    let result = []
     let i = 0
-    while i < len(arr) + 1 {
+    while(i < len(arr) + 1 ) {
         if i == index {
             push(result, val)
         }
@@ -162,10 +178,10 @@ func array_insert(arr: int[], index: int, val: int) -> int[] {
 }
 
 // array_unique returns a new array with duplicate elements removed.
-func array_unique(arr: int[]) -> int[] {
-    let result: int[] = []
+func array_unique(arr) {
+    let result = []
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         if !array_contains(result, arr[i]) {
             push(result, arr[i])
         }
@@ -175,12 +191,12 @@ func array_unique(arr: int[]) -> int[] {
 }
 
 // array_flatten concatenates an array of arrays into a single array.
-func array_flatten(arr: int[][]) -> int[] {
-    let result: int[] = []
+func array_flatten(arr) {
+    let result = []
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         let j = 0
-        while j < len(arr[i]) {
+        while(j < len(arr[i]) ) {
             push(result, arr[i][j])
             j = j + 1
         }
@@ -190,24 +206,24 @@ func array_flatten(arr: int[][]) -> int[] {
 }
 
 // array_sum returns the sum of all elements.
-func array_sum(arr: int[]) -> int {
+func array_sum(arr) {
     let total = 0
     let i = 0
-    while i < len(arr) {
+    while(i < len(arr) ) {
         total = total + arr[i]
         i = i + 1
     }
     return total
 }
 
-// array_min returns the minimum element.
-func array_min(arr: int[]) -> int {
+// array_min returns the minimum element (0 for empty arrays).
+func array_min(arr) {
     if len(arr) == 0 {
         return 0
     }
     let m = arr[0]
     let i = 1
-    while i < len(arr) {
+    while(i < len(arr) ) {
         if arr[i] < m {
             m = arr[i]
         }
@@ -216,14 +232,14 @@ func array_min(arr: int[]) -> int {
     return m
 }
 
-// array_max returns the maximum element.
-func array_max(arr: int[]) -> int {
+// array_max returns the maximum element (0 for empty arrays).
+func array_max(arr) {
     if len(arr) == 0 {
         return 0
     }
     let m = arr[0]
     let i = 1
-    while i < len(arr) {
+    while(i < len(arr) ) {
         if arr[i] > m {
             m = arr[i]
         }
@@ -232,29 +248,66 @@ func array_max(arr: int[]) -> int {
     return m
 }
 
-// map_keys returns an array of all keys in a map.
-func map_keys(m: map[string]int) -> string[] {
-    // Maps in Karkain support iteration via hasKey/index patterns.
-    // This is a placeholder for when map iteration is fully supported.
-    let result: string[] = []
+// array_max_2 returns the index and value of the maximum element.
+// Returns [index, value]; index is -1 for empty arrays.
+func array_max_2(arr) {
+    let result = []
+    if len(arr) == 0 {
+        push(result, -1)
+        push(result, 0)
+        return result
+    }
+    let best_index = 0
+    let best_value = arr[0]
+    let i = 1
+    while(i < len(arr) ) {
+        if arr[i] > best_value {
+            best_value = arr[i]
+            best_index = i
+        }
+        i = i + 1
+    }
+    push(result, best_index)
+    push(result, best_value)
     return result
 }
 
+// map_keys returns an array of all keys in a map.
+func map_keys(m) {
+    return map_keys_of(m)
+}
+
 // map_values returns an array of all values in a map.
-func map_values(m: map[string]int) -> int[] {
-    let result: int[] = []
+func map_values(m) {
+    let result = []
+    let keys = map_keys_of(m)
+    let i = 0
+    while(i < len(keys) ) {
+        push(result, m[keys[i]])
+        i = i + 1
+    }
     return result
 }
 
 // map_contains_key checks if a map contains the given key.
-func map_contains_key(m: map[string]int, key: string) -> bool {
+func map_contains_key(m, key) {
     return hasKey(m, key)
 }
 
 // map_merge returns a new map combining two maps. Values from b override a.
-func map_merge(a: map[string]int, b: map[string]int) -> map[string]int {
-    let result: map[string]int = {}
-    // Copy a's entries, then b's (b overrides)
-    // Placeholder for full map iteration support
+func map_merge(a, b) {
+    let result = {}
+    let ka = map_keys_of(a)
+    let i = 0
+    while(i < len(ka) ) {
+        result[ka[i]] = a[ka[i]]
+        i = i + 1
+    }
+    let kb = map_keys_of(b)
+    let j = 0
+    while(j < len(kb) ) {
+        result[kb[j]] = b[kb[j]]
+        j = j + 1
+    }
     return result
 }

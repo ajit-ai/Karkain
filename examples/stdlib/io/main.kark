@@ -1,0 +1,28 @@
+// Phase 109: Standard Library v2 — I/O module demo.
+// Exercises the std.io import surface (file read/write/exists/append/lines)
+// through the normal toolchain on both engines with byte-identical output.
+// Files are created next to the current working directory; the demo cleans up
+// after itself on success. Run:  karkain run main.kark
+import std.io
+
+func main() {
+    let path = "phase109_io_demo.txt"
+    print(io_write_file(path, "alpha\nbeta\n"))  // 1
+    print(io_file_exists(path))                  // 1
+    print(io_read_all(path))                     // alpha/beta (2 lines)
+    print(io_append_file(path, "gamma\n"))       // 1
+    let lines = io_read_lines(path)
+    print(len(lines))                            // 3
+    let i = 0
+    while(i < len(lines)) {
+        print(lines[i])                          // alpha beta gamma
+        i = i + 1
+    }
+    io_close(path) // release the shared line-reading handle (Windows lock)
+    io_create_file(path)
+    print(io_file_exists(path))                  // 1 (truncated empty)
+    print(len(io_read_all(path)))                // 0
+    io_close(path)
+    print(io_delete_file(path))                  // 1
+    print(io_file_exists(path))                  // 0
+}

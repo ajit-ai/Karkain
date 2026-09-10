@@ -355,13 +355,23 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 }
 
 // kccAssembleSource returns the fully assembled Karkain source for a target
-// file, mirroring the Go engine's resolveSources: project manifest dependencies
-// (local/workspace/registry/git) plus same-directory sibling modules upstream,
-// with the root file appended last as the entry point. For non-project files it
-// falls back to the classic sibling-join (identical to kcc's own
-// loadSourceWithSiblings), keeping flat/single-file builds unchanged.
+// file, mirroring the Go engine's module-aware loader (resolveSourcesRun):
+// import-driven module assembly first (stdlib/local/registered modules via the
+// module graph), falling back to the classic paths (project manifest
+// dependencies + same-directory sibling modules upstream, root last) when the
+// entry file declares no imports. Module import declarations
+// (`import std.string`, `import math`) are then stripped from the text because
+// the self-hosted parser only understands bare module names — `import math` —
+// and chokes on the dotted stdlib names; all imported units are already
+// present in the assembled text, so the declarations are pure surface syntax
+// for the entry file. C import blocks (`import "C" { ... }`) are preserved.
 func kccAssembleSource(file string) (string, error) {
-	return resolveSources(file)
+	text, err := resolveSourcesRun(file)
+	if err != nil {
+		return "", err
+	}
+	re := regexp.MustCompile(`(?m)^[ \t]*import[ \t]+[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*[ \t]*\r?$`)
+	return re.ReplaceAllString(text, ""), nil
 }
 
 // kccTestSource returns the dependency-aware content for a test file: the

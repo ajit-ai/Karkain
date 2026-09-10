@@ -65,6 +65,11 @@ var builtinNames = map[string]bool{
 	"system": true, "openFile": true, "readLine": true, "readLineEOF": true, "listFiles": true,
 	"closeFile": true, "createFile": true, "writeToFile": true, "removeFile": true,
 	"trim": true, "contains": true, "split": true,
+	// Phase 109: stdlib v2 runtime byte helpers (encoding / crypto / map iteration).
+	"hex_encode_bytes": true, "hex_decode_bytes": true,
+	"base64_encode_bytes": true, "base64_decode_bytes": true,
+	"utf8_valid_bytes": true, "sha256_hex": true, "sha512_hex": true,
+	"map_keys_of": true,
 	"sqrt": true, "abs": true, "pow": true, "mod": true,
 	"add_checked": true, "sub_checked": true, "mul_checked": true,
 	"http.get": true,

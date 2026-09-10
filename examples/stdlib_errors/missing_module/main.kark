@@ -1,0 +1,7 @@
+// Phase 109 negative fixture: importing a nonexistent stdlib module must
+// fail during module resolution on BOTH engines.
+import std.does_not_exist
+
+func main() {
+    print(1)
+}
