@@ -13,8 +13,47 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-106** — Phases 50–105 complete, Phase 106 (SIMD &
-Vector Types) complete.
+Current phase: **post-107** — Phases 50–106 complete, Phase 107 (Concurrency
+Runtime) complete.
+Also completed: **107** — Concurrency Runtime
+(A work-stealing task scheduler with channels and actors usable end-to-end
+from `.kark` through a compiler-neutral C runtime embedded in the generated
+assembly. Runtime under `runtime/concurrency/c/`
+(`karkain_conc.h`/`karkain_sched_impl.h`/`karkain_scheduler.c`/
+`karkain_channel.c`/`karkain_actor.c`/`concurrency_main.c`): `karkain_sched_t`
+workers with a bounded grab queue, per-worker wake condvar, shared pending
+drain and no busy-spin stop; `karkain_task_t` heap cells (fn ptr + heap-owned
+`ctx` freed by the runtime, atomic `done`, cv, `status` long — negative =
+failure); bounded/unbounded blocking channels with deterministic
+close-drain; actors as serialized dispatcher jobs over a mailbox with a
+state-cell box; `karkain_conc_atomic_*` GNU atomic helpers in the runtime
+only. Embedded via `runtime/concurrency/embed.go` (`//go:embed c/...`).
+Compiler integration: parser `spawn(fn, args...)`/`receive(ch)` expression/
+`channel(...)`+`actor(...)` keyword calls (legacy `receive(ch) -> var`
+kept), sema `builtinNames`, codegen `pkg/codegen/conc_runtime.go` (recursive
+pre-scan → `usesConcurrency` + stable spawn-site wrapper indices +
+actor-handler ids; per-site `karkain_run_<idx>` wrappers; actor dispatcher
+adopting returned state with int-0 = no change; `concRuntimeAPIC` Value
+glue), `GenerateAndCompile` header/wrapper/glue emission gated on
+`usesConcurrency`. Language surface: `spawn/join/wait_all/channel/chanSend/
+chanClose/receive` and `actor/actorSend/actorState/setActorState/actorStop`
+(`send` is a lexed keyword → `chanSend`). Gates: `pkg/runtime/
+phase107_concurrency_test.go` (7 scenarios + >1M msg/s), `pkg/codegen/
+phase107_concurrency_test.go` (7: spawn 42/10/-1/done, spawn statements,
+channels 10/20/0, actors `6`, embedded markers, 999-task stress
+`332833500`, generated-source presence), `pkg/cli/phase107_concurrency_test.go`
+(2 E2E: `examples/concurrency/pipeline/main.kark` → `144/10/20/30/0/6` +
+byte-identical repeats). Regressions green: full `pkg/cli` 1723.8s
+(conformance 59/59 + all Phase 97–107 gates), whole `pkg/codegen`,
+sema/parser/lexer/ir/pm/source/diagnostics/compiler/module,
+backend/npu/runtime, `go vet`, `go build`; bootstrap stage-1 builds (Go
+codegen change safe for the compiler's own sources); stage-2 build SEGFAULT
+on the ~3.9GB-RAM host is the documented kcc-build-mode OOM class (no
+`src/compiler` changes; concurrency codegen gated by `usesConcurrency`,
+unused by compiler sources; Go-engine `check` of `src/compiler/main.kark`
+clean). kcc already lexes/parses the keywords (`TK_SPAWN/TK_SEND/...`);
+codegen parity is a documented post-107 boundary. Report:
+`docs/audit/PHASE-107-CONCURRENCY-RUNTIME-FINAL-REPORT.md`.)
 Also completed: **106** — SIMD & Vector Types
 (Lane-vector types: `[N]f32`/`[N]f64`/`[N]i32`/`[N]i64` variable annotations
 select Karkain-owned C lane types `karkain_<elem><width>x<lanes>` (float →
