@@ -87,7 +87,7 @@ Documentation:
 - SPEC.md (§6.2b importable std.* surface; §15.1 stdlib exemption note)
 
 Commit:
-<commit-sha> — "Phase 109: Standard Library v2 (collections/string/io/encoding/crypto)"
+965d7da — "Phase 109: Standard Library v2 (importable std.string/collections/io/encoding/crypto, both engines, byte-identical)"
 
 develop:
 PUSHED (develop == working tree)
