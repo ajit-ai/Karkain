@@ -1,0 +1,41 @@
+// Phase 106: SIMD & Vector Types gate example.
+//
+// The [8]f32 / [4]f32 / [8]i32 / [4]f64 variable annotations select Karkain
+// lane-vector types; @simd_splat broadcasts a scalar into every lane,
+// @simd_add/sub/mul/div perform real elementwise vector arithmetic (SSE for
+// 128-bit widths, AVX for 256-bit widths on x86 — the generated C is compiled
+// with -mavx when a program uses them), and @simd_sum reduces a vector back to
+// a scalar Value. Results on this hardware:
+//
+//	sum of 8 x (2.0 + 3.0)      = 40
+//	diff of 8 x (2.0 - 3.0)     = -8
+//	product of 8 x (2.0 * 3.0)  = 48
+//	quotient of 8 x (3.0 / 2.0) = 12
+//	f64x4 lanes 1.0 + 0.25      = 5
+//	i32x8 wraps sum 8 x 7       = 56
+func main() {
+    // 8-wide f32 (AVX 256-bit)
+    let a [8]f32 = @simd_splat(2.0, 8)
+    let b [8]f32 = @simd_splat(3.0, 8)
+    let sum [8]f32 = @simd_add(a, b)
+    print(@simd_sum(sum))
+    let diff [8]f32 = @simd_sub(a, b)
+    print(@simd_sum(diff))
+    let prod [8]f32 = @simd_mul(a, b)
+    print(@simd_sum(prod))
+    let quot [8]f32 = @simd_div(b, a)
+    print(@simd_sum(quot))
+
+    // 4-wide f64 (SSE2 / AVX 256-bit when -mavx)
+    let fa [4]f64 = @simd_splat(1.0, 4)
+    let fb [4]f64 = @simd_splat(0.25, 4)
+    let fsum [4]f64 = @simd_add(fa, fb)
+    print(@simd_sum(fsum))
+
+    // 8-wide i32 (integer vectors reduce lane-wise)
+    let ix [8]i32 = @simd_splat(7, 8)
+    print(@simd_sum(ix))
+
+    // Scalar oracle for independent correctness.
+    print(8 * 5)
+}
