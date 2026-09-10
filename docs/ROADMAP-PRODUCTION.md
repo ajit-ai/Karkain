@@ -228,10 +228,26 @@ gate verifies via the self-written parser; real debuggers remain on the
 gcc C-transpile path.
 **Blocks:** None (independent)
 
-### Phase 105 — Error Recovery & Incremental Compilation
-**Deliverable:** Multi-error reporting, per-module caching
-**Files:** `pkg/diagnostics/recovery.go`, `pkg/compiler/incremental.go`
-**Gate:** 5-error source file → compiler reports all 5 errors, not just the first
+### Phase 105 — Error Recovery & Incremental Compilation — COMPLETE (2026-09-10)
+**Deliverable (as built):** Multi-error reporting (project-wide syntax
+preflight surfacing ALL recoverable parse errors in one invocation on both
+engine paths, plus aggregated resolve-stage diagnostics; exit 3, no crash)
+and a content-addressed, dependency-aware incremental compilation cache
+(generated C + linked executable, keyed by ordered project content hash with
+per-module content/interface fingerprints; compiled/reused/invalidated;
+atomic writes; failed builds never poison; `karkain build --incremental`
++ `karkain clean` purge).
+**Files (delivered):** `pkg/cli/multierror.go`, `pkg/cli/incremental.go`,
+`pkg/cli/check.go`, `pkg/cli/checker.go`, `pkg/cli/kcc_engine.go`,
+`pkg/cli/clean.go`, `cmd/karkain/main.go`, `pkg/compiler/incremental.go`
+(planned `pkg/diagnostics/recovery.go` was not needed — the preflight lives
+in `pkg/cli`), `examples/phase105/`, `examples/phase105_errors/`.
+**Gate (as built):** 12 recoverable diagnostics across 2 fixtures in a single
+invocation (6 syntax + 3 resolve + positive control = 5 tests); 13 cache
+correctness/equivalence tests (10 plan-level + 3 E2E).
+**Result:** All gates + full pkg regression sweep green (measured no-op
+101 ms vs clean 2790 ms); report
+`docs/audit/PHASE-105-ERROR-RECOVERY-INCREMENTAL-FINAL-REPORT.md`.
 **Blocks:** None (independent)
 
 ### Phase 106 — SIMD & Vector Types
@@ -512,7 +528,7 @@ karkain_runtime.o
 | 102-F | COMPLETE | 2026-09-09 |
 | 103 | COMPLETE | 2026-09-09 |
 | 104 | COMPLETE | Phase 104 report |
-| 105 | PENDING | — |
+| 105 | COMPLETE | Phase 105 report |
 | 106 | PENDING | — |
 | 107 | PENDING | — |
 | 108 | PENDING | — |

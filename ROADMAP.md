@@ -586,3 +586,31 @@ goldens, probes, all pkg suites, `go vet`). Known limitation (documented,
 NOT a defect): no ELF/PE container writer exists, so debuggers/readelf
 remain on the gcc C-transpile path; the DWARF sections are ready to embed
 once a container writer lands.
+
+**PHASE 105 COMPLETE** - Error Recovery & Incremental Compilation.
+Multi-error reporting: an engine-agnostic project-wide syntax preflight
+(`pkg/cli/multierror.go`) parses every unit file independently and renders
+ALL recoverable parse errors in one invocation (exit 3) through BOTH
+`check` engine paths (Go `CheckCommandFormatted` and default-kcc
+`KCCCheckCommand`, the latter previously `[ok]`-ing multi-error inputs);
+the semantic/type-check stage aggregates resolve diagnostics the same way
+(`examples/phase105_errors/` — 6 recoverable parse errors + 3 resolve
+errors, both gated). Incremental compilation: new `pkg/compiler` cache
+engine — content-addressed whole-assembly cache (generated C + linked exe)
+keyed by an ordered project content-hash, per-module sha256 + interface
+hashes (public signature/header/import only — bodies never recompile
+dependents, zero reparse on no-op), dependency-aware invalidation
+(compiled/reused/invalidated), compiler-identity key invalidation, atomic
+writes, and failed builds every-never poison the cache; `karkain build
+--incremental` / `--incremental-cache` and `karkain clean` purge
+(`.karkain-cache`). Real 3-module example `examples/phase105/`
+(main+math+strings). Gates: `pkg/compiler/incremental_test.go` (10) +
+`pkg/cli/phase105_incremental_test.go` (3 E2E: equivalence, cache
+correctness, failed-build-safe) + `pkg/cli/phase105_multierror_test.go`
+(5). Measured: clean 2790 ms → no-op 101 ms (~27×); post-clean rebuild
+byte-identical C and stdout. Full regression sweep green including the
+entire `pkg/cli` suite (conformance 59/59, all Phase 97–104 gates), all
+other pkg suites, `go vet`, `go build`. Design decision (documented,
+started by design): whole-assembly cache now; per-module `.o` TU splitting
+deferred as post-105 work on top of the same interface machinery.
+Report: `docs/audit/PHASE-105-ERROR-RECOVERY-INCREMENTAL-FINAL-REPORT.md`.

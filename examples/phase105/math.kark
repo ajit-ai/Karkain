@@ -1,0 +1,10 @@
+// math.kark — Phase 105 incremental example: math module for `import math`.
+// Public exports are callable from other modules via qualified names.
+
+public func add(a, b) {
+    return a + b
+}
+
+public func twice(n) {
+    return n * 2
+}
