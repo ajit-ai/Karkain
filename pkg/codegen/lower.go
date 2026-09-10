@@ -216,6 +216,13 @@ func (l *fnLowerer) lowerStmt(s parser.Node) {
 			l.rawcStmt(l.g.genStatement(s))
 			return
 		}
+		if n.IsSIMD {
+			// Phase 106: lane-typed vector variables are raw C declarations
+			// (never Value cells); genStatement records the declared width in
+			// g.simdVars for later @simd_* operand resolution.
+			l.rawcStmt(l.g.genStatement(s))
+			return
+		}
 		if _, ok := n.Value.(*parser.FuncDecl); ok {
 			l.rawcStmt(l.g.genStatement(s))
 			return
