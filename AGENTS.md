@@ -13,8 +13,48 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-108** — Phases 50–106 complete, Phase 107 (Concurrency
-Runtime) complete, Phase 108 (WASM target) complete.
+Current phase: **post-109** — Phases 50–106 complete, Phase 107 (Concurrency
+Runtime) complete, Phase 108 (WASM target) complete, Phase 109 (Standard
+Library v2) complete.
+Also completed: **109** — Standard Library v2
+(Real `.kark` programs can `import std.string / std.collections / std.io /
+std.encoding / std.crypto` through the normal toolchain on BOTH engines — Go
+front end and the self-hosted kcc engine — byte-identical. Five canonical
+`.kark` modules; eight byte-level runtime builtins backing the encoding/crypto/
+collections surface (`hex_encode_bytes`, `hex_decode_bytes`,
+`base64_encode_bytes`, `base64_decode_bytes`, `utf8_valid_bytes`,
+`sha256_hex`, `sha512_hex`, `map_keys_of`) wired into the Go resolver
+(`builtinNames` in `pkg/sema/resolve.go`), Go codegen preamble/helpers + genExpr
+dispatch (`pkg/codegen/codegen.go`), kcc checker/sema tables
+(`src/compiler/checker.kark`, `src/compiler/sema.kark` — incl. newly added
+`readLineEOF`/`listFiles` arity-1 entries) and kcc C-helper emission
+(`src/compiler/codegen.kark` `emitLine` preamble; helpers emitted as single
+one-liners after `karkain_appendArray`). NIST FIPS 180 vectors (sha256 "abc"
+`ba7816bf...`, sha256 "" `e3b0c442...`, sha512 "abc" `ddaf35a1...`) and RFC
+4648 hex/Base64 verified byte-identical on both engines; malformed hex/base64
+raise the SAME `runtime error: invalid (hex|base64) string at <file>:<line>`
+(Phase 100 model) and `import std.does_not_exist` is rejected on both.
+`kccAssembleSource` (`pkg/cli/kcc_engine.go`) is now module-aware (uses
+`resolveSourcesRun`) and strips dotted `import std.x` lines (regex
+`^[ \t]*import[ \t]+[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*`), preserving
+`import "C" { ... }` blocks. Go parser requires `while(...)` parens (`if` does
+not). PowerShell 5.1 `Set-Content -Encoding UTF8` writes a BOM that breaks
+mid-assembly module loads (`unexpected token '�'`) — write stdlib/.kark files
+UTF-8-no-BOM. IO handles are shared: `io_close` before `io_delete_file` on
+Windows or the file stays locked. String-array print differs (Go `["x"]` vs
+kcc `[x]`) — examples iterate instead. Gates: `pkg/cli/phase109_stdlib_test.go`
+(5 golden examples incl. UTF-8 byte round-trips `68c3a9...`, multi-module E2E
+`examples/stdlib_v2` with `sha256("karkain") =
+00e0cba20c10cac449eb885a9926a4b646f0ac163ed7fbc5704d9d8a057ef44d` +
+determinism, module-assembly guard, negative suite, missing-module rejection)
++ `pkg/sema/phase109_builtins_test.go`. Regressions green: Phase 106/107/108
+CLI gates, `pkg/wasm`, `pkg/compiler` (incremental), `pkg/codegen`,
+lexer/parser/sema/ir/pm/source/diagnostics/module/backend/npu/runtime,
+`go vet`, `go build`. WASM: new builtins are K108-gated (native-only) — no
+WASM change, documented boundary. `stdlib/core`, `stdlib/math`, `stdlib/system`,
+`stdlib/gpu`, `stdlib/async` remain behind this phase (non-canonical syntax /
+no builtin backing). Report:
+`docs/audit/PHASE-109-STANDARD-LIBRARY-V2-FINAL-REPORT.md`.)
 Also completed: **108** — WASM Target
 (Karkain-owned wasm32-wasi backend in new package `pkg/wasm/` — a
 dependency-free handwritten WASM binary v1 emitter:

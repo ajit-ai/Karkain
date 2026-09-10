@@ -1,0 +1,49 @@
+// Karkain Standard Library - Encoding Module
+// Hexadecimal, Base64 and UTF-8 byte encoding/decoding.
+//
+// Karkain strings ARE UTF-8 byte strings, so utf8_encode/utf8_decode are
+// identity operations and utf8_valid reports well-formedness. Hex and Base64
+// operations delegate to runtime byte helpers (the language has no bitwise
+// operators or byte<->char primitives, so the byte math lives in the Karkain
+// runtime behind the documented builtin boundary).
+
+// hex_encode returns the lowercase hexadecimal encoding of data.
+func hex_encode(data) {
+    return hex_encode_bytes(data)
+}
+
+// hex_decode decodes a hexadecimal string into its bytes (returned as a
+// string). Raises a runtime error if the input is malformed (odd length or
+// non-hexadecimal characters).
+func hex_decode(hex_string) {
+    return hex_decode_bytes(hex_string)
+}
+
+// base64_encode returns the standard RFC 4648 Base64 encoding of data,
+// including '=' padding.
+func base64_encode(data) {
+    return base64_encode_bytes(data)
+}
+
+// base64_decode decodes a standard Base64 string into its bytes (returned as
+// a string). Raises a runtime error if the input is malformed.
+func base64_decode(b64_string) {
+    return base64_decode_bytes(b64_string)
+}
+
+// utf8_encode returns the UTF-8 encoding of the given string (identity:
+// Karkain strings are already UTF-8 byte strings).
+func utf8_encode(s) {
+    return s
+}
+
+// utf8_decode returns the string decoded from UTF-8 bytes (identity: Karkain
+// strings are already UTF-8 byte strings).
+func utf8_decode(s) {
+    return s
+}
+
+// utf8_valid returns true if the bytes in s form well-formed UTF-8.
+func utf8_valid(s) {
+    return utf8_valid_bytes(s)
+}
