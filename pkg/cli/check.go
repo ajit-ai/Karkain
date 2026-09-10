@@ -37,6 +37,20 @@ func CheckCommandFormatted(targetFile string, verbose bool, format string) Comma
 		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
+	// Phase 105: multi-file error recovery. Parse every file of the unit
+	// independently first; if any file has recoverable syntax errors, report
+	// them ALL (per-file path/line/col) in one invocation instead of letting
+	// the first failing stage or a module-graph abort hide the rest. Clean
+	// units fall through to the normal assembled analysis path untouched.
+	if errDiags := projectSyntaxDiagnostics(targetFile); len(errDiags) > 0 {
+		if format == CheckFormatJSON {
+			emitJSONDiagnostics(errDiags)
+			return CommandResult{ExitCode: ExitCompile, Message: ""}
+		}
+		renderDiagnostics("", errDiags)
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageSyntax, len(errDiags))}
+	}
+
 	sourceText, srcMap, err := resolveSourcesCheck(targetFile)
 	if err != nil {
 		return sourceLoadResult(err)

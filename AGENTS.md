@@ -13,7 +13,32 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-104** — Phases 50–103 complete.
+Current phase: **post-105** — Phases 50–104 complete.
+Also completed: **105** — Error Recovery & Incremental Compilation
+(Multi-error reporting: engine-agnostic project-wide syntax preflight
+`pkg/cli/multierror.go` parses every unit file independently and renders ALL
+recoverable parse errors in one invocation with exit 3 through BOTH check
+engine paths — Go `CheckCommandFormatted` and default-kcc
+`KCCCheckCommand`, which previously `[ok]`-ed multi-error inputs; the
+resolve stage aggregates its diagnostics the same way, so
+`examples/phase105_errors/` proves 6 recoverable parse errors (multierr.kark:
+`@bad_attr_*` + `public <non-decl>` + expression-shape) and 3 resolve errors
+(semantic.kark) surface together. Incremental compilation: content-addressed
+whole-assembly cache in new package `pkg/compiler` (per-module content
+sha256 + interface hashes — public func param types / struct-enum headers /
+top-level var headers / imports only, never bodies; compiled/reused/
+invalidated; dependency-aware invalidation; compiler-identity key; atomic
+writes; failed builds never Store); `karkain build --incremental` /
+`--incremental-cache` via `pkg/cli/incremental.go` and `--incremental` flags
+in `cmd/karkain/main.go`; `karkain clean` purges `.karkain-cache`. Real
+3-module example `examples/phase105/` (main+math+strings). Gates:
+`pkg/compiler/incremental_test.go` (10) + `pkg/cli/phase105_incremental_test.go`
+(3 E2E through gcc) + `pkg/cli/phase105_multierror_test.go` (5) — all PASS;
+measured no-op 101 ms vs clean 2790 ms; post-clean rebuild byte-identical C
+and stdout; full regression suite green incl. entire `pkg/cli` (conformance
+59/59, all Phase 97–104 gates) 1066.8s, other pkg suites, `go vet`, `go build`.
+Design decision (documented): whole-assembly cache; per-module `.o` TU
+splitting deferred as post-105 work on the same interface machinery.)
 Also completed: **104** — Debug Information (DWARF)
 (Karkain-owned DWARF 4 debug sections in native executables:
 `.debug_info`/`.debug_abbrev`/`.debug_str`/`.debug_line` emitted by

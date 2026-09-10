@@ -500,6 +500,8 @@ gated by `pkg/cli/phase102_foundation_test.go`.
 | Visibility (`public`) | Y | `public func/type/enum`; private cross-module calls rejected, exit 3 (Phase 103) |
 | Runtime error diagnostics | Y | div/mod-by-zero, array/string OOB (Phase 100) |
 | Stack traces on runtime error | Y | identical frames on both engines (Phase 101) |
+| Multi-error reporting | Y | ALL recoverable parse + resolve diagnostics in one invocation, exit 3, on both engine paths (Phase 105) |
+| Incremental build | Y | `karkain build --incremental` dependency-aware content cache; `karkain clean` purges (Phase 105) |
 | `float64()` / `bool()` / `string()` casts | N | not accepted by either engine |
 | Closures / `fn` codegen | N | known broken on both engines |
 | `const` declarations | N | not part of the engine surface |
