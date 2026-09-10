@@ -1,0 +1,48 @@
+// Phase 107 — Concurrency Runtime
+//
+// End-to-end pipeline demo on the Go engine: spawn/join tasks, a producer
+// task streaming over a channel (close is deterministic), and an actor whose
+// handler accumulates state through three serialized messages.
+//
+// Expected output:
+//   144       <- join of spawn(work, 12): 12^2
+//   10 20 30  <- channel messages produced by the spawned task
+//   0         <- receive after close + drain (deterministic close)
+//   6         <- actor state after counter(a,1) counter(a,2) counter(a,3)
+
+func work(n) {
+	return n * n
+}
+
+func producer(ch) {
+	chanSend(ch, 10)
+	chanSend(ch, 20)
+	chanSend(ch, 30)
+	chanClose(ch)
+}
+
+func counter(state, msg) {
+	return state + msg
+}
+
+func main() {
+	let t = spawn(work, 12)
+	println(join(t))
+
+	let ch = channel()
+	spawn(producer, ch)
+	println(receive(ch))
+	println(receive(ch))
+	println(receive(ch))
+	println(receive(ch))
+
+	let a = actor("counter", 0)
+	actorSend(a, 1)
+	actorSend(a, 2)
+	actorSend(a, 3)
+	wait_all()
+	println(actorState(a))
+	actorStop(a)
+
+	wait_all()
+}
