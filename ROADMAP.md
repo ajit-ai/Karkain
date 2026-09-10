@@ -548,6 +548,20 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 
 ### Current phase
 
+**PHASE 108 COMPLETE** — WASM Target (Karkain-owned wasm32-wasi backend).
+See `docs/audit/PHASE-108-WASM-TARGET-FINAL-REPORT.md`.
+`.kark` source now compiles directly to a valid WASI WebAssembly module
+(`pkg/wasm/`: handwritten binary emitter — module/emit/runtime/backend) that
+runs under wasmtime with correct stdout, deterministic byte-identical builds,
+and runtime-error traces; exposed as `karkain build|run --target wasm32-wasi`.
+Value model parity with the C runtime (unboxed i64, boxed cells, heap base
+0x10000 via `fd_write`); K108-gated unsupported surface (floats/maps/slices/
+C-interop/concurrency). Gates: 9 backend tests (`pkg/wasm/backend_test.go`,
+incl. string equality, div-by-zero trace `main.kark:3`, determinism) + 2 E2E
+CLI tests (`pkg/cli/phase108_cli_test.go`: `examples/wasm/hello.kark` →
+`hello wasmtime`/`42`/`done`, repeat builds byte-identical). Regressions
+green on Phase 95–107 CLI gates, Phase 106/107 codegen+runtime, vet/build.
+
 **PHASE 107 COMPLETE** — Concurrency Runtime (work-stealing scheduler,
 tasks, channels, actors — compiler-integrated end-to-end).
 See `docs/audit/PHASE-107-CONCURRENCY-RUNTIME-FINAL-REPORT.md` (and the

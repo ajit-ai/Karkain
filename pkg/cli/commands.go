@@ -61,6 +61,10 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 		return nativeRunCommand(prog, targetFile, verbose)
 	}
 
+	if cfg.Target == "wasm32-wasi" {
+		return wasmRunCommand(prog, targetFile, "", verbose)
+	}
+
 	cfg.RunAfter = true
 	cfg.Verbose = verbose
 	cg := codegen.New(cfg)
@@ -112,6 +116,10 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 	// Phase 85: Native build path using Phase-84 object/linker infrastructure
 	if cfg.Target == "native-link" {
 		return nativeBuildCommand(prog, targetFile, outputPath, verbose)
+	}
+
+	if cfg.Target == "wasm32-wasi" {
+		return wasmBuildCommand(prog, targetFile, outputPath, verbose)
 	}
 
 	cfg.RunAfter = false
