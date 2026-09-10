@@ -60,11 +60,14 @@ type Generator struct {
 	needsHTTP        bool                        // Phase 55b: track if http.get is used (strip stub otherwise)
 	sourceFile       string                      // Phase 55b: source file for #line directives
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
+	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
+	simdNeedsAVX     bool                        // Phase 106: program uses a 256-bit lane width (-mavx)
 }
 
 func New(cfg Config) *Generator {
 	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl),
-		closureVars: make(map[string]bool), userFuncs: make(map[string]bool)}
+		closureVars: make(map[string]bool), userFuncs: make(map[string]bool),
+		simdVars: make(map[string]string)}
 }
 
 // sourceBaseC returns the quoted base file name (extension included, e.g.
@@ -100,6 +103,8 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	}
 
 	sb.WriteString(g.generateCHeader())
+	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
+	sb.WriteString(simdRuntimeC())
 
 	// Add AVX2 and scalar matrix multiplication kernels
 	sb.WriteString(g.genAVX2MatrixMul("rowsA", "colsA", "colsB"))
@@ -1936,6 +1941,8 @@ func (g *Generator) genStatementTo(sb *strings.Builder, stmt parser.Node) {
 	case *parser.VarDeclStmt:
 		if node.IsMatrix {
 			sb.WriteString(g.genMatrixDecl(node))
+		} else if node.IsSIMD {
+			sb.WriteString(g.genSIMDDecl(node)) // Phase 106: lane-typed vector variable
 		} else {
 			sb.WriteString(fmt.Sprintf("Value %s = %s; ", node.Name, g.genExpr(node.Value)))
 		}
@@ -1950,8 +1957,16 @@ func (g *Generator) genStatementTo(sb *strings.Builder, stmt parser.Node) {
 	}
 }
 
-// Phase 42: SIMD intrinsic codegen
+// Phase 42/106: SIMD intrinsic codegen
 func (g *Generator) genSIMDExpr(node *parser.SIMDBuiltinExpr) string {
+	// Phase 106: when the operands are lane-typed SIMD variables, elementwise
+	// ops lower to karkain_simd_* vector helpers (real SSE/AVX on x86, GNU
+	// vector elsewhere). When the operands are plain Value scalars we keep the
+	// Phase 70 scalar fallback below.
+	if lanes, elem, ok := g.simdLanes(node); ok {
+		return g.genSIMDTyped(node, lanes, elem)
+	}
+
 	var left, right string
 	if len(node.Args) >= 1 {
 		left = g.genExpr(node.Args[0])
@@ -2011,58 +2026,6 @@ func (g *Generator) genSIMDExpr(node *parser.SIMDBuiltinExpr) string {
 
 // KarkainSIMDSSE reports whether the generated C can use _mm_* intrinsics.
 func KarkainSIMDSSE() bool { return true }
-
-// simdVectorCType maps a "[N]f32"-style lane-vector type to a C type.
-//
-//	[4]f32 -> __m128 (SSE)
-//	[8]f32 -> __m256 (AVX)
-//	[2]f64 -> __m128d
-//	[4]f64 -> __m256d
-//
-// Unknown combos fall back to an aligned float array so code still compiles.
-func simdVectorCType(typeStr string) string {
-	lanes, elem, ok := parser.ParseSIMDVectorType(typeStr)
-	if !ok || lanes <= 0 {
-		return "void*"
-	}
-	switch elem {
-	case "f32", "float32":
-		switch lanes {
-		case 2:
-			return "__m64"
-		case 4:
-			return "__m128"
-		case 8:
-			return "__m256"
-		}
-		return fmt.Sprintf("float[%d]", lanes)
-	case "f64", "float64":
-		switch lanes {
-		case 2:
-			return "__m128d"
-		case 4:
-			return "__m256d"
-		}
-		return fmt.Sprintf("double[%d]", lanes)
-	case "i32", "int32":
-		switch lanes {
-		case 4:
-			return "__m128i"
-		case 8:
-			return "__m256i"
-		}
-		return fmt.Sprintf("int32_t[%d]", lanes)
-	case "i64", "int64":
-		switch lanes {
-		case 2:
-			return "__m128i"
-		case 4:
-			return "__m256i"
-		}
-		return fmt.Sprintf("int64_t[%d]", lanes)
-	}
-	return fmt.Sprintf("%s[%d]", elem, lanes)
-}
 
 // memoryOrderC maps a Karkain ordering name to a C memory_order_* value.
 func memoryOrderC(order string) string {
@@ -2152,14 +2115,9 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 			out := g.genFuncDecl(fn)
 			return out + g.lastClosureInit // Phase 54: env instance init after closure def
 		}
-		// Phase 70: `let x [N]f32 = ...` â€” fixed-lane SIMD vector variable.
+		// Phase 70/106: `let x [N]f32 = ...` — fixed-lane SIMD vector variable.
 		if node.IsSIMD {
-			cType := simdVectorCType(node.Type)
-			alignAttr := ""
-			if node.Align > 0 {
-				alignAttr = fmt.Sprintf(" _Alignas(%d)", node.Align)
-			}
-			return fmt.Sprintf("\t%s%s %s = %s;\n", cType, alignAttr, node.Name, g.genExpr(node.Value))
+			return g.genSIMDDecl(node)
 		}
 		// Phase 70: cache-line alignment attribute on a plain scalar/Value var.
 		if node.Align > 0 {
@@ -2811,6 +2769,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
 		}
+		flags = g.appendAVXFlags(flags)
 		return cc, flags
 	}
 
@@ -2821,6 +2780,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
 			}
+			flags = g.appendAVXFlags(flags)
 			return "gcc", flags
 		}
 	} else {
@@ -2829,6 +2789,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
 			}
+			flags = g.appendAVXFlags(flags)
 			return "gcc", flags
 		}
 	}
@@ -2838,6 +2799,7 @@ func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
 		}
+		flags = g.appendAVXFlags(flags)
 		return "clang", flags
 	}
 	// Check for MSVC cl.exe
@@ -3112,7 +3074,7 @@ func (g *Generator) genKernelDecl(kernel *parser.KernelDeclStmt) string {
 // Phase 14: Generate AVX2 matrix multiplication kernel
 func (g *Generator) genAVX2MatrixMul(rowsA, colsA, colsB string) string {
 	return fmt.Sprintf(`
-// AVX2 matrix multiplication kernel (256-bit FMA)
+// AVX2 matrix multiplication kernel (256-bit)
 #if HAS_AVX2
 void matrix_mul_avx2(double* A, double* B, double* C, int64_t rowsA, int64_t colsA, int64_t colsB) {
     int64_t i, j, k;
@@ -3125,7 +3087,9 @@ void matrix_mul_avx2(double* A, double* B, double* C, int64_t rowsA, int64_t col
             for (k = 0; k < colsA; k++) {
                 __m256d a_vec = _mm256_set1_pd(A[i * colsA + k]);
                 __m256d b_vec = _mm256_loadu_pd(&B[k * colsB + j]);
-                sum = _mm256_fmadd_pd(a_vec, b_vec, sum);
+                // mul+add instead of FMA so the kernel compiles under plain
+                // -mavx2 (-mfma not required); the optimizer re-fuses this.
+                sum = _mm256_add_pd(_mm256_mul_pd(a_vec, b_vec), sum);
             }
             
             _mm256_storeu_pd(&C[i * colsB + j], sum);

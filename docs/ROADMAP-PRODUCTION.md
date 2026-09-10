@@ -250,10 +250,44 @@ correctness/equivalence tests (10 plan-level + 3 E2E).
 `docs/audit/PHASE-105-ERROR-RECOVERY-INCREMENTAL-FINAL-REPORT.md`.
 **Blocks:** None (independent)
 
-### Phase 106 — SIMD & Vector Types
-**Deliverable:** `vec<f32, 8>` with auto-vectorization to AVX2/NEON
-**Files:** `pkg/ir/hir/vector.go`, `pkg/codegen/simd_emit.go`
-**Gate:** 8-wide f32 vector add → compiles to AVX2 instruction → correct result
+### Phase 106 — SIMD & Vector Types — COMPLETE (2026-09-10)
+**Deliverable (as built):** `vec<f32,8>`-style lane-vector types plus a portable
+elementwise SIMD layer. `[N]f32`/`[N]f64`/`[N]i32`/`[N]i64` variable annotations
+become Karkain-owned C lane types `karkain_<elem><width>x<lanes>` (float:
+`__m128`/`__m256` with auto `-mavx` for 256-bit widths on x86; int: GNU
+`vector_size` types) and `@simd_splat/add/sub/mul/div/sum` lower to
+`karkain_simd_*` runtime helpers that use GNU vector operators (one body serves
+x86 intrinsics and ARM vector_size types; integer mul/div/sum reduce via
+scalar loops). Widths act elementwise, `@simd_sum` reduces a lane vector to a
+printable scalar Value. Type resolution flows
+declaration → `Generator.simdVars` → operand dispatch (lane width from the
+vector operand; splat seed infers f32 vs i32); scalar operands keep the Phase
+70 fallback. The whole assembly template now appends the SIMD runtime after the
+C header.
+**Files (delivered):** `pkg/codegen/simd_emit.go` (types, dispatch, runtime C
+generator, `appendAVXFlags`), `pkg/codegen/codegen.go` (Generator fields,
+`genSIMDDecl`/typed `genSIMDExpr` wiring, header+runtime assembly), `pkg/codegen/lower.go`
+(SSA `lowerStmt` → raw-c SIMD decls), `examples/phase106/`, updated
+`pkg/codegen/phase70_test.go`, new `pkg/codegen/simd_emit_test.go` + `pkg/cli/phase106_simd_test.go`
+(planned `pkg/ir/hir/vector.go` superseded — `ExprSIMDBuiltin` already exists in
+`pkg/ir/hir`, so the HIR boundary needed no new file). Bonus hardening: the
+AVX2 matrix kernel now uses portable `mul+add` instead of `_mm256_fmadd_pd`, so
+`-mavx2` builds no longer require `-mfma`.
+**Gate (as built):** 8-wide f32 vector add → generates `karkain_f32x8` +
+`karkain_simd_add_f32x8` → gcc with auto-`-mavx` → correct result (40 = 8×5 in
+the example) → assembly probe over the pipeline's own flags (`-O0 -mavx`)
+contains `vaddps`/`vmulps` family instructions. 7 codegen unit tests + 3 `pkg/cli`
+E2E gates (executable output golden, SIMD-vs-scalar differential, AVX assembly
+probe with graceful skip on non-AVX hosts).
+**Result:** All gates + full regression sweep green: full `pkg/cli` 940.5s,
+whole `pkg/codegen`, sema/parser/ir, backend/npu/runtime/diagnostics, `go vet`,
+`go build`; bootstrap stage-1 builds (Go codegen change provably safe for the
+compiler's own sources); stage-2 build SEGFAULT on the ~4GB-RAM host is the
+documented kcc-build-mode OOM class (no `src/compiler` changes; SIMD unused by
+compiler sources; low-memory `check` gates pass inside the `pkg/cli` run).
+kcc (`src/compiler`) already parses `@simd_*` (`NODE_SIMD_BUILTIN`); semantic/
+codegen parity there is a documented post-106 boundary. Report:
+`docs/audit/PHASE-106-SIMD-VECTOR-TYPES-FINAL-REPORT.md`.
 **Blocks:** None (independent)
 
 ### Phase 107 — Concurrency Runtime

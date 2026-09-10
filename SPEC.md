@@ -311,6 +311,31 @@ these; runtime provided by `runtime.c` supporting the compiler itself).
 > The general-purpose standard library beyond the above is still being
 > formalized (Phases 60).
 
+### 6.3 SIMD & vector types (Phase 106)
+Lane-vector variables are declared with array-of-scalar annotations
+`[N]f32` / `[N]f64` / `[N]i32` / `[N]i64`. Supported widths:
+
+| Annotation | C lane type | x86 lowering |
+|---|---|---|
+| `[4]f32` / `[8]f32` | `karkain_f32x4` / `karkain_f32x8` | `__m128` / `__m256` (`-mavx` auto-appended) |
+| `[2]f64` / `[4]f64` | `karkain_f64x2` / `karkain_f64x4` | `__m128d` / `__m256d` (`-mavx` for 4) |
+| `[4]i32` / `[8]i32` | `karkain_i32x4` / `karkain_i32x8` | GNU `vector_size` (int) |
+| `[2]i64` / `[4]i64` | `karkain_i64x2` / `karkain_i64x4` | GNU `vector_size` (int) |
+
+Builtins (lower to portable `karkain_simd_*` C helpers using GNU vector
+operators; integer mul/div and `@simd_sum` reduce lane-wise):
+
+| Builtin | Meaning |
+|---------|---------|
+| `@simd_splat(x, n)` | broadcast scalar `x` into `n` lanes of an elementwise vector |
+| `@simd_add(a, b)` / `@simd_sub(a, b)` / `@simd_mul(a, b)` / `@simd_div(a, b)` | elementwise lane arithmetic |
+| `@simd_sum(v)` | reduce a lane vector to a scalar value (f32/f64 → float, i32/i64 → int) |
+| `@simd_load` / `@simd_store` | Phase 70 SSE memory round-trip (legacy) |
+
+Lane vectors are local-declaration and operand values; scalar-only programs
+keep the Phase 70 behavior unchanged. Full parity of the self-hosted (`kcc`)
+engine for these builtins is post-106 (its parser already accepts `@simd_*`).
+
 ---
 
 ## 7. Heterogeneous Backends

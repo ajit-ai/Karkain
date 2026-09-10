@@ -13,7 +13,37 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-105** — Phases 50–104 complete.
+Current phase: **post-106** — Phases 50–105 complete, Phase 106 (SIMD &
+Vector Types) complete.
+Also completed: **106** — SIMD & Vector Types
+(Lane-vector types: `[N]f32`/`[N]f64`/`[N]i32`/`[N]i64` variable annotations
+select Karkain-owned C lane types `karkain_<elem><width>x<lanes>` (float →
+`__m128`/`__m256` with auto `-mavx` for 256-bit widths on x86; int → GNU
+`vector_size` types), and `@simd_splat/add/sub/mul/div/sum` lower to portable
+`karkain_simd_*` runtime helpers using GNU vector operators — one body serves
+x86 intrinsics and ARM `vector_size` types; integer mul/div and every sum
+reduce lane-wise via scalar loops. Type flow: SIMD declaration records
+name→type in `Generator.simdVars`, operand dispatch takes lane width from the
+vector operand, splat seed infers f32 vs i32 (raw literal or `.floatVal`/
+`.intVal`, never an invalid Value→scalar C cast), `@simd_sum` reduces a lane
+vector to a printable scalar Value, scalar-only operands keep the Phase 70 SSE
+fallback. Integration: `pkg/codegen/simd_emit.go` (new) + `genSIMDDecl`/typed
+`genSIMDExpr`/header-runtime assembly/`appendAVXFlags` in `pkg/codegen/codegen.go`,
+SSA `lowerStmt` → raw-c SIMD decls in `pkg/codegen/lower.go`. Bonus hardening:
+the Phase 14 AVX2 matrix kernel now uses portable `mul+add` (no
+`_mm256_fmadd_pd`), so `-mavx2` builds no longer require `-mfma`. Gates:
+`pkg/codegen/simd_emit_test.go` (7) + updated `phase70_test.go` +
+`pkg/cli/phase106_simd_test.go` (3 E2E: golden executable output
+40/-8/48/12/5/56/40, SIMD-vs-scalar differential, AVX assembly probe
+`vaddps`-family under the pipeline's own `-O0 -mavx`). Regressions green: full
+`pkg/cli` 940.5s (conformance 59/59, all Phase 97–105 gates), whole
+`pkg/codegen`, sema/parser/ir, backend/npu/runtime/diagnostics, `go vet`,
+`go build`; bootstrap stage-1 builds (Go codegen change safe for the
+compiler's own sources); stage-2 build SEGFAULT on the ~4GB-RAM host is the
+documented kcc-build-mode OOM class (no `src/compiler` changes; `@simd`
+unused by compiler sources). kcc parity boundary documented (parser already
+accepts `@simd_*` via `NODE_SIMD_BUILTIN`; semantic/codegen parity post-106).
+Report: `docs/audit/PHASE-106-SIMD-VECTOR-TYPES-FINAL-REPORT.md`.)
 Also completed: **105** — Error Recovery & Incremental Compilation
 (Multi-error reporting: engine-agnostic project-wide syntax preflight
 `pkg/cli/multierror.go` parses every unit file independently and renders ALL

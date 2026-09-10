@@ -14,15 +14,15 @@ func TestSimdVectorCType(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"[4]f32", "__m128"},
-		{"[8]f32", "__m256"},
-		{"[2]f32", "__m64"},
-		{"[2]f64", "__m128d"},
-		{"[4]f64", "__m256d"},
-		{"[4]i32", "__m128i"},
-		{"[8]i32", "__m256i"},
-		{"[2]i64", "__m128i"},
-		{"[4]i64", "__m256i"},
+		{"[4]f32", "karkain_f32x4"},
+		{"[8]f32", "karkain_f32x8"},
+		{"[2]f32", "float[2]"}, // no native lane width -> aligned array fallback
+		{"[2]f64", "karkain_f64x2"},
+		{"[4]f64", "karkain_f64x4"},
+		{"[4]i32", "karkain_i32x4"},
+		{"[8]i32", "karkain_i32x8"},
+		{"[2]i64", "karkain_i64x2"},
+		{"[4]i64", "karkain_i64x4"},
 		{"[16]f32", "float[16]"}, // no native SSE/AVX width -> aligned array fallback
 	}
 	for _, c := range cases {
@@ -58,15 +58,16 @@ func TestMemoryOrderC(t *testing.T) {
 func ident(name string) parser.Node { return &parser.Identifier{Name: name} }
 func intLit(v string) parser.Node   { return &parser.IntLiteral{Value: v} }
 
-// TestGenSimdExprSplat checks @simd_splat emits a real _mm_set1_ps broadcast.
+// TestGenSimdExprSplat checks @simd_splat infers a lane width and emits a call
+// to the portable karkain_simd_splat_* runtime helper.
 func TestGenSimdExprSplat(t *testing.T) {
 	g := New(Config{})
 	out := g.genSIMDExpr(&parser.SIMDBuiltinExpr{
 		Op:   "splat",
 		Args: []parser.Node{intLit("7"), intLit("4")},
 	})
-	if !strings.Contains(out, "_mm_set1_ps") {
-		t.Errorf("splat should emit _mm_set1_ps, got: %s", out)
+	if !strings.Contains(out, "karkain_simd_splat_i32x4(((int)(7)))") {
+		t.Errorf("splat should emit the i32x4 broadcast helper, got: %s", out)
 	}
 }
 
@@ -126,8 +127,11 @@ func TestGenVarDeclSIMD(t *testing.T) {
 		Value: &parser.SIMDBuiltinExpr{Op: "splat", Args: []parser.Node{intLit("1"), intLit("4")}},
 	}
 	out := g.genStatement(vd)
-	if !strings.Contains(out, "__m128") {
-		t.Errorf("SIMD var should be __m128, got:\n%s", out)
+	if !strings.Contains(out, "karkain_f32x4") {
+		t.Errorf("SIMD var should use the karkain_f32x4 lane type, got:\n%s", out)
+	}
+	if !strings.Contains(out, "karkain_simd_splat_f32x4(((float)(1)))") {
+		t.Errorf("SIMD var initializer should be the lane-typed splat, got:\n%s", out)
 	}
 	if !strings.Contains(out, "_Alignas(64)") {
 		t.Errorf("SIMD var should carry _Alignas(64), got:\n%s", out)
