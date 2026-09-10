@@ -969,6 +969,8 @@ func main() {
 	formatJSON := false    // Phase 82: machine-readable structured output (e.g. check --format=json)
 	fmtCheck := false     // Phase 82: `karkain fmt --check` verifies canonical formatting
 	engine := cli.EngineFromEnv() // Phase 95: KARKAIN_ENGINE / --engine selects self-hosted kcc
+	incrementalBuild := false    // Phase 105: `karkain build --incremental` uses the content-addressed cache
+	incrementalCache := ""       // Phase 105: optional cache directory override for --incremental
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -1080,6 +1082,16 @@ func main() {
 				i++
 			} else {
 				fmt.Println("Error: --engine flag requires a value (go|kcc)")
+				os.Exit(cli.ExitUsage)
+			}
+		case "--incremental":
+			incrementalBuild = true
+		case "--incremental-cache":
+			if i+1 < len(args) {
+				incrementalCache = args[i+1]
+				i++
+			} else {
+				fmt.Println("Error: --incremental-cache flag requires a directory path")
 				os.Exit(cli.ExitUsage)
 			}
 		case "build", "run", "check", "transpile", "test", "bench", "lint", "lsp", "language-server", "fmt":
@@ -1258,7 +1270,13 @@ func main() {
 			// kcc emits C23 and links native executables through gcc, so it
 			// owns both native and c23 targets. Exotic targets (wasm, etc.)
 			// still route through the Go backend.
-			if cfg.Target == "native" || cfg.Target == "c23" {
+			if incrementalBuild {
+				cacheDir := incrementalCache
+				if cacheDir == "" {
+					cacheDir = cli.CacheDirFor(targetFile)
+				}
+				result = cli.BuildCommandIncremental(targetFile, outputPath, cfg, verbose, cacheDir)
+			} else if cfg.Target == "native" || cfg.Target == "c23" {
 				result = cli.KCCBuildCommand(nil, targetFile, outputPath, cfg, verbose)
 			} else {
 				result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
@@ -1275,7 +1293,15 @@ func main() {
 		case "run":
 			result = cli.RunCommand(targetFile, cfg, verbose)
 		case "build":
-			result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
+			if incrementalBuild {
+				cacheDir := incrementalCache
+				if cacheDir == "" {
+					cacheDir = cli.CacheDirFor(targetFile)
+				}
+				result = cli.BuildCommandIncremental(targetFile, outputPath, cfg, verbose, cacheDir)
+			} else {
+				result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
+			}
 		case "transpile":
 			result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
 		case "check":

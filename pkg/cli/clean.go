@@ -102,6 +102,33 @@ func CleanCommand(rootDir string, all bool) CommandResult {
 		mark(base + ".test.exe")
 	}
 
+	// Phase 105: incremental content-addressed caches (.karkain-cache dirs).
+	removeCacheDir := func(path string) {
+		fi, statErr := os.Stat(path)
+		if statErr != nil {
+			return
+		}
+		if !fi.IsDir() {
+			return
+		}
+		if rmErr := os.RemoveAll(path); rmErr != nil {
+			failures = append(failures, path)
+		} else {
+			removed++
+			removedPaths = append(removedPaths, path)
+		}
+	}
+	_ = filepath.Walk(rootDir, func(path string, fi os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if fi.IsDir() && fi.Name() == ".karkain-cache" {
+			removeCacheDir(path)
+			return filepath.SkipDir
+		}
+		return nil
+	})
+
 	if all {
 		binDir := filepath.Join(rootDir, "bin")
 		if bInfo, bErr := os.Stat(binDir); bErr == nil && bInfo.IsDir() {

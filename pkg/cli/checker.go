@@ -11,8 +11,10 @@ import (
 )
 
 // collectSyntaxDiagnostics converts parser errors (strings + parallel token
-// columns) into structured diagnostics.
-func collectSyntaxDiagnostics(targetFile string, p *parser.Parser, src string) []diagnostics.Diagnostic {
+// columns) into structured diagnostics. When a SourceMap is provided, the line
+// is attributed to its owning file so multi-module units report per-file spans;
+// otherwise every diagnostic is stamped with targetFile.
+func collectSyntaxDiagnostics(targetFile string, p *parser.Parser, src string, srcMap sema.SourceMap) []diagnostics.Diagnostic {
 	var diags []diagnostics.Diagnostic
 	for i, parseErr := range p.Errors {
 		line, _ := extractLineCol(parseErr)
@@ -20,7 +22,13 @@ func collectSyntaxDiagnostics(targetFile string, p *parser.Parser, src string) [
 		if i < len(p.ErrorCols) && p.ErrorCols[i] > 0 {
 			col = p.ErrorCols[i]
 		}
-		d := diagnostics.ErrorDiagnostic(targetFile, line, col, diagnostics.CodeSyntax, parseErr)
+		file := targetFile
+		if srcMap != nil {
+			if owned := srcMap[line]; owned != "" {
+				file = owned
+			}
+		}
+		d := diagnostics.ErrorDiagnostic(file, line, col, diagnostics.CodeSyntax, parseErr)
 		d.Excerpt = source.Excerpt(src, line, 80)
 		diags = append(diags, d)
 	}
@@ -70,7 +78,7 @@ func AnalyzeSource(file string, src string, srcMap sema.SourceMap) (diags []diag
 
 	// Stage 1: syntax.
 	if len(p.Errors) > 0 {
-		return collectSyntaxDiagnostics(file, p, src), nil, 0
+		return collectSyntaxDiagnostics(file, p, src, srcMap), nil, 0
 	}
 
 	// Whole-program name resolution (Phase 81 fix: macro expansion runs

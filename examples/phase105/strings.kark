@@ -1,0 +1,7 @@
+// strings.kark — Phase 105 incremental example: strings module for
+// `import strings`. This module is intentionally independent of math.kark, so
+// an edit here must invalidate only itself in the incremental cache.
+
+public func greeting(name) {
+    return "Hello " + name
+}

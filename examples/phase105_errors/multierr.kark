@@ -1,0 +1,18 @@
+// Phase 105 multi-error fixture: six independent, recoverable compile errors in
+// one invocation. Every error is detected at its own line, none cascades into
+// artificial noise, and the parser must survive all of them and report them
+// together (exit 3), never crashing.
+
+// Unknown @attributes are recoverable top-level errors.
+@bad_attr_a
+@bad_attr_b
+@bad_attr_c
+
+// `public` must precede a func/type/enum declaration.
+public 1
+public 2
+
+func main() {
+	let c = 7
+	return c + )
+}
