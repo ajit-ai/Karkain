@@ -545,8 +545,35 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 | 102 | Native Runtime Core: `runtime/core/` libc-free heap (alloc/calloc/realloc/free, coalescing free list), tagged `Value` (int/float/bool/string/array), length-prefixed `NativeString`, `NativeArray`, value-level I/O; freestanding arena rewrite (`add>=used+need`), compiled `-ffreestanding -nostdlib` without libc, GMP/map/option stay behind Phase 109 | COMPLETE (`runtime/core/`, `pkg/runtime/phase102_core_test.go`, `docs/audit/PHASE-102-FINAL-REPORT.md`) |
 | 102-F | Language Foundation Completion: 13 golden targets `examples/language_foundation/` byte-identical on Go+kcc engines; parity fixes (kcc `parseStructDecl` `;` separator, Go BorrowChecker `fnRoot`, kcc `for` init forms, Go `genForStmt` double-`;;`); foundation/compiler-self-check gates | COMPLETE (`pkg/cli/phase102_foundation_test.go`, `docs/audit/PHASE-102-LANGUAGE-FOUNDATION-FINAL-REPORT.md`) |
 | 103 | Module System v2 (Core): export sets (`public` func/type/enum) on BOTH engines, qualified-name resolution (`math.twice(21)` → module export set), cross-module private/missing-import/undefined/wrong-module/duplicate diagnostics on the Go resolver, self-hosted kcc `public` parse + qualified-call lowering, stdlib private-export exemption, module acceptance program + 4 rejection fixtures | COMPLETE (`pkg/sema/resolve.go`, `src/compiler/parser.kark`, `src/compiler/ast.kark`, `examples/module_system/`, `examples/module_system_errors/`, `pkg/cli/phase103_module_test.go`, `docs/audit/PHASE-103-MODULE-SYSTEM-FINAL-REPORT.md`) |
+| 109 | Standard Library v2: importable `std.string/collections/io/encoding/crypto` on BOTH engines byte-identical; 8 runtime builtins (hex/base64/utf8/sha256/sha512/map_keys) in Go + kcc tables/preambles; module-aware `kccAssembleSource` + dotted-import stripping; NIST/RFC vector examples, UTF-8 example, malformed-input runtime-error parity, multi-module E2E `examples/stdlib_v2`; `stdlib/{core,math,system,gpu,async}` stay behind the boundary | COMPLETE (`stdlib/{string,collections,io,encoding,crypto}/`, `pkg/cli/phase109_stdlib_test.go`, `pkg/sema/phase109_builtins_test.go`, `examples/stdlib/`, `examples/stdlib_v2/`, `examples/stdlib_errors/`, `docs/audit/PHASE-109-STANDARD-LIBRARY-V2-FINAL-REPORT.md`) |
 
 ### Current phase
+
+**PHASE 109 COMPLETE** — Standard Library v2 (Collections, Strings, I/O,
+Encoding, Crypto).
+See `docs/audit/PHASE-109-STANDARD-LIBRARY-V2-FINAL-REPORT.md`.
+Real `.kark` programs can now `import std.string / std.collections / std.io /
+std.encoding / std.crypto` through the normal toolchain on BOTH engines (Go
+front end and self-hosted kcc), byte-identical. Implementation: five
+canonical-syntax modules + eight byte-level runtime builtins backing them
+(hex_encode_bytes/hex_decode_bytes/base64_encode_bytes/base64_decode_bytes/
+utf8_valid_bytes/sha256_hex/sha512_hex/map_keys_of) wired into the Go resolver
++ codegen preamble/helpers and the kcc checker/sema/codegen tables + C-helper
+emission; `kccAssembleSource` became module-aware and strips dotted `import
+std.x` lines (C import blocks preserved); IO demo closes before delete to
+avoid Windows file locks; UTF-8 example proves byte round-trips on both
+engines. GP: hex/Base64 (RFC 4648) + SHA-256/512 (NIST vectors) verified both
+engines; malformed hex/base64 raise the SAME `runtime error: ... at
+<file>:<line>`; `import std.does_not_exist` rejected on both. Gates:
+`pkg/cli/phase109_stdlib_test.go` (5 GP examples incl. UTF-8 + multi-module
+E2E `examples/stdlib_v2` with pinned goldens, determinism, module-assembly
+guard, negative parity, missing module) + `pkg/sema/phase109_builtins_test.go`.
+Regressions green: Phase 106/107/108 CLI gates, pkg/wasm, pkg/compiler
+(incremental), pkg/codegen, lexer/parser/sema/ir/pm/source/diagnostics/module/
+backend/npu/runtime, `go vet`, `go build`. WASM: the new builtins are
+K108-gated (native-only), no WASM change — documented boundary.
+`stdlib/core, stdlib/math, stdlib/system, stdlib/gpu, stdlib/async` remain
+behind this phase (non-canonical syntax / no builtin backing).
 
 **PHASE 108 COMPLETE** — WASM Target (Karkain-owned wasm32-wasi backend).
 See `docs/audit/PHASE-108-WASM-TARGET-FINAL-REPORT.md`.

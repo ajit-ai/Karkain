@@ -1,0 +1,7 @@
+// Phase 109 negative fixture: malformed hex input must raise a source-located
+// runtime error on BOTH engines. Direct builtin call keeps the assembled text
+// identical on both engines so the reported file:line match exactly
+// (this line is 4, the call below is line 5).
+func main() {
+    print(hex_decode_bytes("zz"))
+}

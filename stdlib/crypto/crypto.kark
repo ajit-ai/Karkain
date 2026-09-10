@@ -1,0 +1,18 @@
+// Karkain Standard Library - Crypto Module
+// SHA-256 and SHA-512 cryptographic hash functions.
+//
+// Digests use the Karkain runtime's embedded reference implementation and are
+// returned as lowercase hexadecimal strings. The runtime implementation is
+// the well-known compact public-domain algorithm (FIPS 180-4 constants).
+
+// sha256 returns the SHA-256 digest of data as a 64-character lowercase
+// hexadecimal string.
+func sha256(data) {
+    return sha256_hex(data)
+}
+
+// sha512 returns the SHA-512 digest of data as a 128-character lowercase
+// hexadecimal string.
+func sha512(data) {
+    return sha512_hex(data)
+}

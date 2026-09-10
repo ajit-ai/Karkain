@@ -1,0 +1,34 @@
+// Phase 109: Standard Library v2 — multi-module end-to-end program.
+// Imports four standard modules at once (strings, collections, encoding,
+// crypto) through the normal toolchain. Expected to produce byte-identical
+// output on the Go engine and the self-hosted kcc engine.
+// Run:            karkain run main.kark
+// Cross-engine:   karkain run main.kark --engine go
+import std.string
+import std.collections
+import std.encoding
+import std.crypto
+
+func main() {
+    let name = str_to_upper(str_trim("  karkain  "))
+    print(str_concat("hello ", name))       // hello KARKAIN
+    let parts = str_split(hex_decode("616c7068612d62657461"), "-")
+    print(len(parts))                        // 2
+    let i = 0
+    while(i < len(parts)) {
+        print(parts[i])                      // alpha  beta
+        i = i + 1
+    }
+    let scores = [3, 7, 2, 9, 5]
+    print(array_max(scores))                 // 9
+    print(array_sum(scores))                 // 26
+    print(array_contains(scores, 7))         // 1
+    print(base64_decode(base64_encode("roundtrip")))  // roundtrip
+    print(sha256("karkain"))                 // 00e0cba20c10cac449eb885a9926a4b6
+                                             //   46f0ac163ed7fbc5704d9d8a057ef44d
+    let count = 0
+    while(count < 10) {
+        print(count)                         // 0..9
+        count = count + 1
+    }
+}

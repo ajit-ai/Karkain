@@ -1,0 +1,25 @@
+// Phase 109: Standard Library v2 — Encoding + Crypto module demo.
+// Exercises std.encoding (hex/base64/utf8) and std.crypto (sha256/sha512)
+// through the normal toolchain on both engines. Expected digests below match
+// the NIST FIPS 180-4 test vectors; hex/base64 match RFC 4648 examples.
+// Run:            karkain run main.kark
+// Cross-engine:   karkain run main.kark --engine go
+import std.encoding
+import std.crypto
+
+func main() {
+    print(hex_encode("hello"))             // 68656c6c6f
+    print(hex_decode("68656c6c6f"))        // hello
+    print(base64_encode("hello"))          // aGVsbG8=
+    print(base64_decode("aGVsbG8="))       // hello
+    print(utf8_valid("plain ascii"))       // 1
+    print(utf8_decode(utf8_encode("hi")))  // hi
+    print(sha256("abc"))                   // ba7816bf8f01cfea414140de5dae2223
+                                           //   b00361a396177a9cb410ff61f20015ad
+    print(sha256(""))                      // e3b0c44298fc1c149afbf4c8996fb924
+                                           //   27ae41e4649b934ca495991b7852b855
+    print(sha512("abc"))                   // ddaf35a193617abacc417349ae204131
+                                           //   12e6fa4e89a97ea20a9eeee64b55d39a
+                                           //   2192992a274fc1a836ba3c23a3feebbd
+                                           //   454d4423643ce80e2a9ac94fa54ca49f
+}
