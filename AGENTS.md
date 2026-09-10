@@ -13,8 +13,49 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-107** — Phases 50–106 complete, Phase 107 (Concurrency
-Runtime) complete.
+Current phase: **post-108** — Phases 50–106 complete, Phase 107 (Concurrency
+Runtime) complete, Phase 108 (WASM target) complete.
+Also completed: **108** — WASM Target
+(Karkain-owned wasm32-wasi backend in new package `pkg/wasm/` — a
+dependency-free handwritten WASM binary v1 emitter:
+`module.go` (value model + encoder), `emit.go` (section serialization),
+`runtime.go` (embedded WASI runtime: `fd_write` via
+`wasi_snapshot_preview1.fd_write`, unboxed i64 ints `v=i64<<1`, boxed
+container cells `(ptr<<1)|1` tag/len/data, heap base 0x10000 global 0,
+scratch nwritten@0/iovs@8/digits@16–144, `rt_Write`/`rt_PrintValue`/
+`rt_Box`/`rt_SetTag`/`rt_MkArray`/`rt_MkString`/`rt_Eq`/`rt_Ne`/`rt_Error`,
+24 runtime bodies = wasm indices 1–24, user-func index =
+`len(mb.Codes)+i+1`, rt.Eq=11, rt.Ne=12) and `backend.go`
+(`CompileProgram` imports+pre-indexes user funcs first, walks FuncDecl
+bodies, `scanUnsupported` K108-gates floats/maps/slices/C-interop/
+concurrency with `error[K108]` diagnostics; `spew`-level no, no `I32Mul`/
+`I32Shl` — `I64ExtendI32U;I64Const(8);I64Mul;I32WrapI64`, `BeginIf
+(noResult)`=`04 40`). Root-cause fix: `eqLocals` had 7 entries
+`{I32×6,I64}` so p7 was i32 while the shifted i64 accumulator wrote through
+p7 → wasmtime `expected i32, found i64`; corrected to 6
+`{I32×5,I64}` (comment `// p2=cellA p3=cellB p4=tagA p5=n p6=i p7=acc`).
+CLI: `pkg/cli/wasm.go` `wasmBuildCommand`/`wasmRunCommand`/`findWasmtime`,
+dispatched from BuildCommand/RunCommand on `--target wasm32-wasi`
+(exit codes: ExitCompile=3 for K108, ExitEnv=6 = no wasmtime, ExitFailure=1,
+ExitSuccess=0; `wasmtime run --dir . <tmp.wasm>` stdio passthrough;
+findWasmtime: LookPath then `$HOME/bin/wasmtime{.exe}` — Windows mode has
+no execute bits so dropped `Mode()&0o111`). Gates: 9 backend tests
+(pkg/wasm/backend_test.go — TestHello/ArithmeticAndCalls/
+ControlFlowAndRecursion/ArraysAndStrings incl. string equality/
+RuntimeErrorDivByZero `main.kark:3`/DeterministicBuild/UnsupportedFeatures
+6-case K108 table/BooleanLogic/ForIn) + 2 E2E CLI tests
+(pkg/cli/phase108_cli_test.go, filename avoids go-build GOARCH trap:
+`*_wasm_test.go` is build-constrained to GOARCH=wasm and lands in
+IgnoredGoFiles on windows/amd64 — use non-GOARCH suffixes like
+`phase108_cli_test.go`): TestPhase108WasmE2E builds
+`examples/wasm/hello.kark` via real `karkain build --target wasm32-wasi` and
+wasmtime-runs to byte-exact `hello wasmtime/42/done`, determinism test
+proves byte-identical 2488-byte repeats. Regressions green: pkg/wasm full,
+Phase 106/107 codegen+runtime gates, Phase 95/96/97/105/106/107 CLI gates,
+`go vet`, `go build ./...`; compiled standalone `karkain.exe`
+build+run byte-exact. kcc parity for the wasm target = documented post-108
+boundary (Go engine is the reference). Report:
+`docs/audit/PHASE-108-WASM-TARGET-FINAL-REPORT.md`.)
 Also completed: **107** — Concurrency Runtime
 (A work-stealing task scheduler with channels and actors usable end-to-end
 from `.kark` through a compiler-neutral C runtime embedded in the generated
