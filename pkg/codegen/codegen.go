@@ -62,12 +62,19 @@ type Generator struct {
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
 	simdNeedsAVX     bool                        // Phase 106: program uses a 256-bit lane width (-mavx)
+	usesConcurrency  bool                        // Phase 107: program uses spawn/channels/actors
+	concFns          map[string]*parser.FuncDecl // Phase 107: name -> FuncDecl (arity for wrappers)
+	concSpawned      map[string]bool             // Phase 107: user functions referenced by spawn()
+	concSpawnOrder   []string                    // Phase 107: spawn-target order (wrapper indices)
+	concHandlers     map[string]bool             // Phase 107: actor handler names referenced by actor()
+	concHandlerOrder []string                    // Phase 107: handler order (dispatcher ids)
 }
 
 func New(cfg Config) *Generator {
 	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl),
 		closureVars: make(map[string]bool), userFuncs: make(map[string]bool),
-		simdVars: make(map[string]string)}
+		simdVars: make(map[string]string), concFns: make(map[string]*parser.FuncDecl),
+		concSpawned: make(map[string]bool), concHandlers: make(map[string]bool)}
 }
 
 // sourceBaseC returns the quoted base file name (extension included, e.g.
@@ -99,12 +106,25 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok && fn.Name != "main" && fn.Name != "getArgs" {
 			g.userFuncs[fn.Name] = true
+			g.concFns[fn.Name] = fn
 		}
+	}
+	// Phase 107: concurrency pre-scan — detect spawn/channel/actor usage and
+	// record the spawn targets + actor handler names for the wrapper prepass.
+	for _, stmt := range prog.Statements {
+		g.scanNodeForConcurrency(stmt)
+		g.collectConcDecls(stmt)
 	}
 
 	sb.WriteString(g.generateCHeader())
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
+	// Phase 107: concurrency runtime core (compiler-neutral C). The Value glue
+	// and per-program wrappers are appended after the user function forward
+	// declarations below.
+	if g.usesConcurrency {
+		sb.WriteString(concRuntimeHeader())
+	}
 
 	// Add AVX2 and scalar matrix multiplication kernels
 	sb.WriteString(g.genAVX2MatrixMul("rowsA", "colsA", "colsB"))
@@ -159,6 +179,14 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		}
 	}
 	sb.WriteByte('\n')
+
+	// Phase 107: per-program concurrency wrappers + Value glue. Emitted after
+	// the forward declarations so the wrappers can call user functions whose
+	// symbols are already declared.
+	if g.usesConcurrency {
+		sb.WriteString(g.concWrapperC())
+		sb.WriteString(concRuntimeAPIC())
+	}
 
 	// Generate all function declarations
 	for _, stmt := range prog.Statements {
@@ -2253,12 +2281,13 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 		// Phase 16: Generate actor declaration
 		return fmt.Sprintf("\t// Actor %s (declaration placeholder)\n", node.Name)
 	case *parser.ReceiveStmt:
-		// Phase 16: Generate receive statement
-		channelExpr := g.genExpr(node.Channel)
+		// Phase 107: receive(ch) statement — legacy form; expression form is
+		// ChRecvExpr. Both lower to the blocking runtime recv.
+		recv := fmt.Sprintf("karkain_conc_recv(%s)", g.genExpr(node.Channel))
 		if node.VarName != "" {
-			return fmt.Sprintf("\t// receive(%s) -> %s (placeholder)\n", channelExpr, node.VarName)
+			return fmt.Sprintf("\t%s = %s;\n", node.VarName, recv)
 		}
-		return fmt.Sprintf("\t// receive(%s) (placeholder)\n", channelExpr)
+		return fmt.Sprintf("\t(void)%s;\n", recv)
 	case *parser.KernelDeclStmt:
 		return g.genKernelDecl(node)
 	case *parser.BarrierStmt:
@@ -2473,6 +2502,14 @@ func (g *Generator) genExpr(node parser.Node) string {
 				args = append(args, g.genExpr(arg))
 			}
 			return fmt.Sprintf("%s(%s)", userFuncC(n.Function), strings.Join(args, ", "))
+		}
+		// Phase 107: concurrency builtins (channel/send/join/actor/...).
+		if g.usesConcurrency && concBuiltin(n.Function) {
+			args := []string{}
+			for _, arg := range n.Args {
+				args = append(args, g.genExpr(arg))
+			}
+			return g.genConcCall(n, args)
 		}
 		if n.Function == "len" {
 			return fmt.Sprintf("karkain_len(%s)", g.genExpr(n.Args[0]))
@@ -2714,13 +2751,16 @@ func (g *Generator) genExpr(node parser.Node) string {
 		regName, idx := g.resolveQubitOperand(n.Qubit)
 		return fmt.Sprintf("make_int(measure(&%s, %s))", regName, idx)
 	case *parser.SpawnExpr:
-		// Phase 16: Generate spawn expression
-		return fmt.Sprintf("// spawn(%s) (placeholder)", n.ActorName)
+		// Phase 107: spawn(fn, args...) -> numeric task handle.
+		return g.genConcurrencySpawn(n)
 	case *parser.SendExpr:
-		// Phase 16: Generate send expression
 		channelExpr := g.genExpr(n.Channel)
 		messageExpr := g.genExpr(n.Message)
-		return fmt.Sprintf("// %s <- %s (send placeholder)", channelExpr, messageExpr)
+		return fmt.Sprintf("karkain_conc_send(%s, %s)", channelExpr, messageExpr)
+	case *parser.ChRecvExpr:
+		return g.genConcRecv(n)
+	case *parser.ChSendExpr:
+		return fmt.Sprintf("karkain_conc_send(%s, %s)", g.genExpr(n.Channel), g.genExpr(n.Value))
 	case *parser.GlobalIdExpr:
 		return fmt.Sprintf("get_global_id(%d)", n.Dimension)
 	case *parser.UnaryExpr:

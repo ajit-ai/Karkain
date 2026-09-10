@@ -548,6 +548,23 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 
 ### Current phase
 
+**PHASE 107 COMPLETE** — Concurrency Runtime (work-stealing scheduler,
+tasks, channels, actors — compiler-integrated end-to-end).
+See `docs/audit/PHASE-107-CONCURRENCY-RUNTIME-FINAL-REPORT.md` (and the
+long-form entries below for Phase 106, 103–105).
+`.kark` programs can now `spawn(fn, args...)` + `join(t)` tasks with
+deterministic failure status, stream over bounded/unbounded blocking
+channels (`channel(cap)` / `chanSend` / `chanClose` / `receive(ch)`, close
+deterministic + drains-then-`0`), and run serialized actors
+(`actor("handler", state)` / `actorSend` / `actorState` /
+`setActorState` / `actorStop`) on a work-stealing scheduler — through the
+Go engine front end, the Phase 107 codegen wrappers, the embedded C runtime
+and the host C compiler. Gates: the standalone C-runtime test (> 1M msg/s),
+7 codegen gates (incl. the 999-task `332833500` stress) and 2 E2E CLI gates
+(`examples/concurrency/pipeline/main.kark` → `144/10/20/30/0/6`,
+byte-identical repeat runs). kcc parses the keywords already; codegen
+parity is the documented post-107 boundary.
+
 **PHASE 106 COMPLETE** — SIMD & Vector Types.
 See `docs/audit/PHASE-106-SIMD-VECTOR-TYPES-FINAL-REPORT.md` (and the
 long-form entries below for Phase 103–105).
@@ -643,4 +660,45 @@ by compiler sources). kcc already parses `@simd_*` (`NODE_SIMD_BUILTIN` in
 `src/compiler/ast.kark`); kcc semantic/codegen parity is a documented
 post-106 boundary. Report:
 `docs/audit/PHASE-106-SIMD-VECTOR-TYPES-FINAL-REPORT.md`.
+
+**PHASE 107 COMPLETE** - Concurrency Runtime (work-stealing scheduler,
+tasks, channels, actors; compiler integration + gates; §38 IMPLEMENTATION
+RESULT). A compiler-neutral C runtime under `runtime/concurrency/c/`
+(pthreads/Win32: `karkain_sched_t` workers, grab queue, shared pending
+drain, work stealing, `karkain_task_t` with atomic `done` + cv + `status`
+long, `karkain_channel_t` bounded/unbounded blocking send/recv with
+deterministic close, `karkain_actor_t` mailbox + serialized dispatcher with
+state-cell ownership; runtime frees task `ctx`; no busy-spin shutdown).
+Embedded via `runtime/concurrency/embed.go` (`//go:embed c/...` — the
+runtime sources are assembly-time strings). Compiler integration: parser
+(`spawn(fn, args...)` `SpawnExpr`, `receive(ch)` expression, `channel(...)`
+/`actor(...)` keyword calls, legacy `receive(ch) -> var` preserved), sema
+builtins, codegen `pkg/codegen/conc_runtime.go` (recursive scans → stable
+spawn-site wrapper indices + actor handler ids; `concWrapperC` per-site
+`karkain_run_<idx>` wrappers + actor dispatcher adopting returned state;
+`concRuntimeAPIC` Value glue; `Generator` `usesConcurrency`/`concFns`/
+`concSpawned`/`concHandlers` state; header appended after SIMD, wrappers
+after forward decls). Language surface:
+`spawn/join/wait_all/channel/chanSend/chanClose/receive` and
+`actor/actorSend/actorState/setActorState/actorStop`; `send` is a lexed
+keyword so the builtin is `chanSend`. Gates: `pkg/runtime/
+phase107_concurrency_test.go` (7 scenarios + >1M msg/s; `spawn:0,-1`,
+`sum:210`, `actor:100`, `actorstop:1`, `steal:1000`, `bounded:210`,
+`close:1,1,0,0,7,1`), `pkg/codegen/phase107_concurrency_test.go` (7:
+spawn/join 42/10/-1/done, spawn statements, channels 10/20/0, actors `6`,
+embedded-runtime markers, 999-task stress `332833500`, generated-source
+presence) and `pkg/cli/phase107_concurrency_test.go` (2 E2E:
+`examples/concurrency/pipeline/main.kark` → `144/10/20/30/0/6` +
+byte-identical repeat runs). Full regression sweep green: full `pkg/cli`
+1723.8s (conformance 59/59 + all Phase 97–107 gates), `pkg/codegen`,
+sema/parser/lexer, ir/hir/ssa, pm, source, diagnostics, compiler, module,
+backend/npu/runtime, `go vet`, `go build`; bootstrap stage-1 build ok
+(Go codegen change safe for the compiler's own sources);
+stage-2 SEGFAULT reproducibly = documented ~3.9GB-RAM host OOM class
+(no `src/compiler` changes; concurrency codegen is gated by
+`usesConcurrency`; Go-engine `check` of `src/compiler/main.kark` clean).
+kcc already lexes/parses the keywords (`TK_SPAWN/TK_SEND/TK_RECEIVE/
+TK_ACTOR/TK_CHANNEL`); kcc codegen parity is a documented post-107
+boundary. Report:
+`docs/audit/PHASE-107-CONCURRENCY-RUNTIME-FINAL-REPORT.md`.
 Report: `docs/audit/PHASE-105-ERROR-RECOVERY-INCREMENTAL-FINAL-REPORT.md`.
