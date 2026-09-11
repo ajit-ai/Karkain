@@ -105,6 +105,7 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Value:    me.expandNode(n.Value),
 			Type:     n.Type,
 			IsMatrix: n.IsMatrix,
+			Const:    n.Const,
 			IsSIMD:   n.IsSIMD,
 			Align:    n.Align,
 			Escapes:  n.Escapes,

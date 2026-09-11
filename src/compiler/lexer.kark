@@ -91,6 +91,7 @@ func TK_DEREF()        { return 134 }
 func TK_INT()          { return 140 }
 func TK_FLOAT64()      { return 141 }
 func TK_STRING()       { return 142 }
+func TK_CONST()        { return 143 }
 
 // ============================================================
 // Token: [kind, startOffset, length, line, col]
@@ -307,6 +308,7 @@ func lookupKeyword(ident) {
     if (ident == "println")  { return TK_PRINT() }
     if (ident == "let")      { return TK_LET() }
     if (ident == "var")      { return TK_VAR() }
+    if (ident == "const")    { return TK_CONST() }
     if (ident == "return")   { return TK_RETURN() }
     if (ident == "if")       { return TK_IF() }
     if (ident == "else")     { return TK_ELSE() }
@@ -703,6 +705,7 @@ func tokenKindName(kind) {
     if (kind == TK_INT())       { return "INT" }
     if (kind == TK_FLOAT64())   { return "FLOAT64" }
     if (kind == TK_STRING())    { return "STRING" }
+    if (kind == TK_CONST())     { return "CONST" }
     if (kind == TK_ASSIGN())    { return "ASSIGN" }
     if (kind == TK_EQ())        { return "EQ" }
     if (kind == TK_NEQ())       { return "NEQ" }

@@ -1,0 +1,35 @@
+// Phase 112: std.testing module — test_ file running through `karkain test`.
+// Both engines run this identically; tests that call test_expect_* either
+// pass (no assertion failure) or hard-fail the process via assert(false).
+import std.testing
+
+func sum_range(n) {
+    let total = 0
+    let i = 1
+    while(i <= n) {
+        total = total + i
+        i = i + 1
+    }
+    return total
+}
+
+func test_sum_range() {
+    test_expect_eq(sum_range(5), 15)
+    test_expect_eq(sum_range(1), 1)
+    test_expect_ne(sum_range(10), 54)
+}
+
+func test_all_pass() {
+    let results = [true, true, true]
+    test_expect_true(test_all_pass(results))
+}
+
+func test_counts_summary() {
+    let results = [true, false, true, true, false]
+    let passed = test_pass_count(results)
+    let failed = test_fail_count(results)
+    test_expect_eq(passed, 3)
+    test_expect_eq(failed, 2)
+    test_expect_false(test_all_pass(results))
+    println(test_summary("checks", results))
+}
