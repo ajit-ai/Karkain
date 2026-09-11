@@ -347,8 +347,24 @@ reports with correct counts and call graph
 
 ### Phase 111 — Cross-Compilation
 **Deliverable:** Target triple system for cross-compilation
-**Files:** `pkg/target/triple.go`, `pkg/target/features.go`
-**Gate:** Cross-compile from Linux→Windows, from x86→ARM64, verify output binary header
+**Status: COMPLETE** — Explicit `--target <triple>` backed by the Karkain-owned
+target model (`pkg/target`): canonical short triples + conventional long-form
+normalization, `Features`, host-vs-foreign `SameMachine`, `karkain target`
+host report + target matrix. Target-aware C-driver selection: same-machine
+targets reuse the historical host probe; cross targets probe triple-prefixed
+GNU cross-gcc then clang `--target`, else a deterministic cross-linker
+diagnostic (exit 6) — never a silent host fallback. Cross-run refused for
+foreign machines. Triple builds emit real binaries (PE32+ x86-64 machine
+field validated on this host); generated C self-describes via
+`karkain-target:` comment + `KARKAIN_TARGET_*` defines. Honest matrix on the
+Windows x86_64 dev host: `x86_64-windows` PASS; `x86_64-linux`/`aarch64-linux`
+N/A (no cross-linker on PATH — mechanism implemented, artifacts not verifiable
+here); `wasm32-wasi` unchanged (Phase 108 backend).
+**Files:** `pkg/target/triple.go`, `pkg/target/features.go`, `pkg/codegen/cross_target.go`,
+`pkg/cli/exitcodes.go`, `pkg/cli/config_target.go`, `pkg/cli/commands.go`, `cmd/karkain/main.go`
+**Gate:** `examples/cross_compile/*` build for `x86_64-windows` with verified PE headers
+and golden stdout; `x86_64-linux`/`aarch64-linux` produce the deterministic
+cross-linker diagnostic on hosts without a cross toolchain
 **Blocks:** None (independent)
 
 ### Phase 112 — FFI & Interop
@@ -572,12 +588,12 @@ karkain_runtime.o
 | 103 | COMPLETE | 2026-09-09 |
 | 104 | COMPLETE | Phase 104 report |
 | 105 | COMPLETE | Phase 105 report |
-| 106 | PENDING | — |
-| 107 | PENDING | — |
-| 108 | PENDING | — |
-| 109 | PENDING | — |
-| 110 | PENDING | — |
-| 111 | PENDING | — |
+| 106 | COMPLETE | 2026-09-11 — Phase 106 report |
+| 107 | COMPLETE | 2026-09-11 — Phase 107 report |
+| 108 | COMPLETE | 2026-09-11 — Phase 108 report |
+| 109 | COMPLETE | 2026-09-11 — Phase 109 report |
+| 110 | COMPLETE | 2026-09-11 — Phase 110 report |
+| 111 | COMPLETE | 2026-09-11 — Phase 111 report |
 | 112 | PENDING | — |
 | 113 | PENDING | — |
 | 114 | PENDING | — |

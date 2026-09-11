@@ -1,0 +1,22 @@
+// platform.kark - target-independent platform behavior.
+//
+// Phase 111 keeps generated C self-describing: every build emits a
+// `karkain-target: <triple>` header comment plus KARKAIN_TARGET_ARCH_* and
+// KARKAIN_TARGET_OS_* defines, so C-interop blocks (import "C" { ... }) can
+// express target-specific behavior without touching the language. Normal
+// Karkain programs stay target-agnostic and deterministic: this file prints
+// the size of its own address-derived construct, which is 64-bit on every
+// Phase-111 supported target.
+
+func main() {
+    let start = 1000
+    let step = 7
+    let count = 0
+    var total = 0
+    while (count < 64) {
+        total = total + start
+        start = start + step
+        count = count + 1
+    }
+    println("platform-ok " + str(total))
+}

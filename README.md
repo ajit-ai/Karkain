@@ -553,7 +553,7 @@ for the full matrix and findings.
 | `-o <path>` | Output binary path |
 | `-c, --compile-only` | Keep generated C source |
 | `-g, --debug` | Debug symbols + `#line` directives |
-| `--target <arch>` | Cross-compile (native, wasm32-wasi, aarch64-linux-gnu) |
+| `--target <triple>` | Target (native, c23, native-link, wasm32-wasi, or a triple: x86_64-windows, x86_64-linux, aarch64-linux) |
 | `--verbose` | Show token stream, AST, C code, compiler invocation |
 | `-v, --version` | Show version |
 | `-h, --help` | Show help |
@@ -724,9 +724,42 @@ for f in examples/*.kark; do karkain run "$f"; done
 
 ## Cross-Compilation
 
-Karkain supports cross-compilation via the `--target` flag and Go's cross-compilation.
+Karkain supports cross-compiling both the toolchain itself (Go's cross-compilation)
+and, since Phase 111, `.kark` programs to native binaries via explicit target
+triples.
 
-### Supported Targets
+### Program Cross-Compilation (Phase 111)
+
+`karkain build --target <triple>` compiles a `.kark` program for a requested
+architecture/OS using a Karkain-owned target model. Same-machine targets reuse
+the host C toolchain; cross targets use a triple-prefixed GNU cross-gcc (then
+clang `--target`). If no cross-linker is installed, the build fails
+deterministically with a diagnostic listing exactly what was searched — never
+a silent host fallback and never a wrong-architecture binary.
+
+| Triple | ABI | Status on the Windows x86_64 host |
+|--------|-----|-----------------------------------|
+| `x86_64-windows` | Microsoft x64 | PASS — real PE32+ executables (machine field verified) |
+| `x86_64-linux` | System V / glibc | N/A here — no cross-linker on PATH; mechanism implemented |
+| `aarch64-linux` | System V aarch64 / glibc | N/A here — no cross-linker on PATH; mechanism implemented |
+| `wasm32-wasi` | WASI | unchanged (Phase 108 WASM backend) |
+
+Conventional long form is accepted and normalized (`x86_64-pc-windows-msvc`
+→ `x86_64-windows`). `karkain run --target <foreign>` is refused (cross-run
+needs an emulator or remote target). `karkain target` lists the host triple,
+supported matrix and target features.
+
+```bash
+karkain build examples/cross_compile/hello.kark --target x86_64-windows
+karkain build examples/cross_compile/hello.kark --target x86_64-linux    # if a cross-linker is installed
+```
+
+### Toolchain Cross-Compilation (Go)
+
+The `karkain` executable itself is a Go program and builds for other platforms
+with standard Go cross-compilation.
+
+### Supported Toolchain Targets
 
 | Target | GOOS | GOARCH | Notes |
 |--------|------|--------|-------|
@@ -745,7 +778,7 @@ Karkain supports cross-compilation via the `--target` flag and Go's cross-compil
 | `openbsd/amd64` | openbsd | amd64 | OpenBSD |
 | `js/wasm` | js | wasm | WebAssembly (via WASI) |
 
-### Cross-Compile for a Specific Target
+### Cross-Compile the Toolchain for a Target
 
 ```bash
 # Build for Linux ARM64 from any host

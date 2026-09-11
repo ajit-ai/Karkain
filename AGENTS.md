@@ -13,9 +13,34 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-110** — Phases 50–106 complete, Phase 107 (Concurrency
+Current phase: **post-111** — Phases 50–106 complete, Phase 107 (Concurrency
 Runtime) complete, Phase 108 (WASM target) complete, Phase 109 (Standard
 Library v2) complete, Phase 110 (Profiling & Diagnostics) complete.
+Also completed: **111** — Cross-Compilation
+(`--target <triple>` is a real, explicit cross-compilation switch backed by
+the Karkain-owned target model `pkg/target` (arch/os/env, canonical short
+triples `x86_64-windows`/`x86_64-linux`/`aarch64-linux`/`wasm32-wasi` +
+conventional long-form normalization, `Features`, host-vs-foreign
+`SameMachine`); `karkain target` reports the host triple + full supported
+matrix; the C-driver selection in `pkg/codegen/cross_target.go` compiles
+same-machine targets with the historical host probe (byte-identical flags)
+and cross targets with triple-prefixed GNU cross-gcc → clang `--target`,
+failing deterministically with a cross-linker `ToolchainError` (exit 6, lists
+exactly what was searched) when none exists — never a silent host fallback;
+`karkain run --target <foreign>` is refused with a build-only hint (cross-run
+needs an emulator/remote target); triple `karkain build` now emits real
+native artifacts (PE32+ x86-64 machine field validated on this host —
+previously Go-engine builds only transpiled to C); generated C self-describes
+each target via a `karkain-target:` header comment + `KARKAIN_TARGET_ARCH_*`/
+`KARKAIN_TARGET_OS_*` preprocessor defines. Honest matrix on the Windows x86_64
+host: `x86_64-windows` PASS, `x86_64-linux` + `aarch64-linux` N/A (no
+cross-linker on PATH — mechanism implemented, artifacts unverifiable here),
+`wasm32-wasi` unchanged (Phase 108). In-language `target.os`/`target.arch`
+builtins are intentionally post-111 (would require kcc-parity changes).
+Gates: `pkg/cli/phase111_cross_compile_test.go` + `pkg/target/triple_test.go`;
+regressions green: full `pkg/codegen`, Phase 105–110 CLI gates, `go vet`,
+`go build ./...`. Report:
+`docs/audit/PHASE-111-CROSS-COMPILATION-FINAL-REPORT.md`.)
 Also completed: **110** — Profiling & Diagnostics
 (`karkain prof <file.kark>` is a real CLI: it compiles and runs the program
 once with opt-in, aggregation-based instrumentation and reports deterministic

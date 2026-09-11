@@ -59,6 +59,7 @@ Priorities P0-P6 per the prompt. Each item scored against current status (eviden
 | SIMD vector types (G7) | MISSING |
 | Memory arenas | PARTIAL (parser arena; runtime arenas MISSING) |
 | Profiling | COMPLETE (Phase 110: `karkain prof`, aggregation-based, text/json/folded, Go engine) |
+| Cross-compilation | COMPLETE (Phase 111: `--target <triple>` target model, target-aware C drivers, cross-run refusal; x86_64-linux/aarch64-linux require a cross-linker on the host) |
 | Parallelism | MISSING (needs atomics) |
 | Optimization flags to GCC backend | MISSING (only -c -g) |
 
