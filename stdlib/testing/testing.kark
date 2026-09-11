@@ -1,0 +1,71 @@
+// Karkain Standard Library - Testing Module
+// Assertion and test-result helpers for writing `_test.kark` files and
+// runnable test programs.
+//
+// Written in canonical Karkain (untyped params, no type annotations) so it
+// parses and compiles identically on BOTH the Go engine and the self-hosted
+// kcc engine. The atomic assertion builtins (assert / assert_eq / assert_ne)
+// are available on both engines already; this module layers higher-level
+// check helpers and counting utilities on top of them.
+
+// test_expect_true checks that cond is truthy. Fails the program otherwise.
+func test_expect_true(cond) {
+    assert(cond)
+}
+
+// test_expect_false checks that cond is falsy. Fails otherwise.
+func test_expect_false(cond) {
+    if cond {
+        assert(false)
+    }
+}
+
+// test_expect_eq checks that actual == expected. Fails otherwise.
+func test_expect_eq(actual, expected) {
+    assert_eq(actual, expected)
+}
+
+// test_expect_ne checks that actual != expected. Fails otherwise.
+func test_expect_ne(actual, expected) {
+    assert_ne(actual, expected)
+}
+
+// test_fail always fails the current test. Use it to mark an unreachable
+// or not-yet-implemented branch: reaching the call is a hard failure.
+func test_fail() {
+    assert(false)
+}
+
+// test_pass_count counts the truthy entries in an array of check results.
+// A convenient way to summarize a batch of soft checks before the runner
+// summary is printed.
+func test_pass_count(results) {
+    let n = 0
+    let i = 0
+    while(i < len(results) ) {
+        if results[i] {
+            n = n + 1
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// test_fail_count counts the falsy entries in an array of check results,
+// i.e. the number of failed checks.
+func test_fail_count(results) {
+    return len(results) - test_pass_count(results)
+}
+
+// test_all_pass returns true when every entry of results is truthy.
+func test_all_pass(results) {
+    return test_fail_count(results) == 0
+}
+
+// test_summary builds a printable "label: N passed; M failed" line for an
+// array of check results. Returns a string, so callers decide how to print.
+func test_summary(label, results) {
+    let passed = test_pass_count(results)
+    let failed = len(results) - passed
+    return label + ": " + str(passed) + " passed; " + str(failed) + " failed"
+}

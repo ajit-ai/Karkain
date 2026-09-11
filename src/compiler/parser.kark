@@ -288,7 +288,7 @@ func parse(tokens, source) {
         }
 
         // Statement-level constructs
-        if (kind == TK_LET() || kind == TK_VAR()) {
+        if (kind == TK_LET() || kind == TK_VAR() || kind == TK_CONST()) {
             let vd = parseVarDecl(state)
             if (vd != []) { stmts = appendArray(stmts, vd) }
             continue
@@ -478,7 +478,7 @@ func parseBlock(state) {
         let before = psPos(state)
         let kind = psCurKind(state)
 
-        if (kind == TK_LET() || kind == TK_VAR()) {
+        if (kind == TK_LET() || kind == TK_VAR() || kind == TK_CONST()) {
             let vd = parseVarDecl(state)
             if (vd != []) { stmts = appendArray(stmts, vd) }
         } else if (kind == TK_PRINT()) {
@@ -533,7 +533,9 @@ func parseVarDecl(state) {
     let line = psLine(state)
     let isLet = 1
     if (psCurKind(state) == TK_VAR()) { isLet = 0 }
-    psAdvance(state) // consume let/var
+    let isConst = 0
+    if (psCurKind(state) == TK_CONST()) { isConst = 1 }
+    psAdvance(state) // consume let/var/const
 
     let name = psCurLiteral(state)
     psAdvance(state) // consume name
@@ -555,6 +557,7 @@ func parseVarDecl(state) {
     }
 
     let value = parseExpr(state)
+    if (isConst == 1) { return makeConstDecl(name, value, typeName, line) }
     if (isLet == 1) { return makeLetDecl(name, value, typeName, line) }
     return makeVarDecl(name, value, typeName, line)
 }
@@ -674,7 +677,7 @@ func parseFor(state) {
 
     let init = []
     if (psCurKind(state) != TK_SEMICOLON()) {
-        if (psCurKind(state) == TK_LET() || psCurKind(state) == TK_VAR()) {
+        if (psCurKind(state) == TK_LET() || psCurKind(state) == TK_VAR() || psCurKind(state) == TK_CONST()) {
             init = parseVarDecl(state)
         } else {
             init = parseExpr(state)

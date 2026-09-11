@@ -94,6 +94,7 @@ func isBuiltinFunc(name) {
     if (name == "len") { return 1 }
     if (name == "str") { return 1 }
     if (name == "int") { return 1 }
+    if (name == "float") { return 1 }
     if (name == "substr") { return 1 }
     if (name == "appendArray") { return 1 }
     if (name == "openFile") { return 1 }
@@ -137,6 +138,7 @@ func builtinArity(name) {
     if (name == "len") { return 1 }
     if (name == "str") { return 1 }
     if (name == "int") { return 1 }
+    if (name == "float") { return 1 }
     if (name == "substr") { return 3 }
     if (name == "appendArray") { return 2 }
     if (name == "openFile") { return 1 }
