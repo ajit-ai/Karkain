@@ -58,7 +58,7 @@ Priorities P0-P6 per the prompt. Each item scored against current status (eviden
 | SSA optimizer depth | fold+DCE only (G2/G12) |
 | SIMD vector types (G7) | MISSING |
 | Memory arenas | PARTIAL (parser arena; runtime arenas MISSING) |
-| Profiling | MISSING |
+| Profiling | COMPLETE (Phase 110: `karkain prof`, aggregation-based, text/json/folded, Go engine) |
 | Parallelism | MISSING (needs atomics) |
 | Optimization flags to GCC backend | MISSING (only -c -g) |
 

@@ -546,8 +546,44 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 | 102-F | Language Foundation Completion: 13 golden targets `examples/language_foundation/` byte-identical on Go+kcc engines; parity fixes (kcc `parseStructDecl` `;` separator, Go BorrowChecker `fnRoot`, kcc `for` init forms, Go `genForStmt` double-`;;`); foundation/compiler-self-check gates | COMPLETE (`pkg/cli/phase102_foundation_test.go`, `docs/audit/PHASE-102-LANGUAGE-FOUNDATION-FINAL-REPORT.md`) |
 | 103 | Module System v2 (Core): export sets (`public` func/type/enum) on BOTH engines, qualified-name resolution (`math.twice(21)` → module export set), cross-module private/missing-import/undefined/wrong-module/duplicate diagnostics on the Go resolver, self-hosted kcc `public` parse + qualified-call lowering, stdlib private-export exemption, module acceptance program + 4 rejection fixtures | COMPLETE (`pkg/sema/resolve.go`, `src/compiler/parser.kark`, `src/compiler/ast.kark`, `examples/module_system/`, `examples/module_system_errors/`, `pkg/cli/phase103_module_test.go`, `docs/audit/PHASE-103-MODULE-SYSTEM-FINAL-REPORT.md`) |
 | 109 | Standard Library v2: importable `std.string/collections/io/encoding/crypto` on BOTH engines byte-identical; 8 runtime builtins (hex/base64/utf8/sha256/sha512/map_keys) in Go + kcc tables/preambles; module-aware `kccAssembleSource` + dotted-import stripping; NIST/RFC vector examples, UTF-8 example, malformed-input runtime-error parity, multi-module E2E `examples/stdlib_v2`; `stdlib/{core,math,system,gpu,async}` stay behind the boundary | COMPLETE (`stdlib/{string,collections,io,encoding,crypto}/`, `pkg/cli/phase109_stdlib_test.go`, `pkg/sema/phase109_builtins_test.go`, `examples/stdlib/`, `examples/stdlib_v2/`, `examples/stdlib_errors/`, `docs/audit/PHASE-109-STANDARD-LIBRARY-V2-FINAL-REPORT.md`) |
+| 110 | Profiling & Diagnostics: `karkain prof` compiles+runs a program once with opt-in deterministic aggregation instrumentation (per-function counts + inclusive/exclusive/min/max/avg, call graph, folded stacks, allocation metrics) and emits `text`/`json`(`karkain-profile-v1`)/`folded` reports; Go engine only; kcc/WASM rejected with explicit no-fallback diagnostics | COMPLETE (`pkg/codegen/prof_runtime.go` + `initProfiling`/`profID` + hook sites in `codegen.go`/`emit_ir.go`, `pkg/cli/prof.go`, `cmd/karkain/main.go` `prof` dispatch, `examples/profiling/`, `pkg/codegen/phase110_profiling_test.go`, `pkg/cli/phase110_profiling_test.go`, `docs/audit/PHASE-110-PROFILING-DIAGNOSTICS-FINAL-REPORT.md`) |
 
 ### Current phase
+
+**PHASE 110 COMPLETE** — Profiling & Diagnostics.
+See `docs/audit/PHASE-110-PROFILING-DIAGNOSTICS-FINAL-REPORT.md`.
+`karkain prof <file.kark>` compiles and runs a program exactly once with
+compiler-inserted instrumentation and reports real, deterministic execution
+data: per-function call counts + inclusive/exclusive/min/max/avg wall time,
+the caller->callee call graph, folded (flame-graph) stacks, and allocation
+metrics, in `text` (default), `json` (`karkain-profile-v1` schema) and
+`folded` formats (also `--output <path>`). Profiling is opt-in:
+`karkain run`/`karkain build` never instrument. The instrumentation is
+aggregation-based (every call measured): source-order function ids
+(`initProfiling`/`profID`) back a bounded static C table
+(`pkg/codegen/prof_runtime.go`: `profNameTableC` + `profRuntimeC`, injected
+after the codegen preamble so the malloc/free interception macros only touch
+generated user code), with `QueryPerformanceCounter` on Windows (manual decls
+avoided — the preamble already includes `windows.h`) and
+`clock_gettime(CLOCK_MONOTONIC)` elsewhere; the JSON dump is written at
+`atexit` to `$KARKAIN_PROF_OUT` (unique temp path owned by the CLI wrapper
+`pkg/cli/prof.go`). Determinism proven: fib(18) reports exactly 8361 fib
+invocations. Boundaries (all explicitly rejected, no silent fallback): kcc
+engine (deferred), `--target wasm32-wasi` (deferred), single-threaded only
+(concurrency instrumentation out of scope), allocation metrics count only
+`malloc`/`free` emitted in generated code (struct/string/array/map helpers
+allocate inside the uninstrumented preamble). Gates:
+`pkg/codegen/phase110_profiling_test.go` (instrumentation markers,
+non-profiled builds carry no hooks, full compile+run+raw-dump validation)
++ `pkg/cli/phase110_profiling_test.go` (text/json/folded/`--output` golden
+reports through the real pipeline + boundary diagnostics). Regressions green:
+full `pkg/codegen`, Phase 100–109 CLI gates + conformance 59/59 + probes
+corpus, pkg/sema, pkg/runtime, pkg/wasm, pkg/compiler (incremental), lexer/
+parser/ir/ssa/hir/source/module/diagnostics/backend/npu/pm, `go vet`,
+`go build ./...`. Examples: `examples/profiling/` (`basic`/`recursion`/
+`hotspot` + README). An `alloc` expr note: raw-pointers `alloc/free` currently
+emit a broken `make_int(n) * sizeof(...)` count expression on default builds
+(pre-existing, unrelated to profiling) — documented in the final report.
 
 **PHASE 109 COMPLETE** — Standard Library v2 (Collections, Strings, I/O,
 Encoding, Crypto).

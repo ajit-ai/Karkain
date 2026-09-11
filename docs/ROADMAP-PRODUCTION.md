@@ -332,8 +332,17 @@ If this fails: Identify which component is blocking and fix it.
 
 ### Phase 110 — Profiling & Diagnostics
 **Deliverable:** `karkain prof` command, structured diagnostics with source spans
-**Files:** `pkg/cli/prof.go`, `pkg/compiler/diagnostics_v2.go`
-**Gate:** `karkain prof run examples/mandelbrot.kark` → produces flame graph data
+**Status: COMPLETE** — `karkain prof <file.kark>` (Go engine, opt-in,
+aggregation-based instrumentation) reports per-function counts + inclusive/
+exclusive/min/max/avg wall ns, caller->callee call graph, folded stacks and
+allocation metrics in `text`/`json` (`karkain-profile-v1`)/`folded` formats
+(+ `--output`); deterministic (fib(18) = 8361 calls); kcc/WASM explicitly
+rejected (no silent fallback). See
+`docs/audit/PHASE-110-PROFILING-DIAGNOSTICS-FINAL-REPORT.md`. Diagnostics v2
+deliverable remains open as future work.
+**Files:** `pkg/cli/prof.go`, `pkg/codegen/prof_runtime.go`
+**Gate:** `examples/profiling/{basic,recursion,hotspot}.kark` → text/json/folded
+reports with correct counts and call graph
 **Blocks:** None (independent)
 
 ### Phase 111 — Cross-Compilation
