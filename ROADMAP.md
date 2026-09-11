@@ -547,8 +547,45 @@ Evidence: `pkg/cli/bugfix_e2e_test.go` (BUG-4/7/8), `pkg/sema/borrow_checker_tes
 | 103 | Module System v2 (Core): export sets (`public` func/type/enum) on BOTH engines, qualified-name resolution (`math.twice(21)` → module export set), cross-module private/missing-import/undefined/wrong-module/duplicate diagnostics on the Go resolver, self-hosted kcc `public` parse + qualified-call lowering, stdlib private-export exemption, module acceptance program + 4 rejection fixtures | COMPLETE (`pkg/sema/resolve.go`, `src/compiler/parser.kark`, `src/compiler/ast.kark`, `examples/module_system/`, `examples/module_system_errors/`, `pkg/cli/phase103_module_test.go`, `docs/audit/PHASE-103-MODULE-SYSTEM-FINAL-REPORT.md`) |
 | 109 | Standard Library v2: importable `std.string/collections/io/encoding/crypto` on BOTH engines byte-identical; 8 runtime builtins (hex/base64/utf8/sha256/sha512/map_keys) in Go + kcc tables/preambles; module-aware `kccAssembleSource` + dotted-import stripping; NIST/RFC vector examples, UTF-8 example, malformed-input runtime-error parity, multi-module E2E `examples/stdlib_v2`; `stdlib/{core,math,system,gpu,async}` stay behind the boundary | COMPLETE (`stdlib/{string,collections,io,encoding,crypto}/`, `pkg/cli/phase109_stdlib_test.go`, `pkg/sema/phase109_builtins_test.go`, `examples/stdlib/`, `examples/stdlib_v2/`, `examples/stdlib_errors/`, `docs/audit/PHASE-109-STANDARD-LIBRARY-V2-FINAL-REPORT.md`) |
 | 110 | Profiling & Diagnostics: `karkain prof` compiles+runs a program once with opt-in deterministic aggregation instrumentation (per-function counts + inclusive/exclusive/min/max/avg, call graph, folded stacks, allocation metrics) and emits `text`/`json`(`karkain-profile-v1`)/`folded` reports; Go engine only; kcc/WASM rejected with explicit no-fallback diagnostics | COMPLETE (`pkg/codegen/prof_runtime.go` + `initProfiling`/`profID` + hook sites in `codegen.go`/`emit_ir.go`, `pkg/cli/prof.go`, `cmd/karkain/main.go` `prof` dispatch, `examples/profiling/`, `pkg/codegen/phase110_profiling_test.go`, `pkg/cli/phase110_profiling_test.go`, `docs/audit/PHASE-110-PROFILING-DIAGNOSTICS-FINAL-REPORT.md`) |
+| 111 | Cross-Compilation: explicit `--target <triple>` with a Karkain-owned target model (`pkg/target`: arch/os/env, Host, Features, SupportedTargets, canonical short triples + conventional long-form normalization, host-vs-foreign `SameMachine`); target-aware C-driver selection (`pkg/codegen/cross_target.go` — same-machine builds reuse the historical host probe byte-for-byte; cross builds probe triple-prefixed GNU gcc then clang `--target`, else a deterministic cross-linker `ToolchainError` = exit 6, never a silent host fallback); cross-run refusal for foreign machines; `karkain target` reports the host triple + feature matrix; triple builds emit real executables (peMachine-verified PE32+ x86-64 on this host); generated C self-describes via `karkain-target:` comment + `KARKAIN_TARGET_ARCH_*/OS_*` defines; examples for every supported target | COMPLETE (`pkg/target/{triple,features}.go` + tests, `pkg/codegen/cross_target.go`, `pkg/codegen/codegen.go` targetHeaderPrefix/GenerateAndCompile, `pkg/cli/exitcodes.go`/`config_target.go`/`commands.go`, `cmd/karkain/main.go` NormalizeTarget dispatch, `examples/cross_compile/`, `pkg/cli/phase111_cross_compile_test.go`, `docs/audit/PHASE-111-CROSS-COMPILATION-FINAL-REPORT.md`) |
 
 ### Current phase
+
+**PHASE 111 COMPLETE** — Cross-Compilation.
+See `docs/audit/PHASE-111-CROSS-COMPILATION-FINAL-REPORT.md`.
+`--target <triple>` is now a first-class explicit cross-compilation switch,
+backed by a Karkain-owned target model (`pkg/target`): finite arch/OS/env
+enums, a canonical-short-triple convention (`x86_64-windows`,
+`x86_64-linux`, `aarch64-linux`, `wasm32-wasi`) that also accepts the
+conventional long forms (`x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`,
+...) through `NormalizeTarget`, `Features` (pointer width/endian/obj/exe
+format/calling convention) exposed by `karkain target`, and `SameMachine`
+so a build can know whether the output can run on this host. The C-driver
+selection (`pkg/codegen/cross_target.go`) compiles same-machine targets with
+the historical host probe (byte-identical flags), and cross targets with
+triple-prefixed GNU cross-gcc (then clang `--target`); if no cross-linker is
+on PATH the build fails deterministically with a `ToolchainError` (listing
+exactly what was searched, exit 6) — there is NO silent host fallback and NO
+wrong-architecture output. `karkain run --target <foreign-triple>` is refused
+(cross-run requires an emulator/remote target) with a build-only hint; plain
+`karkain build --target <triple>` now emits a real native artifact (previously
+Go-engine builds only transpiled to C). Generated C self-describes each build
+via a `/* karkain-target: <triple> */` comment plus `KARKAIN_TARGET_ARCH_*` /
+`KARKAIN_TARGET_OS_*` (`_WINDOWS`/`_LINUX`/`_WASM32`...) preprocessor defines
+(the Phase-111 target contract for `import "C"` blocks), and `karkain target`
+reports the host triple + full supported matrix. Honest matrix on this
+Windows x86_64 host: `x86_64-windows` PASS (real PE32+ x86-64 executables,
+machine-field validated), `x86_64-linux` and `aarch64-linux` N/A here (no
+cross-linker on PATH — mechanism implemented and unit-tested via the
+deterministic cross-linker diagnostics; artifacts are not verifiable on this
+host), `wasm32-wasi` unchanged (Phase 108 backend). Gates:
+`pkg/cli/phase111_cross_compile_test.go` (target-command output, canonical
+normalization, usage rejections, host-executable build + PE header parse,
+default-engine routing, normalized triple, cross-run host/foreign, missing
+cross-linker negative + no-artifact, deterministic C across identical builds,
+C target markers, example corpus goldens, legacy aliases, incremental
+cross-target cache) + `pkg/target/triple_test.go`. Regressions green:
+full `pkg/codegen`, Phase 105–110 CLI gates, `go vet`, `go build ./...`.
 
 **PHASE 110 COMPLETE** — Profiling & Diagnostics.
 See `docs/audit/PHASE-110-PROFILING-DIAGNOSTICS-FINAL-REPORT.md`.
