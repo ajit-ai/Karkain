@@ -5,9 +5,11 @@ import (
 	"sort"
 
 	"karkain/pkg/codegen"
+	"karkain/pkg/target"
 )
 
-// sortedTargets returns the supported --target values in deterministic order.
+// sortedTargets returns the supported --target values in deterministic order:
+// the legacy aliases first, then the conventional triples.
 func sortedTargets() []string {
 	out := make([]string, 0, len(validTargets))
 	for t := range validTargets {
@@ -17,16 +19,34 @@ func sortedTargets() []string {
 	return out
 }
 
-// TargetCommand implements `karkain target`: it lists the closed set of
-// targets the toolchain can genuinely produce output for today, and the
-// default used when --target is omitted.
+// TargetCommand implements `karkain target`: it lists the host platform, the
+// closed set of targets the toolchain can genuinely produce output for today,
+// and the default used when --target is omitted.
 func TargetCommand() CommandResult {
+	fmt.Println("Host: " + target.Host().String())
 	fmt.Println("Supported targets:")
 	for _, t := range sortedTargets() {
-		fmt.Printf("  %s\n", t)
+		fmt.Printf("  %-14s %s\n", t, aliasTargetNote(t))
+	}
+	for _, t := range target.SupportedTargets() {
+		fmt.Printf("  %-14s %s\n", t.String(), target.Describe(t))
 	}
 	fmt.Println("Default: native")
 	return CommandResult{ExitCode: ExitSuccess, Message: ""}
+}
+
+func aliasTargetNote(name string) string {
+	switch name {
+	case "native":
+		return "(host default; " + target.Host().String() + ")"
+	case "c23":
+		return "(C23 source output; " + target.Host().String() + ")"
+	case "native-link":
+		return "(Phase 84 object/linker pipeline)"
+	case "wasm32-wasi":
+		return "(WebAssembly WASI module)"
+	}
+	return ""
 }
 
 // ConfigCommand implements `karkain config`: it prints the effective codegen
