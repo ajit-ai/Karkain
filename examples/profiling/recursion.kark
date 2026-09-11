@@ -1,0 +1,14 @@
+// recursion.kark — recursive target: the profiler records every call site
+// (fib(18) exercises 8361 fib invocations).
+// Run:  karkain prof examples/profiling/recursion.kark
+
+func fib(n) {
+    if n < 2 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+func main() {
+    print("fib(18) = " + str(fib(18)))
+}

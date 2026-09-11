@@ -32,8 +32,9 @@ COMPILER COMMANDS:
   check <file.kark>        Validate syntax and semantics
   test <path>              Discover and run *_test.kark files
   test --compile [dir]     Run compile-pass/compile-fail corpus (diagnostics)
-  bench <path>             Time bench_-prefixed functions (single run each)
-  lint <file.kark>         Full front-end analysis (incl. borrow checker)
+bench <path>             Time bench_-prefixed functions (single run each)
+  prof <file.kark>        Compile, run and profile a program (see prof --help)
+  lint <file.kark>        Full front-end analysis (incl. borrow checker)
   explain <code>           Explain a toolchain error code
   fmt <file.kark>          Canonicalize formatting (--check to verify only)
   clean [path] [--all]     Remove generated artifacts (sources never touched)
@@ -931,6 +932,132 @@ func handleWorkspaceCommand(args []string, verbose bool) int {
 	return cli.ExitSuccess
 }
 
+// runProfCommand is the Phase 110 `karkain prof` dispatcher. It parses the
+// prof-specific flags (--format, --output, --engine, --target), validates the
+// inputs, and hands off to cli.ProfCommand. Profiling defaults to the Go
+// engine regardless of KARKAIN_ENGINE/--engine defaults because the profiling
+// instrumentation lives in the Go compiler backend (kcc profiling is an
+// explicitly deferred Phase 110 boundary).
+func runProfCommand(args []string) int {
+	format := "text"
+	output := ""
+	engine := "go"
+	target := ""
+	file := ""
+	verbose := false
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "--format=") {
+			format = strings.TrimPrefix(arg, "--format=")
+			continue
+		}
+		if strings.HasPrefix(arg, "--output=") {
+			output = strings.TrimPrefix(arg, "--output=")
+			continue
+		}
+		if strings.HasPrefix(arg, "--engine=") {
+			engine = strings.TrimPrefix(arg, "--engine=")
+			continue
+		}
+		if strings.HasPrefix(arg, "--target=") {
+			target = strings.TrimPrefix(arg, "--target=")
+			continue
+		}
+		switch arg {
+		case "--format":
+			if i+1 >= len(args) {
+				fmt.Println("Error: --format flag requires a value (text|json|folded)")
+				return cli.ExitUsage
+			}
+			i++
+			format = args[i]
+		case "--output":
+			if i+1 >= len(args) {
+				fmt.Println("Error: --output flag requires a file path")
+				return cli.ExitUsage
+			}
+			i++
+			output = args[i]
+		case "--engine":
+			if i+1 >= len(args) {
+				fmt.Println("Error: --engine flag requires a value (go|kcc) (profiling: Go engine only)")
+				return cli.ExitUsage
+			}
+			i++
+			engine = args[i]
+		case "--target":
+			if i+1 >= len(args) {
+				fmt.Println("Error: --target flag requires a value")
+				return cli.ExitUsage
+			}
+			i++
+			target = args[i]
+		case "--json":
+			format = "json"
+		case "-o":
+			if i+1 >= len(args) {
+				fmt.Println("Error: -o flag requires an output file path")
+				return cli.ExitUsage
+			}
+			i++
+			output = args[i]
+		case "--verbose":
+			verbose = true
+		case "-h", "--help":
+			printProfHelp()
+			return cli.ExitSuccess
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Printf("Error: Unknown flag '%s'\n", arg)
+				printProfHelp()
+				return cli.ExitUsage
+			}
+			if file == "" {
+				file = arg
+			} else {
+				fmt.Printf("Error: unexpected argument '%s'\n", arg)
+				return cli.ExitUsage
+			}
+		}
+	}
+
+	if file == "" {
+		fmt.Println("Error: No input .kark file specified")
+		printProfHelp()
+		return cli.ExitUsage
+	}
+
+	result := cli.ProfCommand(file, format, output, engine, target, verbose)
+	if result.Message != "" {
+		fmt.Println(result.Message)
+	}
+	return result.ExitCode
+}
+
+func printProfHelp() {
+	fmt.Println(`Usage: karkain prof [options] <file.kark>
+
+Compile, run, and profile a Karkain program. The program executes once with
+compiler-inserted instrumentation; the report contains per-function counts and
+timing (inclusive/exclusive/min/max/avg), the caller->callee call graph,
+folded (flame-graph) stacks, and allocation metrics.
+
+Options:
+  --format <text|json|folded>  Report format (default: text)
+  --output <path>              Write the report to <path> instead of stdout
+  --json                       Shorthand for --format json
+  -o <path>                    Shorthand for --output <path>
+  --engine <go|kcc>            Engine (profiling: Go engine only; kcc deferred)
+  --target <native|c23>        Profiling target (default native; WASM deferred)
+  --verbose                    Emit detailed pipeline logs
+  -h, --help                   Show this help
+
+Profiling is opt-in: ` + "`karkain run`" + `/` + "`karkain build`" + ` never instrument the
+program. WASM and kcc profiling are explicit "unsupported/deferred" boundaries
+with no silent native fallback.`)
+}
+
 func handleLSP() {
 	// Phase 82: the `lsp` / `language-server` command now serves the real,
 	// tested LSP engine in pkg/lsp (JSON-RPC 2.0 over stdio with correct
@@ -956,6 +1083,8 @@ func main() {
 	switch args[0] {
 	case "init", "new", "add", "remove", "rm", "update", "list", "tree", "fetch":
 		os.Exit(handlePackageCommand(args))
+	case "prof":
+		os.Exit(runProfCommand(args[1:]))
 	}
 
 	command := ""
@@ -964,13 +1093,13 @@ func main() {
 	cfg := codegen.NewConfig()
 	verbose := false
 	extraArgs := []string{}
-	testFilter := ""       // KTF-001: deterministic substring filter for `karkain test`
-	compileCorpus := false // KTF-002: run the compile-pass/compile-fail corpus
-	formatJSON := false    // Phase 82: machine-readable structured output (e.g. check --format=json)
-	fmtCheck := false     // Phase 82: `karkain fmt --check` verifies canonical formatting
+	testFilter := ""              // KTF-001: deterministic substring filter for `karkain test`
+	compileCorpus := false        // KTF-002: run the compile-pass/compile-fail corpus
+	formatJSON := false           // Phase 82: machine-readable structured output (e.g. check --format=json)
+	fmtCheck := false             // Phase 82: `karkain fmt --check` verifies canonical formatting
 	engine := cli.EngineFromEnv() // Phase 95: KARKAIN_ENGINE / --engine selects self-hosted kcc
-	incrementalBuild := false    // Phase 105: `karkain build --incremental` uses the content-addressed cache
-	incrementalCache := ""       // Phase 105: optional cache directory override for --incremental
+	incrementalBuild := false     // Phase 105: `karkain build --incremental` uses the content-addressed cache
+	incrementalCache := ""        // Phase 105: optional cache directory override for --incremental
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]

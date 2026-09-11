@@ -22,6 +22,7 @@ type Config struct {
 	Debug       bool   // Add debug flag for DWARF symbols
 	Target      string // Target architecture (native, wasm32-wasi)
 	DisableSSA  bool   // Phase 53: disable SSA IR pipeline (fallback to legacy emission)
+	Profiling   bool   // Phase 110: emit profiling instrumentation (karkain prof)
 
 	// Stdout / Stderr direct the executed program's output. When nil they
 	// default to the process standard streams. Used by the test runner to
@@ -68,13 +69,21 @@ type Generator struct {
 	concSpawnOrder   []string                    // Phase 107: spawn-target order (wrapper indices)
 	concHandlers     map[string]bool             // Phase 107: actor handler names referenced by actor()
 	concHandlerOrder []string                    // Phase 107: handler order (dispatcher ids)
+
+	// Phase 110: profiling state. FIDs are assigned in source order and match
+	// the emitted C name table, so reports are deterministic across runs.
+	profiling  bool
+	profFID    map[string]int
+	profNames  []string
+	curProfID  int // fid of the function whose body is currently being emitted
 }
 
 func New(cfg Config) *Generator {
 	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl),
 		closureVars: make(map[string]bool), userFuncs: make(map[string]bool),
 		simdVars: make(map[string]string), concFns: make(map[string]*parser.FuncDecl),
-		concSpawned: make(map[string]bool), concHandlers: make(map[string]bool)}
+		concSpawned: make(map[string]bool), concHandlers: make(map[string]bool),
+		profFID: make(map[string]int), curProfID: -1}
 }
 
 // sourceBaseC returns the quoted base file name (extension included, e.g.
@@ -86,6 +95,38 @@ func (g *Generator) sourceBaseC() string {
 		return `""`
 	}
 	return fmt.Sprintf("%q", filepath.Base(g.sourceFile))
+}
+
+// initProfiling builds the deterministic function-id table used by the Phase
+// 110 profiler: ids are assigned in assembly (source) order and must match the
+// emitted C name table (profNameTableC), keeping reports stable across runs.
+func (g *Generator) initProfiling(prog *parser.Program) {
+	g.profiling = g.cfg.Profiling
+	if !g.profiling {
+		return
+	}
+	g.profFID = make(map[string]int)
+	g.profNames = nil
+	for _, stmt := range prog.Statements {
+		fn, ok := stmt.(*parser.FuncDecl)
+		if !ok {
+			continue
+		}
+		if _, seen := g.profFID[fn.Name]; seen {
+			continue
+		}
+		g.profFID[fn.Name] = len(g.profNames)
+		g.profNames = append(g.profNames, fn.Name)
+	}
+}
+
+// profID returns the profile id for a function name, or -1 when the function
+// is not part of the emitted table (no instrumentation is then emitted).
+func (g *Generator) profID(name string) int {
+	if id, ok := g.profFID[name]; ok {
+		return id
+	}
+	return -1
 }
 
 func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
@@ -115,6 +156,8 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		g.scanNodeForConcurrency(stmt)
 		g.collectConcDecls(stmt)
 	}
+	// Phase 110: build the function id table (source order) when profiling.
+	g.initProfiling(prog)
 
 	sb.WriteString(g.generateCHeader())
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
@@ -186,6 +229,15 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	if g.usesConcurrency {
 		sb.WriteString(g.concWrapperC())
 		sb.WriteString(concRuntimeAPIC())
+	}
+
+	// Phase 110: profiling runtime + function name table. Emitted immediately
+	// before the function bodies so the enter/leave hooks (and the malloc/free
+	// allocation wrappers) are in scope for every generated function without
+	// perturbing library headers or the preamble helper bodies above.
+	if g.profiling {
+		sb.WriteString(profNameTableC(g.profNames))
+		sb.WriteString(profRuntimeC())
 	}
 
 	// Generate all function declarations
@@ -2042,11 +2094,21 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		gb.WriteString("Value getArgs(void) {\n")
 		gb.WriteString("\tkarkain_frame_enter(\"getArgs\", " + g.sourceBaseC() + ");\n")
 		gb.WriteString("\tkarkain_set_line(0);\n")
+		if g.profiling {
+			if id := g.profID(fn.Name); id >= 0 {
+				fmt.Fprintf(&gb, "\tkarkain_prof_enter(%d);\n", id)
+			}
+		}
 		gb.WriteString("\tValue _args = make_array();\n")
 		gb.WriteString("\tint _i;\n")
 		gb.WriteString("\tfor (_i = 0; _i < _karkain_gargc; _i++) {\n")
 		gb.WriteString("\t\tarray_push(&_args, make_string(_karkain_gargv[_i]));\n")
 		gb.WriteString("\t}\n")
+		if g.profiling {
+			if id := g.profID(fn.Name); id >= 0 {
+				fmt.Fprintf(&gb, "\tkarkain_prof_leave(%d);\n", id)
+			}
+		}
 		gb.WriteString("\tkarkain_frame_leave();\n")
 		gb.WriteString("\treturn _args;\n")
 		gb.WriteString("}\n\n")
@@ -2055,10 +2117,19 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 
 	// Phase 48: Generate body first to collect any lambda definitions
 	g.lambdaBuf.Reset()
+	// Phase 110: remember the enclosing function id so return statements can
+	// emit their leave hook; reset when the body generation is done.
+	g.curProfID = -1
+	if g.profiling {
+		if id := g.profID(fn.Name); id >= 0 {
+			g.curProfID = id
+		}
+	}
 	var bodySb strings.Builder
 	for _, stmt := range fn.Body {
 		bodySb.WriteString(g.genStatement(stmt))
 	}
+	g.curProfID = -1
 
 	// Now build the full output: lambda defs + function
 	var sb strings.Builder
@@ -2085,10 +2156,19 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	// chain with a source file and line for each function.
 	fmt.Fprintf(&sb, "\tkarkain_frame_enter(%s, %s);\n", strconv.Quote(fn.Name), g.sourceBaseC())
 	fmt.Fprintf(&sb, "\tkarkain_set_line(%d);\n", fn.Line)
+	// Phase 110: profile entry hook (after the frame is on the stack).
+	if g.profiling {
+		if id := g.profID(fn.Name); id >= 0 {
+			fmt.Fprintf(&sb, "\tkarkain_prof_enter(%d);\n", id)
+		}
+	}
 
 	// Phase 14: Initialize quantum runtime in main
 	if fnName == "main" {
 		sb.WriteString("\t_karkain_gargc = _karkain_argc; _karkain_gargv = _karkain_argv;\n")
+		if g.profiling {
+			sb.WriteString("\tkarkain_prof_init();\n")
+		}
 		sb.WriteString("\tquantum_init();\n")
 	}
 
@@ -2097,9 +2177,19 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	sb.WriteString(closureUndefs)
 
 	if fnName == "main" {
+		if g.profiling {
+			if id := g.profID(fn.Name); id >= 0 {
+				fmt.Fprintf(&sb, "\tkarkain_prof_leave(%d);\n", id)
+			}
+		}
 		sb.WriteString("\tkarkain_frame_leave();\n")
 		sb.WriteString("\treturn 0;\n")
 	} else {
+		if g.profiling {
+			if id := g.profID(fn.Name); id >= 0 {
+				fmt.Fprintf(&sb, "\tkarkain_prof_leave(%d);\n", id)
+			}
+		}
 		sb.WriteString("\tkarkain_frame_leave();\n")
 		sb.WriteString("\treturn make_int(0);\n")
 	}
@@ -2422,7 +2512,11 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 		// Phase 101: if the return expression itself raises (e.g. a checked
 		// call) the frame must still be on the stack, so compute into a temp
 		// first, then pop and return. Guarded at runtime for nested/lambda use.
-		return "\t{ Value _karkain_fret = " + g.genExpr(node.Value) + "; karkain_frame_leave(); return _karkain_fret; }\n"
+		pfHook := ""
+		if g.profiling && g.curProfID >= 0 {
+			pfHook = fmt.Sprintf("karkain_prof_leave(%d); ", g.curProfID)
+		}
+		return "\t{ Value _karkain_fret = " + g.genExpr(node.Value) + "; " + pfHook + "karkain_frame_leave(); return _karkain_fret; }\n"
 	case *parser.PrintStmt:
 		// Check if this is a matrix index expression
 		if matrixIdx, ok := node.Value.(*parser.MatrixIndexExpr); ok {
