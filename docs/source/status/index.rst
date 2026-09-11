@@ -1,0 +1,71 @@
+Status
+======
+
+Every feature documented on this site carries exactly one of six status
+labels. The vocabulary is defined here so you always know whether a section
+describes something real today or something planned.
+
+.. contents:: The six levels
+   :local:
+   :depth: 1
+
+The six-level model
+===================
+
+.. list-table:: Status vocabulary
+   :widths: 24 76
+   :header-rows: 1
+
+   * - Label
+     - Meaning
+   * - :stable:`Stable`
+     - Frozen and production-safe. Behavior is guaranteed and will not
+       change without a major version bump.
+   * - :implemented:`Implemented`
+     - Real and tested. Verifyable through gates (unit tests, parity tests,
+       E2E CLI tests). May still evolve.
+   * - :experimental:`Experimental`
+     - Real but subject to change. The capability exists and is testable,
+       but the surface is not yet guaranteed.
+   * - :developer-preview:`Developer Preview`
+     - Functional but incomplete. Real partial capability with documented
+       gaps.
+   * - :planned:`Planned`
+     - Designed but not implemented. May appear as roadmap entries or
+       documented intentions; **no code exists**.
+   * - :not-implemented:`Not Yet Implemented`
+     - An identified need with no code and no design contract. Nothing is
+       presented as available.
+
+Honesty rules
+=============
+
+* **Never** describe a hypothetical feature as available. A feature is
+  ``Implemented`` only when it is exercised by a gate test through the real
+  pipeline.
+* ``Planned`` pages must not invent APIs, signatures or examples.
+* ``Experimental`` pages must state exactly why they are experimental (e.g.
+  Go-engine only, wasmtime-gated, kcc parity deferred).
+* A category placeholder (no examples yet) is labeled
+  ``Not Yet Implemented``, not silently omitted.
+
+The three catalog pages
+=======================
+
+.. toctree::
+   :maxdepth: 2
+
+   implemented
+   experimental
+   planned
+
+.. note::
+
+   The overall project status is **Developer Preview** — see
+   :doc:`/development/developer-preview` for the honest capability
+   assessment. Individual features are labeled per the model above.
+
+.. seealso::
+
+   :doc:`/examples/index` — category pages using this vocabulary.
+   :doc:`/development/roadmap` — where the planned surface fits over time.

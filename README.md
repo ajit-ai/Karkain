@@ -7,6 +7,11 @@ Karkain is a statically typed, high-performance systems programming language des
 > **Language specification:** see [`SPEC.md`](SPEC.md) for the authoritative,
 > versioned spec of the Karkain language (keywords, grammar, types, memory model,
 > and conformance status).
+>
+> **Official documentation:** the human-readable guides, reference and
+> status pages live under [`docs/`](docs/README.md) — a Sphinx site buildable
+> with `python -m sphinx -b html docs/source docs/build/html` and published
+> to GitHub Pages on every `main` push.
 
 ```
 .kark source → Lexer → Parser → SSA IR → Optimizer → Verifier → C23 → GCC/Clang → Binary
