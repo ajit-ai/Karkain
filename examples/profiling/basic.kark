@@ -1,0 +1,14 @@
+// basic.kark — minimal profiling target: two functions plus main.
+// Run:  karkain prof examples/profiling/basic.kark
+
+func add(a, b) {
+    return a + b
+}
+
+func square(x) {
+    return x * x
+}
+
+func main() {
+    print("basic = " + str(add(square(3), add(4, 5))))
+}

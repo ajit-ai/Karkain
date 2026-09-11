@@ -13,9 +13,62 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-109** — Phases 50–106 complete, Phase 107 (Concurrency
+Current phase: **post-110** — Phases 50–106 complete, Phase 107 (Concurrency
 Runtime) complete, Phase 108 (WASM target) complete, Phase 109 (Standard
-Library v2) complete.
+Library v2) complete, Phase 110 (Profiling & Diagnostics) complete.
+Also completed: **110** — Profiling & Diagnostics
+(`karkain prof <file.kark>` is a real CLI: it compiles and runs the program
+once with opt-in, aggregation-based instrumentation and reports deterministic
+data — per-function call counts + inclusive/exclusive/min/max/avg wall ns,
+caller->callee call graph, folded (flame-graph) stacks, allocation metrics —
+in `text` (default), `json` (`karkain-profile-v1` schema) and `folded`
+formats, plus `--output <path>`. Implementation: `Config.Profiling` +
+`Generator` profiling state (`profiling`, `profFID`, `profNames`, `curProfID`)
+in `pkg/codegen/codegen.go` (`New` inits `curProfID:-1`), `initProfiling`
+(source-order fid table) + `profID` helpers, and `GenerateAndCompile` injects
+`profNameTableC(g.profNames)` + `profRuntimeC()` right after
+`concRuntimeAPIC()` — a bounded static C runtime (`pkg/codegen/prof_runtime.go`:
+K_PF_MAX_FUNCS 512/EDGES 4096/PATHS 4096/DEPTH 256/PATH 32/LIVE 8192,
+`k_pf_overflow` flag, QPC on Windows reusing the preamble's already-included
+`windows.h` prototypes — no manual decls, `clock_gettime(CLOCK_MONOTONIC)`
+elsewhere, `#undef/#define malloc/free` wrappers emitted AFTER the preamble so
+only generated user-code allocations are counted, JSON dump via
+`atexit(karkain_prof_flush)` to `$KARKAIN_PROF_OUT`). Hook sites (enter after
+frame_enter/set_line, leave on OpRet/fallthrough before frame_leave — also in
+`genReturnStmt` after the frame value is computed; getArgs enter/leave; main
+`karkain_prof_init()` before quantum_init) in `pkg/codegen/codegen.go` and
+`pkg/codegen/emit_ir.go`. CLI: `pkg/cli/prof.go` (`ProfCommand` + `Profile`
+schema + `RenderJSON`/`RenderFolded`/`RenderText` + `nsString` +
+`parseProfDump` + `makeProfDumpPath` unique temp dump) and
+`cmd/karkain/main.go` `prof` dispatch + `runProfCommand`/`printProfHelp`.
+Exit codes re-used: 0 success, 1 failure (kcc target, wasm32-wasi target —
+explicit "no silent native fallback" diagnostics, missing dump, program
+failure), 2 usage (unknown `--format`, missing file via `ValidateKarFile`),
+3 compile. Determinism proven: fib(18) = exactly 8361 fib calls, stable
+schema/names/counts across runs; raw timings vary (never golden-tested).
+Program stdout passes through. Boundaries (documented, rejected explicitly):
+kcc engine deferred, WASM deferred, single-threaded (concurrency programs
+out of scope), allocation metrics = only malloc/free text in generated code
+(preamble helpers like make_string/make_map uninstrumented; structs are
+map-based so our struct probes report count 0). Notes: `alloc(T,n)` raw
+pointers emit broken `make_int(n) * sizeof(...)` on default builds (pre-existing,
+unrelated); `while` requires parens `while(...)` — `while x < n {` WRONGLY
+parses `if`/bodies into the condition (caused infinite-loop hangs in probes);
+struct-in-array programs infinite-loop on both engines (pre-existing,
+unrelated to profiling). Gates:
+`pkg/codegen/phase110_profiling_test.go` (3: instrumentation markers + fid
+order, opt-in — default builds carry NO hooks, compile+run+raw-dump validation
+nat schema/overflow/fib 8361/main 1) + `pkg/cli/phase110_profiling_test.go`
+(5: text report markers + passthrough, json schema/counts/edges via
+`strings.Index(out,"{")` slice, folded stacks (skip passthrough lines), output
+file, boundaries kcc/wasm/bad-format/missing-file). Regressions green: full
+`pkg/codegen` 23.3s, CLI Phase 100–109 gates + conformance 59/59 + probes
+corpus 524.7s, pkg/sema/runtime/wasm/compiler, lexer/parser/ir/ssa/hir/source/
+module/diagnostics/backend/npu/pm, `go vet`, `go build ./...`. Examples:
+`examples/profiling/{basic,recursion,hotspot}.kark` + README.
+`prof` builds leave `*.c` files beside source (existing CLI behavior) — delete
+generated `.c` before committing. Report:
+`docs/audit/PHASE-110-PROFILING-DIAGNOSTICS-FINAL-REPORT.md`.)
 Also completed: **109** — Standard Library v2
 (Real `.kark` programs can `import std.string / std.collections / std.io /
 std.encoding / std.crypto` through the normal toolchain on BOTH engines — Go
