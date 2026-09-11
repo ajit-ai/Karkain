@@ -183,6 +183,7 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static void karkain_assert_eq(Value actual, Value expected, const char* expr, const char* loc) { if(!is_truthy(values_equal(actual, expected))) { karkain_assert_report(\"assertion failed: assert_eq\", expr, loc); Value _a=karkain_str(actual); Value _e=karkain_str(expected); fprintf(stderr, \"  expected: %s\\n  actual:   %s\\n\", _e.strVal?_e.strVal:\"\", _a.strVal?_a.strVal:\"\"); fflush(stderr); exit(1); } }")
     emitLine(state, "static void karkain_assert_ne(Value actual, Value expected, const char* expr, const char* loc) { if(is_truthy(values_equal(actual, expected))) { karkain_assert_report(\"assertion failed: assert_ne\", expr, loc); Value _a=karkain_str(actual); fprintf(stderr, \"  unexpectedly equal (actual): %s\\n\", _a.strVal?_a.strVal:\"\"); fflush(stderr); exit(1); } }")
     emitLine(state, "static Value karkain_int(Value v) { if(v.type==TYPE_INT) return make_int(v.intVal); if(v.type==TYPE_FLOAT64) return make_int((long long)v.floatVal); if(v.type==TYPE_STRING) return make_int(atoll(v.strVal?v.strVal:\"\")); if(v.type==TYPE_BOOL) return make_int(v.intVal); return make_int(0); }")
+    emitLine(state, "static Value karkain_float(Value v) { if(v.type==TYPE_FLOAT64) return make_float(v.floatVal); if(v.type==TYPE_INT) return make_float((double)v.intVal); if(v.type==TYPE_STRING) return make_float(atof(v.strVal?v.strVal:\"\")); return make_float(0.0); }")
     emitLine(state, "static Value karkain_system(Value cmd) { if(cmd.type!=TYPE_STRING) return make_int(-1); int result=system(cmd.strVal?cmd.strVal:\"\"); return make_int(result); }")
     emitLine(state, "static Value karkain_removeFile(Value path) { if(path.type!=TYPE_STRING) return make_int(0); int result=remove(path.strVal?path.strVal:\"\"); return make_int(result==0?1:0); }")
     emitLine(state, "static Value removeFile(Value path) { return karkain_removeFile(path); }")
@@ -359,6 +360,10 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "int") {
             emit(state, "karkain_int(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ")")
+        } else if (fname == "float") {
+            emit(state, "karkain_float(")
             if (argc > 0) { emitC11Expr(state, args[0]) }
             emit(state, ")")
         } else if (fname == "substr") {
@@ -733,6 +738,12 @@ func emitC11Stmt(state, node) {
         emit(state, ";")
     }
 
+    if (nt == "ConstDecl") {
+        emitLine(state, "Value " + constDeclName(node) + " = ")
+        emitC11Expr(state, constDeclValue(node))
+        emit(state, ";")
+    }
+
     if (nt == "Return") {
         if (codegenCurrentFunc(state) == "main") {
             emitLine(state, "karkain_frame_leave();")
@@ -1102,6 +1113,12 @@ func emitWGSLStmt(state, node) {
         emitLine(state, ";")
     }
 
+    if (nt == "ConstDecl") {
+        emit(state, "let " + constDeclName(node) + " = ")
+        emitWGSLExpr(state, constDeclValue(node))
+        emitLine(state, ";")
+    }
+
     if (nt == "Return") {
         emit(state, "return ")
         let rv0 = returnExpr(node)
@@ -1345,6 +1362,12 @@ func emitOpenCLStmt(state, node) {
     if (nt == "LetDecl") {
         emit(state, emitOpenCLType("int") + " " + letDeclName(node) + " = ")
         emitOpenCLExpr(state, letDeclValue(node))
+        emitLine(state, ";")
+    }
+
+    if (nt == "ConstDecl") {
+        emit(state, emitOpenCLType("int") + " " + constDeclName(node) + " = ")
+        emitOpenCLExpr(state, constDeclValue(node))
         emitLine(state, ";")
     }
 
@@ -1770,6 +1793,10 @@ func emitKBCStmt(state, node) {
     if (nt == "LetDecl") {
         emitKBCExpr(state, letDeclValue(node))
         emitLine(state, "STORE_VAR " + letDeclName(node))
+    }
+    if (nt == "ConstDecl") {
+        emitKBCExpr(state, constDeclValue(node))
+        emitLine(state, "STORE_VAR " + constDeclName(node))
     }
     if (nt == "VarDecl") {
         emitKBCExpr(state, varDeclValue(node))

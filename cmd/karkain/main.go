@@ -1058,6 +1058,76 @@ program. WASM and kcc profiling are explicit "unsupported/deferred" boundaries
 with no silent native fallback.`)
 }
 
+func runDebugCommand(args []string) int {
+	engine := ""
+	file := ""
+	verbose := false
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "--engine=") {
+			engine = strings.TrimPrefix(arg, "--engine=")
+			continue
+		}
+		switch arg {
+		case "--engine":
+			if i+1 >= len(args) {
+				fmt.Println("Error: --engine flag requires a value (go|kcc) (tracing: Go engine only)")
+				return cli.ExitUsage
+			}
+			i++
+			engine = args[i]
+		case "--verbose":
+			verbose = true
+		case "-h", "--help":
+			printDebugHelp()
+			return cli.ExitSuccess
+		default:
+			if strings.HasPrefix(arg, "-") {
+				fmt.Printf("Error: Unknown flag '%s'\n", arg)
+				printDebugHelp()
+				return cli.ExitUsage
+			}
+			if file == "" {
+				file = arg
+			} else {
+				fmt.Printf("Error: unexpected argument '%s'\n", arg)
+				return cli.ExitUsage
+			}
+		}
+	}
+
+	if file == "" {
+		fmt.Println("Error: No input .kark file specified")
+		printDebugHelp()
+		return cli.ExitUsage
+	}
+
+	result := cli.DebugCommand(file, engine, verbose)
+	if result.Message != "" {
+		fmt.Println(result.Message)
+	}
+	return result.ExitCode
+}
+
+func printDebugHelp() {
+	fmt.Println(`Usage: karkain debug [options] <file.kark>
+
+Compile and run a Karkain program with debug tracing enabled. Every function
+enter/leave records a deterministic trace line on stderr while the program's
+normal stdout passes through exactly as ` + "`karkain run`" + ` would.
+
+The trace format is ` + "`karkain:<file>:enter/leave <func>`" + ` for each function call
+and return. Trace is opt-in — ` + "`karkain run`" + `/` + "`karkain build`" + ` never instrument
+the program. WASM and kcc tracing are explicit "unsupported/deferred" boundaries
+with no silent native fallback.
+
+Options:
+  --engine <go|kcc>            Engine (tracing: Go engine only; kcc deferred)
+  --verbose                    Emit detailed pipeline logs
+  -h, --help                   Show this help`)
+}
+
 func handleLSP() {
 	// Phase 82: the `lsp` / `language-server` command now serves the real,
 	// tested LSP engine in pkg/lsp (JSON-RPC 2.0 over stdio with correct
@@ -1085,6 +1155,8 @@ func main() {
 		os.Exit(handlePackageCommand(args))
 	case "prof":
 		os.Exit(runProfCommand(args[1:]))
+	case "debug":
+		os.Exit(runDebugCommand(args[1:]))
 	}
 
 	command := ""

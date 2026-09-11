@@ -20,6 +20,15 @@ func parseTestProg(t *testing.T, src string) *parser.Program {
 	return prog
 }
 
+// macroParseTestProg parses like parseTestProg and then runs the macro
+// expansion pass — mirroring the AnalyzeSource CLI pipeline that feeds the
+// resolver.
+func macroParseTestProg(t *testing.T, src string) *parser.Program {
+	t.Helper()
+	prog := parseTestProg(t, src)
+	return parser.ApplyMacroExpansion(prog)
+}
+
 func errLines(r []ResolveError) string {
 	s := ""
 	for i, e := range r {

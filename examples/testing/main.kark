@@ -1,0 +1,40 @@
+// Phase 112: std.testing module example.
+// The std.testing module layers check helpers and counts on top of the
+// atomic assert/assert_eq/assert_ne builtins. It compiles and runs identically
+// on BOTH engines.
+// Run:   karkain run main.kark
+// Cross: karkain run main.kark --engine go
+// Test:  test_expect_* as a test_* program (karkain test)
+import std.testing
+
+func sum_range(n) {
+    let total = 0
+    let i = 1
+    while(i <= n) {
+        total = total + i
+        i = i + 1
+    }
+    return total
+}
+
+func test_helpers() {
+    test_expect_eq(sum_range(5), 15)
+    test_expect_ne(sum_range(5), 14)
+    test_expect_true(sum_range(1) == 1)
+    test_expect_false(sum_range(0) > 0)
+}
+
+func test_counts() {
+    let results = [true, false, true, true, false]
+    let passed = test_pass_count(results)
+    let failed = test_fail_count(results)
+    test_expect_eq(passed, 3)
+    test_expect_eq(failed, 2)
+    test_expect_false(test_all_pass(results))
+    println(test_summary("checks", results))
+}
+
+func main() {
+    test_helpers()
+    test_counts()
+}

@@ -49,6 +49,9 @@ const (
 	TokenBreak    TokenType = "BREAK"    // Phase 48: break
 	TokenContinue TokenType = "CONTINUE" // Phase 48: continue
 
+	// Declaration Keywords
+	TokenConst TokenType = "CONST" // Phase 112: immutable constant declarations
+
 	// Type Keywords
 	TokenStruct  TokenType = "STRUCT"
 	TokenTypeDef TokenType = "TYPE"
@@ -354,6 +357,31 @@ func (l *Lexer) skipWhitespace() {
 			l.Col++
 		}
 		l.skipWhitespace() // Skip whitespace after comment
+		return
+	}
+	// Phase 112: nested block comments /* ... */
+	if l.Ch == '/' && l.peekChar() == '*' {
+		l.readChar() // consume '/'
+		l.Col++
+		l.readChar() // consume '*'
+		l.Col++
+		depth := 1
+		for depth > 0 && l.Ch != 0 {
+			if l.Ch == '/' && l.peekChar() == '*' {
+				depth++
+				l.readChar(); l.Col++
+				l.readChar(); l.Col++
+			} else if l.Ch == '*' && l.peekChar() == '/' {
+				depth--
+				l.readChar(); l.Col++
+				l.readChar(); l.Col++
+			} else {
+				if l.Ch == '\n' { l.Line++; l.Col = 0 } else { l.Col++ }
+				l.readChar()
+			}
+		}
+		l.skipWhitespace()
+		return
 	}
 }
 
@@ -489,6 +517,8 @@ func lookupIdent(ident string) TokenType {
 		return TokenLet
 	case "var":
 		return TokenVar
+	case "const":
+		return TokenConst
 	case "return":
 		return TokenReturn
 	case "if":
