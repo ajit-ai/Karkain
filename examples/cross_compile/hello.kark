@@ -1,0 +1,10 @@
+// hello.kark - minimal cross-compilation target.
+// The exact same source builds for every supported --target:
+//   karkain build examples/cross_compile/hello.kark --target x86_64-windows
+//   karkain build examples/cross_compile/hello.kark --target x86_64-linux
+//   karkain build examples/cross_compile/hello.kark --target aarch64-linux
+// Deterministic, single-line stdout used by the Phase 111 tests.
+
+func main() {
+    println("Hello from Karkain cross compilation")
+}

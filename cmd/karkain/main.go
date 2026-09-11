@@ -1113,10 +1113,12 @@ func main() {
 			switch flagName {
 			case "--target":
 				cfg.Target = flagValue
-				if err := cli.ValidateTarget(cfg.Target); err != nil {
-					fmt.Println(err)
+				norm, verr := cli.NormalizeTarget(cfg.Target)
+				if verr != nil {
+					fmt.Println(verr)
 					os.Exit(cli.ExitUsage)
 				}
+				cfg.Target = norm
 				continue
 			case "--filter":
 				testFilter = flagValue
@@ -1160,10 +1162,12 @@ func main() {
 				fmt.Println("Error: --target flag requires a target architecture")
 				os.Exit(cli.ExitUsage)
 			}
-			if err := cli.ValidateTarget(cfg.Target); err != nil {
-				fmt.Println(err)
+			norm, verr := cli.NormalizeTarget(cfg.Target)
+			if verr != nil {
+				fmt.Println(verr)
 				os.Exit(cli.ExitUsage)
 			}
+			cfg.Target = norm
 		case "-o":
 			if i+1 < len(args) {
 				outputPath = args[i+1]
@@ -1394,7 +1398,14 @@ func main() {
 		// dispatch to kcc unless the Go engine was explicitly requested.
 		switch command {
 		case "run":
-			result = cli.KCCRunCommand(nil, targetFile, cfg, verbose)
+			// Phase 111: kcc only runs same-machine (native/c23) targets. An
+			// explicit triple (or wasm) must not silently run as a host binary:
+			// route those through the Go engine, which enforces run restrictions.
+			if cfg.Target == "" || cfg.Target == "native" || cfg.Target == "c23" {
+				result = cli.KCCRunCommand(nil, targetFile, cfg, verbose)
+			} else {
+				result = cli.RunCommand(targetFile, cfg, verbose)
+			}
 		case "build", "transpile":
 			// kcc emits C23 and links native executables through gcc, so it
 			// owns both native and c23 targets. Exotic targets (wasm, etc.)

@@ -1,0 +1,21 @@
+// functions.kark - cross-compilation target exercising the value model:
+// i64/i32-ish arithmetic, recursion and calls, deterministic ABI validation.
+// Same source, multiple targets (see hello.kark header).
+
+func fib(n) {
+    if n <= 1 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+func add(a, b) {
+    return a + b
+}
+
+func main() {
+    println(str(fib(14)))
+    println(str(add(add(20, 22), fib(6))))
+    println(str(fib(1)))
+    println(str(fib(0)))
+}

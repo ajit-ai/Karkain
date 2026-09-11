@@ -2,9 +2,11 @@ package codegen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"karkain/pkg/parser"
+	"karkain/pkg/target"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -72,10 +74,10 @@ type Generator struct {
 
 	// Phase 110: profiling state. FIDs are assigned in source order and match
 	// the emitted C name table, so reports are deterministic across runs.
-	profiling  bool
-	profFID    map[string]int
-	profNames  []string
-	curProfID  int // fid of the function whose body is currently being emitted
+	profiling bool
+	profFID   map[string]int
+	profNames []string
+	curProfID int // fid of the function whose body is currently being emitted
 }
 
 func New(cfg Config) *Generator {
@@ -84,6 +86,23 @@ func New(cfg Config) *Generator {
 		simdVars: make(map[string]string), concFns: make(map[string]*parser.FuncDecl),
 		concSpawned: make(map[string]bool), concHandlers: make(map[string]bool),
 		profFID: make(map[string]int), curProfID: -1}
+}
+
+// orNative returns cfg.Target for diagnostics, falling back to "native" when
+// no explicit target was configured.
+func orNative(t string) string {
+	if t == "" {
+		return "native"
+	}
+	return t
+}
+
+// targetHint appends a short "how to fix" note to cross-toolchain errors.
+func targetHint(t string) string {
+	if t == "wasm32-wasi" {
+		return "the WASI target is built by the dedicated wasm backend"
+	}
+	return "install the matching cross-C toolchain and retry (no silent host fallback)"
 }
 
 // sourceBaseC returns the quoted base file name (extension included, e.g.
@@ -297,7 +316,17 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		return nil
 	}
 
-	compiler, flags := g.detectCompiler(tmpCFile, exeFile)
+	compiler, flags, err := g.detectCompilerForTarget(tmpCFile, exeFile)
+	if err != nil {
+		// A completed ToolchainError already names the target, host and every
+		// searched compiler; do not append a second hint to it.
+		var xe *target.ToolchainError
+		if errors.As(err, &xe) {
+			return xe
+		}
+		return fmt.Errorf("C compilation unavailable for target '%s': %w (%s)",
+			orNative(g.cfg.Target), err, targetHint(g.cfg.Target))
+	}
 	if compiler == "" {
 		return fmt.Errorf("no supported C compiler found (GCC, Clang, or MSVC cl.exe required)")
 	}
@@ -352,8 +381,44 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	return nil
 }
 
+// targetHeaderPrefix emits the Phase-111 target contract at the top of every
+// generated C file: a header comment naming the canonical target triple plus
+// KARKAIN_TARGET_* preprocessor defines for the architecture and OS. C-interop
+// blocks (import "C" { ... }) can test these macros to express genuinely
+// target-specific behavior; normal Karkain programs never see them. The
+// defines are always emitted for the C path, so generated C is self-describing
+// and never silently re-targeted by the host.
+func (g *Generator) targetHeaderPrefix() string {
+	tg, err := g.selectedTarget()
+	if err != nil {
+		tg = target.Host()
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "/* karkain-target: %s */\n", tg)
+	fmt.Fprintf(&b, "#define KARKAIN_TARGET \"%s\"\n", tg)
+	fmt.Fprintf(&b, "#define KARKAIN_TARGET_ARCH_%s 1\n", strings.ToUpper(tg.Arch.String()))
+	fmt.Fprintf(&b, "#define KARKAIN_TARGET_OS_%s 1\n", strings.ToUpper(tg.OS.String()))
+	switch tg.Arch {
+	case target.ArchX8664:
+		b.WriteString("#define KARKAIN_TARGET_X86_64 1\n")
+	case target.ArchAArch64:
+		b.WriteString("#define KARKAIN_TARGET_AARCH64 1\n")
+	case target.ArchWasm32:
+		b.WriteString("#define KARKAIN_TARGET_WASM32 1\n")
+	}
+	switch tg.OS {
+	case target.OSWindows:
+		b.WriteString("#define KARKAIN_TARGET_WINDOWS 1\n")
+	case target.OSLinux:
+		b.WriteString("#define KARKAIN_TARGET_LINUX 1\n")
+	case target.OSWasi:
+		b.WriteString("#define KARKAIN_TARGET_WASI 1\n")
+	}
+	return b.String()
+}
+
 func (g *Generator) generateCHeader() string {
-	return `#include <stdio.h>
+	return g.targetHeaderPrefix() + `#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
@@ -3156,81 +3221,15 @@ func (g *Generator) genExpr(node parser.Node) string {
 	return "make_int(0)"
 }
 
+// detectCompiler is the historical host-probing entry point, kept as a thin
+// wrapper for any external callers. Target-aware selection lives in
+// detectCompilerForTarget (pkg/codegen/cross_target.go).
 func (g *Generator) detectCompiler(cFile, exeFile string) (string, []string) {
-	// Phase 15: Handle WASM/WASI target
-	if g.cfg.Target == "wasm32-wasi" {
-		// For WASM/WASI, use clang with appropriate flags
-		if _, err := exec.LookPath("clang"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "--target=wasm32-wasi", "-O2"}
-			if g.cfg.Debug {
-				flags = append(flags, "-g")
-			}
-			return "clang", flags
-		}
-		// Fallback to any clang-like compiler
-		if cc := os.Getenv("CC"); cc != "" {
-			flags := []string{cFile, "-o", exeFile, "--target=wasm32-wasi", "-O2"}
-			if g.cfg.Debug {
-				flags = append(flags, "-g")
-			}
-			return cc, flags
-		}
+	cc, flags, err := g.detectCompilerForTarget(cFile, exeFile)
+	if err != nil {
 		return "", nil
 	}
-
-	// Check if CC environment variable is set
-	if cc := os.Getenv("CC"); cc != "" {
-		flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp"}
-		if runtime.GOOS == "windows" {
-			flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-lgmp"}
-		}
-		if g.cfg.Debug {
-			flags = append(flags, "-g")
-		}
-		flags = g.appendAVXFlags(flags)
-		return cc, flags
-	}
-
-	// Check for gcc first
-	if runtime.GOOS == "windows" {
-		if _, err := exec.LookPath("gcc"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-lgmp"}
-			if g.cfg.Debug {
-				flags = append(flags, "-g")
-			}
-			flags = g.appendAVXFlags(flags)
-			return "gcc", flags
-		}
-	} else {
-		if _, err := exec.LookPath("gcc"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp"}
-			if g.cfg.Debug {
-				flags = append(flags, "-g")
-			}
-			flags = g.appendAVXFlags(flags)
-			return "gcc", flags
-		}
-	}
-	// Check for clang
-	if _, err := exec.LookPath("clang"); err == nil {
-		flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp"}
-		if g.cfg.Debug {
-			flags = append(flags, "-g")
-		}
-		flags = g.appendAVXFlags(flags)
-		return "clang", flags
-	}
-	// Check for MSVC cl.exe
-	if runtime.GOOS == "windows" {
-		if _, err := exec.LookPath("cl"); err == nil {
-			flags := []string{cFile, "/Fe:" + exeFile, "/nologo", "/O0"}
-			if g.cfg.Debug {
-				flags = append(flags, "/Zi")
-			}
-			return "cl", flags
-		}
-	}
-	return "", nil
+	return cc, flags
 }
 
 // Phase 11: Matrix declaration generation

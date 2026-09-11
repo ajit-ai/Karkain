@@ -55,3 +55,5 @@ examples/module_system/**/*.c23
 examples/stdlib/**/*.c
 examples/stdlib_v2/*.c
 examples/stdlib_errors/**/*.c
+examples/cross_compile/**/*.c
+examples/cross_compile/**/*.c23

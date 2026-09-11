@@ -10,6 +10,7 @@ import (
 	"karkain/pkg/parser"
 	"karkain/pkg/pm"
 	"karkain/pkg/sema"
+	"karkain/pkg/target"
 	"karkain/pkg/testing"
 	"os"
 	"os/exec"
@@ -63,6 +64,18 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 
 	if cfg.Target == "wasm32-wasi" {
 		return wasmRunCommand(prog, targetFile, "", verbose)
+	}
+
+	// Phase 111: an explicit triple whose machine differs from the host can be
+	// cross-BUILT but never cross-RUN here. Running a natives-built binary of
+	// another architecture/OS would be silent host fallback — refuse with a
+	// clear diagnostic instead. (The wasm32-wasi and native-link paths above
+	// already returned, since WASI runs through wasmtime and native-link is a
+	// host pipeline.)
+	if tg, isTriple := SelectedTarget(cfg.Target); isTriple && !tg.SameMachine(target.Host()) {
+		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf(
+			"cannot run a %s binary on the host (%s): cross-run requires an emulator or a remote target; use `karkain build --target %s -o <path>` to build only",
+			tg, target.Host(), tg)}
 	}
 
 	cfg.RunAfter = true
@@ -125,6 +138,13 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 	cfg.RunAfter = false
 	cfg.CompileOnly = true
 	cfg.Verbose = verbose
+	// Phase 111: a plain `karkain build` transpiles to C for the legacy
+	// aliases (native/c23), but a concrete triple target must produce a real
+	// executable for the requested architecture/OS — otherwise cross-builds
+	// could never be binary-validated.
+	if _, isTriple := SelectedTarget(cfg.Target); isTriple {
+		cfg.CompileOnly = false
+	}
 	if outputPath != "" {
 		cfg.OutputPath = outputPath
 	}
