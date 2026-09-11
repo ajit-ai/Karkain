@@ -1,0 +1,23 @@
+// hotspot.kark — compute-bound target: countOdds dominates the profile and
+// the main -> countOdds -> isOdd call chain is visible in the call graph.
+// Run:  karkain prof examples/profiling/hotspot.kark
+
+func isOdd(n) {
+    return n % 2 == 1
+}
+
+func countOdds(limit) {
+    let c = 0
+    let i = 0
+    while (i < limit) {
+        if isOdd(i) {
+            c = c + 1
+        }
+        i = i + 1
+    }
+    return c
+}
+
+func main() {
+    print("odds below 100000 = " + str(countOdds(100000)))
+}

@@ -96,6 +96,23 @@ func (g *Generator) genExpressionAsStatement(e parser.Node) string {
 func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) string {
 	var sb strings.Builder
 	isMain := fn.Name == "main"
+	// Phase 110: resolve this function's profile id once for all hook sites.
+	pid := ""
+	if g.profiling {
+		if id := g.profID(fn.Name); id >= 0 {
+			pid = strconv.Itoa(id)
+		}
+	}
+	profEnter := func(sb *strings.Builder) {
+		if pid != "" {
+			fmt.Fprintf(sb, "\tkarkain_prof_enter(%s);\n", pid)
+		}
+	}
+	profLeave := func(sb *strings.Builder) {
+		if pid != "" {
+			fmt.Fprintf(sb, "\tkarkain_prof_leave(%s);\n", pid)
+		}
+	}
 
 	// Karkain argument API: getArgs() is an intrinsic whose body is supplied by
 	// the codegen, returning the argc/argv captured by the generated C entry
@@ -107,11 +124,13 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 		sb.WriteString("Value getArgs(void) {\n")
 		sb.WriteString("\tkarkain_frame_enter(\"getArgs\", " + g.sourceBaseC() + ");\n")
 		sb.WriteString("\tkarkain_set_line(0);\n")
+		profEnter(&sb)
 		sb.WriteString("\tValue _args = make_array();\n")
 		sb.WriteString("\tint _i;\n")
 		sb.WriteString("\tfor (_i = 0; _i < _karkain_gargc; _i++) {\n")
 		sb.WriteString("\t\tarray_push(&_args, make_string(_karkain_gargv[_i]));\n")
 		sb.WriteString("\t}\n")
+		profLeave(&sb)
 		sb.WriteString("\tkarkain_frame_leave();\n")
 		sb.WriteString("\treturn _args;\n")
 		sb.WriteString("}\n")
@@ -126,6 +145,9 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 		// Karkain identifiers such as "argc"/"argv" and to avoid self-assignment.
 		sb.WriteString("int main(int _karkain_argc, char** _karkain_argv) {\n")
 		sb.WriteString("\t_karkain_gargc = _karkain_argc; _karkain_gargv = _karkain_argv;\n")
+		if g.profiling {
+			sb.WriteString("\tkarkain_prof_init();\n")
+		}
 	} else {
 		params := make([]string, len(fn.Params))
 		for i, p := range fn.Params {
@@ -137,6 +159,8 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 	// chain with a source file and line for each function.
 	fmt.Fprintf(&sb, "\tkarkain_frame_enter(%s, %s);\n", strconv.Quote(fn.Name), g.sourceBaseC())
 	fmt.Fprintf(&sb, "\tkarkain_set_line(%d);\n", fn.Line)
+	// Phase 110: profile entry hook (after the frame is on the stack).
+	profEnter(&sb)
 	// Function parameters are bound directly by the signature — no copies needed.
 	// Their names serve as the variable cells.
 
@@ -244,6 +268,7 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 			}
 			fmt.Fprintf(&sb, "\tgoto L_%s;\n", sanitizeC(in.JmpTarget))
 		case ssa.OpRet:
+			profLeave(&sb)
 			sb.WriteString("\tkarkain_frame_leave();\n")
 			if isMain {
 				sb.WriteString("\treturn 0;\n")
@@ -279,6 +304,7 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 			emitInstr(in, b)
 		}
 	}
+	profLeave(&sb)
 	sb.WriteString("\tkarkain_frame_leave();\n")
 	sb.WriteString("}\n")
 	return sb.String()
