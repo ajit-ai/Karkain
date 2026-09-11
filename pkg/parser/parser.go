@@ -268,7 +268,8 @@ func (p *Parser) parseFunc() *FuncDecl {
 
 func (p *Parser) parseVarDecl() *VarDeclStmt {
 	line := int(p.curToken.Line)
-	p.nextToken() // consume 'let' or 'var'
+	isConst := p.curToken.Type == lexer.TokenConst // Phase 112: detect const keyword
+	p.nextToken() // consume 'let', 'var', or 'const'
 	name := p.curToken.Literal(p.src)
 	nameCol := int(p.curToken.Col)
 	nameEndCol := nameCol + len(name)
@@ -319,6 +320,9 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 	} else if p.curToken.Type == lexer.TokenBigFloat {
 		typeName = "bigfloat"
 		p.nextToken() // consume bigfloat type
+	} else if p.curToken.Type == lexer.TokenFloat64 {
+		typeName = p.curToken.Literal(p.src)
+		p.nextToken() // consume float64 type
 	} else if p.curToken.Type == lexer.TokenColon {
 		// Colon type annotation: `let n: int = 7` — consume ':' then parse the
 		// type name so the annotation lands in VarDeclStmt.Type instead of being
@@ -351,6 +355,9 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 			p.nextToken()
 		case p.curToken.Type == lexer.TokenBigFloat:
 			typeName = "bigfloat"
+			p.nextToken()
+		case p.curToken.Type == lexer.TokenFloat64:
+			typeName = p.curToken.Literal(p.src)
 			p.nextToken()
 		default:
 			typeName = p.curToken.Literal(p.src)
@@ -390,12 +397,12 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 
 	// If we have a type, store it in the variable declaration
 	if typeName != "" {
-		node := &VarDeclStmt{Name: name, Value: val, Type: typeName, IsSIMD: isSIMD, Align: align, Col: nameCol, EndCol: nameEndCol}
+		node := &VarDeclStmt{Name: name, Value: val, Type: typeName, Const: isConst, IsSIMD: isSIMD, Align: align, Col: nameCol, EndCol: nameEndCol}
 		setNodeLine(node, line)
 		return node
 	}
 
-	node := &VarDeclStmt{Name: name, Value: val, Align: align, Col: nameCol, EndCol: nameEndCol}
+	node := &VarDeclStmt{Name: name, Value: val, Const: isConst, Align: align, Col: nameCol, EndCol: nameEndCol}
 	setNodeLine(node, line)
 	return node
 }
@@ -502,7 +509,7 @@ func (p *Parser) parseStatement() Node {
 	p.arena.SetLine(int(p.curToken.Line))
 	line := int(p.curToken.Line)
 	switch p.curToken.Type {
-	case lexer.TokenLet, lexer.TokenVar:
+	case lexer.TokenLet, lexer.TokenVar, lexer.TokenConst:
 		return p.parseVarDecl()
 	case lexer.TokenPrint:
 		return p.parsePrint()
@@ -874,7 +881,7 @@ func (p *Parser) parseIdentStatement() Node {
 		p.nextToken() // consume '='
 		val := p.parseExpr()
 		assignExpr := &BinaryExpr{
-			Left:     &Identifier{Name: ident},
+			Left:     &Identifier{Name: ident, Line: line, Col: identCol, EndCol: identCol + len(ident)},
 			Operator: "=",
 			Right:    val,
 		}

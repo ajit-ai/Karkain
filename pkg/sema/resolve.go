@@ -41,6 +41,8 @@ type Resolver struct {
 	funcs   map[string]bool
 	types   map[string]bool
 	builtin map[string]bool
+	consts  map[string]bool // Phase 112: module-level `const` declarations
+	fnConsts map[string]map[string]bool // Phase 112: per-function local const names
 	errors  []ResolveError
 	// visibility tracking (populated when any Public declaration is present)
 	anyPublic        bool
@@ -71,6 +73,7 @@ var builtinNames = map[string]bool{
 	"utf8_valid_bytes": true, "sha256_hex": true, "sha512_hex": true,
 	"map_keys_of": true,
 	"sqrt": true, "abs": true, "pow": true, "mod": true,
+	"float": true, // Phase 112: float() conversion builtin
 	"add_checked": true, "sub_checked": true, "mul_checked": true,
 	"http.get": true,
 	"Some":     true, "None": true, "Ok": true, "Err": true,
@@ -91,6 +94,8 @@ func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 		funcs:       make(map[string]bool),
 		types:       make(map[string]bool),
 		builtin:     builtinNames,
+		consts:      make(map[string]bool),
+		fnConsts:    make(map[string]map[string]bool),
 		declFile:    make(map[string]string),
 		publicFuncs: make(map[string]bool),
 		callerFile:  make(map[string]string),
@@ -217,6 +222,11 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 					anyPublic = true
 				}
 			}
+		case *parser.VarDeclStmt:
+			// Phase 112: track module-level const declarations
+			if n.Const && n.Name != "" {
+				r.consts[n.Name] = true
+			}
 		}
 	}
 	r.anyPublic = anyPublic
@@ -226,6 +236,7 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 	for _, s := range stmts {
 		if fn, ok := s.(*parser.FuncDecl); ok {
 			r.callerFile[fn.Name] = declFile[fn.Name]
+			r.fnConsts[fn.Name] = r.localConsts(fn)
 			r.walkCalls(fn.Body, r.localNames(fn), fn.Name, sm)
 		}
 	}
@@ -267,6 +278,35 @@ func (r *Resolver) walkLocalDefs(body []parser.Node, m map[string]bool) {
 	}
 }
 
+// walkLocalConsts collects VarDeclStmt CONST names in a body (Phase 112).
+// Mirrors walkLocalDefs' scoping so const reassignment can be rejected.
+func (r *Resolver) walkLocalConsts(body []parser.Node, m map[string]bool) {
+	for _, s := range body {
+		switch n := s.(type) {
+		case *parser.VarDeclStmt:
+			if n.Const && n.Name != "" {
+				m[n.Name] = true
+			}
+		case *parser.BlockStmt:
+			r.walkLocalConsts(n.Statements, m)
+		case *parser.IfStmt:
+			r.walkLocalConsts(n.Consequence, m)
+			r.walkLocalConsts(n.Alternative, m)
+		case *parser.WhileStmt:
+			r.walkLocalConsts(n.Body, m)
+		case *parser.ForInStmt:
+			r.walkLocalConsts(n.Body, m)
+		}
+	}
+}
+
+// localConsts returns the set of const names declared inside a function.
+func (r *Resolver) localConsts(fn *parser.FuncDecl) map[string]bool {
+	m := make(map[string]bool)
+	r.walkLocalConsts(fn.Body, m)
+	return m
+}
+
 // walkCalls walks a list of statements, flagging undefined function calls.
 func (r *Resolver) walkCalls(body []parser.Node, locals map[string]bool, callerName string, sm SourceMap) {
 	for _, s := range body {
@@ -283,6 +323,25 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 		// the assignment target itself is not misreported as an undefined read.
 		if be, ok := n.Expression.(*parser.BinaryExpr); ok && be.Operator == "=" {
 			if id, ok := be.Left.(*parser.Identifier); ok && locals != nil && id.Name != "" {
+				// Phase 112: reject reassignment to const names — module-level
+				// (not shadowed by a local) or declared `const` in this function.
+				isLocalConst := false
+				if fc := r.fnConsts[callerName]; fc != nil && fc[id.Name] {
+					isLocalConst = true
+				}
+				if !locals[id.Name] {
+					if _, isConst := r.consts[id.Name]; isConst {
+						r.errors = append(r.errors, ResolveError{
+							Line: id.Line, Col: id.Col, EndCol: id.EndCol,
+							Msg:  fmt.Sprintf("cannot reassign constant '%s'", id.Name),
+						})
+					}
+				} else if isLocalConst {
+					r.errors = append(r.errors, ResolveError{
+						Line: id.Line, Col: id.Col, EndCol: id.EndCol,
+						Msg:  fmt.Sprintf("cannot reassign constant '%s'", id.Name),
+					})
+				}
 				locals[id.Name] = true
 			}
 		}

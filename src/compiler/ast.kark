@@ -703,6 +703,7 @@ func getNodeType(node) {
     if (t == NODE_FUNC_DECL()) { return "FuncDecl" }
     if (t == NODE_VAR_DECL()) { return "VarDecl" }
     if (t == NODE_LET_DECL()) { return "LetDecl" }
+    if (t == NODE_CONST_DECL()) { return "ConstDecl" }
     if (t == NODE_RETURN()) { return "Return" }
     if (t == NODE_IF()) { return "If" }
     if (t == NODE_WHILE()) { return "While" }
@@ -834,6 +835,29 @@ func letDeclName(n)  { return n[1] }
 func letDeclValue(n) { return n[2] }
 func letDeclType(n)  { return n[3] }
 func letDeclLine(n)  { return n[4] }
+
+// ============================================================
+// ConstDecl: [NODE_CONST_DECL, name, value, typeName, line]
+// A `const` declaration — immutable by construction. Shares the
+// LetDecl node shape (name/value/type/line at identical indices)
+// so every existing visitor can fall back to the let accessors.
+// ============================================================
+
+func NODE_CONST_DECL() { return 94 }
+
+func makeConstDecl(name, value, typeName, line) {
+    let n = makeNode(NODE_CONST_DECL())
+    n = appendArray(n, name)
+    n = appendArray(n, value)
+    n = appendArray(n, typeName)
+    n = appendArray(n, line)
+    return n
+}
+
+func constDeclName(n)  { return n[1] }
+func constDeclValue(n) { return n[2] }
+func constDeclType(n)  { return n[3] }
+func constDeclLine(n)  { return n[4] }
 
 // ============================================================
 // GlobalId: [NODE_GLOBAL_ID, dim, line]

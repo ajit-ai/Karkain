@@ -25,6 +25,7 @@ type Config struct {
 	Target      string // Target architecture (native, wasm32-wasi)
 	DisableSSA  bool   // Phase 53: disable SSA IR pipeline (fallback to legacy emission)
 	Profiling   bool   // Phase 110: emit profiling instrumentation (karkain prof)
+	Trace       bool   // Phase 112: emit function enter/leave execution trace (karkain debug)
 
 	// Stdout / Stderr direct the executed program's output. When nil they
 	// default to the process standard streams. Used by the test runner to
@@ -178,6 +179,12 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	// Phase 110: build the function id table (source order) when profiling.
 	g.initProfiling(prog)
 
+	// Phase 112: debug execution trace. Emits the trace runtime when
+	// Config.Trace is set. The flag must precede the frame runtime below so
+	// the #ifdef KARKAIN_TRACE blocks in karkain_frame_enter/leave are active.
+	if g.cfg.Trace {
+		sb.WriteString("#define KARKAIN_TRACE 1\n")
+	}
 	sb.WriteString(g.generateCHeader())
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
@@ -986,6 +993,14 @@ Value karkain_int(Value v) {
     return make_int(0);
 }
 
+Value karkain_float(Value v) {
+    if (v.type == TYPE_FLOAT64) return make_float(v.floatVal);
+    if (v.type == TYPE_INT) return make_float((double)v.intVal);
+    if (v.type == TYPE_STRING) return make_float(atof(v.strVal));
+    if (v.type == TYPE_BOOL) return make_float((double)v.intVal);
+    return make_float(0.0);
+}
+
 Value karkain_system(Value cmd) {
     if (cmd.type != TYPE_STRING) return make_int(-1);
     int result = system(cmd.strVal);
@@ -1427,6 +1442,10 @@ void karkain_set_line(long long n) {
     if (karkain_frame_depth > 0) karkain_frames[karkain_frame_depth - 1].line = n;
 }
 void karkain_frame_enter(const char* func, const char* file) {
+#ifdef KARKAIN_TRACE
+    fprintf(stderr, "karkain:%s:enter %s\n", file, func);
+    fflush(stderr);
+#endif
     if (karkain_frame_depth < KARKAIN_MAX_FRAMES) {
         karkain_frames[karkain_frame_depth].func = func;
         karkain_frames[karkain_frame_depth].file = file;
@@ -1435,6 +1454,12 @@ void karkain_frame_enter(const char* func, const char* file) {
     }
 }
 void karkain_frame_leave(void) {
+#ifdef KARKAIN_TRACE
+    fprintf(stderr, "karkain:%s:leave %s\n",
+            karkain_frame_depth > 0 ? karkain_frames[karkain_frame_depth - 1].file : "",
+            karkain_frame_depth > 0 ? karkain_frames[karkain_frame_depth - 1].func : "?");
+    fflush(stderr);
+#endif
     if (karkain_frame_depth > 0) karkain_frame_depth--;
 }
 void karkain_runtime_error(const char* kind, const char* file, long long line) {
@@ -2959,6 +2984,9 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "int" {
 			return fmt.Sprintf("karkain_int(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "float" {
+			return fmt.Sprintf("karkain_float(%s)", g.genExpr(n.Args[0]))
 		}
 		if n.Function == "system" {
 			return fmt.Sprintf("karkain_system(%s)", g.genExpr(n.Args[0]))

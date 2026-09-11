@@ -34,6 +34,7 @@ func isCheckerBuiltin(name) {
     if (name == "len") { return 1 }
     if (name == "str") { return 1 }
     if (name == "int") { return 1 }
+    if (name == "float") { return 1 }
     if (name == "substr") { return 1 }
     if (name == "appendArray") { return 1 }
     if (name == "openFile") { return 1 }
@@ -96,6 +97,7 @@ func checkerBuiltinArity(name) {
     if (name == "len") { return 1 }
     if (name == "str") { return 1 }
     if (name == "int") { return 1 }
+    if (name == "float") { return 1 }
     if (name == "substr") { return 3 }
     if (name == "appendArray") { return 2 }
     if (name == "openFile") { return 1 }
@@ -142,11 +144,28 @@ func createCheckerTab() {
     tab = appendArray(tab, [])  // 2: global symbol arities
     tab = appendArray(tab, [])  // 3: error messages
     tab = appendArray(tab, [])  // 4: current function locals
+    tab = appendArray(tab, [])  // 5: current function const names (immutable bindings)
     return tab
 }
 
 func ckErrors(tab)  { return tab[3] }
 func ckLocals(tab)  { return tab[4] }
+func ckConsts(tab)  { return tab[5] }
+
+func ckConstAdd(tab, name) {
+    if (name == "") { return }
+    tab[5] = appendArray(tab[5], name)
+}
+
+func ckConstHas(tab, name) {
+    let consts = tab[5]
+    let i = 0
+    while (i < len(consts)) {
+        if (consts[i] == name) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
 
 func ckDeclare(tab, name, kind, count) {
     if (name == "") { return }
@@ -261,6 +280,10 @@ func collectLocals(tab, list) {
             let nm = varDeclName(s)
             if (nm == "") { nm = letDeclName(s) }
             ckLocalAdd(tab, nm)
+        } else if (nt == "ConstDecl") {
+            let nm = constDeclName(s)
+            ckLocalAdd(tab, nm)
+            ckConstAdd(tab, nm)
         }
         if (nt == "ForIn") {
             ckLocalAdd(tab, forInVar(s))
@@ -355,6 +378,20 @@ func checkStmt(tab, s, loop) {
         return
     }
 
+    if (nt == "ConstDecl") {
+        let nm = constDeclName(s)
+        let anno = constDeclType(s)
+        let val = constDeclValue(s)
+        let line = constDeclLine(s)
+        ckLocalAdd(tab, nm)
+        ckConstAdd(tab, nm)
+        if (annotationMismatch(anno, val) == 1) {
+            ckAddError(tab, "K112", line, "variable '" + nm + "' declared as type '" + primitiveTag(anno) + "' but initialized with a " + typeDescription(inferType(val)))
+        }
+        checkExpr(tab, val, loop)
+        return
+    }
+
     if (nt == "Return") {
         checkExpr(tab, retVal(s), loop)
         return
@@ -367,10 +404,13 @@ func checkStmt(tab, s, loop) {
     if (nt == "ExprStmt") {
         let e = exprStmtExpr(s)
         // Phase 51 semantics: a bare `x = v` statement implicitly declares x.
-        if (getNodeType(e) == "Binary" && binaryOp(e) == "=") {
+        if (getNodeType(e) == "BinaryExpr" && binaryOp(e) == "=") {
             let lhs = binaryLeft(e)
             if (getNodeType(lhs) == "Ident") {
                 let nm = identName(lhs)
+                if (nm != "" && ckConstHas(tab, nm) == 1) {
+                    ckAddError(tab, "K113", identLine(lhs), "cannot reassign constant '" + nm + "'")
+                }
                 if (nm != "" && ckLocalHas(tab, nm) == 0 && ckKind(tab, nm) == "" && isCheckerBuiltin(nm) == 0) {
                     ckLocalAdd(tab, nm)
                 }
