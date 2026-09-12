@@ -58,7 +58,29 @@ func DependencySources(projectDir string) []DepSource {
 		dep := m.Dependencies[name]
 		src := DepSource{Name: name, Source: dep.Source, Version: dep.Version}
 		switch dep.Source {
-		case string(SourceLocal), string(SourceWorkspace), "":
+		case string(SourceWorkspace):
+			// Workspace deps resolve against the parity workspace ROOT (the
+			// nearest ancestor carrying karkain.workspace.json), matching
+			// WorkspaceOrder/workspaceDepDirs. Resolving against the importing
+			// member's own dir silently skipped sibling members, so workspace
+			// builds referencing sibling functions produced undefined symbols.
+			dir := dep.URL
+			if dir == "" {
+				dir = filepath.Join(projectDir, "deps", name)
+			} else if !filepath.IsAbs(dir) {
+				if wsRoot := findWorkspaceRoot(projectDir); wsRoot != "" {
+					dir = filepath.Join(wsRoot, dir)
+				} else {
+					dir = filepath.Join(projectDir, dir)
+				}
+			}
+			if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+				src.Err = &PkgError{Code: ErrLocal, Package: name,
+					Message: "workspace dependency not found (missing directory)"}
+			} else {
+				src.Dir = filepath.Clean(dir)
+			}
+		case string(SourceLocal), "":
 			// Canonical source path. Workspace/local deps may be declared
 			// without an explicit source string; treat path deps as local.
 			// The dependency directory itself is the source tree; a manifest is
@@ -110,6 +132,25 @@ func DependencySources(projectDir string) []DepSource {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// findWorkspaceRoot returns the nearest ancestor of dir (inclusive) that holds
+// a karkain.workspace.json, or "" when dir is not inside a workspace.
+func findWorkspaceRoot(dir string) string {
+	cur, err := filepath.Abs(dir)
+	if err != nil {
+		return ""
+	}
+	for {
+		if fi, serr := os.Stat(filepath.Join(cur, WorkspaceFile)); serr == nil && !fi.IsDir() {
+			return cur
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return ""
+		}
+		cur = parent
+	}
 }
 
 // dependencySourceDirs returns just the resolved directories, upstream-first

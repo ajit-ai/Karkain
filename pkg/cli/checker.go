@@ -164,6 +164,25 @@ func collectUnusedWarnings(file string, src string, warns []sema.Warning) []diag
 	return diags
 }
 
+// runSemanticPreflight is the build/run analog of AnalyzeSource's resolve+sema
+// stages: whole-program name resolution plus NPU @target validation over a
+// program that has already been lexed, parsed and macro-expanded by the caller
+// (parseSource). Errors short-circuit exactly like the check path (resolve
+// before NPU), producing the same structured diagnostics and exit contract so
+// `karkain build`/`karkain run` reject semantically invalid programs with a
+// clean `error[K00x]` report and ExitCompile — never raw compiler noise from
+// codegen of an un-resolvable program. Returns nil when the program resolves.
+func runSemanticPreflight(file, src string, srcMap sema.SourceMap, prog *parser.Program) []diagnostics.Diagnostic {
+	resolver := sema.NewResolver(prog, srcMap)
+	if resolveErrs := resolver.Resolve(); len(resolveErrs) > 0 {
+		return collectResolveDiagnostics(file, src, resolveErrs)
+	}
+	if npuDiags := npuTargetDiagnostics(file, src); len(npuDiags) > 0 {
+		return npuDiags
+	}
+	return nil
+}
+
 // checkStageFor derives the failing stage from a diagnostic set produced by
 // AnalyzeSource (stages short-circuit, so all diagnostics share one code).
 func checkStageFor(diags []diagnostics.Diagnostic) checkStage {
