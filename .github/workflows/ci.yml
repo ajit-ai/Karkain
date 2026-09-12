@@ -94,6 +94,9 @@ jobs:
       - name: Run Phase 118 release-candidate gate
         run: go test ./pkg/cli/ -run 'TestPhase118' -count=1
 
+      - name: Run Phase 119 stable-release-preparedness gate
+        run: go test ./pkg/cli/ -run 'TestPhase119' -count=1
+
       - name: Run conformance tests
         run: |
           echo "Karkain-native conformance corpus:"
