@@ -39,7 +39,7 @@ $verOut = (& $Exe --version 2>&1) -join "`n"
 if ($LASTEXITCODE -ne 0) {
     Fail 1 "karkain --version failed (exit $LASTEXITCODE):`n$verOut"
 }
-if ($verOut -notmatch "Karkain Compiler v0\.117\.0" -or $verOut -notmatch "Beta 1 Build") {
+if ($verOut -notmatch "Karkain Compiler v1\.0\.0" -or $verOut -notmatch "Stable Build") {
     Fail 1 "unexpected --version output: $verOut"
 }
 Write-Host "OK --version: $verOut" -ForegroundColor Green

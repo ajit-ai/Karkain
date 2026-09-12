@@ -11,7 +11,7 @@ body:
     attributes:
       label: Karkain version
       description: Output of `karkain --version`
-      placeholder: "Karkain Compiler v0.117.0 (windows/amd64, Beta 1 Build)"
+      placeholder: "Karkain Compiler v1.0.0 (windows/amd64, Stable Build)"
     validations:
       required: true
   - type: input

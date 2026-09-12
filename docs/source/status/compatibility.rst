@@ -2,7 +2,7 @@
 Compatibility Policy
 ====================
 
-Karkain Beta 1 defines what external developers may rely on between
+Karkain 1.0.0 (Stable) defines what external developers may rely on between
 releases. This policy is deliberately lightweight: a full 1.0 compatibility
 matrix is established only after a release candidate proves the stable core
 in the field.
@@ -20,7 +20,7 @@ Guarantee levels
 
    * - Level
      - Policy
-   * - Stable Beta Core
+   * - Stable Core
      - Reliable. Changes are deliberate, documented in
        :doc:`/release-notes`, and accompanied by a regression test. A
        change to the published stable surface requires a documented
@@ -37,16 +37,16 @@ Guarantee levels
        release-blocking corrections (bugs, security, compatibility breaks,
        deterministic-correctness fixes) are made.
 
-Karkain is **not** 1.0
-======================
+Karkain 1.0.0 versioning
+=========================
 
-No ``Stable``/``Production Ready``/``General Availability``/``1.0`` claim is
-made for Beta 1 or for the release candidate. The versioning convention is:
+The ``v1.0.0`` ``Stable Build`` label applies from Phase 119. Before that,
+Beta 1 (``v0.117.x``) and Developer Preview (``v0.115.x``) carried the
+pre-production lines. The versioning convention is:
 
-* ``Karkain Compiler v0.117.0 (... Beta 1 Build)`` — the current Beta line.
-* ``VERSION`` at the repository root: ``0.117.0-beta1``.
-* A future release candidate changes the label to ``RC`` while staying
-  ``0.117.x`` until 1.0 enters official release planning.
+* ``Karkain Compiler v1.0.0 (... Stable Build)`` — the current Stable line.
+* ``VERSION`` at the repository root: ``1.0.0``.
+* Patch releases within the 1.0 line stay ``1.0.x``.
 
 Versioning
 ==========

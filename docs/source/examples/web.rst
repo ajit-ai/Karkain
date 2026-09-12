@@ -5,9 +5,9 @@ Web
 server runnable from ``.kark`` today.
 
 The category directory ``examples/07-web/`` exists only to preserve the
-15-category framework and record the honest status: ``pkg/stdlib/http.go``
-contains placeholder functions that are not wired into the language, and a
-sockets prerequisite (see :doc:`/examples/networking`) has not shipped yet.
+15-category framework and record the honest status: no web or HTTP surface is
+implemented, and a sockets prerequisite (see :doc:`/examples/networking`) has
+not shipped yet.
 
 The roadmap path is:
 

@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **118** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **119** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -87,9 +87,41 @@ combined-CLI-gate OOM crash on the ~4GB host — the known kcc-build OOM class
 (individual gates pass in isolation); no release tag cut yet (binaries listed
 as Planned in `installation.rst` honestly).
 Project status:
-**🧪 Karkain Beta 1** (v0.117.0). NOTE: the Phase 91 historical
-"KARKAIN 1.0 — RELEASE READY" record was superseded; the pre-117 public label
-was Developer Preview and the honest public label is now Beta 1, never 1.0.
+**Karkain 1.0.0 (Stable)**. NOTE: the Phase 91 historical
+"KARKAIN 1.0 — RELEASE READY" record was superseded; the public label
+progressed Developer Preview (v0.115.x) → Beta 1 (v0.117.x, phases 117–118)
+→ **1.0.0 (Stable)** at Phase 119. The honest label is now 1.0.0, and the
+Phase 119 language-QA final report (`docs/audit/
+PHASE-119-LANGUAGE-QA-FINAL-REPORT.md`) documents the classification
+(Stable Core / Experimental / Planned / Known Limitation), the final root
+inventory, and the READY FOR 119A verdict. `VERSION` = `1.0.0`.
+Also completed: **119 — Language QA / Public Repository Finalization &
+Karkain 1.0.0 Stable Release Preparation** (verdict **READY FOR 119A**;
+cleanup of superseded material — committed generated `compiler/*.c`,
+stale `scripts/{build,package,release}.*`, legacy `std/` stubs,
+`pkg/stdlib/*.go` placeholders, prior-phase `src/*.kark`+`src/main.rs`
+prototypes, 24 loose legacy `examples/*.kark` [kept `app.kark`, referenced
+by CLI/pm tests], `docs/ROADMAP-PRODUCTION.md`; untracked debris removed
+[bin/, temp/, docs/build/, root exes]; collateral updates [root-example
+paths in `cmd/karkain/main.go` help, `ci.yml` release-notes.html path,
+`pkg/pm/manager.go` `findStdlib` stdlib-only, SPEC lines 33/510, 5 docs
+citing `pkg/stdlib` reworded]; unified **v1.0.0 / Stable Build** identity
+across `VERSION` (authoritative), Go CLI + kcc banners, generated headers,
+`src/compiler`, scripts, issue templates, docs (README/Beta-1 label flips,
+release notes rewrite, compatible status/scope/index/installation/
+first-project/stable-api pages; historical beta/rc/developer-preview/
+migration-beta1 pages kept with current-status pointers); master QA gate
+`scripts/qa/run-full-qa.ps1` + `docs/release/KARKAIN-1.0-{CHECKLIST,
+QA-PLAN,RELEASE-NOTES}.md`; QA battery measured and green — units (all
+non-cli packages), phase-88, phase-114 GoEngine 49/49 + KCCParity 49/49
+byte-identical, phases 115/116/117/118 gates, conformance 59/59, probes
+11/11, verify-examples 49/0/5, Sphinx html `-W`+linkcheck `-W` 0 warnings,
+beta-fresh-checkout, install/verify-install, rc-journey 11/11,
+`go build`/`go vet` green; the two documented ~4GB-host environmental
+classes re-proven non-regressions — bootstrap stage-2 SEGFAULT reproduced
+identically on pristine HEAD worktree 1017068, combined-CLI-gate OOM crash
+with every constituent gate passing individually; **NO tag/release cut**
+(owner-only, listed as Planned in `installation.rst` honestly).)
 Also completed: **111** — Cross-Compilation
 (`--target <triple>` is a real, explicit cross-compilation switch backed by
 the Karkain-owned target model `pkg/target` (arch/os/env, canonical short

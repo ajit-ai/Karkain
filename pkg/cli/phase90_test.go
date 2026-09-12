@@ -31,8 +31,8 @@ func TestPhase90_VersionConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version command failed: %v", err)
 	}
-	if !strings.Contains(string(out), "v0.117.0") {
-		t.Fatalf("expected v0.117.0 in version output, got: %s", string(out))
+	if !strings.Contains(string(out), "v1.0.0") {
+		t.Fatalf("expected v1.0.0 in version output, got: %s", string(out))
 	}
 }
 

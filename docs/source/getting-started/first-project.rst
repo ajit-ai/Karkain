@@ -63,7 +63,7 @@ Build and run
     $ karkain run main.kark
     42
 
-Every step uses only stable Beta 1 syntax; the same commands work through
+Every step uses only stable Karkain 1.0.0 syntax; the same commands work through
 both engines (the Go front end and the default self-hosted ``kcc``).
 
 Now add a test

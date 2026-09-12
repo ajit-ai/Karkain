@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-const versionString = "Karkain Compiler v0.117.0 (%s/%s, Beta 1 Build)\n"
+const versionString = "Karkain Compiler v1.0.0 (%s/%s, Stable Build)\n"
 
 func printVersion() {
 	fmt.Printf(versionString, runtime.GOOS, runtime.GOARCH)
@@ -118,8 +118,8 @@ EXIT CODES:
   6  infrastructure (e.g. no usable C compiler)
 
 Examples:
-  karkain run examples/array_test.kark
-  karkain build examples/compiler_test.kark -o bin/app.exe
+  karkain run examples/01-fundamentals/01_hello_world.kark
+  karkain build examples/02-algorithms/06_fibonacci.kark -o app.exe
   karkain clean --all
   karkain pkg init my_project
   karkain pkg add stdlib ^0.14.0

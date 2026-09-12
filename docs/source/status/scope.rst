@@ -2,8 +2,8 @@
 Release-Candidate Scope
 =======================
 
-This page is the authoritative status matrix for the release-candidate
-readiness work (Phase 118). It classifies every surface of Karkain Beta 1
+This page is the authoritative status matrix for the Karkain 1.0.0
+release-readiness work (Phase 119). It classifies every surface of Karkain
 into exactly one of five buckets so an external contributor can tell at a
 glance what may be relied on, what may change, what does not exist yet, and
 what blocks a release candidate.
@@ -39,12 +39,13 @@ The five buckets
        declared. A missing roadmap feature is **not** a blocker unless it
        was promised as part of the Beta stable scope.
 
-Stable Beta Core
-================
+Stable Core
+===============
 
 The language, toolchain and library surface that an external developer can
-build on today. This matches the :doc:`Beta 1 assessment </status/beta>` and
-is enforced by the regression gates.
+build on today. This matches the :doc:`Beta 1 assessment </status/beta>` (the
+most recent detailed capability review) and is enforced by the regression
+gates.
 
 .. list-table:: Stable Beta Core
    :widths: 26 74

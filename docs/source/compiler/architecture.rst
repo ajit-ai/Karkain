@@ -152,8 +152,6 @@ Package layout
      - Test runner framework (KTF-001)
    * - ``pkg/target``
      - Cross-compilation target model (arch, OS, canonical triples)
-   * - ``pkg/stdlib``
-     - Standard library source files (``std.string``, ``std.io``, etc.)
    * - ``pkg/bootstrap``
      - Three-stage self-hosting bootstrap pipeline
    * - ``pkg/codegen/dwarf.go``

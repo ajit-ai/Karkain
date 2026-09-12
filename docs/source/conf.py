@@ -16,7 +16,7 @@ author = "The Karkain Project"
 copyright = "2026, The Karkain Project"
 
 # Version and release describe the LANGUAGE, not one binary.
-version = "0.117.0-beta1"
+version = "1.0.0"
 release = version
 
 # Prefer the VERSION file at the repository root when building from a checkout.
