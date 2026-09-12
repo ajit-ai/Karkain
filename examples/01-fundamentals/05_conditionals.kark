@@ -1,0 +1,37 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 01 Fundamentals
+//
+// Conditionals: if / else if / else. The condition goes in parentheses,
+// matching the checked-runtime contract that guards statements are parenthesized.
+//
+// Run:  karkain run examples/01-fundamentals/05_conditionals.kark
+
+func grade(n) {
+    if (n >= 90) {
+        return "A"
+    } else if (n >= 80) {
+        return "B"
+    } else if (n >= 70) {
+        return "C"
+    } else if (n >= 60) {
+        return "D"
+    } else {
+        return "F"
+    }
+}
+
+func main() {
+    print(grade(95))
+    print(grade(83))
+    print(grade(71))
+    print(grade(60))
+    print(grade(42))
+
+    let x = 10
+    let parity = "odd"
+    if (x % 2 == 0) {
+        parity = "even"
+    }
+    print(parity)
+}

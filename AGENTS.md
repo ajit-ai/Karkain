@@ -18,12 +18,24 @@ Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
 113 (Developer Preview docs+status model) complete, 114 (Complete Example
-Corpus: 46 files / 15 categories + parity gate) complete, 115 (Developer
+Corpus: 50 files / 15 categories + parity gate) complete, 115 (Developer
 Preview Readiness: LICENSE/CONTRIBUTING/COC, honest README + docs +
 release notes, unified v0.115.0 version identity across Go CLI + kcc +
 generated headers, "Did you mean" typo hints + friendly missing-file errors,
 fresh-checkout gate `pkg/cli/phase115_developer_preview_test.go`,
-CI vet/phase-114/115 steps, Phase 115 audit reports) complete.
+CI vet/phase-114/115 steps, Phase 115 audit reports) complete, 116 (Developer
+Examples & Real-World Programming Corpus: 15 dash-named categories under
+`examples/`, 50 `.kark` files with honest `Status:`/`Engine:` headers,
+top-level `examples/README.md` + per-category READMEs, 4 new both-engine
+examples — array stack `11_stack`, FIFO queue `12_queue`, 0/1-knapsack DP
+`13_knapsack`, token statistics pipeline `05-data/04_token_stats` — pinned
+byte-identical in the Phase 114 gate (45→49 goldens), `TestPhase116`
+corpus-metadata gate, verify-examples.ps1 dash-directory fix,
+`examples/EXAMPLES.md` + Sphinx pages + example-matrix updated, CI
+`TestPhase116` step; full Go+kcc gates, unit regressions, vet, strict Sphinx
+`-W` HTML+linkcheck green. NOTE: Phase 116 was developed per a local-only
+amendment — no commit/push performed; directions to commit when reviewed.)
+complete.
 Project status:
 **🚀 Karkain Developer Preview** (v0.115.0). NOTE: the Phase 91 historical
 "KARKAIN 1.0 — RELEASE READY" record was superseded; the honest public label

@@ -18,8 +18,8 @@ explicitly.
 The 15-category framework
 =========================
 
-The Phase 114 corpus populates the framework with 46 ``.kark`` source files
-(15 categories, 4 of them deliberately Planned — README only). See the
+The Phase 114/116 corpus populates the framework with 50 ``.kark`` source
+files (15 categories, 4 of them deliberately Planned — README only). See the
 inventory ``examples/EXAMPLES.md`` for the authoritative file list.
 
 .. list-table:: Example categories
@@ -31,19 +31,19 @@ inventory ``examples/EXAMPLES.md`` for the authoritative file list.
      - Examples
    * - :doc:`Fundamentals <fundamentals>`
      - :implemented:`Implemented`
-     - ``examples/01_fundamentals/`` (12)
+     - ``examples/01-fundamentals/`` (12)
    * - :doc:`Algorithms <algorithms>`
      - :implemented:`Implemented`
-     - ``examples/02_algorithms/`` (10) + ``examples/algorithms/`` (21)
+     - ``examples/02-algorithms/`` (13) + ``examples/algorithms/`` (21)
    * - :doc:`Systems <systems>`
      - :implemented:`Implemented` (specific examples)
-     - ``examples/03_systems/``, concurrency pipeline, WASM hello
+     - ``examples/03-systems/``, concurrency pipeline, WASM hello
    * - :doc:`Networking <networking>`
      - :not-implemented:`Not Yet Implemented`
      - —
    * - :doc:`Data <data>`
      - :implemented:`Implemented`
-     - ``examples/05_data/`` (3)
+     - ``examples/05-data/`` (4)
    * - :doc:`Database <database>`
      - :not-implemented:`Not Yet Implemented`
      - —
@@ -52,28 +52,28 @@ inventory ``examples/EXAMPLES.md`` for the authoritative file list.
      - —
    * - :doc:`Concurrency <concurrency>`
      - :experimental:`Experimental`
-     - ``examples/08_concurrency/`` (2) + pipeline
+     - ``examples/08-concurrency/`` (2) + pipeline
    * - :doc:`AI <ai>`
      - :implemented:`Implemented` (arithmetic demos)
-     - ``examples/09_ai/`` (2)
+     - ``examples/09-ai/`` (2)
    * - :doc:`Machine Learning <machine-learning>`
      - :implemented:`Implemented` (arithmetic demos)
-     - ``examples/10_machine_learning/`` (2)
+     - ``examples/10-machine-learning/`` (2)
    * - :doc:`Quantum <quantum>`
      - :not-implemented:`Not Yet Implemented` (infrastructure only)
      - —
    * - :doc:`Scientific Computing <scientific-computing>`
      - :implemented:`Implemented`
-     - ``examples/12_scientific_computing/`` (4)
+     - ``examples/12-scientific-computing/`` (4)
    * - :doc:`Finance <finance>`
      - :implemented:`Implemented` (synthetic data)
-     - ``examples/13_finance/`` (4)
+     - ``examples/13-finance/`` (4)
    * - :doc:`Security <security>`
      - :implemented:`Implemented`
-     - ``examples/14_security/`` (4)
+     - ``examples/14-security/`` (4)
    * - :doc:`Developer Tools <developer-tools>`
      - :implemented:`Implemented`
-     - ``examples/15_developer_tools/`` (2) + CLI suite
+     - ``examples/15-developer-tools/`` (2) + CLI suite
 
 .. note::
 
@@ -113,12 +113,13 @@ corpus:
 
 .. code-block:: console
 
-   $ karkain run examples/01_fundamentals/01_hello_world.kark
+   $ karkain run examples/01-fundamentals/01_hello_world.kark
    $ powershell -ExecutionPolicy Bypass -File scripts\verify-examples.ps1
 
 ``scripts/verify-examples.ps1`` classifies every example by its declared
 status (``Runnable`` / ``Experimental`` / ``Planned``) and runs the runnable
-ones through the real CLI — 45 examples pass, 5 are intentionally skipped.
+ones through the real CLI — 49 examples pass; 5 are deliberately skipped (the
+test-mode runner and the four Planned categories).
 
 Validation corpus
 =================

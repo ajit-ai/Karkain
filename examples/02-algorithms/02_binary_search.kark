@@ -1,0 +1,34 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 02 Algorithms
+//
+// Binary search on a sorted array: O(log n) index probe, sequential halving.
+//
+// Run:  karkain run examples/02-algorithms/02_binary_search.kark
+
+func binary_search(xs, target) {
+    let lo = 0
+    let hi = len(xs) - 1
+    while (lo <= hi) {
+        let mid = (lo + hi) / 2
+        if (xs[mid] == target) {
+            return mid
+        }
+        if (xs[mid] < target) {
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return -1
+}
+
+func main() {
+    let sorted = [2, 4, 6, 8, 10, 12, 14, 16]
+    print(binary_search(sorted, 8))
+    print(binary_search(sorted, 2))
+    print(binary_search(sorted, 16))
+    print(binary_search(sorted, 7))
+    print(binary_search(sorted, 0))
+    print(binary_search(sorted, 99))
+}

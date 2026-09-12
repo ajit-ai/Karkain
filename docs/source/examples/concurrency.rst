@@ -7,9 +7,9 @@ end-to-end through the **Go front end only**. The default ``kcc`` engine has
 parser/sema support for the keywords but no codegen parity yet, so these
 examples must run with ``--engine go``.
 
-Corpus: ``examples/08_concurrency/``
+Corpus: ``examples/08-concurrency/``
 
-.. list-table:: examples/08_concurrency/
+.. list-table:: examples/08-concurrency/
    :widths: 32 68
    :header-rows: 1
 
@@ -54,8 +54,8 @@ Run them through the Go engine:
 
 .. code-block:: console
 
-   $ karkain run examples/08_concurrency/01_parallel_sum.kark --engine go
-   $ karkain run examples/08_concurrency/02_channel_ping.kark --engine go
+   $ karkain run examples/08-concurrency/01_parallel_sum.kark --engine go
+   $ karkain run examples/08-concurrency/02_channel_ping.kark --engine go
 
 Why experimental
 ----------------

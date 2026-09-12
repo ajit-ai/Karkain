@@ -1,0 +1,32 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 01 Fundamentals
+//
+// Arrays are dynamic, homogeneous-ish value lists. They support literals,
+// push(), len(), zero-based indexing, slicing xs[a:b], assignment, and
+// nested (2D) arrays.
+//
+// Run:  karkain run examples/01-fundamentals/08_arrays.kark
+
+func main() {
+    let primes = [2, 3, 5, 7, 11]
+    print(len(primes))
+    print(primes[0])
+    print(primes[4])
+    print(primes[1: 4])
+
+    primes[2] = 0
+    print(primes[2])
+
+    let collected = []
+    let i = 0
+    while (i < 5) {
+        push(collected, i * i)
+        i = i + 1
+    }
+    print(collected)
+    print(len(collected))
+
+    let grid = [[1, 2], [3, 4]]
+    print(grid[1][0])
+}

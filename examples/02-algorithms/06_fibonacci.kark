@@ -1,0 +1,35 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 02 Algorithms
+//
+// Iterative Fibonacci: F(0)=0, F(1)=1, F(n)=F(n-1)+F(n-2).
+//
+// Run:  karkain run examples/02-algorithms/06_fibonacci.kark
+
+func fib(n) {
+    if (n == 0) {
+        return 0
+    }
+    if (n == 1) {
+        return 1
+    }
+    let a = 0
+    let b = 1
+    let i = 2
+    while (i <= n) {
+        let next = a + b
+        a = b
+        b = next
+        i = i + 1
+    }
+    return b
+}
+
+func main() {
+    print(fib(0))
+    print(fib(1))
+    print(fib(5))
+    print(fib(10))
+    print(fib(15))
+    print(fib(20))
+}

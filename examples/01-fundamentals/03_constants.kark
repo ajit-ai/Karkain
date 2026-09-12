@@ -1,0 +1,19 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 01 Fundamentals
+//
+// `const` declares an immutable local binding. Reassigning a const is a
+// compile-time error. Constants keep magic numbers out of the middle of code.
+//
+// Run:  karkain run examples/01-fundamentals/03_constants.kark
+
+func main() {
+    const TAX_RATE = 8
+    const BASE_PRICE = 500
+
+    let price = BASE_PRICE
+    let tax = price * TAX_RATE / 100
+    let total = price + tax
+    print(total)
+    print(TAX_RATE)
+}

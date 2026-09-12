@@ -4,7 +4,7 @@ Networking
 :not-implemented:`Not Yet Implemented` — no networking APIs are callable from
 ``.kark`` today.
 
-The category directory ``examples/04_networking/`` exists in the corpus only
+The category directory ``examples/04-networking/`` exists in the corpus only
 to preserve the 15-category framework and carry an honest README: there is no
 socket or HTTP language surface, and the placeholder functions in
 ``pkg/stdlib/http.go`` are not wired into the language.

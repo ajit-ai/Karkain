@@ -2,7 +2,7 @@ Fundamentals
 ============
 
 :implemented:`Implemented` — the fundamentals examples are real, checked-in
-programs under ``examples/01_fundamentals/`` (12 targets) that round-trip the
+programs under ``examples/01-fundamentals/`` (12 targets) that round-trip the
 language surface on **both** engines (the Go front end and the self-hosted
 ``kcc`` engine), producing byte-identical stdout and exit codes. Each file is
 gated by ``pkg/cli/phase114_examples_test.go``.
@@ -12,7 +12,7 @@ arrays → strings → control flow → structs → maps → types → match →
 modules → application layout`) also lives under ``examples/language_foundation/``
 (13 targets, Phase 102).
 
-.. list-table:: examples/01_fundamentals/
+.. list-table:: examples/01-fundamentals/
    :widths: 30 70
    :header-rows: 1
 
@@ -58,7 +58,7 @@ Run it:
 
 .. code-block:: console
 
-   $ karkain run examples/01_fundamentals/01_hello_world.kark
+   $ karkain run examples/01-fundamentals/01_hello_world.kark
 
 Expected output:
 

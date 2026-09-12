@@ -4,10 +4,10 @@ Database
 :not-implemented:`Not Yet Implemented` — there are no database APIs in the
 Karkain language or standard library.
 
-The category directory ``examples/06_database/`` documents only an intended
+The category directory ``examples/06-database/`` documents only an intended
 roadmap shape and carries no example source. File-based persistence is
 already available through ``std.io`` — see :doc:`/examples/data` and
-``examples/03_systems/01_file_io.kark``.
+``examples/03-systems/01_file_io.kark``.
 
 Intended future surface (roadmap only, **not** implemented):
 

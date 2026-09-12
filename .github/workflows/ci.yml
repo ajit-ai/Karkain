@@ -75,6 +75,9 @@ jobs:
       - name: Run Developer Preview gate (fresh-checkout simulation)
         run: go test ./pkg/cli/ -run 'TestPhase115' -count=1
 
+      - name: Run Phase 116 corpus metadata gate
+        run: go test ./pkg/cli/ -run 'TestPhase116' -count=1
+
       - name: Run conformance tests
         run: |
           echo "Karkain-native conformance corpus:"

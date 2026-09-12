@@ -3,11 +3,11 @@ Developer Tools
 
 :implemented:`Implemented` — this category documents tools *for* Karkain
 (the CLI, engines, formatter, LSP, profiler) and carries example programs in
-``examples/15_developer_tools/`` that exercise them.
+``examples/15-developer-tools/`` that exercise them.
 
 Corpus
 
-.. list-table:: examples/15_developer_tools/
+.. list-table:: examples/15-developer-tools/
    :widths: 32 68
    :header-rows: 1
 
@@ -24,15 +24,15 @@ The toolchain loop
 
 .. code-block:: console
 
-   $ karkain check examples/15_developer_tools/01_hello_toolchain.kark
-   $ karkain build examples/15_developer_tools/01_hello_toolchain.kark -o bin/hello.exe
-   $ karkain run   examples/15_developer_tools/01_hello_toolchain.kark
+   $ karkain check examples/15-developer-tools/01_hello_toolchain.kark
+   $ karkain build examples/15-developer-tools/01_hello_toolchain.kark -o bin/hello.exe
+   $ karkain run   examples/15-developer-tools/01_hello_toolchain.kark
 
 Run the test file through the real test runner:
 
 .. code-block:: console
 
-   $ karkain test examples/15_developer_tools/02_assertions_test.kark
+   $ karkain test examples/15-developer-tools/02_assertions_test.kark
 
 Expected summary:
 

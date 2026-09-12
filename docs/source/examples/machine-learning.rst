@@ -2,7 +2,7 @@ Machine Learning
 ================
 
 :implemented:`Implemented` — as hand-rolled numeric examples in ordinary
-Karkain arithmetic under ``examples/10_machine_learning/``, byte-identical on
+Karkain arithmetic under ``examples/10-machine-learning/``, byte-identical on
 both engines.
 
 The honest label matters here: Karkain has **no tensor types, no autodiff, no
@@ -12,7 +12,7 @@ surface. These examples instead implement two classic learning algorithms
 with plain floats, arrays and loops — which is exactly the kind of program a
 Developer Preview user should be able to write today.
 
-.. list-table:: examples/10_machine_learning/
+.. list-table:: examples/10-machine-learning/
    :widths: 30 70
    :header-rows: 1
 
@@ -41,7 +41,7 @@ Run:
 
 .. code-block:: console
 
-   $ karkain run examples/10_machine_learning/01_linear_regression.kark
+   $ karkain run examples/10-machine-learning/01_linear_regression.kark
 
 .. seealso::
 
