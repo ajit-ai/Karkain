@@ -58,6 +58,13 @@ contract, repo-integrity checks):
 go test ./pkg/cli/ -run TestPhase115 -count=1 -v
 ```
 
+Run the release-candidate gate (external journey: first program, multi-file
+project, workspace dependency, release/issue/documentation metadata):
+
+```bash
+go test ./pkg/cli/ -run TestPhase118 -count=1 -v
+```
+
 Run the full CLI suite (slow; includes the example-corpus parity gates):
 
 ```bash
@@ -95,6 +102,9 @@ python -m sphinx -b linkcheck docs/source docs/build/linkcheck
 
 ## What to work on / where to ask
 
+* Report bugs through the issue templates (see
+  `docs/development/reporting-bugs`); **never** open a public issue for a
+  security vulnerability — use the private path in `SECURITY.md`.
 * Use the GitHub **Issues** tracker for bug reports, feature requests, and
   questions: https://github.com/ajit-ai/Karkain/issues
 * Planned work is tracked in `ROADMAP.md` and the roadmap docs page.

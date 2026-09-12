@@ -12,6 +12,9 @@ packages, or the compiler infrastructure.
    testing
    architecture
    roadmap
+   feature-freeze
+   release
+   reporting-bugs
    developer-preview
 
 .. seealso::

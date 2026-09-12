@@ -1,0 +1,7 @@
+// api.kark — the library member's API module (a NON-main module). The
+// workspace assembly keeps only the root file's `func main`, so the library's
+// public API must live in a separate module to be callable by the app member.
+
+func greet() {
+    print("hi from library api")
+}

@@ -34,10 +34,20 @@ jobs:
             docs/build/html/targets/index.html \
             docs/build/html/compiler/index.html \
             docs/build/html/status/index.html \
+            docs/build/html/status/scope.html \
+            docs/build/html/status/rc-checklist.html \
+            docs/build/html/status/migration-beta1.html \
+            docs/build/html/status/compatibility.html \
             docs/build/html/reference/index.html \
+            docs/build/html/reference/stable-api.html \
             docs/build/html/reference/example-matrix.html \
             docs/build/html/development/index.html \
+            docs/build/html/development/feature-freeze.html \
+            docs/build/html/development/release.html \
+            docs/build/html/development/reporting-bugs.html \
             docs/build/html/examples/index.html \
+            docs/build/html/getting-started/first-project.html \
+            docs/build/html/getting-started/workspace.html \
             docs/build/html/release-notes/index.html \
           ; do
             if [ ! -f "$f" ]; then
@@ -72,7 +82,7 @@ jobs:
       - name: Run E2E gates (Phase 114 example corpus, Go engine)
         run: go test ./pkg/cli/ -run 'TestPhase114_CorpusExamples_GoEngine|TestPhase114_CorpusCoverage' -count=1
 
-      - name: Run Developer Preview gate (fresh-checkout simulation)
+      - name: Run Phase 115 developer-preview gate (fresh-checkout simulation)
         run: go test ./pkg/cli/ -run 'TestPhase115' -count=1
 
       - name: Run Phase 116 corpus metadata gate
@@ -80,6 +90,9 @@ jobs:
 
       - name: Run Phase 117 Beta gate
         run: go test ./pkg/cli/ -run 'TestPhase117' -count=1
+
+      - name: Run Phase 118 release-candidate gate
+        run: go test ./pkg/cli/ -run 'TestPhase118' -count=1
 
       - name: Run conformance tests
         run: |

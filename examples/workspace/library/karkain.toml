@@ -1,0 +1,3 @@
+name = "library"
+version = "1.0.0"
+description = "Sibling library consumed by the app workspace member"

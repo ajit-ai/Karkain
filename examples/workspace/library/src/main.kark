@@ -1,0 +1,5 @@
+// main.kark — the library member's entry point.
+
+func main() {
+    print("hi from library")
+}

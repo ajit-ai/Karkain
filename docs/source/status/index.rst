@@ -49,16 +49,20 @@ Honesty rules
 * A category placeholder (no examples yet) is labeled
   ``Not Yet Implemented``, not silently omitted.
 
-The three catalog pages
-=======================
+The catalog pages
+=================
 
 .. toctree::
    :maxdepth: 2
 
    beta
+   scope
    implemented
    experimental
    planned
+   compatibility
+   migration-beta1
+   rc-checklist
 
 .. note::
 
@@ -67,6 +71,15 @@ The three catalog pages
    features are labeled per the model above; the ``Developer Preview`` label
    in the vocabulary remains a *feature maturity level* (functional but
    incomplete) rather than the project status.
+
+.. rubric:: Practical status pages
+
+* :doc:`scope` — the authoritative release-candidate status matrix
+  (Stable / Experimental / Planned / Known Limitation / RC Blocker).
+* :doc:`compatibility` — the compatibility guarantees attached to each
+  bucket.
+* :doc:`rc-checklist` — the release-candidate acceptance checklist.
+* :doc:`migration-beta1` — what changed between Developer Preview and Beta 1.
 
 .. seealso::
 

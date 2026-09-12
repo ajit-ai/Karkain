@@ -384,7 +384,7 @@ func TestLSP_RealTimeSync(t *testing.T) {
 		t.Fatalf("valid buffer should have no diagnostics, got %d", len(diags))
 	}
 
-	invalid := "func main() {\n  print(1);\n}\n"
+	invalid := "func main() {\n  let = 42\n}\n"
 	tc.sendNotification(MethodTextDocumentDidChange, DidChangeTextDocumentParams{
 		TextDocument: VersionedTextDocumentIdentifier{URI: uri, Version: 2},
 		ContentChanges: []TextDocumentContentChangeEvent{
