@@ -2,10 +2,10 @@ Finance
 =======
 
 :implemented:`Implemented` — financial numerics on **synthetic data only**
-live under ``examples/13_finance/`` and run byte-identically on both engines.
+live under ``examples/13-finance/`` and run byte-identically on both engines.
 Nothing here stores real financial data or connects to any external system.
 
-.. list-table:: examples/13_finance/
+.. list-table:: examples/13-finance/
    :widths: 30 70
    :header-rows: 1
 
@@ -39,7 +39,7 @@ Run:
 
 .. code-block:: console
 
-   $ karkain run examples/13_finance/01_compound_interest.kark
+   $ karkain run examples/13-finance/01_compound_interest.kark
 
 .. note::
 

@@ -28,8 +28,8 @@ v0.115.0 — Developer Preview Build (current)
      - Implemented: ``std.string``, ``std.collections``, ``std.io``,
        ``std.encoding``, ``std.crypto``, ``std.testing``
    * - Example corpus
-     - Phase 114: 46 examples across 15 categories, 43 of them pinned to
-       golden output on both engines
+     - Phase 114/116: 50 files across 15 categories, 47 single-file programs
+       pinned to golden output on both engines + 2 Go-engine Experimental
    * - Toolchain
      - Implemented: ``check/build/run/test/transpile/fmt/lint/debug/prof/
        target/pkg/workspace/clean/explain/bench/lsp/new``
@@ -61,6 +61,14 @@ Previous highlighted milestones
    * - 114
      - pre-0.115
      - Complete example corpus (46 files, 15 categories) + parity gate
+   * - 115
+     - v0.115.0
+     - Developer Preview readiness: license/contributing/CoC, honest docs,
+       version identity, fresh-checkout gate
+   * - 116
+     - v0.115.0
+     - Corpus normalization + real-world programming examples (50 files,
+       dash-named categories, stack/queue/knapsack/token-stats) + metadata gate
    * - 111
      - pre-0.115
      - Cross-compilation via explicit target triples

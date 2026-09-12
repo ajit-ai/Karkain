@@ -151,8 +151,8 @@ func TestPhase115_ExampleInventory(t *testing.T) {
 	root := repoRoot(t)
 	for _, p := range []string{
 		"examples/EXAMPLES.md",
-		"examples/01_fundamentals/01_hello_world.kark",
-		"examples/15_developer_tools/02_assertions_test.kark",
+		"examples/01-fundamentals/01_hello_world.kark",
+		"examples/15-developer-tools/02_assertions_test.kark",
 		"scripts/verify-examples.ps1",
 		"pkg/cli/phase114_examples_test.go",
 	} {

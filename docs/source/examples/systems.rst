@@ -5,7 +5,7 @@ Systems
 systems programs demonstrate the file, concurrency and WASM surfaces of
 Karkain:
 
-* ``examples/03_systems/01_file_io.kark`` — the importable ``std.io`` module
+* ``examples/03-systems/01_file_io.kark`` — the importable ``std.io`` module
   (write / append / read lines / exists / delete), byte-identical on **both**
   engines.
 * ``examples/concurrency/pipeline/main.kark`` — the Phase 107 concurrency
@@ -17,7 +17,7 @@ Karkain:
 File I/O (new)
 --------------
 
-``examples/03_systems/01_file_io.kark`` creates ``corpus_demo.txt`` in its
+``examples/03-systems/01_file_io.kark`` creates ``corpus_demo.txt`` in its
 working directory, writes lines, appends a line, reads them back, and deletes
 the file — all through ``import std.io``:
 
@@ -55,7 +55,7 @@ Run it from anywhere — files are created in the current working directory:
 
 .. code-block:: console
 
-   $ karkain run examples/03_systems/01_file_io.kark
+   $ karkain run examples/03-systems/01_file_io.kark
 
 Concurrency pipeline
 --------------------

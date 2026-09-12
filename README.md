@@ -120,8 +120,8 @@ Experimental means *real and testable, but the surface may change*:
 Runnable directly, 1 test-mode, 2 Experimental, 4 Planned (README only).
 
 ```bash
-karkain run examples/01_fundamentals/01_hello_world.kark
-karkain test examples/15_developer_tools/02_assertions_test.kark
+karkain run examples/01-fundamentals/01_hello_world.kark
+karkain test examples/15-developer-tools/02_assertions_test.kark
 powershell -ExecutionPolicy Bypass -File scripts\verify-examples.ps1
 ```
 

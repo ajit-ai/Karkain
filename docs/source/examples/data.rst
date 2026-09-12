@@ -2,15 +2,15 @@ Data
 ====
 
 :implemented:`Implemented` — a compact data-handling corpus lives under
-``examples/05_data/``: word frequency, CSV-style aggregation and binary/text
-payload round-trips. Every file here runs byte-identically on **both** engines
-(Go front end and the self-hosted ``kcc`` engine) and is gated by
-``pkg/cli/phase114_examples_test.go``.
+``examples/05-data/``: word frequency, CSV-style aggregation, binary/text
+payload round-trips and a text token-statistics pipeline. Every file here
+runs byte-identically on **both** engines (Go front end and the self-hosted
+``kcc`` engine) and is gated by ``pkg/cli/phase114_examples_test.go``.
 
 Data-storage (databases) remains a separate planned category:
 :doc:`/examples/database`.
 
-.. list-table:: examples/05_data/
+.. list-table:: examples/05-data/
    :widths: 30 70
    :header-rows: 1
 
@@ -24,11 +24,31 @@ Data-storage (databases) remains a separate planned category:
        with ``array_sum`` / ``array_max``
    * - ``03_payload_roundtrip.kark``
      - hex / base64 / UTF-8 byte round-trips through ``std.encoding``
+   * - ``04_token_stats.kark``
+     - tokenize text with ``std.string``, then filter, transform and
+       aggregate in one deterministic pass
+
+Token statistics
+----------------
+
+``examples/05-data/04_token_stats.kark`` — a small text-processing pipeline
+(token count, long-word filter, per-word character totals):
+
+.. literalinclude:: /../../examples/05-data/04_token_stats.kark
+   :language: kark
+
+Expected output (verified on both engines):
+
+.. code-block:: text
+
+   9
+   3
+   35
 
 Word frequency
 --------------
 
-Excerpt from ``examples/05_data/01_word_frequency.kark``:
+Excerpt from ``examples/05-data/01_word_frequency.kark``:
 
 .. code-block:: kark
 
@@ -41,7 +61,7 @@ Run any of them directly:
 
 .. code-block:: console
 
-   $ karkain run examples/05_data/01_word_frequency.kark
+   $ karkain run examples/05-data/01_word_frequency.kark
 
 .. seealso::
 

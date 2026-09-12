@@ -8,10 +8,12 @@ programs under ``examples/algorithms/``. The corpus contains 21 programs
 ``knapsack``, ``lcm``, ``levenshtein``, ``linear``, ``merge``, ``power``,
 ``quick``, ``sieve``, ``ternary``).
 
-The Phase 114 flat corpus ``examples/02_algorithms/`` adds a second, teaching-
-sized set of ten single-file programs — linear/binary search, min/max, bubble
-sort, frequency count, Fibonacci, factorial, GCD, prime sieve and palindrome —
-each pinned byte-identical on both engines by ``pkg/cli/phase114_examples_test.go``.
+The Phase 114/116 flat corpus ``examples/02-algorithms/`` adds a second,
+teaching-sized set of thirteen single-file programs — linear/binary search,
+min/max, bubble sort, frequency count, Fibonacci, factorial, GCD, prime
+sieve, palindrome, plus an array stack, an array queue and a 0/1-knapsack
+dynamic-programming table — each pinned byte-identical on both engines by
+``pkg/cli/phase114_examples_test.go``.
 
 This page documents the classical recursion/iteration set: **factorial**,
 **fibonacci**, **gcd**, **lcm**, **power** and **sieve**. All outputs below
@@ -231,6 +233,50 @@ Expected output (verified):
    19
    23
    29
+
+Array stack and queue
+=====================
+
+``examples/02-algorithms/11_stack.kark`` — a pointer-based stack over the
+language's dynamic array type (push via the array, pop by moving the top
+pointer):
+
+.. literalinclude:: /../../examples/02-algorithms/11_stack.kark
+   :language: kark
+
+``examples/02-algorithms/12_queue.kark`` — a FIFO queue with a moving head
+index:
+
+.. literalinclude:: /../../examples/02-algorithms/12_queue.kark
+   :language: kark
+
+0/1 knapsack (dynamic programming)
+==================================
+
+``examples/02-algorithms/13_knapsack.kark`` — a two-dimensional DP table
+built from arrays; answers are exact and deterministic:
+
+.. literalinclude:: /../../examples/02-algorithms/13_knapsack.kark
+   :language: kark
+
+Expected outputs (verified on both engines):
+
+.. code-block:: text
+
+   3
+   30
+   20
+   10
+   0
+   10
+   20
+   50
+   20
+   30
+   40
+   50
+   7
+   9
 
 Note on arrays
 ==============

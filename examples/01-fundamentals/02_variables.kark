@@ -1,0 +1,21 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 01 Fundamentals
+//
+// Variables are introduced with `let`. Values are implicitly typed and
+// live in a block-scoped frame. Reassignment uses =.
+//
+// Run:  karkain run examples/01-fundamentals/02_variables.kark
+
+func main() {
+    let answer = 42
+    let greeting = "karkain"
+    print(answer)
+    print(greeting)
+
+    let total = 0
+    total = total + 100
+    total = total + 20
+    total = total + 3
+    print(total)
+}

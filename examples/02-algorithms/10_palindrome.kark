@@ -1,0 +1,30 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 02 Algorithms
+//
+// Palindrome check: a string equals its reverse. Builds the reverse with
+// index walks on each side; compares byte by byte.
+//
+// Run:  karkain run examples/02-algorithms/10_palindrome.kark
+
+func reverse_string(s) {
+    let out = ""
+    let i = len(s) - 1
+    while (i >= 0) {
+        out = out + s[i]
+        i = i - 1
+    }
+    return out
+}
+
+func is_palindrome(s) {
+    return s == reverse_string(s)
+}
+
+func main() {
+    print(is_palindrome("racecar"))
+    print(is_palindrome("karkain"))
+    print(is_palindrome("abba"))
+    print(is_palindrome("a"))
+    print(reverse_string("hello"))
+}
