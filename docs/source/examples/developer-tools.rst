@@ -1,44 +1,59 @@
-:orphan:
-
 Developer Tools
 ===============
 
 :implemented:`Implemented` — this category documents tools *for* Karkain
-development, all of which are real and tested end-to-end.
+(the CLI, engines, formatter, LSP, profiler) and carries example programs in
+``examples/15_developer_tools/`` that exercise them.
 
-* **``karkain fmt``** — token-level canonical formatter; idempotent
-  ``fmt --check`` mode; recursive ``karkain fmt .`` (Phase 82/86).
-* **``karkain lint``** — real lint pipeline with diagnostics; exits
-  ``ExitLint`` (7) on findings.
-* **``karkain debug``** — compiles and runs a program with opt-in function
-  enter/leave trace emissions (Phase 112; Go engine).
-* **``karkain prof``** — compiles and runs once with opt-in,
-  aggregation-based instrumentation; text/json/folded reports (Phase 110;
-  Go engine).
-* **``karkain test``** — deterministic ``*_test.kark`` discovery and
-  execution with ``--filter``; the native test foundation (KTF-001).
-* **LSP server** — ``karkain lsp`` serves real language-server features
-  (diagnostics, completion, hover, go-to-definition, formatting) on a shared
-  ``cli.AnalyzeSource`` driver with the check command (Phase 82/83/86).
-* **VS Code extension** — ``extension.js`` with check/compile/run/format
-  commands and a grammar, validated by
-  ``pkg/cli/vscode_extension_test.go``.
+Corpus
 
-A combined multi-tool example lives in ``examples/showcase/15_devtools/``
-(multi-file banking app, a ``karkain test`` suite, and a ``fmt``/``fmt
---check`` formatting demo).
+.. list-table:: examples/15_developer_tools/
+   :widths: 32 68
+   :header-rows: 1
 
-See the tool pages for each command in detail:
-:doc:`/tools/fmt`, :doc:`/tools/debug`, :doc:`/tools/profile`,
-:doc:`/tools/test`, :doc:`/tools/lsp`.
+   * - File
+     - Demonstrates
+   * - ``01_hello_toolchain.kark``
+     - The write → build → run loop for any environment
+   * - ``02_assertions_test.kark``
+     - ``karkain test`` discovery of ``*_test.kark`` files +
+       language-level ``assert / assert_eq / assert_ne``
 
-.. note::
+The toolchain loop
+------------------
 
-   ``karkain debug`` and ``karkain prof`` explicitly support the Go engine;
-   the self-hosted ``kcc`` engine is not yet profiler/trace-aware (deferred
-   boundaries, documented in their reports).
+.. code-block:: console
+
+   $ karkain check examples/15_developer_tools/01_hello_toolchain.kark
+   $ karkain build examples/15_developer_tools/01_hello_toolchain.kark -o bin/hello.exe
+   $ karkain run   examples/15_developer_tools/01_hello_toolchain.kark
+
+Run the test file through the real test runner:
+
+.. code-block:: console
+
+   $ karkain test examples/15_developer_tools/02_assertions_test.kark
+
+Expected summary:
+
+.. code-block:: text
+
+   3 passed; 0 failed; 0 skipped; 3 total
+
+What the CLI covers today
+
+* ``karkain check`` — syntax + semantics, exit 3 on error, ``--format=json``
+* ``karkain build`` — native executable (PE32+ on Windows, ELF elsewhere)
+* ``karkain run`` — build + run in an isolated working directory
+* ``karkain test`` — ``*_test.kark`` discovery, ``--filter``, exit 4 on failure
+* ``karkain debug`` — trace (frame enter / line) on stderr
+* ``karkain prof`` — call counts, inclusive/exclusive timing, flame-graph data
+* ``karkain target`` — host triple + supported target matrix
+* ``karkain fmt`` / ``karkain lint`` / ``karkain explain`` / ``karkain lsp``
+
+Each command is documented in :doc:`/tools/index`.
 
 .. seealso::
 
-   :doc:`/tools/index` — the full CLI surface.
-   :doc:`/status/implemented` — related implemented-feature entries.
+   :doc:`/tools/index` — the full command reference.
+   :doc:`/getting-started/test` — the testing workflow.

@@ -1,0 +1,26 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 12 Scientific Computing
+//
+// Square root via Newton-Raphson iteration. The builtin sqrt is unreliable
+// on float arguments on both engines, so computing sqrt(2.0) by iteration
+// is both educational and correct with plain +,-,*,/.
+//
+// Run:  karkain run examples/12_scientific_computing/01_sqrt_newton.kark
+
+func sqrt_newton(x, guesses) {
+    let r = 1.0
+    let i = 0
+    while (i < guesses) {
+        r = (r + x / r) / 2
+        i = i + 1
+    }
+    return r
+}
+
+func main() {
+    print(sqrt_newton(2.0, 10))
+    print(sqrt_newton(9.0, 10))
+    print(sqrt_newton(4.0, 10))
+    print(sqrt_newton(0.25, 10))
+}

@@ -1,0 +1,36 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 09 AI
+//
+// Nearest-neighbor classification on a tiny synthetic point grid using
+// Manhattan distance. Pure Karkain arithmetic — no AI framework is needed
+// for the fundamentals, and none is claimed to exist.
+//
+// Run:  karkain run examples/09_ai/01_nearest_neighbor.kark
+
+func manhattan(a, b) {
+    return abs(a - b)
+}
+
+func classify(point, data) {
+    let best = 0
+    let bestDistance = 1000000000
+    let i = 0
+    while (i < len(data)) {
+        let d = manhattan(point, data[i])
+        if (d < bestDistance) {
+            bestDistance = d
+            best = data[i]
+        }
+        i = i + 1
+    }
+    return best
+}
+
+func main() {
+    let centroids = [10, 60, 100]
+    print(classify(12, centroids))
+    print(classify(58, centroids))
+    print(classify(99, centroids))
+    print(classify(40, centroids))
+}

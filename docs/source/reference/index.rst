@@ -21,6 +21,7 @@ For a tutorial-oriented introduction, see :doc:`/language/index`.
    types
    diagnostics
    compatibility
+   example-matrix
 
 -----------
 

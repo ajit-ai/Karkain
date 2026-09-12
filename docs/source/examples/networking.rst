@@ -1,32 +1,28 @@
-:orphan:
-
 Networking
 ==========
 
-:not-implemented:`Not Yet Implemented`
+:not-implemented:`Not Yet Implemented` — no networking APIs are callable from
+``.kark`` today.
 
-There is **no networking API in Karkain today**. No socket or HTTP
-functions exist in the standard library, the runtime, or either compiler
-engine, and nothing on this page describes a hypothetical interface as real.
-(The ``http.get`` name that appears in some historical notes is a
-recognized builtin name only — it has no network implementation and must
-not be built on.)
+The category directory ``examples/04_networking/`` exists in the corpus only
+to preserve the 15-category framework and carry an honest README: there is no
+socket or HTTP language surface, and the placeholder functions in
+``pkg/stdlib/http.go`` are not wired into the language.
 
-Planned
--------
+An intended future surface (roadmap only, **not** implemented):
 
-:planned:`Planned` — the following are design intentions, not APIs. No
-signatures, functions or modules exist yet.
+.. code-block:: kark
 
-* TCP/UDP sockets (``connect``/``listen``/``accept``-style primitives and an
-  address model).
-* An HTTP client and server (requests, responses, status codes, routing).
-* Examples in this category will be added when the capability is
-  implemented — the category placeholder exists to document that
-  honestly, per the Phase 113 framework. Phase 114 will populate it with
-  validated programs once a networking runtime exists.
+   std.net:
+     tcp_connect(host, port) -> connection
+     tcp_listen(port) -> listener
+     http_get(url) -> response
+     http_server(port, handler) -> server
+
+None of the above is runnable. The prerequisite is a socket runtime in the
+generated C; until then this page stays honest and no example is provided.
 
 .. seealso::
 
-   :doc:`/status/planned` — the planned-feature register.
-   :doc:`/status/index` — the status vocabulary used on this site.
+   :doc:`/status/planned` — the capability roadmap.
+   :doc:`/examples/web` — the web category that depends on networking.
