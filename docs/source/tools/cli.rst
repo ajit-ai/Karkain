@@ -239,7 +239,7 @@ Version
 .. code-block:: console
 
     $ karkain -v
-    Karkain Compiler v1.0.0 (linux/amd64, LSP Engine & IDE Tooling)
+    Karkain Compiler v0.115.0 (linux/amd64, Developer Preview Build)
 
 The version string reports the toolchain version, host OS and host
 architecture.

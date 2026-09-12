@@ -16,7 +16,7 @@ author = "The Karkain Project"
 copyright = "2026, The Karkain Project"
 
 # Version and release describe the LANGUAGE, not one binary.
-version = "1.0.0"
+version = "0.115.0-dev-preview"
 release = version
 
 # Prefer the VERSION file at the repository root when building from a checkout.
@@ -60,6 +60,14 @@ nitpicky = False
 # plain ``text`` for anything else; there is no dependency beyond the Sphinx-
 # bundled Pygments.
 highlight_language = "text"
+
+# GitHub serves 404 to link-checker clients for repository root/issues pages
+# even when the repository is public (git access works). Ignore the canonical
+# repository URLs so `sphinx -b linkcheck` reports a clean, true result.
+linkcheck_ignore = [
+    r"https://github\.com/ajit-ai/Karkain/?",
+    r"https://github\.com/ajit-ai/Karkain/issues/?",
+]
 
 # -- Options for HTML output -------------------------------------------------
 
