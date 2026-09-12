@@ -1,0 +1,27 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 05 Data
+//
+// Payload round-trip: encode a payload to hex and base64, decode it back,
+// and validate UTF-8. Byte-level transformations via std.encoding.
+//
+// Run:  karkain run examples/05_data/03_payload_roundtrip.kark
+
+import std.encoding
+
+func main() {
+    let payload = "Karkain data"
+
+    let hex = hex_encode(payload)
+    print(hex)
+    print(hex_decode(hex))
+
+    let b64 = base64_encode(payload)
+    print(b64)
+    print(base64_decode(b64))
+
+    let bytes = utf8_encode(payload)
+    let back = utf8_decode(bytes)
+    print(utf8_valid(payload))
+    print(back == payload)
+}

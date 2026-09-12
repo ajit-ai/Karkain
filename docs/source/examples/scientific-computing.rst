@@ -1,30 +1,58 @@
-:orphan:
-
 Scientific Computing
 ====================
 
-:not-implemented:`Not Yet Implemented`
+:implemented:`Implemented` — numerical-method examples in ordinary Karkain
+arithmetic live under ``examples/12_scientific_computing/`` and run
+byte-identically on both engines.
 
-There is **no scientific-computing framework** in Karkain today: no tensor
-types, no linear-algebra APIs, no statistics module, no plotting/(graphing)
-surface. None of it is exposed to ``.kark`` programs. Classical numerics
-(Newton iteration, integration, mean/variance) can be written in plain
-Karkain — that is ordinary arithmetic, not a scientific-computing API.
+Again with the honest caveat: there is **no scientific-computing framework,
+no tensor language surface and no arbitrary-precision type** in Karkain. What
+exists is IEEE ``double`` arithmetic through the generated C runtime plus the
+implemented array/loop surface. These examples show iterative methods that
+avoid the unreliable builtin float helpers where possible — which is both
+correct and more instructive.
 
-Note that the Math/Tensor IR chain (Phases 71–78, ``pkg/math``,
-``pkg/tensor``) is Go-package internals: there is no stable language-level
-surface for them yet.
+.. list-table:: examples/12_scientific_computing/
+   :widths: 32 68
+   :header-rows: 1
 
-Planned
--------
+   * - File
+     - Demonstrates
+   * - ``01_sqrt_newton.kark``
+     - Newton–Raphson square root iteration (√2 → 1.41421 …)
+   * - ``02_numerical_integration.kark``
+     - Trapezoid rule converging to 1/3 on ∫₀¹ x² dx
+   * - ``03_statistics.kark``
+     - Mean, variance and standard deviation over a fixed sample
+   * - ``04_matrix_multiply.kark``
+     - 3×3 integer matrix product
 
-:planned:`Planned` — design intention only. No APIs exist.
+Newton square root (excerpt)
+----------------------------
 
-* A scientific-computing surface and the example programs that go with it.
-* Examples will be added when the capability is implemented; Phase 114 will
-  populate this category with validated programs once the surface exists.
+.. code-block:: kark
+
+   func sqrt_newton(x) {
+       let guess = x
+       let i = 0
+       while (i < 10) {
+           guess = (guess + x / guess) / 2.0
+           i = i + 1
+       }
+       return guess
+   }
+
+Run:
+
+.. code-block:: console
+
+   $ karkain run examples/12_scientific_computing/01_sqrt_newton.kark
+
+Output format: floats print at 6 significant figures, identically on both
+engines (``1.41421``, ``0.333333``, …).
 
 .. seealso::
 
-   :doc:`/examples/machine-learning` — the adjacent planned category.
-   :doc:`/status/planned` — the planned-feature register.
+   :doc:`/examples/machine-learning` — gradient-descent shares these numeric
+   idioms.
+   :doc:`/reference/types` — the float type used by the runtime.

@@ -4,21 +4,23 @@ Karkain by Example
 Real, runnable ``.kark`` programs that exercise the implemented language,
 standard library and toolchain. Every snippet on these pages is taken from a
 source file that exists in the repository and has been validated through the
-real CLI (``karkain check`` / ``karkain run`` / ``karkain test``).
+real CLI (``karkain check`` / ``karkain run`` / ``karkain test``); the
+Runnable categories are pinned byte-identical on both engines by
+``pkg/cli/phase114_examples_test.go``.
 
 Everything here follows the site's status vocabulary
 (:doc:`/status/index`): a category is only presented as working when it is,
 and planned capability is labeled ``Planned`` or ``Not Yet Implemented``
 explicitly.
 
----------------
+--------------- 
 
 The 15-category framework
 =========================
 
-Examples are organized into 15 categories. Phase 113 establishes the
-framework and the pages; Phase 114 will populate the remaining categories
-with validated examples.
+The Phase 114 corpus populates the framework with 46 ``.kark`` source files
+(15 categories, 4 of them deliberately Planned — README only). See the
+inventory ``examples/EXAMPLES.md`` for the authoritative file list.
 
 .. list-table:: Example categories
    :widths: 22 48 30
@@ -29,19 +31,19 @@ with validated examples.
      - Examples
    * - :doc:`Fundamentals <fundamentals>`
      - :implemented:`Implemented`
-     - ``examples/language_foundation/`` (13 targets)
+     - ``examples/01_fundamentals/`` (12)
    * - :doc:`Algorithms <algorithms>`
      - :implemented:`Implemented`
-     - ``examples/algorithms/`` (21 programs)
+     - ``examples/02_algorithms/`` (10) + ``examples/algorithms/`` (21)
    * - :doc:`Systems <systems>`
      - :implemented:`Implemented` (specific examples)
-     - ``examples/concurrency/pipeline``, ``examples/wasm/hello``
+     - ``examples/03_systems/``, concurrency pipeline, WASM hello
    * - :doc:`Networking <networking>`
      - :not-implemented:`Not Yet Implemented`
      - —
    * - :doc:`Data <data>`
-     - :not-implemented:`Not Yet Implemented`
-     - —
+     - :implemented:`Implemented`
+     - ``examples/05_data/`` (3)
    * - :doc:`Database <database>`
      - :not-implemented:`Not Yet Implemented`
      - —
@@ -50,39 +52,36 @@ with validated examples.
      - —
    * - :doc:`Concurrency <concurrency>`
      - :experimental:`Experimental`
-     - ``examples/concurrency/pipeline``
+     - ``examples/08_concurrency/`` (2) + pipeline
    * - :doc:`AI <ai>`
-     - :not-implemented:`Not Yet Implemented`
-     - —
+     - :implemented:`Implemented` (arithmetic demos)
+     - ``examples/09_ai/`` (2)
    * - :doc:`Machine Learning <machine-learning>`
-     - :not-implemented:`Not Yet Implemented`
-     - —
+     - :implemented:`Implemented` (arithmetic demos)
+     - ``examples/10_machine_learning/`` (2)
    * - :doc:`Quantum <quantum>`
-     - :not-implemented:`Not Yet Implemented`
+     - :not-implemented:`Not Yet Implemented` (infrastructure only)
      - —
    * - :doc:`Scientific Computing <scientific-computing>`
-     - :not-implemented:`Not Yet Implemented`
-     - —
+     - :implemented:`Implemented`
+     - ``examples/12_scientific_computing/`` (4)
    * - :doc:`Finance <finance>`
-     - :not-implemented:`Not Yet Implemented`
-     - —
+     - :implemented:`Implemented` (synthetic data)
+     - ``examples/13_finance/`` (4)
    * - :doc:`Security <security>`
-     - :not-implemented:`Not Yet Implemented`
-     - —
+     - :implemented:`Implemented`
+     - ``examples/14_security/`` (4)
    * - :doc:`Developer Tools <developer-tools>`
      - :implemented:`Implemented`
-     - ``karkain fmt``, ``lint``, ``debug``, ``prof``, LSP, VS Code
+     - ``examples/15_developer_tools/`` (2) + CLI suite
 
 .. note::
 
-   Remaining categories will be populated in Phase 114.
-
-Only the three implemented categories have pages in the table of contents
-below; the category placeholder pages (``networking``, ``data``, ``database``,
-``web``, ``concurrency``, ``ai``, ``machine-learning``, ``quantum``,
-``scientific-computing``, ``finance``, ``security``, ``developer-tools``)
-exist to document status honestly and will gain examples as the capability
-they describe is implemented.
+   AI and Machine Learning are marked ``Implemented`` strictly in the sense of
+   *hand-rolled arithmetic demonstrations* — there is **no** ``std.ai`` or ML
+   framework surface. Quantum is infrastructure-only: parser wiring is
+   explicitly part of its roadmap. See the individual pages for the exact,
+   honest claim.
 
 .. toctree::
    :maxdepth: 2
@@ -91,13 +90,40 @@ they describe is implemented.
    fundamentals
    algorithms
    systems
+   networking
+   data
+   database
+   web
+   concurrency
+   ai
+   machine-learning
+   quantum
+   scientific-computing
+   finance
+   security
+   developer-tools
 
----------------
+--------------- 
+
+How to explore
+==============
+
+The fastest path is the :doc:`/getting-started/first-program`, then run the
+corpus:
+
+.. code-block:: console
+
+   $ karkain run examples/01_fundamentals/01_hello_world.kark
+   $ powershell -ExecutionPolicy Bypass -File scripts\verify-examples.ps1
+
+``scripts/verify-examples.ps1`` classifies every example by its declared
+status (``Runnable`` / ``Experimental`` / ``Planned``) and runs the runnable
+ones through the real CLI — 45 examples pass, 5 are intentionally skipped.
 
 Validation corpus
 =================
 
-Two checked-in corpora give these examples their weight:
+Three checked-in corpora give these examples their weight:
 
 * **Conformance** — ``conformance/`` contains 11 test files
   (``001_arithmetic_test.kark`` … ``011_namespace_test.kark``) with
@@ -106,6 +132,8 @@ Two checked-in corpora give these examples their weight:
 * **Golden outputs** — the conformance and probes corpora assert
   byte-identical stdout on the Go front end and the self-hosted ``kcc``
   engine (e.g. ``pkg/cli/phase95_parity_test.go``).
+* **Phase 114 corpus gate** — ``pkg/cli/phase114_examples_test.go`` pins every
+  Runnable example to a golden output on both engines.
 
 Example inventory (repository)
 ==============================
@@ -113,16 +141,14 @@ Example inventory (repository)
 * ``examples/algorithms/`` — 21 algorithm programs (factorial, fibonacci,
   gcd, lcm, power, sieve, and more).
 * ``examples/language_foundation/`` — 13 golden targets that round-trip the
-  language surface on both engines: variables, functions, recursion, arrays,
-  strings, control flow, structs, maps, types, match, methods, modules, and a
-  multi-file application layout.
+  language surface on both engines.
 * ``examples/concurrency/`` — ``pipeline/``, the Phase 107 concurrency
   runtime demo (spawn/join, channels, actors).
 * ``examples/wasm/`` — ``hello.kark``, the ``wasm32-wasi`` target demo
   (Phase 108).
 * ``examples/stdlib_v2/`` — multi-module end-to-end program importing
-  ``std.string``, ``std.collections``, ``std.encoding`` and ``std.crypto``,
-  including the ``sha256("karkain")`` digest check (Phase 109).
+  ``std.string``, ``std.collections``, ``std.encoding`` and ``std.crypto``
+  (Phase 109).
 * ``examples/testing/`` — ``std.testing`` module validation through
   ``karkain test`` (Phase 112).
 * ``examples/profiling/`` — ``basic``, ``recursion`` and ``hotspot`` targets

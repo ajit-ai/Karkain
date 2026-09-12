@@ -8,6 +8,11 @@ programs under ``examples/algorithms/``. The corpus contains 21 programs
 ``knapsack``, ``lcm``, ``levenshtein``, ``linear``, ``merge``, ``power``,
 ``quick``, ``sieve``, ``ternary``).
 
+The Phase 114 flat corpus ``examples/02_algorithms/`` adds a second, teaching-
+sized set of ten single-file programs — linear/binary search, min/max, bubble
+sort, frequency count, Fibonacci, factorial, GCD, prime sieve and palindrome —
+each pinned byte-identical on both engines by ``pkg/cli/phase114_examples_test.go``.
+
 This page documents the classical recursion/iteration set: **factorial**,
 **fibonacci**, **gcd**, **lcm**, **power** and **sieve**. All outputs below
 were captured by running each program through ``karkain run`` on the default
