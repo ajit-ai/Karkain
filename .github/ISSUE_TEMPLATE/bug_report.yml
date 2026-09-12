@@ -1,0 +1,60 @@
+name: Bug Report
+description: Report a reproducible problem with the Karkain compiler or toolchain.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, reproduce with the current `karkain --version` build and quote the exact diagnostic. Please do not report security vulnerabilities here — see the private reporting path in `SECURITY.md`.
+  - type: input
+    id: version
+    attributes:
+      label: Karkain version
+      description: Output of `karkain --version`
+      placeholder: "Karkain Compiler v0.117.0 (windows/amd64, Beta 1 Build)"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: OS + architecture, e.g. "Windows 11 x86_64" or "Ubuntu 24.04 amd64"
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: Engine
+      description: Set `KARKAIN_ENGINE` if you changed it; otherwise say "default (kcc)".
+    validations:
+      required: false
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The exact `karkain ...` command that failed
+      placeholder: "karkain run examples/01-fundamentals/01_hello_world.kark"
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Minimal source
+      description: The smallest self-contained `.kark` file that reproduces the problem
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead, including any diagnostics (`error[K...]`, runtime errors, exit codes).
+    validations:
+      required: true

@@ -51,11 +51,12 @@ func aliasTargetNote(name string) string {
 
 // ConfigCommand implements `karkain config`: it prints the effective codegen
 // configuration a build would use with the current defaults and flags (the
-// same Config produced by codegen.NewConfig).
+// same Config produced by codegen.NewConfig), plus the active engine.
 func ConfigCommand() CommandResult {
 	cfg := codegen.NewConfig()
 	fmt.Println("Karkain effective configuration:")
 	fmt.Printf("  target:        %s\n", cfg.Target)
+	fmt.Printf("  engine:        %s\n", engineName(EngineFromEnv()))
 	fmt.Printf("  compile-only:  %t\n", cfg.CompileOnly)
 	fmt.Printf("  run-after:     %t\n", cfg.RunAfter)
 	fmt.Printf("  debug:         %t\n", cfg.Debug)
@@ -63,6 +64,14 @@ func ConfigCommand() CommandResult {
 	fmt.Printf("  ssa-pipeline:  %t\n", !cfg.DisableSSA)
 	fmt.Printf("  output-path:   %s\n", orDefault(cfg.OutputPath, "(compiler-chosen)"))
 	return CommandResult{ExitCode: ExitSuccess, Message: ""}
+}
+
+// engineName renders an EngineKind for `karkain config`.
+func engineName(k EngineKind) string {
+	if k == EngineGo {
+		return "go"
+	}
+	return "kcc"
 }
 
 func orDefault(v, def string) string {

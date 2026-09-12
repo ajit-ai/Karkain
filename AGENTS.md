@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **117** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **118** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -56,7 +56,36 @@ beta-fresh-checkout.ps1`, `docs/source/status/beta.rst`, readiness scorecard
 v0.117.0 unified version identity across the Go CLI (`versionString` both
 engines), generated headers, `VERSION` (0.117.0-beta1), docs and release
 scripts.)
-complete.
+complete. **118 — Beta 1 External Validation & Release Candidate Readiness**
+complete: verdict **RC READY** (evidence in `docs/audit/
+PHASE-118-RELEASE-CANDIDATE-READINESS-FINAL-REPORT.md`; the 21-item checklist
+`docs/source/status/rc-checklist.rst` — satisfies today, owner-only decision
+to actually cut the `v0.117.0-rc1` tag on the existing CI release pipeline);
+deliverables: release hygiene (`releases/` stale v0.14.0 artifacts deleted,
+`.gitignore` covers `/releases/` `/.build/` `/artifacts/`, SECURITY.md,
+`.github/ISSUE_TEMPLATE/*` bug/feature/docs/config), docs pages wired and
+Sphinx-clean (`status/{scope,compatibility,migration-beta1,rc-checklist}.rst`,
+`reference/stable-api.rst`,
+`development/{release,reporting-bugs,feature-freeze}.rst`,
+`getting-started/{first-project,workspace}.rst`, toctrees updated),
+two-member workspace example `examples/workspace/`, install scripts
+(`scripts/install.ps1`, `scripts/install.sh`, `scripts/verify-install.ps1`,
+deterministic exit codes 0/1/2/3), external-developer journey simulation
+`scripts/verify-rc-journey.ps1` (11 steps), automated gate
+`pkg/cli/phase118_rc_test.go` (9 subtests), `engine:` line in `karkain config`
+(`EngineFromEnv()`), CI Phase 118 step + required doc-tree pages +
+Phase 115 step rename, README example count 46→50 + milestone 118 +
+reporting/security links, showcase README refreshed; **unrelated stale-test
+fix**: `pkg/lsp/lsp_test.go` `TestLSP_RealTimeSync` fixture `print(1);` → `let = 42`
+(`print(1);` parses valid since the parser evolved — failure verified
+pre-existing on pristine HEAD). Regressions: all unit suites, CLI Phase
+114/115/116/117/118 gates, conformance 59/59, probes 11/11, verify-examples
+49/0/5, Sphinx html `-W` + linkcheck `-W` 0 warnings, beta-fresh-checkout,
+install/verify-install, rc-journey 11/11, `go build`/`go vet` full tree green.
+Documented environmental (NOT defects): bootstrap stage-2 SEGFAULT + one
+combined-CLI-gate OOM crash on the ~4GB host — the known kcc-build OOM class
+(individual gates pass in isolation); no release tag cut yet (binaries listed
+as Planned in `installation.rst` honestly).
 Project status:
 **🧪 Karkain Beta 1** (v0.117.0). NOTE: the Phase 91 historical
 "KARKAIN 1.0 — RELEASE READY" record was superseded; the pre-117 public label
