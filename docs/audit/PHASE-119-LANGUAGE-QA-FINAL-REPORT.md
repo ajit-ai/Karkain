@@ -79,6 +79,7 @@ KARKAIN-1.0-QA-PLAN.md`. Release docs created:
 | phase-88 gate (Stage0/Check/Build/ErrorReporting/metadata) | PASS | 313.5 s |
 | phase-115 VersionCommand + RepoSkeleton | PASS | within 313.5 s |
 | phase-117 beta gates (10) + phase-118 RC gates (9) | PASS | 119.2 s |
+| phase-119 Stable-Release-Readiness gate (6 subtests) | PASS | 3.7 s |
 | phase-114 CorpusCoverage + phase-115 ExampleInventory | PASS | 1.6 s |
 | phase-114 CorpusExamples_GoEngine (49/49) | PASS | 167.0 s |
 | phase-114 CorpusExamples_KCCParity (49/49, byte-identical) | PASS | 202.1 s |
