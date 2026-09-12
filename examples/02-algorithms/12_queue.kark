@@ -1,0 +1,26 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 02 Algorithms
+//
+// A queue (first-in, first-out) with a moving head index. push() grows the
+// tail; dequeuing advances the head without copying the array. The final
+// walk drains every live element in FIFO order.
+//
+// Run:  karkain run examples/02-algorithms/12_queue.kark
+
+func main() {
+    var q = [10, 20, 30, 40]
+    var head = 0
+
+    print(q[head])          // dequeue 10
+    head = head + 1
+    print(q[head])          // dequeue 20
+
+    push(q, 50)             // enqueue behind 40
+    print(q[len(q) - 1])    // 50 is now the tail
+
+    while (head < len(q)) {
+        print(q[head])      // drain 30, 40, 50 in order
+        head = head + 1
+    }
+}

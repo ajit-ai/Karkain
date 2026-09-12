@@ -2,7 +2,7 @@ AI
 ==
 
 :implemented:`Implemented` — in the honest sense: AI *demonstration examples*
-written in ordinary Karkain arithmetic exist under ``examples/09_ai/`` and run
+written in ordinary Karkain arithmetic exist under ``examples/09-ai/`` and run
 byte-identically on both engines.
 
 There is **no ``std.ai`` module and no AI/ML framework surface** in the
@@ -12,7 +12,7 @@ maps and arithmetic — deliberately, so the language itself can be exercised
 without pretending a framework exists. See :doc:`/status/implemented` for how
 the status vocabulary is used.
 
-.. list-table:: examples/09_ai/
+.. list-table:: examples/09-ai/
    :widths: 30 70
    :header-rows: 1
 
@@ -37,7 +37,7 @@ Run:
 
 .. code-block:: console
 
-   $ karkain run examples/09_ai/01_nearest_neighbor.kark
+   $ karkain run examples/09-ai/01_nearest_neighbor.kark
 
 .. seealso::
 

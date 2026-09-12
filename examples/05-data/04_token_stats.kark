@@ -1,0 +1,32 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 05 Data
+//
+// A text-processing pipeline: tokenize a fixed sentence, then filter
+// (count long words), transform (per-word character totals) and aggregate
+// (grand totals) in a single deterministic pass over std.string tokens.
+//
+// Run:  karkain run examples/05-data/04_token_stats.kark
+
+import std.string
+
+func main() {
+    let text = "the quick brown fox jumps over the lazy dog"
+    let words = str_split(text, " ")
+
+    print(len(words))            // token count
+
+    let long_words = 0
+    let total_chars = 0
+    let i = 0
+    while (i < len(words)) {
+        total_chars = total_chars + len(words[i])
+        if (len(words[i]) >= 5) {
+            long_words = long_words + 1
+        }
+        i = i + 1
+    }
+
+    print(long_words)            // words with 5+ letters
+    print(total_chars)           // characters excluding spaces
+}

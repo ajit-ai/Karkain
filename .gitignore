@@ -42,17 +42,17 @@
 # Generated C files from examples
 examples/*.c
 # Phase 114 corpus generated C artifacts
-examples/01_fundamentals/*.c
-examples/02_algorithms/*.c
-examples/03_systems/*.c
-examples/05_data/*.c
-examples/08_concurrency/*.c
-examples/09_ai/*.c
-examples/10_machine_learning/*.c
-examples/12_scientific_computing/*.c
-examples/13_finance/*.c
-examples/14_security/*.c
-examples/15_developer_tools/*.c
+examples/01-fundamentals/*.c
+examples/02-algorithms/*.c
+examples/03-systems/*.c
+examples/05-data/*.c
+examples/08-concurrency/*.c
+examples/09-ai/*.c
+examples/10-machine-learning/*.c
+examples/12-scientific-computing/*.c
+examples/13-finance/*.c
+examples/14-security/*.c
+examples/15-developer-tools/*.c
 examples/probes/**/*.c
 examples/probes/**/*.c23
 *.c23

@@ -1,0 +1,38 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 01 Fundamentals
+//
+// Structs group named fields via `type Name struct { ... }` (semicolon
+// separated). Construct with Type { field: value }, read/update with dot
+// access, and pass the record to functions to get the method idiom.
+//
+// Run:  karkain run examples/01-fundamentals/10_structs.kark
+
+type Account struct { owner string; balance int }
+
+func deposit(acc, amount) {
+    acc.balance = acc.balance + amount
+    return acc
+}
+
+func withdraw(acc, amount) {
+    if (acc.balance >= amount) {
+        acc.balance = acc.balance - amount
+    }
+    return acc
+}
+
+func main() {
+    let a = Account{ owner: "ana", balance: 100 }
+    print(a.owner)
+    print(a.balance)
+
+    a = deposit(a, 50)
+    print(a.balance)
+
+    a = withdraw(a, 200)
+    print(a.balance)
+
+    a = withdraw(a, 20)
+    print(a.balance)
+}
