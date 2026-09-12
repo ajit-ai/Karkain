@@ -1,11 +1,11 @@
-============================
-Stable API Snapshot (Beta 1)
-============================
+===========================
+Stable API Snapshot (1.0.0)
+===========================
 
-This is the authoritative Beta 1 API snapshot — the reference point for the
-release-candidate evaluation. A feature belongs to the snapshot only when a
-gate test exercises it through the real pipeline on both engines. Anything
-not listed here is not part of the Beta stable surface.
+This is the authoritative 1.0.0 (Stable) API snapshot — the reference point
+for the release-readiness evaluation. A feature belongs to the snapshot only
+when a gate test exercises it through the real pipeline on both engines.
+Anything not listed here is not part of the stable surface.
 
 .. contents:: Sections
    :local:

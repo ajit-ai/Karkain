@@ -239,7 +239,7 @@ Version
 .. code-block:: console
 
     $ karkain -v
-    Karkain Compiler v0.117.0 (linux/amd64, Beta 1 Build)
+    Karkain Compiler v1.0.0 (linux/amd64, Stable Build)
 
 The version string reports the toolchain version, host OS and host
 architecture.

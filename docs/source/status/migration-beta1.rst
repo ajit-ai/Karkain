@@ -5,14 +5,14 @@ Migration to Beta 1
 Karkain moved from **Developer Preview** to **Beta 1** in Phase 117. This
 page explains what actually changed for a developer who was using the
 Developer Preview line (v0.115.x) and what they must do to move to Beta 1
-(v0.117.0).
+(v1.0.0).
 
 Developer Preview vs. Beta 1
 ============================
 
 The public label changed from ``Developer Preview`` to ``🧪 Beta 1``. The
 version identity changed from ``v0.115.0 (... Developer Preview Build)`` to
-``v0.117.0 (... Beta 1 Build)``.
+``v1.0.0 (... Stable Build)``.
 
 Are there source-breaking changes?
 ==================================
@@ -89,7 +89,7 @@ Moving a Developer Preview project
 
 1. Rebuild the toolchain from source (see
    :doc:`/getting-started/installation`).
-2. `karkain --version` reports ``Karkain Compiler v0.117.0``.
+2. `karkain --version` reports ``Karkain Compiler v1.0.0``.
 3. Re-run your existing programs with ``karkain check`` / ``run`` — no
    source changes should be required.
 4. If you used the workspace dependency path, verify cross-member calls now

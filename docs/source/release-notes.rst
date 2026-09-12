@@ -3,15 +3,15 @@ Release Notes
 =============
 
 This page tracks the honest development state of Karkain. The toolchain is a
-**🧪 Karkain Beta 1 Build**: functional, tested, and self-hosted — but not a
-production-ready 1.0 release. There is intentionally no ``v1.0.0`` claim.
+**Karkain 1.0.0 (Stable)** build: functional, tested, and self-hosted. The
+v1.0.0 identity is the public label from Phase 119; the release-readiness
+verdict and full QA evidence live in ``docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md``.
 
-Versioning: the CLI reports ``Karkain Compiler v0.<phase>.<minor>`` via
-``karkain --version``; the ``0`` major documents the pre-production status
-(Developer Preview until Phase 117, then Beta 1) until a production release
-is declared.
+Versioning: the CLI reports ``Karkain Compiler v1.0.0`` via
+``karkain --version``; the public label progressed Developer Preview (≤115,
+v0.115.x) → Beta 1 (117–118, v0.117.x) → **1.0.0 (Stable)** from Phase 119.
 
-v0.117.0 — Beta 1 Build (current)
+v1.0.0 — Stable Build (current)
 =================================
 
 .. list-table::
@@ -19,7 +19,8 @@ v0.117.0 — Beta 1 Build (current)
    :header-rows: 0
 
    * - Status
-     - Beta 1 — the project's public status is **🧪 Karkain Beta 1**
+     - Karkain 1.0.0 (Stable) — the project's public status (see
+       :doc:`/status/compatibility` for the guarantees attached to it)
    * - Language core
      - Stable core defined and regression-gated on both engines: variables,
        functions, recursion, control flow, arrays, maps, structs, enums,
@@ -46,7 +47,7 @@ v0.117.0 — Beta 1 Build (current)
        ``scripts/beta-fresh-checkout.ps1``
    * - Developer readiness
      - Beta documentation (``status/beta.rst``), Beta readiness scorecard,
-       Phase 117 CI gate, version identity ``v0.117.0 (Beta 1 Build)``
+       Phase 117 CI gate, version identity ``v1.0.0 (Stable Build)``
    * - Known gaps (honest)
      - Networking, databases, web, quantum, GPU/NPU kernel language surface,
        advanced package registry — Planned / Not Yet Implemented; concurrency,
@@ -69,9 +70,9 @@ Previous highlighted milestones
      - Summary
    * - 117
      - v0.117.0
-     - Beta 1 readiness: Go/kcc ``while`` and semantic-gate parity, parse-error
-       hardening, numeric ``explain`` codes, stdlib edge tests, Beta docs +
-       gate + fresh-checkout script
+     - Beta 1 readiness (historical): Go/kcc ``while`` and semantic-gate
+       parity, parse-error hardening, numeric ``explain`` codes, stdlib edge
+       tests, Beta docs + gate + fresh-checkout script
    * - 116
      - v0.115.0
      - Corpus normalization + real-world programming examples (50 files,
@@ -98,7 +99,8 @@ Previous highlighted milestones
    * - 91
      - pre-0.115
      - (Historical note: this phase claimed a "1.0 release-ready" decision;
-       that claim was superseded — Karkain is Beta 1, not 1.0.)
+       that claim was retracted — the label moved Developer Preview → Beta 1
+       → 1.0.0 at Phase 119.)
 
 .. seealso::
 

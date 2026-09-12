@@ -73,7 +73,7 @@ func testPhase118VersionIdentity(t *testing.T, bin string) {
 	if err != nil {
 		t.Fatalf("karkain --version failed: %v\n%s", err, out)
 	}
-	for _, want := range []string{"Karkain Compiler v0.117.0", "Beta 1 Build"} {
+	for _, want := range []string{"Karkain Compiler v1.0.0", "Stable Build"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("--version does not contain %q: %s", want, out)
 		}
@@ -85,8 +85,8 @@ func testPhase118VersionIdentity(t *testing.T, bin string) {
 	if rerr != nil {
 		t.Fatalf("read VERSION: %v", rerr)
 	}
-	if !strings.Contains(string(vf), "0.117.0") {
-		t.Errorf("VERSION does not match 0.117.0: %s", vf)
+	if !strings.Contains(string(vf), "1.0.0") {
+		t.Errorf("VERSION does not match 1.0.0: %s", vf)
 	}
 }
 

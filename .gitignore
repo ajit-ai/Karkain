@@ -32,6 +32,9 @@
 /demo_app/
 *.tmp
 
+# Runtime output artifacts written by examples run from the repo root
+/corpus_demo.txt
+
 # Go Build & Dependency Caches
 /vendor/
 *.test

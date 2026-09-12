@@ -601,10 +601,8 @@ func findStdlib(projectDir, importPath string) string {
 	candidates := []string{
 		filepath.Join(projectDir, "stdlib", importPath+".kark"),
 		filepath.Join(projectDir, "stdlib", importPath, filepath.Base(importPath)+".kark"),
-		filepath.Join(projectDir, "std", importPath+".kark"),
 		filepath.Join("stdlib", importPath+".kark"),
 		filepath.Join("stdlib", importPath, filepath.Base(importPath)+".kark"),
-		filepath.Join("std", importPath+".kark"),
 	}
 
 	for _, c := range candidates {
