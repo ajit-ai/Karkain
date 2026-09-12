@@ -32,7 +32,7 @@ duplicating content.
       (`cmd/karkain/main.go`, mirrors in `pkg/cli/commands.go`)
 - [x] Self-hosted kcc banner + all generated-C headers (`src/compiler/` +
       `pkg/codegen/*` emitters) say `v1.0.0 (...) Stable Build`
-- [x] Version-asserting gates pass at 1.0.0 (phase 88/90/115/117/118,
+- [x] Version-asserting gates pass at 1.0.0 (phase 88/90/115/117/118/119,
       `pkg/bootstrap/args_test.go`)
 - [x] scripts, issue templates, docs example outputs updated (no `0.117.0`,
       no `Beta 1 Build` outside historical pages)
