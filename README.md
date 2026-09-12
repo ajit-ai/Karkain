@@ -1,698 +1,211 @@
-# Karkain Programming Language
-
-**Fast. Safe. Heterogeneous.**
-
-Karkain is a statically typed, high-performance systems programming language designed for heterogeneous CPU/GPU/quantum computing, native actor concurrency, and compile-time memory safety. It compiles to C23 and delegates to GCC/Clang/MSVC for final machine code — giving you portability without sacrificing speed.
-
-> **Language specification:** see [`SPEC.md`](SPEC.md) for the authoritative,
-> versioned spec of the Karkain language (keywords, grammar, types, memory model,
-> and conformance status).
->
-> **Official documentation:** the human-readable guides, reference and
-> status pages live under [`docs/`](docs/README.md) — a Sphinx site buildable
-> with `python -m sphinx -b html docs/source docs/build/html` and published
-> to GitHub Pages on every `main` push.
-
-```
-.kark source → Lexer → Parser → SSA IR → Optimizer → Verifier → C23 → GCC/Clang → Binary
-                                    ↓
-                              GPU Shaders (WGSL, SPIR-V, OpenCL)
-                                    ↓
-                              Quantum Circuits (OpenQASM 3.0, QIR)
-```
-
----
-
-## Table of Contents
-
-- [Design Philosophy](#design-philosophy)
-- [Language Architecture](#language-architecture)
-- [Compiler Pipeline](#compiler-pipeline)
-- [Key Features](#key-features)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Developer Showcase](#developer-showcase)
-- [CLI Reference](#cli-reference)
-- [Package Manager (KPM)](#package-manager-kpm)
-- [Project Structure](#project-structure)
-- [Building from Source](#building-from-source)
-- [Cross-Compilation](#cross-compilation)
-- [Platform Support](#platform-support)
-- [Roadmap](#roadmap)
-- [License](#license)
-
----
-
-## Design Philosophy
-
-Karkain is built on four non-negotiable principles:
-
-1. **Speed** — Zero-cost abstractions, value semantics, no garbage collector. Compiles to C23, optimized by mature C compilers (GCC, Clang, MSVC).
-
-2. **Safety** — Compile-time ownership and borrow checking. No null pointers, no use-after-free, no data races. Option/Result types replace exceptions.
-
-3. **Heterogeneous** — Write CPU code and GPU compute kernels in the same `.kark` file. Quantum circuits compile to OpenQASM/QIR. One language, all hardware.
-
-4. **Independence** — The ultimate goal: `karkain` compiles itself. No dependency on Go, Rust, or any other toolchain for day-to-day development.
-
-### What Karkain is NOT
-
-- NOT a managed language (no GC, no VM)
-- NOT an interpreted language
-- NOT LLVM-based (uses GCC/Clang as backend, not LLVM frontend)
-- NOT a scripting language (despite having a REPL planned)
-
----
-
-## Language Architecture
-
-### Type System
-
-```karkain
-// Primitives
-let x: int = 42
-let pi: float64 = 3.14159
-let flag: bool = true
-let msg: string = "hello"
-
-// Algebraic Data Types
-enum Option<T> { Some(T), None }
-enum Result<T, E> { Ok(T), Err(E) }
-
-// Structs with ownership
-struct Point { x: float64, y: float64 }
-struct Buffer { data: *u8, len: int }
-
-// Generics with trait bounds
-fn max<T: Ord>(a: T, b: T) -> T { ... }
-
-// Traits
-trait Drawable { fn draw(self); }
-impl Drawable for Point { fn draw(self) { print(self.x, self.y) } }
-```
-
-### Memory Model
-
-Karkain uses a hybrid ownership model:
-
-```karkain
-// Owned values (stack-allocated, freed on scope exit)
-let a = Point { x: 1.0, y: 2.0 }
-
-// Borrows (immutable references, checked at compile time)
-fn distance(p: &Point) -> float64 { ... }
-
-// Mutable borrows (exclusive access)
-fn translate(p: &mut Point, dx: float64) { p.x += dx }
-
-// Raw pointers (escape hatch, unsafe boundary)
-let raw: *mut int = @addr(x)
-
-// Manual allocation (for performance-critical paths)
-let buf = alloc<u8>(1024)
-free(buf)
-```
-
-### Concurrency
-
-```karkain
-// Actor model
-actor Counter {
-    state { count: int }
-    on Increment { self.count += 1 }
-    on GetCount -> int { return self.count }
-}
-
-// Channels and coroutines
-co producer(ch: Send<int>) {
-    for i in 0..10 { ch <- i }
-}
-
-co consumer(ch: Recv<int>) {
-    loop { let val = <-ch; print(val) }
-}
-
-// Select multiplexing
-select {
-    case msg := <-ch1 { handle(msg) }
-    case msg := <-ch2 { handle(msg) }
-    default { idle() }
-}
-```
-
-### GPU Kernels
-
-```karkain
-kernel matmul(A: *float64, B: *float64, C: *float64, M: int, N: int, K: int) {
-    let row = global_id(0)
-    let col = global_id(1)
-    var sum: float64 = 0.0
-    for k in 0..K {
-        sum += A[row * K + k] * B[k * N + col]
-    }
-    C[row * N + col] = sum
-}
-```
-
-Compiles to WGSL (WebGPU), OpenCL C, and SPIR-V automatically.
-
-### Quantum Computing
-
-```karkain
-qreg q[4]
-
-// Quantum gates
-H q[0]
-CNOT q[0], q[1]
-Rx(0.5) q[2]
-Rz(1.2) q[3]
-
-// Measurement
-let result = measure q[0]
-print(result)
-```
-
-Compiles to OpenQASM 3.0, QIR (LLVM IR), and OpenPulse pulse schedules.
-
----
-
-## Compiler Pipeline
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                              COMPILER PIPELINE                               │
-│                                                                             │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐              │
-│  │   Lexer      │───▶│   Parser     │───▶│   Macro      │              │
-│  │  (tokens)    │    │   (AST)      │    │   Expand     │              │
-│  └──────────────┘    └──────────────┘    └──────────────┘              │
-│                                       │                     │
-│                                       ▼                     │
-│                              ┌──────────────┐             │
-│                              │ Semantic     │             │
-│                              │ Analysis     │             │
-│                              │ • borrow check│             │
-│                              │ • type check  │             │
-│                              │ • quantum safe│             │
-│                              └──────────────┘             │
-│                                      │                      │
-│                                      ▼                      │
-│  ┌──────────────────────────────────────────────────────┐      │
-│  │                SSA IR Pipeline                    │      │
-│  │                                                   │      │
-│  │  AST → SSA → Constant Fold → DCE → Verify → C23 │      │
-│  └──────────────────────────────────────────────────────┘      │
-│                         │                                   │
-│              ┌──────────┼──────────┐                       │
-│              ▼          ▼          ▼                        │
-│         ┌──────────┐ ┌──────────┐ ┌──────────┐                │
-│         │  C23     │ │  WGSL    │ │OpenQASM 3│                │
-│         │ (CPU)    │ │ (GPU)    │ │ (Quantum)│                │
-│         └──────────┘ └──────────┘ └──────────┘                │
-│             │          │           │                        │
-│             ▼          ▼           ▼                        │
-│         ┌──────────┐ ┌──────────┐ ┌──────────┐                │
-│         │ GCC/     │ │ WebGPU   │ │ IBM/     │                │
-│         │ Clang    │ │ Runtime  │ │ Azure Q  │                │
-│         └──────────┘ └──────────┘ └──────────┘                │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Compiler Stages
-
-| Stage | Package | What it does |
-|-------|---------|-------------|
-| **Lexer** | `pkg/lexer/` | Tokenizes `.kark` source into token stream |
-| **Parser** | `pkg/parser/` | Builds AST with arena allocation, line tracking |
-| **Macro Expander** | `pkg/sema/macro.go` | Hygienic macro expansion, `@derive`, `@unroll`, `@target_guard` |
-| **Borrow Checker** | `pkg/sema/borrow_checker.go` | Ownership, borrowing, move semantics, linear types |
-| **Type Checker** | `pkg/sema/` | Generics, traits, monomorphization |
-| **Quantum Safety** | `pkg/sema/quantum.go` | No-cloning theorem, measurement collapse, gate-after-measurement |
-| **Autodiff** | `pkg/sema/autodiff.go` | Tensor shape checking, computation graph, reverse-mode differentiation |
-| **SSA Lowering** | `pkg/codegen/lower.go` | AST → SSA IR with variable cells, CFG |
-| **SSA Optimizer** | `pkg/ir/ssa/opt.go` | Constant folding, dead code elimination |
-| **SSA Verifier** | `pkg/ir/ssa/verify.go` | Type checking, control flow validation |
-| **C Emitter** | `pkg/codegen/emit_ir.go` | SSA IR → C23 source code |
-| **Legacy Emitter** | `pkg/codegen/codegen.go` | Direct AST → C99 (fallback when SSA fails) |
-| **GPU Emitter** | `pkg/codegen/wgsl.go`, `gpu.go`, `spirv.go` | Kernel → WGSL, OpenCL, SPIR-V |
-| **Quantum Emitter** | `pkg/codegen/qasm.go`, `qir.go` | Circuit → OpenQASM, QIR |
-
----
-
-## Key Features
-
-### Compile-Time Safety
-
-- **Ownership & Borrow Checking** — Values have single owners. Borrows are tracked at compile time. No use-after-free, no data races.
-- **Option/Result Types** — No null pointers. `Option<T>` forces explicit handling of missing values. `Result<T, E>` replaces exceptions.
-- **Exhaustive Match** — `match` must cover all variants. The compiler rejects incomplete pattern matches.
-- **Linear Types** — Types marked `linear` must be used exactly once. Prevents resource leaks.
-- **Quantum Safety** — The no-cloning theorem is enforced at compile time. Measurement collapse is tracked.
-
-### Performance
-
-- **Value Semantics** — Structs are stack-allocated by default. No hidden boxing, no pointer chasing.
-- **No Garbage Collector** — Manual allocation when needed, automatic scope-based deallocation otherwise.
-- **Checked Arithmetic** — `add_checked`, `sub_checked`, `mul_checked` return `Option<int>` on overflow.
-- **SIMD Support** — `@simd_add`, `@simd_mul` intrinsics with AVX2 auto-detection at runtime.
-- **Matrix Operations** — 64-byte aligned contiguous arrays with AVX2-optimized multiplication.
-- **SSA Optimization** — Constant folding, dead code elimination on the IR before C emission.
-
-### Heterogeneous Computing
-
-- **CPU** — Compiles to C23, linked with GCC/Clang/MSVC. Full platform support.
-- **GPU** — `kernel` keyword emits WGSL, OpenCL C, and SPIR-V. Host launcher auto-generated.
-- **Quantum** — Gate syntax compiles to OpenQASM 3.0, QIR, OpenPulse. Noise simulation built in.
-- **WASM** — Target `wasm32-wasi` for web deployment.
-
-### Developer Experience
-
-- **Package Manager** — `karkain pkg add`, semver resolution, lock files, registry.
-- **LSP Server** — Hover, go-to-definition for IDE integration.
-- **Debug Mode** — `--debug` emits `#line` directives for GDB/LLDB source mapping.
-- **Verbose Mode** — `--verbose` shows token stream, AST, generated C, compiler invocation.
-- **Test Framework** — `*_test.kark` files with `test_*` functions, auto-discovered and isolated.
-
----
-
-## Installation
-
-### Pre-compiled Binaries
-
-Download the latest release for your platform:
-
-| Platform | Architecture | File | 
-|----------|-------------|------|
-| **Windows** | x86_64 | `karkain-v1.0.0-windows-amd64.zip` |
-| **Windows** | ARM64 | `karkain-v1.0.0-windows-arm64.zip` |
-| **Linux** | x86_64 | `karkain-v1.0.0-linux-amd64.tar.gz` |
-| **Linux** | ARM64 | `karkain-v1.0.0-linux-arm64.tar.gz` |
-| **Linux** | ARMv7 | `karkain-v1.0.0-linux-armv7.tar.gz` |
-| **Linux** | i386 | `karkain-v1.0.0-linux-i386.tar.gz` |
-| **Linux** | ppc64le | `karkain-v1.0.0-linux-ppc64le.tar.gz` |
-| **Linux** | s390x | `karkain-v1.0.0-linux-s390x.tar.gz` |
-| **macOS** | Apple Silicon (M1/M2/M3/M4) | `karkain-v1.0.0-darwin-arm64.tar.gz` |
-| **macOS** | Intel | `karkain-v1.0.0-darwin-amd64.tar.gz` |
-| **FreeBSD** | x86_64 | `karkain-v1.0.0-freebsd-amd64.tar.gz` |
-| **NetBSD** | x86_64 | `karkain-v1.0.0-netbsd-amd64.tar.gz` |
-| **OpenBSD** | x86_64 | `karkain-v1.0.0-openbsd-amd64.tar.gz` |
-
-### Platform-Specific Install Instructions
-
-#### Windows
-
-```powershell
-# Option 1: Download and extract
-Invoke-WebRequest -Uri "https://github.com/ajit-ai/Karkain/releases/latest/download/karkain-v1.0.0-windows-amd64.zip" -OutFile "karkain.zip"
-Expand-Archive -Path "karkain.zip" -DestinationPath "C:\karkain"
-$env:PATH += ";C:\karkain"
-
-# Option 2: Build from source (requires Go 1.21+ and GCC/Clang)
-git clone https://github.com/ajit-ai/Karkain.git
-cd Karkain
-go build -o karkain.exe ./cmd/karkain
-
-# Verify
-karkain --version
-```
-
-#### Linux (Debian/Ubuntu)
-
-```bash
-# Download and install
-curl -L https://github.com/ajit-ai/Karkain/releases/latest/download/karkain-v1.0.0-linux-amd64.tar.gz | tar xz
-sudo mv karkain /usr/local/bin/
-
-# Or build from source (requires Go 1.21+ and GCC)
-git clone https://github.com/ajit-ai/Karkain.git
-cd Karkain
-go build -o karkain ./cmd/karkain
-sudo mv karkain /usr/local/bin/
-
-# Install C compiler if not present
-sudo apt install gcc build-essential
-
-# Verify
-karkain --version
-```
-
-#### Linux (Fedora/RHEL/CentOS)
-
-```bash
-# Install prerequisites
-sudo dnf install gcc golang
-
-# Build from source
-git clone https://github.com/ajit-ai/Karkain.git
-cd Karkain
-go build -o karkain ./cmd/karkain
-sudo mv karkain /usr/local/bin/
-```
-
-#### Linux (Arch/Manjaro)
-
-```bash
-# Install prerequisites
-sudo pacman -S gcc go
-
-# Build from source
-git clone https://github.com/ajit-ai/Karkain.git
-cd Karkain
-go build -o karkain ./cmd/karkain
-sudo mv karkain /usr/local/bin/
-```
-
-#### macOS (Apple Silicon / Intel)
-
-```bash
-# Option 1: Download
-curl -L https://github.com/ajit-ai/Karkain/releases/latest/download/karkain-v1.0.0-darwin-arm64.tar.gz | tar xz
-sudo mv karkain /usr/local/bin/
-
-# Option 2: Build from source (requires Xcode CLI tools + Go)
-xcode-select --install
-brew install go
-git clone https://github.com/ajit-ai/Karkain.git
-cd Karkain
-go build -o karkain ./cmd/karkain
-sudo mv karkain /usr/local/bin/
-
-# Verify
-karkain --version
-```
-
-#### FreeBSD
-
-```bash
-# Install prerequisites
-pkg install go gcc
-
-# Build from source
-git clone https://github.com/ajit-ai/Karkain.git
-cd Karkain
-go build -o karkain ./cmd/karkain
-mv karkain /usr/local/bin/
-```
-
-#### NetBSD / OpenBSD
-
-```bash
-# Install prerequisites
-# NetBSD: pkgin install go gcc
-# OpenBSD: pkg_add go gcc
-
-git clone https://github.com/ajit-ai/Karkain.git
-cd Karkain
-go build -o karkain ./cmd/karkain
-doas mv karkain /usr/local/bin/
-```
-
-### Docker
-
-```bash
-# Build image
-docker build -t karkain .
-
-# Run
-docker run --rm -v $(pwd):/src karkain run /src/main.kark
-```
-
-### Verify Installation
-
-```bash
-karkain --version
-karkain --help
-```
-
----
+# Karkain
+
+> **🚀 Developer Preview** — Karkain is a working compiler and language, not an
+> empty roadmap. Everything labeled Implemented below is verified by automated
+> gates through the real CLI. Everything else is honestly labeled
+> `Planned` / `Not Yet Implemented`.
+
+Karkain is a statically typed systems programming language with a
+self-hosted compiler, a byte-identical dual-engine pipeline, a real standard
+library, native executables, cross-compilation, and an experimental
+concurrency/WASM surface. It compiles `.kark` source to C23 and delegates to a
+host C compiler (GCC/Clang/MSVC) for final machine code.
+
+**Honesty policy:** the status vocabulary in
+[`docs/source/status/index.rst`](docs/source/status/index.rst) governs every
+claim in this project — a feature is `Implemented` only when an automated
+gate test exercises it through the real pipeline. See the
+[capability summary](docs/source/development/developer-preview.rst).
 
 ## Quick Start
 
-### Hello World
+Karkain builds from source with Go 1.21+ and any C compiler.
 
 ```bash
-# Create project
-karkain pkg init hello
-cd hello
-
-# Edit src/main.kark
-cat > src/main.kark << 'EOF'
-fn main() {
-    print("Hello, World!")
-}
-EOF
-
-# Run it
-karkain run src/main.kark
+git clone https://github.com/ajit-ai/Karkain.git
+cd Karkain
+go build -o karkain ./cmd/karkain        # Windows: go build -o karkain.exe ./cmd/karkain
+./karkain --version                      # Karkain Compiler v0.115.0 (..., Developer Preview Build)
 ```
 
-### Variables and Functions
+Write your first program:
 
-```karkain
-// src/main.kark
-fn add(a: int, b: int) -> int {
+```kark
+// hello.kark
+func main() {
+    println("Hello, Karkain!")
+}
+```
+
+Run it:
+
+```bash
+karkain run hello.kark
+karkain check hello.kark      # syntax + semantics, exit 3 on error
+karkain build hello.kark      # native executable
+```
+
+**Documentation:**
+
+- [Getting Started](docs/source/getting-started/index.rst) — installation, first program, project layout
+- [Karkain by Example](docs/source/examples/index.rst) — 46 real, runnable programs
+- [Language Guide](docs/source/language/index.rst) — the language as it actually works
+- [Standard Library](docs/source/stdlib/index.rst) — `std.string`, `std.collections`, `std.io`, `std.encoding`, `std.crypto`, `std.testing`
+- [CLI Reference](docs/source/tools/index.rst) — every command, flag and exit code
+- [Compiler Architecture](docs/source/compiler/index.rst) — the Go front end and the self-hosted `kcc` engine
+- [Targets & Cross-Compilation](docs/source/targets/index.rst) — host matrix, triples, WASM
+- [Status & Roadmap](docs/source/status/index.rst) — what works, what is planned
+- [Contributing](CONTRIBUTING.md) — how to help
+
+## What works today
+
+Implemented (gated, byte-identical on both the Go front end and the
+self-hosted `kcc` engine):
+
+- **Language core** — `let`/`var`/`const`, `func`, `while`, `if/else`,
+  `for-in` and C-style `for`, structs (records), enums, `match` on literals
+  and `Option`, arrays, strings, maps (with `std.collections` helpers)
+- **Standard library** — 6 importable modules with NIST/RFC-verified digest
+  and codec behavior
+- **CLI** — `check`, `build`, `run`, `test` (+ `--filter`), `transpile`,
+  `fmt`, `lint`, `debug`, `prof`, `target`, `pkg`, `workspace`, `clean`,
+  `explain`, `bench`, `lsp`, `new`
+- **Self-hosting** — `kcc` is the default engine for `check/build/run/test`;
+  stage-2 == stage-3 bootstrap identity is proven bitwise identical
+- **Cross-compilation** — `karkain build --target <triple>` with honest
+  "no cross-linker" diagnostics, never a silent host fallback
+- **Runtime error model** — checked div/mod/indexing report
+  `runtime error: <kind> at <file>:<line>` with stack traces
+- **Developer tooling** — formatter, linter, LSP server, VS Code extension,
+  DWARF debug info, incremental compilation, profiling
+
+Neuro/heterogeneous work:
+
+- **AI / ML** — hand-rolled arithmetic demonstrations only (nearest
+  neighbor, linear classifier, regression, gradient descent). No tensor
+  language surface.
+- **Scientific computing / finance / security** — Newton sqrt, numerical
+  integration, statistics, matrix multiply, compound interest, loan
+  amortization, net-present value, SHA-256/SHA-512 digests, hex/Base64, UTF-8
+  round-trips. All real.
+
+## What is planned or not yet implemented
+
+| Capability | Status |
+|---|---|
+| Networking (TCP/UDP/HTTP) | Not Yet Implemented |
+| Databases | Not Yet Implemented |
+| Web framework | Not Yet Implemented |
+| Quantum language surface | Not Yet Implemented (infrastructure only) |
+| GPU/NPU kernel language surface | Not Yet Implemented from `.kark` |
+| Advanced package registry | Not Yet Implemented (local resolution + lockfiles only) |
+| Pre-built release binaries | Planned (build from source today) |
+
+## Experimental surface
+
+Experimental means *real and testable, but the surface may change*:
+
+- **Concurrency runtime** (Phase 107) — `spawn`/`join`, channels, actors.
+  Go engine only; kcc parity deferred.
+- **WASM target** (Phase 108) — `karkain build --target wasm32-wasi` emits
+  deterministic binaries; run with `wasmtime`. Go engine only.
+- **SIMD/vector types** (Phase 106) — `[N]f32`/`[N]f64`/`[N]i32`/`[N]i64`
+  with `@simd_*` builtins.
+- **Profiling & debug trace** — `karkain prof` and `karkain debug`, both
+  Go-engine instrumentation.
+
+## Example corpus
+
+`examples/` holds **46 real `.kark` programs across 15 categories** — 43
+Runnable directly, 1 test-mode, 2 Experimental, 4 Planned (README only).
+
+```bash
+karkain run examples/01_fundamentals/01_hello_world.kark
+karkain test examples/15_developer_tools/02_assertions_test.kark
+powershell -ExecutionPolicy Bypass -File scripts\verify-examples.ps1
+```
+
+Every Runnable example is pinned to a golden output on **both engines** by
+`pkg/cli/phase114_examples_test.go`. The authoritative inventory and status
+per file lives in [`examples/EXAMPLES.md`](examples/EXAMPLES.md).
+
+## Language at a glance
+
+```kark
+// Functions
+func add(a: int, b: int) -> int {
     return a + b
 }
 
-fn main() {
-    let x: int = 10
-    let y: int = 20
-    print(add(x, y))  // 30
-}
-```
-
-### Structs and Pattern Matching
-
-```karkain
-struct Point { x: float64, y: float64 }
-
-fn distance(p: &Point) -> float64 {
-    return (p.x * p.x + p.y * p.y) ^ 0.5
-}
-
-fn main() {
-    let p = Point { x: 3.0, y: 4.0 }
-    print(distance(p))  // 5.0
-}
-```
-
-### GPU Kernels
-
-```karkain
-kernel vector_add(A: *float64, B: *float64, C: *float64, N: int) {
-    let i = global_id(0)
-    if i < N {
-        C[i] = A[i] + B[i]
+// Control flow
+func classify(n: int) -> string {
+    if n < 10 {
+        return "small"
+    } else {
+        return "big"
     }
 }
 
-fn main() {
-    // Host code runs on CPU
-    // Kernel runs on GPU (auto-detected)
+// Records
+struct Counter {
+    value: int
+    owner: string
+}
+
+// Options and match
+func maybe(x: int) {
+    let o: Option<int> = Some(x)
+    match o {
+        Some(v) => println(v)
+        None => println("none")
+    }
+}
+
+func main() {
+    let c = Counter { value: 1, owner: "karkain" }
+    println(add(c.value, 41))
+    println(classify(42))
+    maybe(7)
 }
 ```
 
----
+`std.encoding` / `std.crypto` modules:
 
-## Developer Showcase
+```kark
+import std.crypto
+import std.encoding
 
-Real, validated `.kark` programs live in [`examples/showcase/`](examples/showcase/).
-Every working example below was checked and run with the real CLI on the
-default self-hosted (`kcc`) engine, and each one pins the verified output.
-
-```
-karkain check examples/showcase/<category>/<name>/main.kark
-karkain run   examples/showcase/<category>/<name>/main.kark
-```
-
-| # | Category | Status |
-|---|----------|--------|
-| 01 | Fundamentals | WORKING TODAY |
-| 02 | Algorithms | WORKING TODAY |
-| 03 | Systems | WORKING TODAY |
-| 04 | Networking | NOT CURRENTLY SUPPORTED |
-| 05 | Data | WORKING TODAY |
-| 06 | Database | NOT CURRENTLY SUPPORTED |
-| 07 | Web | NOT CURRENTLY SUPPORTED |
-| 08 | Concurrency | NOT CURRENTLY SUPPORTED |
-| 09 | AI | WORKING TODAY |
-| 10 | ML | WORKING TODAY |
-| 11 | Quantum | NOT CURRENTLY SUPPORTED |
-| 12 | Scientific Computing | WORKING TODAY |
-| 13 | Finance | WORKING TODAY |
-| 14 | Security | WORKING TODAY (non-cryptographic) |
-| 15 | Developer Tools | WORKING TODAY |
-
-Highlights: a FIFO queue, a file-processing pipeline, text statistics, vector
-math + nearest-neighbor (AI), least-squares linear regression (ML), Newton
-sqrt + trapezoid integration + deterministic Monte Carlo pi (Scientific),
-finance calculations, a non-cryptographic checksum, and a multi-file banking
-app with `karkain test` (4/4) and a `karkain fmt` demo.
-
-The showcase honestly documents real current-capability findings, including
-engines gaps: `int(string)` works only on the Go engine (not the default kcc
-engine), arrays are passed by value into functions, there is no map iteration
-API, and Networking / Database / Web / Concurrency / Quantum are not
-available today. See [`examples/showcase/README.md`](examples/showcase/README.md)
-for the full matrix and findings.
-
----
-
-## CLI Reference
-
-### Compiler Commands
-
-| Command | Description |
-|---------|-------------|
-| `karkain run <file.kark>` | Compile and run (default) |
-| `karkain build <file.kark>` | Compile to native executable |
-| `karkain transpile <file.kark>` | Generate C source (keeps .c file) |
-| `karkain check <file.kark>` | Validate syntax and semantics |
-| `karkain test <path>` | Discover and run `*_test.kark` files |
-| `karkain lsp` | Start Language Server Protocol server |
-
-### Compiler Options
-
-| Flag | Description |
-|------|-------------|
-| `-o <path>` | Output binary path |
-| `-c, --compile-only` | Keep generated C source |
-| `-g, --debug` | Debug symbols + `#line` directives |
-| `--target <triple>` | Target (native, c23, native-link, wasm32-wasi, or a triple: x86_64-windows, x86_64-linux, aarch64-linux) |
-| `--verbose` | Show token stream, AST, C code, compiler invocation |
-| `-v, --version` | Show version |
-| `-h, --help` | Show help |
-
-### Package Manager Commands
-
-| Command | Description |
-|---------|-------------|
-| `karkain pkg init [name]` | Create new project |
-| `karkain pkg add <pkg> [version]` | Add dependency |
-| `karkain pkg add <pkg> --source git --url <url>` | Git dependency |
-| `karkain pkg add <pkg> --source local --url <path>` | Local dependency |
-| `karkain pkg remove <pkg>` | Remove dependency |
-| `karkain pkg update [pkg]` | Re-resolve versions |
-| `karkain pkg upgrade` | Update all to latest compatible |
-| `karkain pkg fetch` | Download all dependencies |
-| `karkain pkg deps` | List dependencies |
-| `karkain pkg deps --tree` | Show dependency tree |
-| `karkain pkg deps --outdated` | Check for newer versions |
-| `karkain pkg search <query>` | Search package registry |
-| `karkain pkg info <pkg>` | Show package details |
-| `karkain pkg publish` | Publish to registry |
-| `karkain pkg login` | Authenticate with registry |
-| `karkain pkg logout` | Clear auth token |
-| `karkain pkg whoami` | Show current user |
-| `karkain pkg audit` | Check for vulnerabilities |
-| `karkain pkg audit --licenses` | License compatibility check |
-| `karkain pkg verify` | Verify checksums |
-| `karkain pkg cache list` | Show cached packages |
-| `karkain pkg cache clean` | Remove all cached packages |
-| `karkain pkg cache clean --stale` | Remove packages unused >30 days |
-| `karkain pkg cache path` | Show cache directory |
-| `karkain pkg workspace init` | Initialize workspace root |
-| `karkain pkg workspace add <path>` | Add member package |
-| `karkain pkg workspace build` | Build all packages |
-| `karkain pkg workspace test` | Test all packages |
-
----
-
-## Package Manager (KPM)
-
-Karkain includes a built-in package manager accessed via `karkain pkg`.
-
-### Project Structure
-
-```
-my-project/
-├── karkain.toml              # Manifest (name, version, dependencies)
-├── karkain.lock              # Lock file (pinned versions, checksums)
-├── src/
-│   ├── main.kark              # Entry point
-│   └── lib.kark               # Library modules
-├── tests/
-│   └── main_test.kark         # Test files
-└── .karkain/
-    └── cache/                # Downloaded packages
+func main() {
+    println(hex_encode(bytes("karkain")))   // 6b61726b61696e
+    println(sha256("abc"))                   // ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+}
 ```
 
-### Manifest Format (karkain.toml)
+## CLI at a glance
 
-```toml
-[package]
-name = "my-project"
-version = "1.0.0"
-author = "Your Name"
-description = "A Karkain project"
-license = "MIT"
-
-[dependencies]
-math = { version = "^1.0.0", source = "registry" }
-utils = { source = "git", url = "https://github.com/user/utils.git", tag = "v2.0" }
-helper = { source = "local", url = "../helper" }
-
-[features]
-default = ["std"]
-gpu = ["math/gpu"]
+```text
+karkain run hello.kark          # compile and run (default)
+karkain build hello.kark        # native executable
+karkain transpile hello.kark    # keep the generated C source
+karkain check hello.kark        # validate syntax + semantics
+karkain test path/              # discover *_test.kark, run, --filter
+karkain fmt hello.kark          # canonicalize formatting (--check to verify)
+karkain lint hello.kark         # full front-end analysis incl. borrow checking
+karkain debug hello.kark        # opt-in function enter/leave trace (Go engine)
+karkain prof hello.kark         # per-function counts/timings/flame-graph data (Go engine)
+karkain target                  # host triple + supported target matrix
+karkain build hello.kark --target wasm32-wasi   # WASM (needs wasmtime to run)
+karkain lsp                     # Language Server Protocol over stdio
+karkain pkg init myapp          # new project skeleton
 ```
 
-### Version Syntax
+Use `-h/--help` on any command for its full options. Exit codes: 0 success,
+1 program/failure, 2 usage, 3 compile/check error, 4 test failure, 6 missing
+toolchain, 7 lint findings.
 
-| Syntax | Meaning |
-|--------|---------|
-| `"1.2.3"` | Exact version |
-| `"^1.2.3"` | Compatible (>=1.2.3, <2.0.0) |
-| `"~1.2.3"` | Patch-level (>=1.2.3, <1.3.0) |
-| `">=1.0 <2.0"` | Range |
-| `"1.2.x"` | Wildcard |
-| `"*"` | Any version |
+## Building from source
 
----
-
-## Project Structure
-
-```
-Karkain/
-├── cmd/karkain/              # CLI entry point (main.go)
-├── pkg/
-│   ├── lexer/                # Tokenizer
-│   ├── parser/               # AST + arena allocator
-│   ├── codegen/              # C code generation + GPU/quantum emitters
-│   ├── ir/ssa/               # SSA intermediate representation
-│   ├── sema/                 # Semantic analysis (types, borrow, quantum safety)
-│   ├── pm/                   # Package manager (KPM)
-│   ├── cli/                  # CLI command handlers
-│   ├── jit/                  # JIT compilation engine + FFI
-│   ├── lsp/                  # Language Server Protocol
-│   ├── bootstrap/            # Self-hosting bootstrap
-│   ├── diagnostics/          # Error reporting
-│   ├── runtime/              # Runtime support (actors, coroutines, GPU)
-│   └── stdlib/               # Standard library (Go)
-├── src/compiler/             # Self-hosted compiler (written in .kark)
-├── stdlib/                   # Karkain standard library source
-├── std/                      # Alternative stdlib location
-├── examples/                 # Example programs (25 E2E tests)
-├── scripts/                  # Build, release, bootstrap scripts
-├── editors/                  # Editor integrations
-├── .github/workflows/        # CI/CD (GitHub Actions)
-├── go.mod                    # Go module definition
-└── README.md                 # This file
-```
-
----
-
-## Building from Source
-
-### Prerequisites
-
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| **Go** | 1.21+ | Required for compiler build |
-| **GCC** or **Clang** | Any recent | Required for compiling generated C code |
-| **MSVC** | 2019+ | Windows alternative to GCC/Clang |
-
-### Build Commands
+**Prerequisites:** Go 1.21+, a C compiler (GCC, Clang, or MSVC), Git.
 
 ```bash
 # Clone
@@ -702,217 +215,94 @@ cd Karkain
 # Build (Linux/macOS/FreeBSD)
 go build -o karkain ./cmd/karkain
 
-# Build (Windows)
+# Build (Windows PowerShell)
 go build -o karkain.exe ./cmd/karkain
 
-# Build with optimizations
-go build -ldflags="-s -w" -o karkain ./cmd/karkain
-
-# Run tests
+# Test (unit suites)
 go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1
 
-# Run E2E tests
-for f in examples/*.kark; do karkain run "$f"; done
+# Developer-preview gate
+go test ./pkg/cli/ -run TestPhase115 -count=1
+
+# Docs (Sphinx)
+python -m pip install -r docs/requirements.txt
+python -m sphinx -b html docs/source docs/build/html -W --keep-going
 ```
 
-### Using Build Scripts
+The default engine is the self-hosted `kcc` compiler. The Go front end is
+selected with `KARKAIN_ENGINE=go` or `--engine go`.
+
+## Cross-compilation
+
+`karkain build --target <triple>` compiles for a requested
+architecture/OS. Same-machine targets reuse the host C toolchain; foreign
+targets use a triple-prefixed GNU cross-gcc (then clang `--target`). Without
+a cross-linker the build fails deterministically with a diagnostic listing
+exactly what was searched — never a wrong-architecture binary.
 
 ```bash
-# Linux/macOS/FreeBSD
-./scripts/build.sh
-
-# Windows PowerShell
-.\scripts\build.ps1
+karkain build app.kark --target x86_64-windows   # native PE32+ on Windows
+karkain build app.kark --target x86_64-linux     # needs a cross-linker here
+karkain target                                   # host triple + matrix
 ```
 
----
+`karkain run --target <foreign>` is refused (cross-run needs an emulator or
+remote target). `wasm32-wasi` uses the experimental WASM backend.
 
-## Cross-Compilation
+## Project structure
 
-Karkain supports cross-compiling both the toolchain itself (Go's cross-compilation)
-and, since Phase 111, `.kark` programs to native binaries via explicit target
-triples.
-
-### Program Cross-Compilation (Phase 111)
-
-`karkain build --target <triple>` compiles a `.kark` program for a requested
-architecture/OS using a Karkain-owned target model. Same-machine targets reuse
-the host C toolchain; cross targets use a triple-prefixed GNU cross-gcc (then
-clang `--target`). If no cross-linker is installed, the build fails
-deterministically with a diagnostic listing exactly what was searched — never
-a silent host fallback and never a wrong-architecture binary.
-
-| Triple | ABI | Status on the Windows x86_64 host |
-|--------|-----|-----------------------------------|
-| `x86_64-windows` | Microsoft x64 | PASS — real PE32+ executables (machine field verified) |
-| `x86_64-linux` | System V / glibc | N/A here — no cross-linker on PATH; mechanism implemented |
-| `aarch64-linux` | System V aarch64 / glibc | N/A here — no cross-linker on PATH; mechanism implemented |
-| `wasm32-wasi` | WASI | unchanged (Phase 108 WASM backend) |
-
-Conventional long form is accepted and normalized (`x86_64-pc-windows-msvc`
-→ `x86_64-windows`). `karkain run --target <foreign>` is refused (cross-run
-needs an emulator or remote target). `karkain target` lists the host triple,
-supported matrix and target features.
-
-```bash
-karkain build examples/cross_compile/hello.kark --target x86_64-windows
-karkain build examples/cross_compile/hello.kark --target x86_64-linux    # if a cross-linker is installed
 ```
-
-### Toolchain Cross-Compilation (Go)
-
-The `karkain` executable itself is a Go program and builds for other platforms
-with standard Go cross-compilation.
-
-### Supported Toolchain Targets
-
-| Target | GOOS | GOARCH | Notes |
-|--------|------|--------|-------|
-| `windows/amd64` | windows | amd64 | Primary development target |
-| `windows/arm64` | windows | arm64 | Windows on ARM (Surface Pro X, etc.) |
-| `linux/amd64` | linux | amd64 | Primary server target |
-| `linux/arm64` | linux | arm64 | Raspberry Pi 4+, AWS Graviton |
-| `linux/armv7` | linux | arm | Raspberry Pi 3, embedded |
-| `linux/i386` | linux | 386 | Legacy 32-bit |
-| `linux/ppc64le` | linux | ppc64le | IBM POWER |
-| `linux/s390x` | linux | s390x | IBM Z |
-| `darwin/amd64` | darwin | amd64 | Intel Mac |
-| `darwin/arm64` | darwin | arm64 | Apple Silicon (M1/M2/M3/M4) |
-| `freebsd/amd64` | freebsd | amd64 | FreeBSD server |
-| `netbsd/amd64` | netbsd | amd64 | NetBSD |
-| `openbsd/amd64` | openbsd | amd64 | OpenBSD |
-| `js/wasm` | js | wasm | WebAssembly (via WASI) |
-
-### Cross-Compile the Toolchain for a Target
-
-```bash
-# Build for Linux ARM64 from any host
-GOOS=linux GOARCH=arm64 go build -o karkain-linux-arm64 ./cmd/karkain
-
-# Build for macOS Intel from Linux
-GOOS=darwin GOARCH=amd64 go build -o karkain-darwin-amd64 ./cmd/karkain
-
-# Build for FreeBSD from Linux
-GOOS=freebsd GOARCH=amd64 go build -o karkain-freebsd-amd64 ./cmd/karkain
+Karkain/
+├── cmd/karkain/         # CLI entry point
+├── pkg/
+│   ├── lexer/ parser/ sema/ codegen/ ir/ssa/
+│   ├── cli/             # command handlers + phase gates
+│   ├── pm/              # package manager (local resolution)
+│   ├── target/          # cross-compilation target model
+│   ├── wasm/            # wasm32-wasi emitter
+│   ├── compiler/        # incremental compilation cache
+│   ├── bootstrap/       # self-hosting bootstrap
+│   ├── lsp/ diagnostics/ source/ testing/ runtime/ backend/ npu/
+├── src/compiler/        # self-hosted compiler, written in .kark
+├── stdlib/              # Karkain standard library sources (.kark)
+├── conformance/         # 59 native test_* functions, both engines
+├── examples/            # 46 examples across 15 categories
+├── scripts/             # build / release / verify scripts
+├── docs/                # Sphinx documentation + phase audit reports
+├── .github/workflows/   # CI and docs publishing
+├── go.mod
+├── LICENSE
+├── CONTRIBUTING.md
+└── README.md
 ```
-
-### Release Packaging
-
-Use the release script to build all targets and create archives:
-
-```bash
-# Linux/macOS/FreeBSD
-./scripts/release.sh
-
-# Windows PowerShell
-.\scripts\release.ps1
-```
-
-This produces archives in `releases/` for all platforms.
-
----
-
-## Platform Support
-
-Karkain runs wherever Go and a C compiler are available.
-
-| Platform | Status | Notes |
-|----------|--------|-------|
-| **Windows 10/11 (amd64)** | Full | Primary development platform. MSYS2 GCC or MSVC. |
-| **Windows (arm64)** | Full | Surface Pro X, Snapdragon laptops. |
-| **Ubuntu 20.04+ (amd64)** | Full | `apt install gcc build-essential` |
-| **Ubuntu (arm64)** | Full | Raspberry Pi 4, AWS Graviton. |
-| **Debian 11+ (amd64)** | Full | Stable server deployment. |
-| **Fedora 38+ (amd64)** | Full | `dnf install gcc` |
-| **RHEL/CentOS 9+ (amd64)** | Full | Enterprise server. |
-| **Arch Linux (amd64)** | Full | `pacman -S gcc` |
-| **macOS 12+ (Apple Silicon)** | Full | M1/M2/M3/M4. Xcode CLI tools. |
-| **macOS 12+ (Intel)** | Full | Xcode CLI tools. |
-| **FreeBSD 13+ (amd64)** | Full | `pkg install gcc` |
-| **NetBSD 10+ (amd64)** | Full | `pkgin install gcc` |
-| **OpenBSD 7+ (amd64)** | Full | `pkg_add gcc` |
-| **Alpine Linux (amd64)** | Full | `apk add gcc musl-dev` |
-| **Docker (any)** | Full | Multi-stage build supported. |
-| **WASM (wasm32-wasi)** | Partial | Compile-only, no runtime execution yet. |
-
-### Runtime Requirements
-
-| Component | Required? | Purpose |
-|-----------|-----------|---------|
-| **Go 1.21+** | Build only | Compiles the Karkain compiler itself |
-| **GCC/Clang/MSVC** | Runtime | Compiles generated C code to machine code |
-| **GMP library** | Optional | Arbitrary precision arithmetic (`-lgmp` when compiling manually) |
-| **Git** | Optional | Package manager git dependencies |
-| **curl/wget** | Optional | Package manager registry access |
-
----
 
 ## Roadmap
 
-### Current Progress
+See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–79+,
+with 79–115 delivered). The current milestone is **115 — Developer Preview
+Readiness**.
 
-| Phase | Status |
-|-------|--------|
-| 50: Bug fixes & correctness | Done |
-| 51: Borrow checker lexical scoping | Done |
-| 52: Value-by-value runtime API | Done |
-| 53: SSA IR infrastructure | Done |
-| 54: Closure & capture semantics | Done |
-| 55: String & slice types | Done |
-| 55b: Deep equality, checked arithmetic | Done |
-| 55c: HTTP ifdef, AST line tracking, `#line` | Done |
-| 55d: KPM package manager | Done |
-| 56: Self-Hosting Compiler | In Progress |
-| 57: Actor & Concurrency Runtime | Done |
-| 58: GPU Kernel Integration | Done |
-| 59: Quantum Pipeline | Done |
-| 60: Standard Library | Done |
-| 62: Diagnostics | Done |
-| 63: Full Borrow Checker + Ownership | Done |
-| 64-67: IR Optimizer + Toolchain | Done |
-| 68: Self-Hosting Completion (INDEPENDENCE) | In Progress |
-| 69: Ecosystem Hardening + v1.0 | Done |
-| 70: SIMD Vector Types & Atomics | Done |
-| 71: Math IR Foundation | Done |
-| 72: Tensor IR Foundation | Done |
-| 73: CPU Reference Backend | Done |
-| 74: Autodiff Integration | Done |
-| 75: Backend Abstraction | Done |
-| 76: GPU/WGSL Backend | Done |
-| 77: NPU Abstraction + Vendor Adapters | Done |
-| 78: NPU Optimization | Done |
-| 79: Compiler Integrity / IR Architecture / Self-Hosting Readiness Audit | Done |
-| 83: Enhanced Diagnostic & Warning Foundation | Done |
-
-### INDEPENDENCE Milestone
-
-The ultimate goal: `karkain` compiles `.kark` source including its own compiler source, with zero dependency on any other language's toolchain.
-
-```
-karkain build src/compiler/main.kark  # Karkain compiles itself
-```
-
----
+High-level status today: the compiler is self-hosted, byte-identical on two
+engines, and the standard library, toolchain and example corpus are real —
+but networking, databases, web, quantum, GPU/NPU language surfaces, and the
+package registry are `Planned`/`Not Yet Implemented`. There is intentionally
+**no production-ready claim** yet.
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make changes
-4. Run tests: `go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1`
-5. Ensure E2E passes: `for f in examples/*.kark; do karkain run "$f"; done`
-6. Submit a pull request
+Feedback and contributions are welcome. Start with
+[CONTRIBUTING.md](CONTRIBUTING.md), then:
 
----
+1. Fork the repository.
+2. Create a feature branch off `develop`.
+3. Build and test:
+   `go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1`
+4. Submit a pull request (PRs are reviewed on the `develop` branch).
+
+Report bugs and feature requests at
+[https://github.com/ajit-ai/Karkain/issues](https://github.com/ajit-ai/Karkain/issues).
 
 ## License
 
-MIT License
-
----
-
-## Links
-
-- **Repository**: https://github.com/ajit-ai/Karkain
-- **Releases**: https://github.com/ajit-ai/Karkain/releases
-- **Issues**: https://github.com/ajit-ai/Karkain/issues
+MIT — see [LICENSE](LICENSE). In short: use it, modify it, ship it; the
+software is provided "as is" without warranty.

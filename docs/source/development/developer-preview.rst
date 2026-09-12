@@ -60,9 +60,13 @@ standard library and a concrete cross-compilation story. The toolchain
 delivers value on the features it documents as ``:implemented:``, and it
 labels everything else honestly so you know exactly what you are getting.
 
-The next milestones — Phase 114 (example corpus validation), advanced
-package registry and production readiness — will expand the working surface
-and harden the guarantees around it.
+The current milestone is **Phase 115 — Developer Preview Readiness**: the
+project's public status is **🚀 Karkain Developer Preview**, with repository
+integrity files (``README``, ``CONTRIBUTING``, ``CODE_OF_CONDUCT``,
+``LICENSE``), release notes, a fresh-checkout validation gate and an honest
+feature matrix. Beyond it, the advanced package registry and production
+readiness will expand the working surface and harden the guarantees around
+it.
 
 .. seealso::
 

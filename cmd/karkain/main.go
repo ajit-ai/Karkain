@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-const versionString = "Karkain Compiler v1.0.0 (%s/%s, LSP Engine & IDE Tooling)\n"
+const versionString = "Karkain Compiler v0.115.0 (%s/%s, Developer Preview Build)\n"
 
 func printVersion() {
 	fmt.Printf(versionString, runtime.GOOS, runtime.GOARCH)
@@ -1456,6 +1456,17 @@ func main() {
 
 	if err := cli.ValidateKarFile(targetFile); err != nil {
 		fmt.Println(err)
+		os.Exit(cli.ExitUsage)
+	}
+
+	// Developer Preview UX: a missing input file is a usage error with a
+	// clear message, not a raw os.File error surfaced as a program failure.
+	if _, statErr := os.Stat(targetFile); statErr != nil {
+		if os.IsNotExist(statErr) {
+			fmt.Printf("Error: cannot open '%s': file not found\n", targetFile)
+			os.Exit(cli.ExitUsage)
+		}
+		fmt.Printf("Error: cannot access '%s': %v\n", targetFile, statErr)
 		os.Exit(cli.ExitUsage)
 	}
 

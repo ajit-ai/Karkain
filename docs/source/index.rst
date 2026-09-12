@@ -17,6 +17,13 @@ cross-compile.
    are **not yet implemented**. Nothing on this site describes hypothetical
    features as available. Every advanced capability states its real status.
 
+   Public status: **🚀 Karkain Developer Preview** (``karkain --version`` →
+   ``Karkain Compiler v0.115.0 (... Developer Preview Build)``). See
+   :doc:`release-notes` and :doc:`development/developer-preview`.
+
+   Feedback: open an issue at
+   https://github.com/ajit-ai/Karkain/issues.
+
 -----------
 
 Quick tour
@@ -106,6 +113,7 @@ The documentation is organized in three layers.
 
    status/index
    reference/index
+   release-notes
 
 ----------------
 
