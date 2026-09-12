@@ -1,6 +1,13 @@
 Developer Preview
 =================
 
+.. note::
+
+   This page documents the Developer Preview capability summary (Phases
+   113–116). It is superseded by the Beta 1 assessment — see
+   :doc:`/status/beta` for the current public status and the Beta 1 stable
+   core.
+
 Karkain is a **working compiler and language with tested capabilities**.
 This page is an honest summary of what works today and what does not.
 
@@ -60,12 +67,13 @@ standard library and a concrete cross-compilation story. The toolchain
 delivers value on the features it documents as ``:implemented:``, and it
 labels everything else honestly so you know exactly what you are getting.
 
-The current milestone is **Phase 115 — Developer Preview Readiness**: the
-project's public status is **🚀 Karkain Developer Preview**, with repository
-integrity files (``README``, ``CONTRIBUTING``, ``CODE_OF_CONDUCT``,
-``LICENSE``), release notes, a fresh-checkout validation gate and an honest
-feature matrix. Beyond it, the advanced package registry and production
-readiness will expand the working surface and harden the guarantees around
+The current milestone is **Phase 117 — Beta 1 Readiness & Hardening**: the
+project's public status is **🧪 Karkain Beta 1**, with a defined stable core,
+Go/kcc parity hardening, parse-error and semantic build/run gating, numeric
+error-code documentation, stdlib edge-case gates, a fresh-checkout validation
+script and an honest Beta scorecard. Beyond it, the advanced package registry
+and production readiness will expand the working surface and harden the
+guarantees around
 it.
 
 .. seealso::

@@ -4,7 +4,7 @@ Thanks for your interest in Karkain! This guide explains how the project is
 organized, how to run the toolchain and its tests, and the conventions you
 must follow before your contribution can land.
 
-Karkain is **Developer Preview** software. Every contribution is expected to
+Karkain is **Beta 1** software. Every contribution is expected to
 respect the honesty rules documented in `docs/source/status/index.rst`:
 never claim a feature works unless it is verified by an automated gate.
 

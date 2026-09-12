@@ -6,7 +6,8 @@ Karkain is distributed as pre-compiled binaries and built from source.
 
 .. note::
 
-   Karkain is **Developer Preview** software. APIs may change between releases.
+   Karkain is **Beta 1** software. The Beta stable core is regression-gated;
+   experimental surfaces may change between releases.
 
 Pre-compiled binaries
 =====================

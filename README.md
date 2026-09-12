@@ -1,6 +1,6 @@
 # Karkain
 
-> **🚀 Developer Preview** — Karkain is a working compiler and language, not an
+> **🧪 Karkain Beta 1** — Karkain is a working compiler and language, not an
 > empty roadmap. Everything labeled Implemented below is verified by automated
 > gates through the real CLI. Everything else is honestly labeled
 > `Planned` / `Not Yet Implemented`.
@@ -15,7 +15,7 @@ host C compiler (GCC/Clang/MSVC) for final machine code.
 [`docs/source/status/index.rst`](docs/source/status/index.rst) governs every
 claim in this project — a feature is `Implemented` only when an automated
 gate test exercises it through the real pipeline. See the
-[capability summary](docs/source/development/developer-preview.rst).
+[capability summary](docs/source/status/beta.rst).
 
 ## Quick Start
 
@@ -25,7 +25,7 @@ Karkain builds from source with Go 1.21+ and any C compiler.
 git clone https://github.com/ajit-ai/Karkain.git
 cd Karkain
 go build -o karkain ./cmd/karkain        # Windows: go build -o karkain.exe ./cmd/karkain
-./karkain --version                      # Karkain Compiler v0.115.0 (..., Developer Preview Build)
+./karkain --version                      # Karkain Compiler v0.117.0 (..., Beta 1 Build)
 ```
 
 Write your first program:
@@ -279,14 +279,14 @@ Karkain/
 ## Roadmap
 
 See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–79+,
-with 79–115 delivered). The current milestone is **115 — Developer Preview
-Readiness**.
+with 79–117 delivered). The current milestone is **117 — Beta 1 Readiness &
+Hardening**.
 
 High-level status today: the compiler is self-hosted, byte-identical on two
-engines, and the standard library, toolchain and example corpus are real —
-but networking, databases, web, quantum, GPU/NPU language surfaces, and the
-package registry are `Planned`/`Not Yet Implemented`. There is intentionally
-**no production-ready claim** yet.
+engines, and the standard library, toolchain and example corpus are real and
+regression-gated — but networking, databases, web, quantum, GPU/NPU language
+surfaces, and the package registry are `Planned`/`Not Yet Implemented`. There
+is intentionally **no production-ready claim** yet.
 
 ## Contributing
 

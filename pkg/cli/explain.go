@@ -28,6 +28,25 @@ var errorRegistry = []explanation{
 	{string(diagnostics.CodeCodegen), "Code-generation/backend error: the front end accepted the program but a backend could not emit or compile it.", "Check the target (--target) and target-specific restrictions. Codegen is Karkain-owned; report backend errors with the failing construct."},
 	{string(diagnostics.CodePackage), "Package/dependency integration error during build: a manifest dependency could not be resolved into sources.", "Run karkain update to re-resolve the lockfile, verify the dependency source is reachable, and confirm version constraints."},
 	{string(diagnostics.CodeEnv), "Infrastructure error: a required external tool (C compiler, linker, filesystem path) is missing or unusable.", "Install a supported C compiler (GCC, Clang, or MSVC) and make it reachable from PATH, then retry."},
+	{string(diagnostics.CodeK001), "Syntax error from the lexer or parser (numeric form of E-K-SYN): the source does not conform to the Karkain grammar.", "Inspect the reported line/column and the caret. Balance braces and parentheses, quote strings, and only use tokens the grammar recognizes."},
+	{string(diagnostics.CodeK002), "Name-resolution error (numeric form of E-K-RES): an undefined function reference, a duplicate top-level definition, or access to a private function from another file.", "Define the referenced name exactly once, or remove the duplicate definition. Mark names public when they must be callable across files."},
+	{string(diagnostics.CodeK003), "Borrow-checking violation (numeric form of E-K-BRW): a value is used after its owning scope ends, or reborrows would alias live references.", "Restrict the value's use to its declaring scope, or copy the data you need. The borrow checker reports the offending references and their scopes."},
+	{string(diagnostics.CodeK004), "Semantic-analysis error (numeric form of E-K-SEM): invalid kernel/actor/coroutine/quantum declarations or an unknown @target attribute.", "Follow the declaration rules the message cites: unique actor names and handlers, valid coroutine and quantum operations, and @target values in {cpu, npu}."},
+	{string(diagnostics.CodeK005), "Type-checking error (numeric form of E-K-TYP): a value or operation does not match its expected type.", "Match operand types to the operation (numbers vs strings vs arrays), and align every branch of a conditional."},
+	{string(diagnostics.CodeK006), "Code-generation/backend error (numeric form of E-K-CG): the front end accepted the program but a backend could not emit or compile it.", "Check the target (--target) and target-specific restrictions. Codegen is Karkain-owned; report backend errors with the failing construct."},
+	{string(diagnostics.CodeK007), "Package/dependency integration error during build (numeric form of E-K-PKG): a manifest dependency could not be resolved into sources.", "Run karkain update to re-resolve the lockfile, verify the dependency source is reachable, and confirm version constraints."},
+	{string(diagnostics.CodeK008), "Infrastructure error (numeric form of E-K-ENV): a required external tool (C compiler, linker, filesystem path) is missing or unusable.", "Install a supported C compiler (GCC, Clang, or MSVC) and make it reachable from PATH, then retry."},
+	{string(diagnostics.CodeK100), "Warning (numeric form of W-K-UNUSED): a `let`/`var` name is declared in a function but never read. Warnings do not stop compilation.", "Drop the declaration, or read/inspect the variable somewhere before the function ends."},
+	{"K101", "Self-hosted (kcc) checker: call to an undefined function — no function of that name is declared in the program.", "Define the function, or fix the spelling so the call matches an existing function or builtin."},
+	{"K102", "Self-hosted (kcc) checker: read of an undefined identifier — no variable/parameter of that name is in scope.", "Declare the name before using it, or fix the spelling to match a name that exists in the current scope."},
+	{"K103", "Self-hosted (kcc) checker: function/kernel arity mismatch — a call passes a different number of arguments than the definition declares.", "Pass exactly the declared number of arguments, or change the definition to match the call site."},
+	{"K104", "Self-hosted (kcc) checker: builtin arity mismatch — a language/standard builtin received the wrong number of arguments.", "Pass the builtin's documented argument count."},
+	{"K106", "Self-hosted (kcc) checker: struct literal uses an undefined type name.", "Define the struct, or fix the type name used in the literal."},
+	{"K107", "Self-hosted (kcc) checker: duplicate top-level definition — a function or type is declared more than once.", "Keep exactly one declaration of the name at top level."},
+	{"K108", "Self-hosted (kcc) checker: `break` or `continue` appears outside of any loop.", "Move the `break`/`continue` inside a loop body, or remove it."},
+	{"K109", "Self-hosted (kcc) checker: a type name is being called as a function.", "Do not call type names directly; construct values through the supported literal/constructor forms."},
+	{"K112", "Self-hosted (kcc) checker: a variable's declared primitive annotation does not match the type of its initializer.", "Make the annotation and initializer agree (int/float/bool/string vs the inferred value type)."},
+	{"K113", "Self-hosted (kcc) checker: reassignment of a constant (`const`) name.", "Declare the name with `let`/`var` if it must be reassigned, or keep it constant."},
 	{string(diagnostics.CodeWarnUnused), "Warning: a `let`/`var` name is declared in a function but never read. Warnings do not stop compilation; they flag dead data so the declaration can be removed.", "Drop the declaration, or read/inspect the variable somewhere before the function ends. Write-only variables (assigned but never read) are reported for the same reason."},
 	{string(kpkg.ErrGitNotFound), "A git dependency did not resolve to a repository source.", "Check the dependency URL and network access, then re-run karkain update."},
 	{string(kpkg.ErrGitClone), "Cloning a git dependency failed.", "Verify the repository exists, is reachable, and the working directory is writable."},
@@ -64,10 +83,9 @@ func ExplainCommand(code string) CommandResult {
 		fmt.Println("Run 'karkain --help' for available commands")
 		return CommandResult{ExitCode: ExitUsage, Message: ""}
 	}
-	if !strings.ContainsAny(code, "-") {
-		fmt.Printf("Error: '%s' is not a valid error code (expected a code like E-K-SYN or E-PKG-LOCK)\n", code)
-		return CommandResult{ExitCode: ExitUsage, Message: ""}
-	}
+	// Phase 117: accept every registered code shape — the dashed forms
+	// (E-K-SYN, E-PKG-LOCK) and the numeric forms (K001, K101, K113) are all
+	// legitimate; only an entirely unrecognized token is rejected below.
 	text, ok := explainCode(code)
 	if !ok {
 		fmt.Printf("Error: unknown error code '%s'\n", strings.ToUpper(code))

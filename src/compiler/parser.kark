@@ -636,9 +636,14 @@ func parseWhile(state) {
     let line = psLine(state)
     psAdvance(state) // consume 'while'
 
-    if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
+    // Phase 117: mirror parseIf — the condition may be parenthesized or bare
+    // (`while x < n { ... }`), and a soon-to-be body '{' must not be absorbed
+    // as a struct/map literal continuation of the condition expression. The
+    // flag is cleared inside '(' groups so parenthesized struct literals keep
+    // working, exactly as in parseIf.
+    setPsNoStructAtBrace(state, 1)
     let cond = parseExpr(state)
-    if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    setPsNoStructAtBrace(state, 0)
 
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
     let body = parseBlock(state)
