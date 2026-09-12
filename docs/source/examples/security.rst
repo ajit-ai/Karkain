@@ -1,35 +1,57 @@
-:orphan:
-
 Security
 ========
 
-:not-implemented:`Not Yet Implemented` — with one real exception.
+:implemented:`Implemented` — safe, educational security examples live under
+``examples/14_security/`` and run byte-identically on both engines. All data
+is synthetic; digests are verified against the published NIST FIPS 180
+vectors.
 
-What exists today
------------------
+The surface used is the real, importable ``std.crypto`` and ``std.encoding``
+modules — no fabricated cryptographic APIs. See
+:doc:`/stdlib/crypto` and :doc:`/stdlib/encoding`.
 
-* :implemented:`Implemented` — **``std.crypto``** (Phase 109): ``sha256()``
-  and ``sha512()`` digests, validated byte-for-byte against NIST FIPS 180
-  vectors on **both** engines. See :doc:`/stdlib/crypto`.
-* :implemented:`Implemented` — **``std.encoding``**: hex and Base64 codecs
-  (RFC 4648), useful for digest formatting.
+.. list-table:: examples/14_security/
+   :widths: 30 70
+   :header-rows: 1
 
-Everything broader — symmetric/asymmetric ciphers, MACs/HMACs, secure random
-number generation, key management, TLS — is **not implemented**. Karkain
-ships no cryptographic primitives beyond the two SHA-2 digests.
+   * - File
+     - Demonstrates
+   * - ``01_digests.kark``
+     - ``sha256`` / ``sha512`` against NIST test vectors
+   * - ``02_encoding_roundtrip.kark``
+     - RFC 4648 hex / base64 round-trips
+   * - ``03_password_hash.kark``
+     - Educational salt + sha256 demonstration (deliberately **not** a KDF)
+   * - ``04_utf8_text.kark``
+     - UTF-8 encode / decode / validate with a non-ASCII string
 
-Planned
--------
+Digest check (excerpt)
+----------------------
 
-:planned:`Planned` — design intentions, not APIs. No cipher, MAC, KDF, RNG
-or TLS surface exists.
+.. code-block:: kark
 
-* Broader security/crypto APIs (the roadmap's security track).
-* Examples will be added as capabilities are implemented; Phase 114 will
-  populate this category with validated programs once the surface exists.
+   import std.crypto
+
+   func main() {
+       print(sha256("abc"))
+       print(sha256(""))
+       print(sha512("abc"))
+   }
+
+Expected output (verified against NIST):
+
+.. code-block:: text
+
+   ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+   e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+   ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a…
+   2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f
+
+.. note::
+
+   Malformed hex/base64 input raises the same source-located runtime error on
+   both engines (``runtime error: invalid (hex|base64) string at file:line``).
 
 .. seealso::
 
-   :doc:`/stdlib/crypto` — the implemented digest surface.
-   :doc:`/stdlib/encoding` — the implemented hex/Base64 codecs.
-   :doc:`/status/planned` — the planned-feature register.
+   :doc:`/stdlib/index` — the implemented standard-library modules.

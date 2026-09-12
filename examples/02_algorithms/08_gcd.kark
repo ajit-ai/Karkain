@@ -1,0 +1,26 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 02 Algorithms
+//
+// Greatest common divisor via Euclid's algorithm (recursion).
+//
+// Run:  karkain run examples/02_algorithms/08_gcd.kark
+
+func gcd(a, b) {
+    if (b == 0) {
+        return a
+    }
+    return gcd(b, a % b)
+}
+
+func lcm(a, b) {
+    return a / gcd(a, b) * b
+}
+
+func main() {
+    print(gcd(48, 18))
+    print(gcd(17, 5))
+    print(gcd(100, 40))
+    print(lcm(4, 6))
+    print(lcm(21, 6))
+}

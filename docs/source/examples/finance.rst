@@ -1,25 +1,52 @@
-:orphan:
-
 Finance
 =======
 
-:not-implemented:`Not Yet Implemented`
+:implemented:`Implemented` — financial numerics on **synthetic data only**
+live under ``examples/13_finance/`` and run byte-identically on both engines.
+Nothing here stores real financial data or connects to any external system.
 
-There is **no finance API** in Karkain today: no decimal money type, no
-interest/annuity/volatility library, no market-data access. Financial
-formulas can be written as plain arithmetic (compounding, averages, ratios)
-but nothing on this page describes a finance framework as available.
+.. list-table:: examples/13_finance/
+   :widths: 30 70
+   :header-rows: 1
 
-Planned
--------
+   * - File
+     - Demonstrates
+   * - ``01_compound_interest.kark``
+     - Integer-penny compounding, year by year
+   * - ``02_loan_amortization.kark``
+     - Annuity payment via iterated discount factor (no ``pow`` needed)
+   * - ``03_npv.kark``
+     - Net present value of a discounted cash-flow stream
+   * - ``04_portfolio.kark``
+     - Weighted-average portfolio returns with exact integer weights
 
-:planned:`Planned` — design intention only. No APIs exist.
+Compound interest (excerpt)
+---------------------------
 
-* A finance-focused surface (and examples) is planned.
-* Examples will be added when the capability is implemented; this page is a
-  placeholder documenting the gap honestly, per the Phase 113 framework.
+.. code-block:: kark
+
+   func compound(start, years, percent) {
+       let amount = start
+       let year = 0
+       while (year < years) {
+           amount = amount + amount * percent / 100
+           year = year + 1
+       }
+       return amount
+   }
+
+Run:
+
+.. code-block:: console
+
+   $ karkain run examples/13_finance/01_compound_interest.kark
+
+.. note::
+
+   Float output prints at 6 significant figures on both engines; where
+   exactness matters the examples use integer cents.
 
 .. seealso::
 
-   :doc:`/status/planned` — the planned-feature register.
-   :doc:`/status/index` — the status vocabulary used on this site.
+   :doc:`/examples/security` — hashing and encoding used alongside finance
+   demos in real applications.

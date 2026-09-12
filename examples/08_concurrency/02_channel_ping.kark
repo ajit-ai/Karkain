@@ -1,0 +1,35 @@
+// Status: Experimental
+// Engine: go (kcc parity for concurrency is a documented post-107 boundary)
+// Category: 08 Concurrency
+//
+// Channel ping-pong: a producer task streams a bounded sequence, the main
+// task reads the known number of messages off the channel. The runtime
+// drains remaining messages deterministically after close, so a fixed-count
+// read is the safe pattern.
+//
+// Run:  karkain run examples/08_concurrency/02_channel_ping.kark --engine go
+
+func producer(ch) {
+    let i = 0
+    while (i < 5) {
+        chanSend(ch, i * 2)
+        i = i + 1
+    }
+    chanClose(ch)
+}
+
+func main() {
+    let ch = channel()
+    spawn(producer, ch)
+
+    let got = []
+    let i = 0
+    while (i < 5) {
+        push(got, receive(ch))
+        i = i + 1
+    }
+    print(len(got))
+    print(got[0])
+    print(got[4])
+    wait_all()
+}

@@ -1,47 +1,74 @@
-:orphan:
-
 Concurrency
 ===========
 
-:experimental:`Experimental` — **partially implemented.**
+:experimental:`Experimental` — concurrency is **partially implemented**: the
+Phase 107 runtime (work-stealing scheduler, tasks, channels, actors) works
+end-to-end through the **Go front end only**. The default ``kcc`` engine has
+parser/sema support for the keywords but no codegen parity yet, so these
+examples must run with ``--engine go``.
 
-The Phase 107 concurrency runtime exists and is real:
+Corpus: ``examples/08_concurrency/``
 
-* **Work-stealing task scheduler** — ``spawn(fn, args...)``,
-  ``join(task)``, ``wait_all()``.
-* **Channels** — ``channel()``, ``chanSend(ch, v)``, ``chanClose(ch)``,
-  ``receive(ch)`` with deterministic close-drain.
-* **Actors** — ``actor(handler, state)``, ``actorSend``, ``actorState``,
-  ``setActorState``, ``actorStop``.
+.. list-table:: examples/08_concurrency/
+   :widths: 32 68
+   :header-rows: 1
 
-A validated example lives at ``examples/concurrency/pipeline/main.kark``
-(see :doc:`/examples/systems`), with gate tests in
-``pkg/runtime/phase107_concurrency_test.go``,
-``pkg/codegen/phase107_concurrency_test.go`` and
-``pkg/cli/phase107_concurrency_test.go``.
+   * - File
+     - Demonstrates
+   * - ``01_parallel_sum.kark``
+     - Work-grid: ``spawn`` one task per lane, ``join`` each result,
+       accumulate (Σ 0²…9² = 285)
+   * - ``02_channel_ping.kark``
+     - Producer task streams messages over a channel; fixed-count reads with
+       deterministic close-drain
 
-Honest boundaries
------------------
+Parallel sum (excerpt)
+----------------------
 
-* The concurrency language surface is **Go-engine only**. The self-hosted
-  ``kcc`` engine lexes and parses the keywords (``spawn``, ``send``,
-  ``receive``, ``channel``, ``actor``) but kcc codegen parity is deferred.
-  Run concurrency programs with ``karkain run --engine go`` or
-  ``KARKAIN_ENGINE=go``.
-* The runtime is single-process; actors and tasks share one scheduler and
-  communicate through channels/mailboxes only.
-* No WASM concurrency: the ``wasm32-wasi`` target is single-threaded.
+.. code-block:: kark
 
-Planned
--------
+   func square(i) {
+       return i * i
+   }
 
-:planned:`Planned` — the following are intentions, not commitments:
+   func main() {
+       let tasks = []
+       let n = 0
+       while (n < 10) {
+           push(tasks, spawn(square, n))
+           n = n + 1
+       }
+       let total = 0
+       let i = 0
+       while (i < len(tasks)) {
+           total = total + join(tasks[i])
+           i = i + 1
+       }
+       print(total)
+       wait_all()
+   }
 
-* kcc-engine parity for the concurrency language surface.
-* More example categories will be populated in Phase 114 once the parity
-  boundary is resolved.
+Expected output (verified): ``285`` on repeated runs.
+
+Run them through the Go engine:
+
+.. code-block:: console
+
+   $ karkain run examples/08_concurrency/01_parallel_sum.kark --engine go
+   $ karkain run examples/08_concurrency/02_channel_ping.kark --engine go
+
+Why experimental
+----------------
+
+* Concurrency runs only on the Go front end; ``kcc`` codegen parity is a
+  documented post-107 boundary.
+* Scheduler events are timing-dependent at the machine level (worker count,
+  steal order), so only join-serialized or close-drain-deterministic output
+  is pinned by gates.
 
 .. seealso::
 
-   :doc:`/language/concurrency` — the language surface reference.
+   :doc:`/language/concurrency` — the language surface and runtime
+   semantics.
    :doc:`/status/experimental` — why this is labeled experimental.
+   :doc:`/examples/systems` — the concurrency pipeline demo.

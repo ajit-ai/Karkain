@@ -1,36 +1,49 @@
-:orphan:
-
 Machine Learning
 ================
 
-:not-implemented:`Not Yet Implemented`
+:implemented:`Implemented` — as hand-rolled numeric examples in ordinary
+Karkain arithmetic under ``examples/10_machine_learning/``, byte-identical on
+both engines.
 
-There is **no machine-learning language surface** in Karkain today. Tensors,
-autodiff and neural networks are planned, and a Math/Tensor IR chain exists
-internally (Phases 71–78 build ``pkg/math``, ``pkg/tensor`` and the
-CPU/GPU/NPU backend abstraction), but none of it is exposed to ``.kark``
-programs. Nothing on this page describes an ML API as available.
+The honest label matters here: Karkain has **no tensor types, no autodiff, no
+ML framework callable from ``.kark``**. The matrix/vector machinery built in
+Phases 71–78 exists as compiler/backend infrastructure, not as a language
+surface. These examples instead implement two classic learning algorithms
+with plain floats, arrays and loops — which is exactly the kind of program a
+Developer Preview user should be able to write today.
 
-What exists today
------------------
+.. list-table:: examples/10_machine_learning/
+   :widths: 30 70
+   :header-rows: 1
 
-* Closed-form / direct numeric fitting works in plain Karkain (e.g. a
-  least-squares fit), because that is arithmetic and statistics, not an ML
-  framework.
-* The Math/Tensor IR and backends are Go-package internals — there is no
-  language-level type, keyword, or builtin for them.
+   * - File
+     - Demonstrates
+   * - ``01_linear_regression.kark``
+     - Closed-form ordinary least squares over a synthetic point set
+   * - ``02_gradient_descent.kark``
+     - Iterative loss minimization over a convex 1-D surface
 
-Planned
--------
+Linear regression (excerpt)
+---------------------------
 
-:planned:`Planned` — design intentions, not APIs:
+.. code-block:: kark
 
-* Tensors, autodiff and neural-network runtime reachable from ``.kark``.
-* Examples will be added when the capability is implemented; Phase 114 will
-  populate this category with validated programs once the surface exists.
+   func main() {
+       let xs = [1.0, 2.0, 3.0, 4.0]
+       let ys = [2.0, 4.0, 6.0, 8.0]
+       ...
+   }
+
+Legend: ``0.9 / 1.3 / 6.7`` pins the learned slope, intercept and a
+prediction for the synthetic fit.
+
+Run:
+
+.. code-block:: console
+
+   $ karkain run examples/10_machine_learning/01_linear_regression.kark
 
 .. seealso::
 
-   :doc:`/examples/ai` — the adjacent planned category.
-   :doc:`/status/planned` — the planned-feature register.
-   :doc:`/development/architecture` — where the internal IR/backends live.
+   :doc:`/examples/ai` — nearest-neighbour and linear-classifier geometry.
+   :doc:`/development/roadmap` — where a real ML surface may land.
