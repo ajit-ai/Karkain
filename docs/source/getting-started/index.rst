@@ -9,6 +9,7 @@ Everything a new developer needs to start using Karkain.
 
    installation
    first-program
+   first-project
    build
    run
    test
@@ -17,6 +18,7 @@ Everything a new developer needs to start using Karkain.
    project-layout
    modules
    dependencies
+   workspace
    workflow
 
 Quick paths

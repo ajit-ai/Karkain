@@ -158,6 +158,49 @@ On Windows with PowerShell:
    go build ./cmd/karkain
    .\karkain.exe --version
 
+Verified install script
+=======================
+
+The repository ships deterministic install scripts that build, install and
+smoke-test the toolchain with explicit exit codes:
+
+.. code-block:: powershell
+
+   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+   powershell -ExecutionPolicy Bypass -File scripts\verify-install.ps1
+
+   # Linux / macOS (bash)
+   ./scripts/install.sh
+
+The scripts verify prerequisites (Go 1.21+ and a C compiler), build
+``karkain`` into the prefix (``$LOCALAPPDATA\Karkain`` on Windows,
+``$HOME/.local/karkain`` elsewhere), check ``karkain --help`` and compile +
+run ``hello.kark``. Exit codes are deterministic: ``0`` success, ``1``
+missing prerequisite, ``2`` build failure, ``3`` installation smoke-test
+failure.
+
+.. _installation-minimum-environment:
+
+Minimum practical development environment
+=========================================
+
+The compiler itself is lightweight, but two parts of the ecosystem have real
+resource needs:
+
+* **Building the full test suite** — running every ``pkg/cli`` gate
+  concurrently can exhaust machines with very limited RAM. On memory-constrained
+  hosts (about 4 GB or less of usable RAM), run the CLI gates
+  **sequentially or batched by phase** (e.g. ``go test ./pkg/cli/ -run
+  'TestPhase11[45678]'``), not ``go test ./pkg/cli/ -count=1`` all at once.
+  This is a documented environmental behavior, not a toolchain defect.
+* **Full ``kcc`` *build* mode** — transpiling the compiler's own sources with
+  ``kcc build`` can stall on very limited hosts; the low-memory ``kcc check``
+  path works everywhere. See :doc:`/status/beta`.
+
+The recommended practical setup is a machine with at least 4 GB of RAM and a
+recent Go toolchain; single-program ``check``/``build``/``run`` work fine
+well below that.
+
 Runtime requirements
 ====================
 

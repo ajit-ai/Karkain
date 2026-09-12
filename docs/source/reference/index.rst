@@ -18,6 +18,7 @@ For a tutorial-oriented introduction, see :doc:`/language/index`.
    syntax
    operators
    keywords
+   stable-api
    types
    diagnostics
    compatibility

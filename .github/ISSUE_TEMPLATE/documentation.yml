@@ -1,0 +1,31 @@
+name: Documentation Issue
+description: Report a problem with the Karkain documentation site (docs/).
+labels: ["docs"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Issue type
+      options:
+        - Missing page or section
+        - Incorrect or stale content
+        - Broken link
+        - Unclear explanation
+        - Search / navigation problem
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Affected page
+      description: URL or `docs/` path of the page, if known
+      placeholder: "docs/source/getting-started/first-program.rst"
+    validations:
+      required: false
+  - type: textarea
+    id: details
+    attributes:
+      label: Description
+      description: What is wrong, missing, or confusing? Quote the stale text if possible.
+    validations:
+      required: true

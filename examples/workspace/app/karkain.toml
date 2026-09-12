@@ -1,0 +1,6 @@
+name = "app"
+version = "1.0.0"
+description = "Application member that consumes the sibling library member"
+
+[dependencies]
+library = { version = "1.0.0", source = "workspace", url = "library" }
