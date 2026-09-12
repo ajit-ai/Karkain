@@ -1,7 +1,14 @@
 Beta 1
 ======
 
-Karkain Beta 1 is the first release focused on making the *implemented*
+.. note::
+
+   This page is the **historical** Beta 1 capability assessment (Phases
+   117–118). The current public label is **Karkain 1.0.0 (Stable)** — see
+   :doc:`/release-notes` and :doc:`/status/compatibility` for the current
+   release identity and guarantees.
+
+Karkain Beta 1 was the first release focused on making the *implemented*
 language core and developer toolchain dependable enough for broader
 developer experimentation. This page defines exactly what Beta 1 promises —
 and what it deliberately does not.

@@ -48,7 +48,7 @@ jobs:
             docs/build/html/examples/index.html \
             docs/build/html/getting-started/first-project.html \
             docs/build/html/getting-started/workspace.html \
-            docs/build/html/release-notes/index.html \
+            docs/build/html/release-notes.html \
           ; do
             if [ ! -f "$f" ]; then
               echo "Missing required doc page: $f"

@@ -9,7 +9,7 @@ Only the current Beta release line receives security fixes.
 
 | Version               | Category                     | Supported |
 |-----------------------|------------------------------|-----------|
-| 0.117.0-beta1 (Beta 1) | Current release candidate line | Supported |
+| 1.0.0 (Stable) | Current release line | Supported |
 | 0.115.x Developer Preview | Superseded                  | Not supported |
 
 Use the version reported by `karkain --version` when reporting.

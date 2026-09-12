@@ -5,7 +5,7 @@ and validated with the real CLI (default `kcc` engine). These are working
 examples first and marketing second: every `STATUS: WORKING TODAY` program
 below was checked and run with `karkain check` / `karkain run`.
 
-- Toolchain: `karkain.exe` v0.117.0 (Beta 1 Build, default engine `kcc`, self-hosted), MSYS2 gcc 14.2.0.
+- Toolchain: `karkain.exe` v1.0.0 (Stable Build, default engine `kcc`, self-hosted), MSYS2 gcc 14.2.0.
 - Every working example is ASCII-clean and deterministic (pinnable output).
 - Nothing here invents syntax, libraries, or features the language does not have.
 
@@ -86,7 +86,7 @@ Not present (honest `NOT CURRENTLY SUPPORTED` markers): 04 Networking,
    the test file (see `15_devtools/tests`).
 8. **`getArgs()` includes the program name as element 0**, so without extra
    arguments it reports `args=1`.
-9. Runtime failure model (Beta 1): checked `divide by zero` / `index out of
+9. Runtime failure model (Stable): checked `divide by zero` / `index out of
    range` reported as `runtime error: <kind> at <file>:<line>` with a
    `stack:` dump, exiting 1 — identical on both engines (Phase 100/101); earlier
    builds were silent about these.

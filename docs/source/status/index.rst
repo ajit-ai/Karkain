@@ -66,8 +66,9 @@ The catalog pages
 
 .. note::
 
-   The overall project status is **🧪 Karkain Beta 1** — see
-   :doc:`/status/beta` for the honest capability assessment. Individual
+   The overall project status is **Karkain 1.0.0 (Stable)** — see
+   :doc:`/status/beta` for the Beta 1 capability assessment it builds on.
+   Individual
    features are labeled per the model above; the ``Developer Preview`` label
    in the vocabulary remains a *feature maturity level* (functional but
    incomplete) rather than the project status.

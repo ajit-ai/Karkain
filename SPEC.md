@@ -1,6 +1,6 @@
 # Karkain Language Specification
 
-**Version:** 0.117.0-beta1
+**Version:** 1.0.0
 **Status:** Production — extracted from the reference compiler (`pkg/lexer`, `pkg/parser`, `pkg/sema`, `pkg/codegen`, `pkg/ir/ssa`)
 **Date:** 2026-09-06
 
@@ -29,17 +29,19 @@
   features marked Ã¢Å“â€¦.
 - Features marked Ã°Å¸Å¸Â¡ / Ã°Å¸â€œÂ / Ã°Å¸Å¡Â« are informational and not conformance-bound until
   they reach Ã¢Å“â€¦.
-- Conformance test corpus: `examples/*.kark` (E2E) + `pkg/*/*_test.go` (unit).
-  One pre-existing known failure: `self_host_parser_test.kark`.
+- Conformance test corpus: `conformance/*.kark` (E2E) + `examples/*` (golden corpus) + `pkg/*/*_test.go` (unit).
+  The legacy `self_host_*_test.kark` fixtures were retired during the 1.0.0
+  repository cleanup (superseded by `src/compiler/` + the phase gates).
 
 ### Version history
 
 | Spec version | Compiler phase | Notes |
 |--------------|----------------|-------|
 | 0.14.0 | 55d | KPM package manager integrated; SSA backend; string/slice types; closures |
-| 1.0.0 | 90 | Historical record, **superseded** — the public label is Beta 1, never 1.0 (see `docs/audit/PHASE-91-FINAL-REPORT.md`) |
-| 0.117.0 | 117 | Beta 1: stable core defined, Go/kcc parity hardened (while, semantic gating), parse-error hardening, numeric error codes, stdlib edge-case gates, Beta documentation |
+| 1.0.0 | 90 | Historical record, **superseded** — the Phase 91 "release ready" claim was retracted (see `docs/audit/PHASE-91-FINAL-REPORT.md`) |
 | 0.115.0 | 115 | Developer Preview: language foundation corpus, stdlib v2, module system, capability status model, complete example corpus, developer-preview readiness |
+| 0.117.0 | 117 | Beta 1: stable core defined, Go/kcc parity hardened (while, semantic gating), parse-error hardening, numeric error codes, stdlib edge-case gates, Beta documentation |
+| 1.0.0 | 119 | Karkain 1.0.0 (Stable): public repository finalization and preparation — cleanup of superseded artifacts, unified v1.0.0 identity, release documentation, master QA gate and full QA battery |
 
 ---
 
@@ -507,7 +509,7 @@ function calls use the `C.` prefix (`C.sqrt(...)`). FFI package
 
 | Area | Gap | Tracking |
 |------|-----|----------|
-| Self-hosted compiler | `self_host_parser_test.kark` fails; `src/compiler/*.kark` incomplete | Phase 88 |
+| Self-hosted compiler | `self_host_parser_test.kark` (retired in 1.0 cleanup); `src/compiler/*.kark` now complete (99+ gates) | Phase 88 → 99+ |
 | Enum payload variants | Enums parse but payload handling unstable | BUG-7 |
 | Struct codegen | Certain codegen paths incomplete | BUG-1 |
 | Option/Result match arms | Codegen edge cases | BUG-2 |

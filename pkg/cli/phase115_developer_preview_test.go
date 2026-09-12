@@ -44,7 +44,7 @@ func TestPhase115_VersionCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("karkain --version failed: %v\n%s", err, out)
 	}
-	for _, want := range []string{"Karkain Compiler v0.117.0", "Beta 1 Build"} {
+	for _, want := range []string{"Karkain Compiler v1.0.0", "Stable Build"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("--version does not contain %q: %s", want, out)
 		}
@@ -75,11 +75,11 @@ func TestPhase115_HelpListsCommands(t *testing.T) {
 func TestPhase115_RepoSkeleton(t *testing.T) {
 	root := repoRoot(t)
 	files := map[string]string{
-		"README.md":          "Beta 1",
+		"README.md":          "1.0.0",
 		"LICENSE":            "MIT License",
 		"CONTRIBUTING.md":    "Contributing to Karkain",
 		"CODE_OF_CONDUCT.md": "Contributor Covenant",
-		"VERSION":            "0.117.0",
+		"VERSION":            "1.0.0",
 	}
 	for name, marker := range files {
 		data, err := os.ReadFile(filepath.Join(root, name))
@@ -140,8 +140,8 @@ func TestPhase115_DocTree(t *testing.T) {
 		}
 	}
 	status, err := os.ReadFile(filepath.Join(root, "status", "index.rst"))
-	if err != nil || !strings.Contains(string(status), "Beta 1") {
-		t.Errorf("status/index.rst does not carry the Beta 1 status")
+	if err != nil || !strings.Contains(string(status), "Karkain 1.0.0") {
+		t.Errorf("status/index.rst does not carry the 1.0.0 status")
 	}
 }
 

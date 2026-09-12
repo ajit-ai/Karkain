@@ -10,11 +10,12 @@ No networking APIs are callable from `.kark` today.
 
 ## What exists behind the scenes
 
-- `pkg/stdlib/http.go` ships placeholder Go functions (`HttpGet`, `HttpPost`,
-  `HttpServer`) — they are **stubs**, not wired into any `.kark`-callable
-  surface, and must not be treated as a working HTTP module.
-- Phase 15-era codegen comments mention a cross-platform socket abstraction,
-  but no language-level TCP/UDP/HTTP surface has been implemented.
+- No `std.net` / `std.http` surface exists and no Go placeholder stubs ship in
+  the repository — the networking modules are simply not implemented (they are
+  roadmap items, not files).
+- The 1.0.0 repository cleanup removed the Phase-15-era placeholder
+  `pkg/stdlib/http.go` stubs (they were never wired into any `.kark`-callable
+  surface); networking remains Planned.
 
 ## Intended design (roadmap)
 
