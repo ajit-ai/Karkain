@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-const versionString = "Karkain Compiler v0.115.0 (%s/%s, Developer Preview Build)"
+const versionString = "Karkain Compiler v0.117.0 (%s/%s, Beta 1 Build)"
 
 // CommandResult holds the outcome of a CLI command
 type CommandResult struct {
@@ -34,7 +34,7 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
-	sourceText, err := resolveSourcesRun(targetFile)
+	sourceText, srcMap, err := resolveSourcesCheck(targetFile)
 	if err != nil {
 		return sourceLoadResult(err)
 	}
@@ -43,9 +43,18 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 		printTokenStream(sourceText)
 	}
 
-	prog := parseSource(sourceText, verbose)
+	prog, errDiags := parseSourceWithErrors(targetFile, sourceText, srcMap, verbose)
 	if prog == nil {
 		return CommandResult{ExitCode: ExitCompile, Message: "Parse failed"}
+	}
+
+	// Phase 117: reject recoverable parse errors with the same rendered
+	// report and ExitCompile the check path uses. Before this gate, build and
+	// run silently ignored parser recovery (e.g. `let = 42` declared a
+	// placeholder "=" name) and could transpile garbage.
+	if len(errDiags) > 0 {
+		renderDiagnostics(sourceText, errDiags)
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageSyntax, len(errDiags))}
 	}
 
 	// Phase 43: Run borrow checker
@@ -55,6 +64,14 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 			msg += "  " + e.Message + "\n"
 		}
 		return CommandResult{ExitCode: ExitCompile, Message: msg}
+	}
+
+	// Phase 117: same semantic gate as `karkain check` — an undefined
+	// identifier or unknown @target must surface as a clean K00x diagnostic
+	// with ExitCompile (3), not as codegen/gcc noise with an unrelated code.
+	if errDiags := runSemanticPreflight(targetFile, sourceText, srcMap, prog); len(errDiags) > 0 {
+		renderDiagnostics(sourceText, errDiags)
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageFor(errDiags), len(errDiags))}
 	}
 
 	// Phase 85: Native build path using Phase-84 object/linker infrastructure
@@ -103,7 +120,7 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
 
-	sourceText, err := resolveSourcesRun(targetFile)
+	sourceText, srcMap, err := resolveSourcesCheck(targetFile)
 	if err != nil {
 		return sourceLoadResult(err)
 	}
@@ -112,9 +129,15 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 		printTokenStream(sourceText)
 	}
 
-	prog := parseSource(sourceText, verbose)
+	prog, errDiags := parseSourceWithErrors(targetFile, sourceText, srcMap, verbose)
 	if prog == nil {
 		return CommandResult{ExitCode: ExitCompile, Message: "Parse failed"}
+	}
+
+	// Phase 117: reject recoverable parse errors (identical gate to RunCommand).
+	if len(errDiags) > 0 {
+		renderDiagnostics(sourceText, errDiags)
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageSyntax, len(errDiags))}
 	}
 
 	// Phase 43: Run borrow checker
@@ -124,6 +147,12 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 			msg += "  " + e.Message + "\n"
 		}
 		return CommandResult{ExitCode: ExitCompile, Message: msg}
+	}
+
+	// Phase 117: same semantic gate as `karkain check` (see RunCommand).
+	if errDiags := runSemanticPreflight(targetFile, sourceText, srcMap, prog); len(errDiags) > 0 {
+		renderDiagnostics(sourceText, errDiags)
+		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageFor(errDiags), len(errDiags))}
 	}
 
 	// Phase 85: Native build path using Phase-84 object/linker infrastructure
@@ -650,6 +679,33 @@ func parseSource(sourceText string, verbose bool) *parser.Program {
 	}
 
 	return prog
+}
+
+// parseSourceWithErrors is parseSource plus the parser's recoverable-error
+// verdict. Build/run must not silently continue when the parser recovered:
+// the results can be garbage AST (e.g. `func main() { let = 42 }` used to
+// declare a placeholder variable literally named "="). A non-nil diagnostics
+// slice means the caller must reject the program with ExitCompile and render
+// them, exactly like the check pipeline does. When clean, the slice is nil.
+func parseSourceWithErrors(targetFile, sourceText string, srcMap sema.SourceMap, verbose bool) (*parser.Program, []diagnostics.Diagnostic) {
+	l := lexer.New(sourceText)
+	p := parser.New(l)
+	prog := p.ParseProgram()
+
+	if verbose {
+		fmt.Printf("=== [Verbose] Parsed AST Statements count: %d ===\n", len(prog.Statements))
+	}
+
+	prog = parser.ApplyMacroExpansion(prog)
+
+	if verbose {
+		fmt.Printf("=== [Verbose] After Macro Expansion Statements count: %d ===\n", len(prog.Statements))
+	}
+
+	if len(p.Errors) > 0 {
+		return prog, collectSyntaxDiagnostics(targetFile, p, sourceText, srcMap)
+	}
+	return prog, nil
 }
 
 // Phase 43: Run borrow checker on a parsed program

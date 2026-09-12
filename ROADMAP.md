@@ -1,11 +1,11 @@
 ﻿# Karkain Roadmap— Complete Development Plan
-> **Public status: Karkain Developer Preview (v0.115.0).**
+> **Public status: Karkain Beta 1 (v0.117.0).**
 > This file is the historical development record. Every capability claim
 > that affects users is governed by the status vocabulary in
 > ``docs/source/status/index.rst`` and validated by the gates named in
 > ``pkg/cli/phase114_examples_test.go`` and
 > ``pkg/cli/phase115_developer_preview_test.go``. The Phase 91 "KARKAIN 1.0 -
-> RELEASE READY" record is superseded: Karkain is **Developer Preview**, not
+> RELEASE READY" record is superseded: Karkain is **Beta 1**, not
 > 1.0. Per-phase final reports live under ``docs/audit/``
 > (``PHASE-114-FINAL-REPORT.md``, ``PHASE-115-DEVELOPER-PREVIEW-READINESS.md``,
 > ...).

@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-VERSION="${1:-v0.115.0}"
+VERSION="${1:-v0.117.0}"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT_DIR="$PROJECT_ROOT/releases"
 BUILD_DIR="$PROJECT_ROOT/.build"

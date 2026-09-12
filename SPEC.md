@@ -1,6 +1,6 @@
 # Karkain Language Specification
 
-**Version:** 0.115.0-dev-preview
+**Version:** 0.117.0-beta1
 **Status:** Production — extracted from the reference compiler (`pkg/lexer`, `pkg/parser`, `pkg/sema`, `pkg/codegen`, `pkg/ir/ssa`)
 **Date:** 2026-09-06
 
@@ -37,7 +37,8 @@
 | Spec version | Compiler phase | Notes |
 |--------------|----------------|-------|
 | 0.14.0 | 55d | KPM package manager integrated; SSA backend; string/slice types; closures |
-| 1.0.0 | 90 | Historical record, **superseded** — the public label is Developer Preview, never 1.0 (see `docs/audit/PHASE-91-FINAL-REPORT.md`) |
+| 1.0.0 | 90 | Historical record, **superseded** — the public label is Beta 1, never 1.0 (see `docs/audit/PHASE-91-FINAL-REPORT.md`) |
+| 0.117.0 | 117 | Beta 1: stable core defined, Go/kcc parity hardened (while, semantic gating), parse-error hardening, numeric error codes, stdlib edge-case gates, Beta documentation |
 | 0.115.0 | 115 | Developer Preview: language foundation corpus, stdlib v2, module system, capability status model, complete example corpus, developer-preview readiness |
 
 ---
