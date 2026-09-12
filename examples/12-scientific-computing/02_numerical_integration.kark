@@ -1,0 +1,31 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 12 Scientific Computing
+//
+// Numerical integration with the trapezoid rule: area under f(x)=x^2 on
+// [0,1] is 1/3 = 0.333333. Refining the step count tightens the estimate.
+//
+// Run:  karkain run examples/12-scientific-computing/02_numerical_integration.kark
+
+func f(x) {
+    return x * x
+}
+
+func trapezoid(a, b, n) {
+    let h = (b - a) / n
+    let total = 0.0
+    let i = 0
+    while (i < n) {
+        let x0 = a + i * h
+        let x1 = x0 + h
+        total = total + (f(x0) + f(x1)) / 2 * h
+        i = i + 1
+    }
+    return total
+}
+
+func main() {
+    print(trapezoid(0.0, 1.0, 4))
+    print(trapezoid(0.0, 1.0, 64))
+    print(trapezoid(0.0, 1.0, 1024))
+}

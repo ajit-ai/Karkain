@@ -1,0 +1,24 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 02 Algorithms
+//
+// A stack (last-in, first-out) built on the dynamic array type with a moving
+// top pointer. push() appends via the array, the top pointer tracks the
+// current head, and each pop just walks the pointer back down. This is LIFO
+// discipline over the language's arrays, not a library type.
+//
+// Run:  karkain run examples/02-algorithms/11_stack.kark
+
+func main() {
+    let stack = [10, 20, 30]
+    var top = len(stack) - 1
+
+    print(len(stack))          // 3 items pushed
+    print(stack[top])          // top of stack = 30
+
+    top = top - 1              // pop 30
+    print(stack[top])          // 20
+    top = top - 1              // pop 20
+    print(stack[top])          // 10
+    print(top)                 // one item remains (pointer at 0)
+}

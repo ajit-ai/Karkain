@@ -2,7 +2,7 @@ Scientific Computing
 ====================
 
 :implemented:`Implemented` — numerical-method examples in ordinary Karkain
-arithmetic live under ``examples/12_scientific_computing/`` and run
+arithmetic live under ``examples/12-scientific-computing/`` and run
 byte-identically on both engines.
 
 Again with the honest caveat: there is **no scientific-computing framework,
@@ -12,7 +12,7 @@ implemented array/loop surface. These examples show iterative methods that
 avoid the unreliable builtin float helpers where possible — which is both
 correct and more instructive.
 
-.. list-table:: examples/12_scientific_computing/
+.. list-table:: examples/12-scientific-computing/
    :widths: 32 68
    :header-rows: 1
 
@@ -46,7 +46,7 @@ Run:
 
 .. code-block:: console
 
-   $ karkain run examples/12_scientific_computing/01_sqrt_newton.kark
+   $ karkain run examples/12-scientific-computing/01_sqrt_newton.kark
 
 Output format: floats print at 6 significant figures, identically on both
 engines (``1.41421``, ``0.333333``, …).

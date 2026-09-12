@@ -23,20 +23,20 @@ I/O is self-contained inside the program.
 
 | # | Category | Status | Evidence |
 |---|----------|--------|----------|
-| 01 | Fundamentals | WORKING TODAY | `01_fundamentals/hello` — types, expressions, conditionals, loops, recursion, arrays |
-| 02 | Algorithms | WORKING TODAY | `02_algorithms/queue` — FIFO queue on arrays |
-| 03 | Systems | WORKING TODAY | `03_systems/file_processor` — writeFile/readFile/split/removeFile/getArgs |
+| 01 | Fundamentals | WORKING TODAY | `01-fundamentals/hello` — types, expressions, conditionals, loops, recursion, arrays |
+| 02 | Algorithms | WORKING TODAY | `02-algorithms/queue` — FIFO queue on arrays |
+| 03 | Systems | WORKING TODAY | `03-systems/file_processor` — writeFile/readFile/split/removeFile/getArgs |
 | 04 | Networking | NOT CURRENTLY SUPPORTED | No socket/HTTP runtime; `http.get` is recognized as a builtin name but has no network implementation — do not build on it |
-| 05 | Data | WORKING TODAY | `05_data/text_stats` — tokenizing, longest-word search, float stats (arrays, not maps: there is no map iteration API) |
+| 05 | Data | WORKING TODAY | `05-data/text_stats` — tokenizing, longest-word search, float stats (arrays, not maps: there is no map iteration API) |
 | 06 | Database | NOT CURRENTLY SUPPORTED | No DB drivers, no query language, no persistence beyond flat file I/O (`readFile`/`writeFile`/`readLine`) |
 | 07 | Web | NOT CURRENTLY SUPPORTED | No HTTP server or web framework; no JSON parsing (an `http.get` name exists but is unimplemented) |
 | 08 | Concurrency | NOT CURRENTLY SUPPORTED | No goroutines/threads/actors in the runtime; queues in example 02 are a pure data structure |
-| 09 | AI | WORKING TODAY | `09_ai/matrix` — dot product, matmul, cosine similarity, nearest-neighbor; `@target(cpu)` attribute |
+| 09 | AI | WORKING TODAY | `09-ai/matrix` — dot product, matmul, cosine similarity, nearest-neighbor; `@target(cpu)` attribute |
 | 10 | ML | WORKING TODAY | `10_ml/linear_regression` — closed-form least squares + prediction |
 | 11 | Quantum | NOT CURRENTLY SUPPORTED | No quantum runtime/adapters; nothing quantum-real exists to showcase |
 | 12 | Scientific | WORKING TODAY | `12_scientific/numerics` — Newton sqrt, trapezoid integration, statistics, deterministic Monte Carlo pi |
-| 13 | Finance | WORKING TODAY | `13_finance/finance` — compound interest, moving average, volatility, EMI |
-| 14 | Security | WORKING TODAY (non-cryptographic) | `14_security/checksum` — deterministic rolling-hash checksum + validation. NO crypto primitives exist (no hash/HMAC/cipher/secure RNG) |
+| 13 | Finance | WORKING TODAY | `13-finance/finance` — compound interest, moving average, volatility, EMI |
+| 14 | Security | WORKING TODAY (non-cryptographic) | `14-security/checksum` — deterministic rolling-hash checksum + validation. NO crypto primitives exist (no hash/HMAC/cipher/secure RNG) |
 | 15 | Developer Tools | WORKING TODAY | `15_devtools` — multi-file app, `test`, formatter |
 
 ## Example inventory
@@ -45,15 +45,15 @@ Working examples (10 program suites, validated):
 
 | Dir | What it shows | Expected output (verified) |
 |-----|---------------|----------------------------|
-| `01_fundamentals/hello` | dynamic typing, `float` annotations, if/else-if/else, while, recursion (fib), arrays, len/push/index | see `01_fundamentals/hello/README.md` |
-| `02_algorithms/queue` | FIFO queue built on an array; array pass-by-value semantics | `10 0 10 20 30 1` |
-| `03_systems/file_processor` | writeFile/readFile/split/removeFile/getArgs pipeline | `lines=3 first=alpha last=gamma args=1 cleaned` |
-| `05_data/text_stats` | tokenize + longest-word + float averages over a document | `characters=43 words=9 longest=quick avg_word_length=3.88889` |
-| `09_ai/matrix` | dot, matmul, cosine similarity (Newton float sqrt), nearest-neighbor, `@target(cpu)` | `dot=32 ... cosine=0.974632 nearest_q0=1 nearest_q1=2` |
+| `01-fundamentals/hello` | dynamic typing, `float` annotations, if/else-if/else, while, recursion (fib), arrays, len/push/index | see `01-fundamentals/hello/README.md` |
+| `02-algorithms/queue` | FIFO queue built on an array; array pass-by-value semantics | `10 0 10 20 30 1` |
+| `03-systems/file_processor` | writeFile/readFile/split/removeFile/getArgs pipeline | `lines=3 first=alpha last=gamma args=1 cleaned` |
+| `05-data/text_stats` | tokenize + longest-word + float averages over a document | `characters=43 words=9 longest=quick avg_word_length=3.88889` |
+| `09-ai/matrix` | dot, matmul, cosine similarity (Newton float sqrt), nearest-neighbor, `@target(cpu)` | `dot=32 ... cosine=0.974632 nearest_q0=1 nearest_q1=2` |
 | `10_ml/linear_regression` | least-squares fit + prediction on `y = 2x + 1` | `slope=2 intercept=1 predict(10)=21 predict(-3)=-5` |
 | `12_scientific/numerics` | Newton sqrt, trapezoid integration, mean/variance/stddev, LCG Monte Carlo | `sqrt_2=1.41421 ... pi_estimate=3.1692` |
-| `13_finance/finance` | compounding, MA(3), vol, EMI in floats | `compound_1000@5pct_10y=1628.89 ... emi_100k@8pct_12mo=8698.84` |
-| `14_security/checksum` | deterministic rolling hash; canonical unsigned-int validation; password heuristic | `checksum=381823039 ... valid_12345=1 valid_12a45=0 ...` |
+| `13-finance/finance` | compounding, MA(3), vol, EMI in floats | `compound_1000@5pct_10y=1628.89 ... emi_100k@8pct_12mo=8698.84` |
+| `14-security/checksum` | deterministic rolling hash; canonical unsigned-int validation; password heuristic | `checksum=381823039 ... valid_12345=1 valid_12a45=0 ...` |
 | `15_devtools/banking` | multi-file app — `check`/`build`/`run` with sibling modules | `opening=$1000 after_credit=$1250 ... comfortable` |
 | `15_devtools/tests` | `karkain test` — 4 self-contained `test_*` functions | `4 passed; 0 failed; 0 skipped; 4 total` |
 | `15_devtools/formatting` | `karkain fmt` / `fmt --check` on deliberately messy code | `--check` exit 1 before, exit 0 after |
@@ -70,7 +70,7 @@ Not present (honest `NOT CURRENTLY SUPPORTED` markers): 04 Networking,
    here: character-range validation (14), arithmetic stays numeric (09-13).
 2. **Arrays are passed by value into functions.** `push(arr, v)` inside a
    helper does not reach the caller's array; append via `arr = push(arr, v)`
-   (returned array), as in `02_algorithms/queue`. Direct `push` on a variable
+   (returned array), as in `02-algorithms/queue`. Direct `push` on a variable
    in the same scope does mutate in place.
 3. **No map iteration** — no `mapKeys`/`mapEntries`. Use parallel arrays for
    frequency/aggregation (05).

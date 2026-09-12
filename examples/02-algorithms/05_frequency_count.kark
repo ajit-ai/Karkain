@@ -1,0 +1,35 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 02 Algorithms
+//
+// Frequency count: tally how often each value appears using a map and the
+// std.collections lookup helper. Enumeration is keyed (not iterated) so
+// output is deterministic across engines.
+//
+// Run:  karkain run examples/02-algorithms/05_frequency_count.kark
+
+import std.collections
+
+func count_occurrences(xs) {
+    let counts = {}
+    let i = 0
+    while (i < len(xs)) {
+        let key = str(xs[i])
+        if (map_contains_key(counts, key)) {
+            counts[key] = counts[key] + 1
+        } else {
+            counts[key] = 1
+        }
+        i = i + 1
+    }
+    return counts
+}
+
+func main() {
+    let data = [4, 1, 4, 2, 4, 3, 2, 1, 1, 4]
+    let counts = count_occurrences(data)
+    print(counts["1"])
+    print(counts["2"])
+    print(counts["3"])
+    print(counts["4"])
+}

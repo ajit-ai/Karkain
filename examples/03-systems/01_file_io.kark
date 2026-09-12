@@ -1,0 +1,33 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 03 Systems
+//
+// File I/O with std.io: write, append, read back, check existence, delete.
+// The program uses a relative filename so it works from any working
+// directory; the phase 114 gate runs it in a clean temp directory.
+//
+// Run:  karkain run examples/03-systems/01_file_io.kark
+
+import std.io
+
+func main() {
+    let path = "corpus_demo.txt"
+    io_write_file(path, "alpha")
+    print(io_file_exists(path))
+
+    io_append_file(path, "\nbeta")
+    io_append_file(path, "\ngamma")
+
+    let lines = io_read_lines(path)
+    print(len(lines))
+    print(lines[0])
+    print(lines[1])
+    print(lines[2])
+
+    io_delete_file(path)
+    print(io_file_exists(path))
+}
+
+// System detail: .kark programs produce native executables through the C
+// backend (karkain build); `karkain run` builds and runs in a temp sandbox.
+// Cross-compilation targets are listed by `karkain target`.

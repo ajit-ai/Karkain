@@ -1,0 +1,28 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 13 Finance
+//
+// Amortization: the annual payment for a synthetic loan principal at rate r
+// over n years. The compounding factor (1+r)^-n is built by iteration
+// because no pow() for arbitrary floats is available in the language.
+//
+// Run:  karkain run examples/13-finance/02_loan_amortization.kark
+
+func payment(principal, years, rate) {
+    let factor = 1.0
+    let i = 0
+    while (i < years) {
+        factor = factor / (1 + rate)
+        i = i + 1
+    }
+    return principal * rate / (1 - factor)
+}
+
+func main() {
+    // 100000 at 5% over 10 years
+    print(payment(100000.0, 10, 0.05))
+    // 50000 at 4% over 5 years
+    print(payment(50000.0, 5, 0.04))
+    // 250000 at 3% over 30 years
+    print(payment(250000.0, 30, 0.03))
+}

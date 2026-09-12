@@ -2,7 +2,7 @@ Security
 ========
 
 :implemented:`Implemented` — safe, educational security examples live under
-``examples/14_security/`` and run byte-identically on both engines. All data
+``examples/14-security/`` and run byte-identically on both engines. All data
 is synthetic; digests are verified against the published NIST FIPS 180
 vectors.
 
@@ -10,7 +10,7 @@ The surface used is the real, importable ``std.crypto`` and ``std.encoding``
 modules — no fabricated cryptographic APIs. See
 :doc:`/stdlib/crypto` and :doc:`/stdlib/encoding`.
 
-.. list-table:: examples/14_security/
+.. list-table:: examples/14-security/
    :widths: 30 70
    :header-rows: 1
 
