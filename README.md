@@ -1,6 +1,6 @@
 # Karkain
 
-> **🧪 Karkain Beta 1** — Karkain is a working compiler and language, not an
+> **Karkain 1.0.0 (Stable)** — Karkain is a working compiler and language, not an
 > empty roadmap. Everything labeled Implemented below is verified by automated
 > gates through the real CLI. Everything else is honestly labeled
 > `Planned` / `Not Yet Implemented`.
@@ -25,7 +25,7 @@ Karkain builds from source with Go 1.21+ and any C compiler.
 git clone https://github.com/ajit-ai/Karkain.git
 cd Karkain
 go build -o karkain ./cmd/karkain        # Windows: go build -o karkain.exe ./cmd/karkain
-./karkain --version                      # Karkain Compiler v0.117.0 (..., Beta 1 Build)
+./karkain --version                      # Karkain Compiler v1.0.0 (..., Stable Build)
 ```
 
 Write your first program:
@@ -279,15 +279,16 @@ Karkain/
 
 ## Roadmap
 
-See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–118
-delivered). The current milestone is **118 — Beta 1 External Validation &
-Release Candidate Readiness**.
+See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–119
+delivered). The current milestone is **119 — Public Repository Finalization &
+Karkain 1.0.0 Release Preparation**.
 
 High-level status today: the compiler is self-hosted, byte-identical on two
 engines, and the standard library, toolchain and example corpus are real and
 regression-gated — but networking, databases, web, quantum, GPU/NPU language
-surfaces, and the package registry are `Planned`/`Not Yet Implemented`. There
-is intentionally **no production-ready claim** yet.
+surfaces, and the package registry are `Planned`/`Not Yet Implemented`. The
+1.0.0 release readiness verdict is documented in the Phase 119 QA report
+(`docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md`).
 
 ## Contributing
 

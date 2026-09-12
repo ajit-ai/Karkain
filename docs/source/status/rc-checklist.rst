@@ -28,7 +28,7 @@ Current state (Phase 118)
      - [ ]
    * - 3
      - Version reporting works and identifies the Beta line
-     - ``karkain --version`` → ``v0.117.0 (... Beta 1 Build)``
+     - ``karkain --version`` → ``v1.0.0 (... Stable Build)``
      - [ ]
    * - 4
      - Release artifact strategy is documented

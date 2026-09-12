@@ -77,7 +77,7 @@ const (
 	dwLineRange         uint8 = 14
 	dwLineMinInst       uint8 = 1
 	dwLineDefaultIsStmt uint8 = 1
-	dwDwarfProducer           = "karkain-compiler v0.117.0 (Phase 104 DWARF)"
+	dwDwarfProducer           = "karkain-compiler v1.0.0 (Phase 104 DWARF)"
 )
 
 // DwarfEmitter emits DWARF 4 debug sections from the native debug model.

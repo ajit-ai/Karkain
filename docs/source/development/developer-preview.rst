@@ -67,8 +67,10 @@ standard library and a concrete cross-compilation story. The toolchain
 delivers value on the features it documents as ``:implemented:``, and it
 labels everything else honestly so you know exactly what you are getting.
 
-The current milestone is **Phase 117 — Beta 1 Readiness & Hardening**: the
-project's public status is **🧪 Karkain Beta 1**, with a defined stable core,
+The current milestone is **Phase 117 — Beta 1 Readiness & Hardening** (now
+superseded): the project's public status moved to **Karkain 1.0.0 (Stable)**
+in Phase 119 — see :doc:`/release-notes` for the current release identity.
+Phase 117 defined a stable core,
 Go/kcc parity hardening, parse-error and semantic build/run gating, numeric
 error-code documentation, stdlib edge-case gates, a fresh-checkout validation
 script and an honest Beta scorecard. Beyond it, the advanced package registry

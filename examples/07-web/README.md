@@ -10,9 +10,9 @@ No web framework or HTTP server is runnable from `.kark` today.
 
 ## What exists behind the scenes
 
-- `pkg/stdlib/http.go` contains placeholder `HttpGet` / `HttpPost` /
-  `HttpServer` functions that return immediately without doing work and are
-  not wired into the language. They are a marker of intent, not a module.
+- No web framework or HTTP server exists. The Phase-15-era placeholder
+  `pkg/stdlib/http.go` stubs were removed in the 1.0.0 repository cleanup
+  (they were never wired into the language); web remains Planned.
 
 ## Roadmap for this category
 

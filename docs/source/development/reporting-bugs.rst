@@ -37,8 +37,8 @@ Every report needs the following. None of these require private data.
    * - Field
      - How to gather it
    * - Karkain version
-     - ``karkain --version`` (e.g. ``Karkain Compiler v0.117.0
-       (windows/amd64, Beta 1 Build)``).
+     - ``karkain --version`` (e.g. ``Karkain Compiler v1.0.0
+       (windows/amd64, Stable Build)``).
    * - OS
      - e.g. ``Windows 11``, ``Ubuntu 24.04``; include the architecture.
    * - Architecture
