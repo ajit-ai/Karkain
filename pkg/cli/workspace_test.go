@@ -42,6 +42,21 @@ func buildWorkspaceDir(t *testing.T, members []string, memberDeps map[string][]s
 		if err := os.WriteFile(entry, []byte(body), 0644); err != nil {
 			t.Fatal(err)
 		}
+		// Workspace members that are depended on must expose their API from a
+		// non-main module (the assembly keeps only the root file's `func main`;
+		// a dependency's main.kark is dropped and `dep()` calls would be
+		// undefined). Phase 117 build/run semantic gating rejects exactly that.
+		for _, deps := range memberDeps {
+			for _, d := range deps {
+				if d == m {
+					api := filepath.Join(dir, "api.kark")
+					if err := os.WriteFile(api, []byte(
+						"func "+m+"() { print(\"hi from "+m+" api\") }\n"), 0644); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+		}
 		mm := &pm.Manifest{Name: m, Version: "1.0.0", Dependencies: map[string]pm.Dependency{}}
 		if deps, ok := memberDeps[m]; ok {
 			for _, d := range deps {

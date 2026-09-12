@@ -55,15 +55,18 @@ The three catalog pages
 .. toctree::
    :maxdepth: 2
 
+   beta
    implemented
    experimental
    planned
 
 .. note::
 
-   The overall project status is **Developer Preview** — see
-   :doc:`/development/developer-preview` for the honest capability
-   assessment. Individual features are labeled per the model above.
+   The overall project status is **🧪 Karkain Beta 1** — see
+   :doc:`/status/beta` for the honest capability assessment. Individual
+   features are labeled per the model above; the ``Developer Preview`` label
+   in the vocabulary remains a *feature maturity level* (functional but
+   incomplete) rather than the project status.
 
 .. seealso::
 

@@ -230,6 +230,20 @@ func runKCCDir(bin, dir string, args ...string) (string, int) {
 	return strings.TrimSpace(string(out)), code
 }
 
+// kccCheckPreflight runs the self-hosted engine's checker over an assembled
+// source file. When the program is semantically invalid, the checker's
+// diagnostics (error[K1xx] lines) are returned so `karkain build`/`karkain run`
+// reject it with the same clean report and ExitCompile the check path uses —
+// never raw gcc noise about an undeclared identifier. Returns ok=true (with
+// the [ok] confirmation) when the checker is clean.
+func kccCheckPreflight(bin, checkFile string) (ok bool, out string) {
+	out, code := runKCC(bin, "check", checkFile)
+	if code == 0 && strings.Contains(out, "[ok]") {
+		return true, out
+	}
+	return false, out
+}
+
 // KCCCheckCommand routes `karkain check` through the self-hosted engine. The
 // corpus contract is the same as the Go path: parsing had better be clean.
 // Phase 97: the source is assembled (manifest dependencies + siblings) into a
@@ -315,6 +329,11 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 	srcFile := filepath.Join(sandbox, base+".kark")
 	if err := os.WriteFile(srcFile, []byte(prog), 0o644); err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+
+	// Phase 117: same self-hosted checker gate as KCCRunCommand.
+	if ok, chkOut := kccCheckPreflight(bin, srcFile); !ok {
+		return CommandResult{ExitCode: ExitCompile, Message: chkOut}
 	}
 
 	out, code := runKCC(bin, "build", srcFile, "--target", "c23")
@@ -471,6 +490,13 @@ func KCCRunCommand(w io.Writer, file string, cfg codegen.Config, verbose bool) C
 	}
 	if err := os.WriteFile(copyPath, []byte(prog), 0o644); err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+
+	// Phase 117: gate on the self-hosted checker (like KCCCheckCommand) so a
+	// semantically invalid program fails here with error[K1xx] + ExitCompile
+	// instead of surfacing as a confusing gcc link failure exit code.
+	if ok, chkOut := kccCheckPreflight(bin, copyPath); !ok {
+		return CommandResult{ExitCode: ExitCompile, Message: chkOut}
 	}
 
 	out, code := runKCC(bin, "build", copyPath, "--target", "c23")

@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **116** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **117** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -35,11 +35,32 @@ corpus-metadata gate, verify-examples.ps1 dash-directory fix,
 `TestPhase116` step; full Go+kcc gates, unit regressions, vet, strict Sphinx
 `-W` HTML+linkcheck green. NOTE: Phase 116 was developed per a local-only
 amendment — no commit/push performed; directions to commit when reviewed.)
+and 117 (Developer-examples were finalized under Phase 116; **117 — Beta 1
+Readiness & Hardening** is complete: the public label became
+**🧪 Karkain Beta 1** (v0.117.0); Go↔kcc parity hardened — unparenthesized
+`while` accepted identically by both parsers (`pkg/parser/parser.go` +
+`src/compiler/parser.kark` mirroring `parseIf`), semantic build/run gating on
+BOTH engines (Go `runSemanticPreflight` in `pkg/cli/checker.go` +
+`kccCheckPreflight` in `pkg/cli/kcc_engine.go`: undefined identifiers now
+reject `build`/`run` with `error[K002]`/`error[K102]` + `ExitCompile(3)`),
+recoverable parse errors no longer swallowed by run/build (`parseVarDecl`
+name-token guard in `pkg/parser/parser.go` + `parseSourceWithErrors` in
+`pkg/cli/commands.go` — `func main() { let = 42 }` exits 3), numeric error
+codes documented by `explain` (K001-K008, K100, K101-K113, hyphenless),
+stdlib edge-case parity tests (`pkg/cli/phase117_stdlib_edge_test.go`),
+Beta gate `pkg/cli/phase117_beta_test.go` (while parity, semantic gating,
+exit-code contract, both-engine stdlib parity, kcc test runner, target
+matrix, debug+prof diagnostics, beta artifacts), `scripts/
+beta-fresh-checkout.ps1`, `docs/source/status/beta.rst`, readiness scorecard
+`docs/audit/PHASE-117-BETA-1-READINESS.md`, CI `TestPhase117` step, and the
+v0.117.0 unified version identity across the Go CLI (`versionString` both
+engines), generated headers, `VERSION` (0.117.0-beta1), docs and release
+scripts.)
 complete.
 Project status:
-**🚀 Karkain Developer Preview** (v0.115.0). NOTE: the Phase 91 historical
-"KARKAIN 1.0 — RELEASE READY" record was superseded; the honest public label
-is Developer Preview, never 1.0.
+**🧪 Karkain Beta 1** (v0.117.0). NOTE: the Phase 91 historical
+"KARKAIN 1.0 — RELEASE READY" record was superseded; the pre-117 public label
+was Developer Preview and the honest public label is now Beta 1, never 1.0.
 Also completed: **111** — Cross-Compilation
 (`--target <triple>` is a real, explicit cross-compilation switch backed by
 the Karkain-owned target model `pkg/target` (arch/os/env, canonical short

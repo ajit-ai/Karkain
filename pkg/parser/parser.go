@@ -269,7 +269,14 @@ func (p *Parser) parseFunc() *FuncDecl {
 func (p *Parser) parseVarDecl() *VarDeclStmt {
 	line := int(p.curToken.Line)
 	isConst := p.curToken.Type == lexer.TokenConst // Phase 112: detect const keyword
+	kwLit := p.curToken.Literal(p.src)
 	p.nextToken() // consume 'let', 'var', or 'const'
+	// Phase 117: a declared variable must have a real identifier name. Without
+	// this guard `let = 42` silently declared a variable literally named "=",
+	// which the resolver then tolerated as an unused name.
+	if p.curToken.Type != lexer.TokenIdent {
+		p.addError(fmt.Sprintf("expected variable name after '%s', found '%s'", kwLit, p.curToken.Literal(p.src)))
+	}
 	name := p.curToken.Literal(p.src)
 	nameCol := int(p.curToken.Col)
 	nameEndCol := nameCol + len(name)
@@ -497,6 +504,14 @@ func (p *Parser) parseBlock() []Node {
 		if stmt != nil {
 			stmts = append(stmts, stmt)
 		}
+		// Phase 117: consume an explicit ';' statement terminator after each
+		// statement (kcc-parity). The Go parser previously left the ';' as the
+		// current token, so `return 10 / x;` reported spurious
+		// "unexpected token ';'" errors that earlier phases silently tolerated
+		// (RunCommand ignored parse errors and ran a partial AST anyway).
+		if p.curToken.Type == lexer.TokenSemicolon {
+			p.nextToken()
+		}
 		// Ensure progress even on errors / stalled parses
 		if p.curToken.Start == start {
 			p.nextToken()
@@ -587,6 +602,11 @@ func (p *Parser) parseStatement() Node {
 		node := &ExprStmt{Expression: p.parseMatchExpr()}
 		setNodeLine(node, line)
 		return node
+	case lexer.TokenSemicolon:
+		// Phase 117: a stray ';' on its own is an empty statement — consume it
+		// instead of reporting "unexpected token ';'".
+		p.nextToken()
+		return nil
 	case lexer.TokenLBrace:
 		p.nextToken() // consume '{'
 		stmts := p.parseBlock()
@@ -656,9 +676,19 @@ func (p *Parser) parseLambda() *LambdaExpr {
 func (p *Parser) parseWhile() *WhileStmt {
 	line := int(p.curToken.Line)
 	p.nextToken() // consume 'while'
-	p.nextToken() // consume '('
+
+	// Phase 117: mirror parseIf — conditions accept both `while (cond) { ... }`
+	// and the unparenthesized `while cond { ... }` the self-hosted parser
+	// accepts. parseExpr treats a '(' group as a primary and continues with any
+	// operator that follows ')', so mixed forms like `while (p.x) == 1 { ... }`
+	// parse too. The flag suppresses struct-literal interpretation so an
+	// identifier right before the body opener is not confused with
+	// `Type{...}` (see parseIdentExpr); it is cleared inside '(' groups, so
+	// parenthesized struct literals keep working.
+	p.unparenthesizedIfCondition = true
 	condition := p.parseExpr()
-	p.nextToken() // consume ')'
+	p.unparenthesizedIfCondition = false
+
 	p.nextToken() // consume '{'
 	body := p.parseBlock()
 	p.nextToken() // consume '}'

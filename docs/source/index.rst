@@ -10,16 +10,18 @@ cross-compile.
 
 .. note::
 
-   Status: **Developer Preview**. The language, standard library and
-   toolchain are functional and tested on two engines (the Go front end and
-   the self-hosted ``kcc`` engine), but large planned surfaces (networking,
-   databases, web, GPU/NPU/quantum kernels, an advanced package registry)
-   are **not yet implemented**. Nothing on this site describes hypothetical
-   features as available. Every advanced capability states its real status.
+   Status: **🧪 Karkain Beta 1**. The implemented language core, standard
+   library and toolchain are functional and regression-tested on two engines
+   (the Go front end and the self-hosted ``kcc`` engine), with a documented
+   stable core and broad parity for the claimed surface. Large planned
+   surfaces (networking, databases, web, GPU/NPU/quantum kernels, an
+   advanced package registry) are **not yet implemented**. Nothing on this
+   site describes hypothetical features as available. Every advanced
+   capability states its real status.
 
-   Public status: **🚀 Karkain Developer Preview** (``karkain --version`` →
-   ``Karkain Compiler v0.115.0 (... Developer Preview Build)``). See
-   :doc:`release-notes` and :doc:`development/developer-preview`.
+   Public status: **🧪 Karkain Beta 1** (``karkain --version`` →
+   ``Karkain Compiler v0.117.0 (... Beta 1 Build)``). See
+   :doc:`release-notes` and :doc:`status/beta`.
 
    Feedback: open an issue at
    https://github.com/ajit-ai/Karkain/issues.

@@ -19,7 +19,7 @@ func main() {
     }
 
     if (command == "--version" || command == "-v") {
-        print("Karkain Compiler v0.115.0 (Developer Preview Build)")
+        print("Karkain Compiler v0.117.0 (Beta 1 Build)")
         return
     }
 
@@ -75,7 +75,7 @@ func main() {
 }
 
 func printUsage() {
-    print("Karkain Compiler v0.115.0 (Developer Preview Build)")
+    print("Karkain Compiler v0.117.0 (Beta 1 Build)")
     print("")
     print("Usage: karkain <command> [options] <file>")
     print("")
@@ -528,7 +528,7 @@ func sortStrings(arr) {
 // ============================================================
 
 func startLSP() {
-    print("Karkain LSP Server v0.115.0 (Developer Preview Build)")
+    print("Karkain LSP Server v0.117.0 (Beta 1 Build)")
     // LSP server would read JSON-RPC from stdin and write to stdout
     // This is a placeholder for the self-hosted LSP implementation
 }
