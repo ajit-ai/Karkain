@@ -1,26 +1,26 @@
-:orphan:
-
 Web
 ===
 
-:not-implemented:`Not Yet Implemented`
+:not-implemented:`Not Yet Implemented` — there is no web framework or HTTP
+server runnable from ``.kark`` today.
 
-There is **no web framework in Karkain today**: no HTTP server, no
-client-side HTTP, no templating, no routing, and no JSON parser. (An
-``http.get`` name appears in some historical notes but has no network
-implementation — it must not be relied on.) The web category is a
-placeholder documenting the gap, per the Phase 113 framework.
+The category directory ``examples/07_web/`` exists only to preserve the
+15-category framework and record the honest status: ``pkg/stdlib/http.go``
+contains placeholder functions that are not wired into the language, and a
+sockets prerequisite (see :doc:`/examples/networking`) has not shipped yet.
 
-Planned
--------
+The roadmap path is:
 
-:planned:`Planned` — design intention only. No APIs exist.
+1. socket runtime in the generated C,
+2. ``std.net`` TCP client/server,
+3. ``std.http`` request/response,
+4. routing and middleware conventions,
+5. static file serving.
 
-* An HTTP/web serving stack.
-* Examples will be added when the capability is implemented; Phase 114 will
-  populate this category with validated programs once such a stack exists.
+A plain TCP echo client/server will be the first real example once step (1)
+lands.
 
 .. seealso::
 
    :doc:`/examples/networking` — the prerequisite networking surface.
-   :doc:`/status/planned` — the planned-feature register.
+   :doc:`/status/planned` — the roadmap vocabulary.

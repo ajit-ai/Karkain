@@ -1,25 +1,27 @@
-:orphan:
-
 Database
 ========
 
-:not-implemented:`Not Yet Implemented`
+:not-implemented:`Not Yet Implemented` — there are no database APIs in the
+Karkain language or standard library.
 
-There is **no database API in Karkain today**: no drivers for any database
-system, no query language, and no persistence model beyond flat file I/O
-(``readFile`` / ``writeFile`` / ``readLine`` in ``std.io``). Nothing on this
-page describes a hypothetical SQL/NoSQL surface as available.
+The category directory ``examples/06_database/`` documents only an intended
+roadmap shape and carries no example source. File-based persistence is
+already available through ``std.io`` — see :doc:`/examples/data` and
+``examples/03_systems/01_file_io.kark``.
 
-Planned
--------
+Intended future surface (roadmap only, **not** implemented):
 
-:planned:`Planned` — design intention only. No APIs exist.
+.. code-block:: kark
 
-* Database connectivity and query execution are planned pieces of the
-  ecosystem.
-* Examples will be added when the capability is implemented.
+   std.db:
+     db_connect(dsn) -> connection
+     db_execute(conn, sql) -> result
+     db_query(conn, sql) -> rows
+     db_close(conn)
+
+The corpus must never imply unsupported database functionality exists.
 
 .. seealso::
 
-   :doc:`/examples/data` — the adjacent, also-not-implemented data category.
-   :doc:`/status/planned` — the planned-feature register.
+   :doc:`/examples/data` — the adjacent, implemented file-based data category.
+   :doc:`/status/planned` — the roadmap vocabulary.

@@ -1,27 +1,69 @@
 Systems
 =======
 
-:implemented:`Implemented` for these specific examples — two real,
-checked-in systems programs demonstrate the low-level surfaces of Karkain:
+:implemented:`Implemented` for these specific examples — real, checked-in
+systems programs demonstrate the file, concurrency and WASM surfaces of
+Karkain:
 
+* ``examples/03_systems/01_file_io.kark`` — the importable ``std.io`` module
+  (write / append / read lines / exists / delete), byte-identical on **both**
+  engines.
 * ``examples/concurrency/pipeline/main.kark`` — the Phase 107 concurrency
   runtime (spawn/join, channels, actors), validated end-to-end by
-  ``pkg/cli/phase107_concurrency_test.go``.
-* ``examples/wasm/hello.kark`` — the Phase 108 ``wasm32-wasi`` target,
-  validated end-to-end by ``pkg/cli/phase108_cli_test.go``.
+  ``pkg/cli/phase107_concurrency_test.go`` (Go engine).
+* ``examples/wasm/hello.kark`` — the Phase 108 ``wasm32-wasi`` target, gated by
+  ``pkg/cli/phase108_cli_test.go``.
 
-Both are ordinary ``.kark`` files with no special syntax beyond the
-documented builtins they exercise.
+File I/O (new)
+--------------
 
--------------
+``examples/03_systems/01_file_io.kark`` creates ``corpus_demo.txt`` in its
+working directory, writes lines, appends a line, reads them back, and deletes
+the file — all through ``import std.io``:
+
+.. code-block:: kark
+
+   import std.io
+
+   func main() {
+       io_write_file("corpus_demo.txt", "alpha\nbeta\n")
+       io_append_file("corpus_demo.txt", "gamma\n")
+       let lines = io_read_lines("corpus_demo.txt")
+       print(io_file_exists("corpus_demo.txt"))
+       print(len(lines))
+       let i = 0
+       while (i < len(lines)) {
+           print(lines[i])
+           i = i + 1
+       }
+       io_delete_file("corpus_demo.txt")
+       print(io_file_exists("corpus_demo.txt"))
+   }
+
+Expected output (verified, byte-identical on both engines):
+
+.. code-block:: text
+
+   true
+   3
+   alpha
+   beta
+   gamma
+   true
+
+Run it from anywhere — files are created in the current working directory:
+
+.. code-block:: console
+
+   $ karkain run examples/03_systems/01_file_io.kark
 
 Concurrency pipeline
 --------------------
 
 ``examples/concurrency/pipeline/main.kark`` is the end-to-end concurrency
 demo: a spawned task joined for its result, a producer task streaming over a
-channel (with deterministic close-drain), and an actor whose handler
-accumulates state through three serialized messages.
+channel (with deterministic close-drain), and an actor accumulating state
+through three serialized messages.
 
 Caveat: the concurrency language surface runs on the **Go engine**. kcc
 parity is deferred, so the example is compiled and run with the Go front end
@@ -120,5 +162,6 @@ WASM backend is Go-engine only and wasmtime-gated: see
 
 .. seealso::
 
+   :doc:`/stdlib/io` — the importable I/O module.
    :doc:`/targets/host-targets` — targets supported on this host.
    :doc:`/tools/build` — the ``karkain build`` command and its target flag.

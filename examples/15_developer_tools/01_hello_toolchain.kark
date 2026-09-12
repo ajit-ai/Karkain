@@ -1,0 +1,15 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 15 Developer Tools
+//
+// The canonical toolchain loop for this file:
+//
+//   karkain check  examples/15_developer_tools/01_hello_toolchain.kark
+//   karkain build  examples/15_developer_tools/01_hello_toolchain.kark -o bin/hello.exe
+//   karkain run    examples/15_developer_tools/01_hello_toolchain.kark
+//
+// Run:  karkain run examples/15_developer_tools/01_hello_toolchain.kark
+
+func main() {
+    print("write -> build -> run")
+}

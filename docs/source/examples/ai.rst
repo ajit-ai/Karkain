@@ -1,29 +1,45 @@
-:orphan:
-
 AI
 ==
 
-:not-implemented:`Not Yet Implemented`
+:implemented:`Implemented` — in the honest sense: AI *demonstration examples*
+written in ordinary Karkain arithmetic exist under ``examples/09_ai/`` and run
+byte-identically on both engines.
 
-The Karkain AI **ecosystem is planned but not implemented**. There are no AI
-APIs in the language, the standard library, or either compiler engine today:
-no tensor types, no model loading, no inference runtime, no MLIR-level
-surface reachable from ``.kark`` source.
+There is **no ``std.ai`` module and no AI/ML framework surface** in the
+language. These examples show classic ML *geometries* (distance, weighted
+votes, linear decision boundaries) implemented by hand with plain arrays,
+maps and arithmetic — deliberately, so the language itself can be exercised
+without pretending a framework exists. See :doc:`/status/implemented` for how
+the status vocabulary is used.
 
-Classical vector/matrix math (dot products, matrix multiplication,
-similarity) can be written in plain Karkain — that is ordinary arithmetic,
-not an AI framework.
+.. list-table:: examples/09_ai/
+   :widths: 30 70
+   :header-rows: 1
 
-Planned
--------
+   * - File
+     - Demonstrates
+   * - ``01_nearest_neighbor.kark``
+     - Manhattan-distance nearest-neighbour classification by hand
+   * - ``02_linear_classifier.kark``
+     - Perceptron-style weight updates and a decision boundary
 
-:planned:`Planned` — design intention only. No APIs exist.
+K-nearest neighbour (excerpt)
+-----------------------------
 
-* AI framework APIs for Karkain.
-* Examples will be added when the capability is implemented; this page is a
-  placeholder documenting the gap honestly, per the Phase 113 framework.
+.. code-block:: kark
+
+   func distance(a, b) {
+       return abs(a[0] - b[0]) + abs(a[1] - b[1])
+   }
+   ...
+
+Run:
+
+.. code-block:: console
+
+   $ karkain run examples/09_ai/01_nearest_neighbor.kark
 
 .. seealso::
 
-   :doc:`/examples/machine-learning` — the adjacent planned category.
-   :doc:`/status/planned` — the planned-feature register.
+   :doc:`/examples/machine-learning` — the adjacent hand-rolled ML category.
+   :doc:`/status/planned` — the not-yet-implemented AI framework roadmap.

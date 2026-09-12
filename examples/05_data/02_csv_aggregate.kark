@@ -1,0 +1,43 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 05 Data
+//
+// CSV-like processing over an embedded dataset: split rows by newline, then
+// split each row by comma, cast to int, and aggregate with std.collections.
+// This is a demo of idiomatic string+array parsing, not a production CSV
+// library (quoting/escaping is deliberately out of scope).
+//
+// Run:  karkain run examples/05_data/02_csv_aggregate.kark
+
+import std.string
+import std.collections
+
+func main() {
+    let rows = "north,10\nsouth,20\nnorth,5\nwest,15"
+
+    let by_region = {}
+    let by_region_count = {}
+    let lines = str_split(rows, "\n")
+    let i = 0
+    while (i < len(lines)) {
+        let fields = str_split(lines[i], ",")
+        let region = fields[0]
+        let value = str_to_int(fields[1])
+
+        if (map_contains_key(by_region, region)) {
+            by_region[region] = by_region[region] + value
+            by_region_count[region] = by_region_count[region] + 1
+        } else {
+            by_region[region] = value
+            by_region_count[region] = 1
+        }
+        i = i + 1
+    }
+
+    print(by_region["north"])
+    print(by_region["south"])
+    print(by_region["west"])
+    print(by_region_count["north"])
+    print(array_sum([10, 20, 5, 15]))
+    print(array_max([10, 20, 5, 15]))
+}
