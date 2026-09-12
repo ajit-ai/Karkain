@@ -9,6 +9,9 @@
 
 # Distribution & Release Artifacts
 /dist/
+/releases/
+/.build/
+/artifacts/
 *.zip
 *.tar.gz
 *.sha256

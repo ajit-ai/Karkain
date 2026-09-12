@@ -1,0 +1,8 @@
+// main.kark — the app member consumes the sibling workspace library.
+// The workspace dependency fix (Phase 117) makes the cross-member call to
+// greet() resolve deterministically on both engines.
+
+func main() {
+    greet()
+    print("hi from app")
+}

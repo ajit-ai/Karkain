@@ -5,7 +5,7 @@ and validated with the real CLI (default `kcc` engine). These are working
 examples first and marketing second: every `STATUS: WORKING TODAY` program
 below was checked and run with `karkain check` / `karkain run`.
 
-- Toolchain: `karkain.exe` v0.115.0 (Developer Preview Build, default engine `kcc`, self-hosted), MSYS2 gcc 14.2.0.
+- Toolchain: `karkain.exe` v0.117.0 (Beta 1 Build, default engine `kcc`, self-hosted), MSYS2 gcc 14.2.0.
 - Every working example is ASCII-clean and deterministic (pinnable output).
 - Nothing here invents syntax, libraries, or features the language does not have.
 
@@ -30,7 +30,7 @@ I/O is self-contained inside the program.
 | 05 | Data | WORKING TODAY | `05-data/text_stats` — tokenizing, longest-word search, float stats (arrays, not maps: there is no map iteration API) |
 | 06 | Database | NOT CURRENTLY SUPPORTED | No DB drivers, no query language, no persistence beyond flat file I/O (`readFile`/`writeFile`/`readLine`) |
 | 07 | Web | NOT CURRENTLY SUPPORTED | No HTTP server or web framework; no JSON parsing (an `http.get` name exists but is unimplemented) |
-| 08 | Concurrency | NOT CURRENTLY SUPPORTED | No goroutines/threads/actors in the runtime; queues in example 02 are a pure data structure |
+| 08 | Concurrency | NOT CURRENTLY SUPPORTED | no actor/channel runtime on the default `kcc` engine (Phase 107 concurrency is Go-engine only); queues in example 02 are a pure data structure |
 | 09 | AI | WORKING TODAY | `09-ai/matrix` — dot product, matmul, cosine similarity, nearest-neighbor; `@target(cpu)` attribute |
 | 10 | ML | WORKING TODAY | `10_ml/linear_regression` — closed-form least squares + prediction |
 | 11 | Quantum | NOT CURRENTLY SUPPORTED | No quantum runtime/adapters; nothing quantum-real exists to showcase |
@@ -86,9 +86,10 @@ Not present (honest `NOT CURRENTLY SUPPORTED` markers): 04 Networking,
    the test file (see `15_devtools/tests`).
 8. **`getArgs()` includes the program name as element 0**, so without extra
    arguments it reports `args=1`.
-9. Runtime failure model: division by zero is silent, out-of-range reads
-   return 0, and there are no source-mapped runtime stack traces (only
-   `assert*` failures point at `[file:line]`).
+9. Runtime failure model (Beta 1): checked `divide by zero` / `index out of
+   range` reported as `runtime error: <kind> at <file>:<line>` with a
+   `stack:` dump, exiting 1 — identical on both engines (Phase 100/101); earlier
+   builds were silent about these.
 
 ## AI / ML / Quantum — explicit assessment
 

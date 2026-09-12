@@ -48,7 +48,7 @@ karkain build hello.kark      # native executable
 **Documentation:**
 
 - [Getting Started](docs/source/getting-started/index.rst) — installation, first program, project layout
-- [Karkain by Example](docs/source/examples/index.rst) — 46 real, runnable programs
+- [Karkain by Example](docs/source/examples/index.rst) — 50 real, runnable programs
 - [Language Guide](docs/source/language/index.rst) — the language as it actually works
 - [Standard Library](docs/source/stdlib/index.rst) — `std.string`, `std.collections`, `std.io`, `std.encoding`, `std.crypto`, `std.testing`
 - [CLI Reference](docs/source/tools/index.rst) — every command, flag and exit code
@@ -56,6 +56,7 @@ karkain build hello.kark      # native executable
 - [Targets & Cross-Compilation](docs/source/targets/index.rst) — host matrix, triples, WASM
 - [Status & Roadmap](docs/source/status/index.rst) — what works, what is planned
 - [Contributing](CONTRIBUTING.md) — how to help
+- [Security](SECURITY.md) — private vulnerability reporting
 
 ## What works today
 
@@ -116,8 +117,8 @@ Experimental means *real and testable, but the surface may change*:
 
 ## Example corpus
 
-`examples/` holds **46 real `.kark` programs across 15 categories** — 43
-Runnable directly, 1 test-mode, 2 Experimental, 4 Planned (README only).
+`examples/` holds **50 real `.kark` programs across 15 categories** — 48
+Runnable (incl. test-mode), 2 Experimental, 4 Planned (README only).
 
 ```bash
 karkain run examples/01-fundamentals/01_hello_world.kark
@@ -266,7 +267,7 @@ Karkain/
 ├── src/compiler/        # self-hosted compiler, written in .kark
 ├── stdlib/              # Karkain standard library sources (.kark)
 ├── conformance/         # 59 native test_* functions, both engines
-├── examples/            # 46 examples across 15 categories
+├── examples/            # 50 examples across 15 categories
 ├── scripts/             # build / release / verify scripts
 ├── docs/                # Sphinx documentation + phase audit reports
 ├── .github/workflows/   # CI and docs publishing
@@ -278,9 +279,9 @@ Karkain/
 
 ## Roadmap
 
-See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–79+,
-with 79–117 delivered). The current milestone is **117 — Beta 1 Readiness &
-Hardening**.
+See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–118
+delivered). The current milestone is **118 — Beta 1 External Validation &
+Release Candidate Readiness**.
 
 High-level status today: the compiler is self-hosted, byte-identical on two
 engines, and the standard library, toolchain and example corpus are real and
@@ -301,6 +302,10 @@ Feedback and contributions are welcome. Start with
 
 Report bugs and feature requests at
 [https://github.com/ajit-ai/Karkain/issues](https://github.com/ajit-ai/Karkain/issues).
+Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml); include
+`karkain --version` output and a minimal source file. For security
+vulnerabilities use the **private** path in [SECURITY.md](SECURITY.md) — do
+not open a public issue.
 
 ## License
 
