@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-const versionString = "Karkain Compiler v1.0.0 (%s/%s, LSP Engine & IDE Tooling)"
+const versionString = "Karkain Compiler v0.115.0 (%s/%s, Developer Preview Build)"
 
 // CommandResult holds the outcome of a CLI command
 type CommandResult struct {
@@ -247,9 +247,71 @@ func ValidateKarFile(path string) error {
 	}
 
 	if strings.ToLower(filepath.Ext(cleanPath)) != ".kark" {
-		return fmt.Errorf("Input file must be a .kark file: %s", path)
+		hint := suggestCommand(path)
+		if hint == "" {
+			return fmt.Errorf("Input file must be a .kark file: %s", path)
+		}
+		return fmt.Errorf("Input file must be a .kark file: %s\nDid you mean: karkain %s", path, hint)
 	}
 	return nil
+}
+
+// suggestCommand returns a known subcommand within small edit distance of the
+// given word, or "" if there is none. It is only meant for UX hints when a
+// user mistypes a command name; it never changes behavior for real paths.
+func suggestCommand(word string) string {
+	if word == "" {
+		return ""
+	}
+	if !regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]*$`).MatchString(word) {
+		return ""
+	}
+	best := ""
+	bestDist := 3
+	for _, cmd := range []string{
+		"build", "run", "check", "transpile", "test", "fmt", "lint",
+		"debug", "prof", "target", "clean", "config", "explain", "bench",
+		"lsp", "pkg", "workspace", "init", "new", "add", "remove",
+		"update", "list", "tree", "fetch", "ide",
+	} {
+		d := editDistance(word, cmd)
+		if d < bestDist {
+			bestDist = d
+			best = cmd
+		}
+	}
+	if bestDist <= 2 {
+		return best
+	}
+	return ""
+}
+
+func editDistance(a, b string) int {
+	la, lb := len(a), len(b)
+	prev := make([]int, lb+1)
+	cur := make([]int, lb+1)
+	for j := 0; j <= lb; j++ {
+		prev[j] = j
+	}
+	for i := 1; i <= la; i++ {
+		cur[0] = i
+		for j := 1; j <= lb; j++ {
+			cost := 0
+			if a[i-1] != b[j-1] {
+				cost = 1
+			}
+			min := prev[j] + 1
+			if cur[j-1]+1 < min {
+				min = cur[j-1] + 1
+			}
+			if prev[j-1]+cost < min {
+				min = prev[j-1] + cost
+			}
+			cur[j] = min
+		}
+		prev, cur = cur, prev
+	}
+	return prev[lb]
 }
 
 func loadSourceWithSiblings(targetFile string) (string, error) {

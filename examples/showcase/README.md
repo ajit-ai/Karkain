@@ -5,7 +5,7 @@ and validated with the real CLI (default `kcc` engine). These are working
 examples first and marketing second: every `STATUS: WORKING TODAY` program
 below was checked and run with `karkain check` / `karkain run`.
 
-- Toolchain: `karkain.exe` v1.0.0 (default engine `kcc`, self-hosted), MSYS2 gcc 14.2.0.
+- Toolchain: `karkain.exe` v0.115.0 (Developer Preview Build, default engine `kcc`, self-hosted), MSYS2 gcc 14.2.0.
 - Every working example is ASCII-clean and deterministic (pinnable output).
 - Nothing here invents syntax, libraries, or features the language does not have.
 

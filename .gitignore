@@ -72,3 +72,7 @@ examples/cross_compile/**/*.c23
 
 # Sphinx documentation build output
 docs/build/
+
+# Python bytecode under docs
+__pycache__/
+*.pyc

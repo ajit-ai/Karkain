@@ -13,9 +13,15 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-111** — Phases 50–106 complete, Phase 107 (Concurrency
-Runtime) complete, Phase 108 (WASM target) complete, Phase 109 (Standard
-Library v2) complete, Phase 110 (Profiling & Diagnostics) complete.
+Current phase: **115** — Phases 50–106 complete, 107 (Concurrency
+Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
+complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
+complete, 112 (Language probe hardening/debug trace/testing module) complete,
+113 (Developer Preview docs+status model) complete, 114 (Complete Example
+Corpus: 46 files / 15 categories + parity gate) complete. Project status:
+**🚀 Karkain Developer Preview** (v0.115.0). NOTE: the Phase 91 historical
+"KARKAIN 1.0 — RELEASE READY" record was superseded; the honest public label
+is Developer Preview, never 1.0.
 Also completed: **111** — Cross-Compilation
 (`--target <triple>` is a real, explicit cross-compilation switch backed by
 the Karkain-owned target model `pkg/target` (arch/os/env, canonical short
