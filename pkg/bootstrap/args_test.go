@@ -99,7 +99,7 @@ func TestArgs_OneArgument(t *testing.T) {
 // Argument Test 3: Multiple arguments -> --version recognized.
 func TestArgs_Version(t *testing.T) {
 	out, code := runCompiler1(t, "--version")
-	if !strings.Contains(out, "Karkain Compiler v1.0.0") {
+	if !strings.Contains(out, "Karkain Compiler v0.115.0") {
 		t.Fatalf("expected version text, got: %q", out)
 	}
 	if code != 0 {

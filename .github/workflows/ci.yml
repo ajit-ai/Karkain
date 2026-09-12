@@ -35,8 +35,10 @@ jobs:
             docs/build/html/compiler/index.html \
             docs/build/html/status/index.html \
             docs/build/html/reference/index.html \
+            docs/build/html/reference/example-matrix.html \
             docs/build/html/development/index.html \
             docs/build/html/examples/index.html \
+            docs/build/html/release-notes/index.html \
           ; do
             if [ ! -f "$f" ]; then
               echo "Missing required doc page: $f"
@@ -61,22 +63,17 @@ jobs:
       - name: Run unit tests
         run: go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1 -v
 
+      - name: Vet
+        run: go vet ./...
+
       - name: Build compiler
         run: go build -o karkain ./cmd/karkain
 
-      - name: Run E2E tests
-        run: |
-          PASS=0; FAIL=0
-          for f in examples/*.kark; do
-            if ./karkain run "$f" >/dev/null 2>&1; then
-              PASS=$((PASS + 1))
-            else
-              FAIL=$((FAIL + 1))
-              echo "FAIL: $f"
-            fi
-          done
-          echo "E2E: $PASS passed, $FAIL failed"
-          if [ "$FAIL" -gt 1 ]; then exit 1; fi  # allow 1 pre-existing failure
+      - name: Run E2E gates (Phase 114 example corpus, Go engine)
+        run: go test ./pkg/cli/ -run 'TestPhase114_CorpusExamples_GoEngine|TestPhase114_CorpusCoverage' -count=1
+
+      - name: Run Developer Preview gate (fresh-checkout simulation)
+        run: go test ./pkg/cli/ -run 'TestPhase115' -count=1
 
       - name: Run conformance tests
         run: |
