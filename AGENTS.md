@@ -13,12 +13,18 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **115** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **116** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
 113 (Developer Preview docs+status model) complete, 114 (Complete Example
-Corpus: 46 files / 15 categories + parity gate) complete. Project status:
+Corpus: 46 files / 15 categories + parity gate) complete, 115 (Developer
+Preview Readiness: LICENSE/CONTRIBUTING/COC, honest README + docs +
+release notes, unified v0.115.0 version identity across Go CLI + kcc +
+generated headers, "Did you mean" typo hints + friendly missing-file errors,
+fresh-checkout gate `pkg/cli/phase115_developer_preview_test.go`,
+CI vet/phase-114/115 steps, Phase 115 audit reports) complete.
+Project status:
 **🚀 Karkain Developer Preview** (v0.115.0). NOTE: the Phase 91 historical
 "KARKAIN 1.0 — RELEASE READY" record was superseded; the honest public label
 is Developer Preview, never 1.0.
