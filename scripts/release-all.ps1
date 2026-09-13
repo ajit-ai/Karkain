@@ -54,6 +54,12 @@ foreach ($Target in $Targets) {
     $Ext = $Target.Ext
     $Format = $Target.Format
 
+    # Map release-pipeline GOARCH names to real Go GOARCH values.
+    # (Named armv7/i386 are kept for archive naming; Go uses arm/386.)
+    $GoArch = $GOARCH
+    if ($GoArch -eq "armv7") { $GoArch = "arm" }
+    elseif ($GoArch -eq "i386") { $GoArch = "386" }
+
     Write-Host -NoNewline "Building $GOOS/$GOARCH... "
 
     $OutName = "$BinaryName$Ext"
@@ -64,7 +70,8 @@ foreach ($Target in $Targets) {
 
     try {
         $env:GOOS = $GOOS
-        $env:GOARCH = $GOARCH
+        $env:GOARCH = $GoArch
+        if ($GoArch -eq "arm") { $env:GOARM = "7" }
         $env:CGO_ENABLED = "0"
 
         & go build -ldflags="-s -w" -o $OutPath (Join-Path $ProjectRoot "cmd\karkain") 2>$null
@@ -92,7 +99,7 @@ foreach ($Target in $Targets) {
             # For tar.gz on Windows, use tar if available
             $ArchivePath = Join-Path $OutputDir "$ArchiveName.tar.gz"
             Push-Location $BuildDir
-            & tar czf $ArchivePath "$ArchiveName/"
+            & tar czf $ArchivePath $ArchiveName
             Pop-Location
         }
 
@@ -105,6 +112,7 @@ foreach ($Target in $Targets) {
     } finally {
         $env:GOOS = ""
         $env:GOARCH = ""
+        $env:GOARM = ""
         $env:CGO_ENABLED = ""
     }
 }

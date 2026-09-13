@@ -52,6 +52,12 @@ for target in "${TARGETS[@]}"; do
 
     echo -n "Building $GOOS/$GOARCH... "
 
+    # Map release-pipeline GOARCH names to real Go GOARCH values.
+    # (Named armv7/i386 are kept for archive naming; Go uses arm/386.)
+    GO_ARCH="$GOARCH"
+    if [ "$GO_ARCH" = "armv7" ]; then GO_ARCH="arm"; fi
+    if [ "$GO_ARCH" = "i386" ]; then GO_ARCH="386"; fi
+
     # Skip js/wasm if no EXT
     OUT_NAME="$BINARY_NAME$EXT"
     STAGE_DIR="$BUILD_DIR/$BINARY_NAME-$VERSION-$GOOS-$GOARCH"
@@ -60,7 +66,7 @@ for target in "${TARGETS[@]}"; do
     mkdir -p "$STAGE_DIR"
 
     # Set env and build
-    if GOOS="$GOOS" GOARCH="$GOARCH" CGO_ENABLED=0 \
+    if GOOS="$GOOS" GOARCH="$GO_ARCH" GOARM=7 CGO_ENABLED=0 \
         go build -ldflags="-s -w -X main.versionString=Karkain Compiler $VERSION ($GOOS/$GOARCH)" \
         -o "$OUT_PATH" "$PROJECT_ROOT/cmd/karkain" 2>/dev/null; then
 
