@@ -76,7 +76,7 @@ if (-not $Stage) {
     Run-Stage vet    { go vet ./... }
 }
 Run-Stage units      { go test @UnitPkgs -count=1 -p 1 }
-Run-Stage cligates   { go test ./pkg/cli -run "TestPhase114_|TestPhase115_|TestPhase116_|TestPhase117_|TestPhase118_|TestConformanceCorpus_RunsClean|TestProbesCorpus_RunsEveryProbe" -count=1 -p 1 }
+Run-Stage cligates   { go test ./pkg/cli -run "TestPhase114_|TestPhase115_|TestPhase116_|TestPhase117_|TestPhase118_|TestPhase119_|TestConformanceCorpus_RunsClean|TestProbesCorpus_RunsEveryProbe" -count=1 -p 1 }
 Run-Stage conformance{ go test ./pkg/cli -run "TestConformanceCorpus_RunsClean" -count=1 -p 1 }
 Run-Stage probes     { go test ./pkg/cli -run "TestProbesCorpus_RunsEveryProbe" -count=1 -p 1 }
 Run-Stage examples   {
