@@ -12,12 +12,15 @@ Karkain is distributed as pre-compiled binaries and built from source.
 Pre-compiled binaries
 =====================
 
-:implemented:`Available` — pre-built binaries for **v1.0.0** are
-published on `GitHub Releases
-<https://github.com/ajit-ai/Karkain/releases>`_. Each archive contains the
-``karkain`` binary, the standard library, ``README.md``, ``LICENSE`` and a
-``VERSION`` file. The repository install/verify scripts also build from
-source; see :ref:`installation-source-build`.
+:implemented:`Available` — pre-built binaries for **v1.0.0** have been
+built and validated. They are published on `GitHub Releases
+<https://github.com/ajit-ai/Karkain/releases>`_ at the maintainers'
+discretion; until the v1.0.0 release is cut, the archives are not yet
+downloadable and the :ref:`build-from-source <installation-source-build>`
+path below is the way to get the toolchain. Each archive (when published)
+contains the ``karkain`` binary, the standard library, ``README.md``,
+``LICENSE`` and a ``VERSION`` file. The repository install/verify scripts
+also build from source; see :ref:`installation-source-build`.
 
 .. note::
 
@@ -92,7 +95,7 @@ Windows
 
 .. code-block:: powershell
 
-   # Download karkain-v1.0.0-windows-amd64.zip from GitHub Releases and:
+   # Once the v1.0.0 GitHub Release is published, download the archive and:
    Expand-Archive -Path .\karkain-v1.0.0-windows-amd64.zip -DestinationPath $env:LOCALAPPDATA\Karkain
 
    # Add to PATH (PowerShell)

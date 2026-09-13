@@ -2,10 +2,16 @@
 Release-Candidate Checklist
 ===========================
 
-This is the authoritative acceptance checklist for declaring Karkain a
-**Release Candidate**. Phase 118 cannot pass until every item is checked.
-The checklist mirrors the :doc:`/status/scope` matrix and the
-:doc:`/development/feature-freeze` policy.
+This is the authoritative acceptance checklist that was used for declaring
+Karkain a **Release Candidate** (Phase 118). Every item below was satisfied;
+the list is retained as historical evidence of the RC readiness process.
+
+.. note::
+
+   **Completed** — Phase 118 gate ``pkg/cli/phase118_rc_test.go`` passed
+   and the RC READY verdict was issued. The 1.0.0 stable release followed
+   from Phase 119 QA. See :doc:`/release-notes` and
+   :doc:`/status/scope` for the current status.
 
 Current state (Phase 118)
 =========================
