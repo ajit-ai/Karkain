@@ -12,13 +12,23 @@ Karkain is distributed as pre-compiled binaries and built from source.
 Pre-compiled binaries
 =====================
 
-:planned:`Planned` — pre-built binaries are not published yet. The
-planned distribution channels are GitHub Releases and a container image,
-with archives/image names following the conventions listed below once a
-first release exists. Today, Karkain must be :ref:`built from source
-<installation-source-build>`.
+:implemented:`Available` — pre-built binaries for **v1.0.0** are
+published on `GitHub Releases
+<https://github.com/ajit-ai/Karkain/releases>`_. Each archive contains the
+``karkain`` binary, the standard library, ``README.md``, ``LICENSE`` and a
+``VERSION`` file. The repository install/verify scripts also build from
+source; see :ref:`installation-source-build`.
 
-The planned archive naming convention (to be confirmed at first release):
+.. note::
+
+   The binaries ship the **self-contained Go engine**. The self-hosted
+   ``kcc`` engine (the default engine when present) is compiled from the
+   repository's ``src/compiler`` sources, so to use it: run from a clone of
+   the repository, or point the ``KARKAIN_KCC`` environment variable at an
+   ``src/compiler`` directory. To use the self-contained Go engine instead,
+   pass ``--engine go`` to ``karkain`` (or set ``KARKAIN_ENGINE=go``).
+
+Archive naming convention:
 
 .. list-table::
    :widths: 30 30 20 20
@@ -26,72 +36,67 @@ The planned archive naming convention (to be confirmed at first release):
 
    * - Platform
      - Architecture
-     - Archive (planned)
+     - Archive (v1.0.0)
      - Status
    * - Windows
      - amd64
-     - ``karkain-v<ver>-windows-amd64.zip``
-     - Planned
+     - ``karkain-v1.0.0-windows-amd64.zip``
+     - :implemented:`Available`
    * - Windows
      - arm64
-     - ``karkain-v<ver>-windows-arm64.zip``
-     - Planned
+     - ``karkain-v1.0.0-windows-arm64.zip``
+     - :implemented:`Available`
    * - Linux
      - amd64
-     - ``karkain-v<ver>-linux-amd64.tar.gz``
-     - Planned
+     - ``karkain-v1.0.0-linux-amd64.tar.gz``
+     - :implemented:`Available`
    * - Linux
      - arm64
-     - ``karkain-v<ver>-linux-arm64.tar.gz``
-     - Planned
+     - ``karkain-v1.0.0-linux-arm64.tar.gz``
+     - :implemented:`Available`
    * - Linux
      - armv7
-     - ``karkain-v<ver>-linux-armv7.tar.gz``
-     - Planned
+     - ``karkain-v1.0.0-linux-armv7.tar.gz``
+     - :implemented:`Available`
    * - Linux
      - i386
-     - ``karkain-v<ver>-linux-i386.tar.gz``
-     - Planned
+     - ``karkain-v1.0.0-linux-i386.tar.gz``
+     - :implemented:`Available`
    * - Linux
      - ppc64le
-     - ``karkain-v<ver>-linux-ppc64le.tar.gz``
-     - Planned
+     - ``karkain-v1.0.0-linux-ppc64le.tar.gz``
+     - :implemented:`Available`
    * - Linux
      - s390x
-     - ``karkain-v<ver>-linux-s390x.tar.gz``
-     - Planned
+     - ``karkain-v1.0.0-linux-s390x.tar.gz``
+     - :implemented:`Available`
    * - macOS
      - amd64
-     - ``karkain-v<ver>-darwin-amd64.tar.gz``
-     - Planned
+     - ``karkain-v1.0.0-darwin-amd64.tar.gz``
+     - :implemented:`Available`
    * - macOS
      - arm64
-     - ``karkain-v<ver>-darwin-arm64.tar.gz``
-     - Planned
+     - ``karkain-v1.0.0-darwin-arm64.tar.gz``
+     - :implemented:`Available`
    * - FreeBSD
      - amd64
-     - ``karkain-v<ver>-freebsd-amd64.tar.gz``
-     - Planned
+     - ``karkain-v1.0.0-freebsd-amd64.tar.gz``
+     - :implemented:`Available`
    * - Docker
      - (multi-arch)
      - ``ghcr.io/ajit-ai/karkain:latest``
-     - Planned
+     - :planned:`Planned`
 
 Windows
 -------
 
-.. note::
-
-   Not yet available — see :ref:`installation-source-build`. The commands
-   below show the intended flow once binaries ship.
-
 .. code-block:: powershell
 
-   # Download and extract (replace <ver>)
-   Expand-Archive -Path .\karkain-v<ver>-windows-amd64.zip -DestinationPath $env:LOCALAPPDATA\Karkain
+   # Download karkain-v1.0.0-windows-amd64.zip from GitHub Releases and:
+   Expand-Archive -Path .\karkain-v1.0.0-windows-amd64.zip -DestinationPath $env:LOCALAPPDATA\Karkain
 
    # Add to PATH (PowerShell)
-   $env:PATH += ";$env:LOCALAPPDATA\Karkain"
+   $env:PATH += ";$env:LOCALAPPDATA\Karkain\karkain-v1.0.0-windows-amd64"
 
    # Verify
    karkain --version
@@ -99,27 +104,19 @@ Windows
 Linux
 -----
 
-.. note::
-
-   Not yet available — see :ref:`installation-source-build`.
-
 .. code-block:: bash
 
-   tar xzf karkain-v<ver>-linux-amd64.tar.gz
-   sudo mv karkain /usr/local/bin/
+   tar xzf karkain-v1.0.0-linux-amd64.tar.gz
+   sudo mv karkain-v1.0.0-linux-amd64/karkain /usr/local/bin/
    karkain --version
 
 macOS
 -----
 
-.. note::
-
-   Not yet available — see :ref:`installation-source-build`.
-
 .. code-block:: bash
 
-   tar xzf karkain-v<ver>-darwin-amd64.tar.gz
-   sudo mv karkain /usr/local/bin/
+   tar xzf karkain-v1.0.0-darwin-amd64.tar.gz
+   sudo mv karkain-v1.0.0-darwin-amd64/karkain /usr/local/bin/
    karkain --version
 
 Docker
@@ -127,7 +124,8 @@ Docker
 
 .. note::
 
-   Not yet available — see :ref:`installation-source-build`.
+   :planned:`Planned` — the container image is not published yet; use the
+   pre-compiled binary or :ref:`build from source <installation-source-build>`.
 
 .. code-block:: bash
 
