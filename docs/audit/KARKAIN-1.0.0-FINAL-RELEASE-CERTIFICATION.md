@@ -172,19 +172,19 @@ via `go version`), `stdlib/`, `README.md`, `LICENSE`, `VERSION`. Local SHA-256
 checksums (CI re-generates authoritative checksums.txt from its own builds):
 
 ```
-22eeb11fe3b072e6f090f8c6fa04606a9b745aaf3525f77c4d22b01c6d220d8e  karkain-v1.0.0-darwin-amd64.tar.gz
-c5432e818b095618afd0bab059c95104a492b3ba2a09c11f78204421ef508cdb  karkain-v1.0.0-darwin-arm64.tar.gz
-76831b20fdd2e790dff4814baccb2d434ea7cff945f51f699c2e97ebbda212fb  karkain-v1.0.0-freebsd-amd64.tar.gz
-ec81929b5d1fe3422ba84e7a99d567d16c491ba9fbc52c94c68a2dff6887d67a  karkain-v1.0.0-linux-386.tar.gz
-0ea8e6aa577f64c2ca0b385aa0273f63f65e2e071b6b1419f4b95fbde12f2245  karkain-v1.0.0-linux-amd64.tar.gz
-9d6f6fd4357840b4c9028f9bd1f5ef507810e5078d40a9f4d6379824b579ef53  karkain-v1.0.0-linux-arm.tar.gz
-459101cc08b02737a6b6336dc24a9bbd05be29d93f6fc29229ede02c330f0089  karkain-v1.0.0-linux-arm64.tar.gz
-d50cd50b8ac040e23720c8cb2eb999b7b487d6819acb74484e6657b5f1b93fc5  karkain-v1.0.0-linux-ppc64le.tar.gz
-20b121aa3d8237eccc60c835f6ef7035d982a8454f6a34b976b4805b74059890  karkain-v1.0.0-linux-s390x.tar.gz
-211fa8df895ab72f693c014f84a8de3456373fd50b1b41d79a14cc594fa3168c  karkain-v1.0.0-netbsd-amd64.tar.gz
-beca88d900c07601ac281ca6194c6a4fc0bb0d4e8fbac2e6b9051f42a23f34bc  karkain-v1.0.0-openbsd-amd64.tar.gz
-2135a6b63a97ca02c1ad053062e4a59f43b30854367ce563b07fc82854e6c238  karkain-v1.0.0-windows-amd64.zip
-13841ed81dcd8b34146e6fedffc46ea4e365b7ca501959b2da95dd5515c874e3  karkain-v1.0.0-windows-arm64.zip
+2af5efd50ee33e402713e32701b9f7c824d79931f1eb52e1e8547f536c49ecb6  karkain-v1.0.0-darwin-amd64.tar.gz
+41f2c8d833eb52c1af7cb226a5a47e13d1610a22a04e30bf87c0aa924ed72236  karkain-v1.0.0-darwin-arm64.tar.gz
+9a5543108d135678a6dbd19427317fdf3070c4b8e3377d73ce5968cc752a86ec  karkain-v1.0.0-freebsd-amd64.tar.gz
+f109586789e9d0e5a5273d8f84f9b9785b26ec7ca3ab23da95e5b91838ab15e7  karkain-v1.0.0-linux-386.tar.gz
+b557f9485c5531d59183805686d67610da92d952e224da750502de5b5e6ad451  karkain-v1.0.0-linux-amd64.tar.gz
+0e5a855210ea6b0e0d7b1b2ce7c44b08d2baa829c844fc0d9e2ce587959af76c  karkain-v1.0.0-linux-arm.tar.gz
+f3dbc260965bf17bf41374c350740d0b12ef9332dd8409ced8741839dc047fa4  karkain-v1.0.0-linux-arm64.tar.gz
+d07bbdb9d9ceeecb2c308f398ad1916131add960cd772e912cc035e19ebbd45b  karkain-v1.0.0-linux-ppc64le.tar.gz
+ee5ce22bf4cfa87c91acdaabfb00c9e0bd8568f6f842fae090526487a3466971  karkain-v1.0.0-linux-s390x.tar.gz
+47c33929530f97c9136b08ca2f0f548062d59b60a187d05bb7c4e87aeffc0964  karkain-v1.0.0-netbsd-amd64.tar.gz
+69c03ebe2effc04e6a69e978a87391ba1fda7e818f12679c414d35f2f52d30bd  karkain-v1.0.0-openbsd-amd64.tar.gz
+ea471e84bba12f4715667166c0c9d91e7b9b1bbd50c68ed8e326c5b1c05c12e8  karkain-v1.0.0-windows-amd64.zip
+3f700fa1767f7c0681b9ccde097e7c33984f8b34d8e975cb81f2de3db0e40b73  karkain-v1.0.0-windows-arm64.zip
 ```
 
 Windows amd64 artifact functional test (from the extracted archive, standalone,
