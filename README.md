@@ -15,7 +15,7 @@ host C compiler (GCC/Clang/MSVC) for final machine code.
 [`docs/source/status/index.rst`](docs/source/status/index.rst) governs every
 claim in this project — a feature is `Implemented` only when an automated
 gate test exercises it through the real pipeline. See the
-[capability summary](docs/source/status/beta.rst).
+[capability summary](docs/source/status/compatibility.rst).
 
 ## Quick Start
 
@@ -100,7 +100,7 @@ Neuro/heterogeneous work:
 | Quantum language surface | Not Yet Implemented (infrastructure only) |
 | GPU/NPU kernel language surface | Not Yet Implemented from `.kark` |
 | Advanced package registry | Not Yet Implemented (local resolution + lockfiles only) |
-| Pre-built release binaries | Planned (build from source today) |
+| Pre-built release binaries | Available — 13 `v1.0.0` archives (see the [Installation guide](docs/source/getting-started/installation.rst)) |
 
 ## Experimental surface
 
@@ -222,7 +222,7 @@ go build -o karkain.exe ./cmd/karkain
 # Test (unit suites)
 go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1
 
-# Developer-preview gate
+# Release-readiness gate
 go test ./pkg/cli/ -run TestPhase115 -count=1
 
 # Docs (Sphinx)
@@ -280,14 +280,14 @@ Karkain/
 ## Roadmap
 
 See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–119
-delivered). The current milestone is **119 — Public Repository Finalization &
-Karkain 1.0.0 Release Preparation**.
+delivered, plus the current post-1.0.0 track). The project label is now
+**Karkain 1.0.0 (Stable)**, released from the Phase 119 milestone.
 
 High-level status today: the compiler is self-hosted, byte-identical on two
 engines, and the standard library, toolchain and example corpus are real and
 regression-gated — but networking, databases, web, quantum, GPU/NPU language
 surfaces, and the package registry are `Planned`/`Not Yet Implemented`. The
-1.0.0 release readiness verdict is documented in the Phase 119 QA report
+1.0.0 release verdict and evidence are documented in the Phase 119 QA report
 (`docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md`).
 
 ## Contributing
