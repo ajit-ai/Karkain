@@ -10,11 +10,12 @@ never claim a feature works unless it is verified by an automated gate.
 
 ## Project status and expectations
 
-Read `docs/source/development/developer-preview.rst` before starting. The
-toolchain is real and tested, but its public surface is still evolving;
-APIs may change between releases. Contributions that silently introduce
-unsupported behavior, or that describe planned features as implemented, will
-**not** be accepted.
+Read `docs/source/development/index.rst` and `docs/source/status/index.rst`
+before starting. The 1.0.0 stable core is frozen and regression-gated; the
+experimental surfaces (concurrency, WASM, SIMD, profiling/trace) may still
+change between releases. Contributions that silently introduce unsupported
+behavior, or that describe planned features as implemented, will **not** be
+accepted.
 
 ## Getting started
 
@@ -31,7 +32,7 @@ unsupported behavior, or that describe planned features as implemented, will
    go build -o karkain ./cmd/karkain   # Linux/macOS
    go build -o karkain.exe ./cmd/karkain  # Windows (PowerShell)
    ```
-5. Verify the developer-preview gate passes (see "Testing" below).
+5. Verify the release-readiness gate passes (see "Testing" below).
 
 ## Branch workflow
 
@@ -51,7 +52,7 @@ go vet ./...
 go build ./...
 ```
 
-Run the developer-preview gate (fresh-checkout simulation, version/help
+Run the release-readiness gate (fresh-checkout simulation, version/help
 contract, repo-integrity checks):
 
 ```bash
