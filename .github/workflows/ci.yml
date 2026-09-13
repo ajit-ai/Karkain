@@ -3,6 +3,7 @@ name: CI/CD
 on:
   push:
     branches: [main, develop]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -167,7 +168,8 @@ jobs:
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          GOARCH: ${{ matrix.goarch == 'armv7' && 'arm' || matrix.goarch == 'i386' && '386' || matrix.goarch }}
+          GOARM: ${{ matrix.goarch == 'armv7' && '7' || '' }}
           CGO_ENABLED: '0'
         run: |
           BINARY="karkain${{ matrix.ext }}"
