@@ -5,7 +5,7 @@ external contributors make the toolchain safer for everyone.
 
 ## Supported versions
 
-Only the current Beta release line receives security fixes.
+Only the current Stable release line receives security fixes.
 
 | Version               | Category                     | Supported |
 |-----------------------|------------------------------|-----------|
@@ -50,5 +50,5 @@ Never include credentials, tokens, or private data in a report.
 ## Response expectations
 
 We aim to acknowledge receipt within 7 days and publish a fix in the next
-Beta/RC release. Security-relevant fixes are documented in the
+Stable/RC release. Security-relevant fixes are documented in the
 `docs/source/release-notes.rst` file.
