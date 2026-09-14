@@ -113,7 +113,7 @@ func (b *CPUBackend) execute(graph *tensor.TensorGraph, inputs map[string][]floa
 	defer os.Remove(exePath)
 
 	// Compile with gcc
-	cmd := exec.Command("gcc", "-std=c2x", "-O2", "-lm", cPath, "-o", exePath)
+	cmd := exec.Command("gcc", "-std=c2x", "-O2", cPath, "-o", exePath, "-lm")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("gcc compile failed: %v\n%s", err, out)
