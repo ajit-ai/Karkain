@@ -113,7 +113,7 @@ func printUsage() {
 }
 
 func checkFile(path) {
-    let source = readFile(path)
+    let source = assembleProject(path)
     if (source == "") { return }
 
     // Tokenize
@@ -167,7 +167,7 @@ func checkFile(path) {
 // success prints the KIR v1 text lines followed by a path-less
 // confirmation line (so repeated runs are byte-identical).
 func kirFile(path) {
-    let source = readFile(path)
+    let source = assembleProject(path)
     if (source == "") { return }
 
     let tokens = tokenize(source)
@@ -193,7 +193,7 @@ func kirFile(path) {
 // the deterministic count markers; failures print error[K121] problem lines
 // and no [ok] (so the CLI maps them to ExitCompile).
 func verifyFile(path) {
-    let source = readFile(path)
+    let source = assembleProject(path)
     if (source == "") { return }
 
     let tokens = tokenize(source)
@@ -221,7 +221,7 @@ func verifyFile(path) {
 }
 
 func buildFile(path, target) {
-    let source = loadSourceWithSiblings(path)
+    let source = assembleProject(path)
     if (source == "") { return }
 
     // Tokenize
@@ -250,7 +250,7 @@ func buildFile(path, target) {
 }
 
 func runFile(path) {
-    let source = readFile(path)
+    let source = assembleProject(path)
     if (source == "") { return }
 
     // Tokenize
@@ -371,30 +371,249 @@ func endsWith(s, suffix) {
     return substr(s, sl - ol, ol) == suffix
 }
 
-// Concatenate all sibling .kark files (excluding the target and any file that
-// defines its own main) with the target file, mirroring the Go CLI's
-// loadSourceWithSiblings. This makes the self-hosted compiler emit a fully
-// self-contained program that can compile the compiler source tree.
-func loadSourceWithSiblings(path) {
-    let dir = dirName(path)
-    let target = baseName(path)
-    let files = listFiles(dir)
-    let content = ""
-    let n = len(files)
+// ============================================================
+// Phase 122: Karkain-owned project source assembly
+//
+// assembleProject builds the self-contained Karkain source a root file
+// compiles: module imports (import math, import std.string) resolve to sibling
+// files/directories and to the standard-library tree, the root's same-directory
+// sibling modules join upstream with the root last, and module import
+// declaration lines are stripped while C import blocks are preserved (keeping
+// blank lines so assembled source line numbers match the originals). Every
+// driver entry (check/build/run/kir/verifykir) compiles through this function,
+// so kcc composes its own input on the real CLI path for flat projects; the Go
+// CLI only mirrors the project into a sandbox first. Manifests, workspaces and
+// package-manager dependencies keep the Go module-aware assembly.
+// ============================================================
+
+// sourceLines splits text into tokens that each carry their trailing newline
+// (the final token has none), so concatenating the tokens reproduces the input
+// byte-for-byte. Unlike the split builtin (which collapses empty runs), this
+// preserves blank lines and therefore exact line numbering.
+func sourceLines(text) {
+    let out = []
+    let pos = 0
+    let n = len(text)
+    while (pos < n) {
+        let rest = substr(text, pos, n - pos)
+        let nl = indexOf(rest, "\n")
+        if (nl < 0) {
+            out = appendArray(out, rest)
+            pos = n
+        } else {
+            out = appendArray(out, substr(rest, 0, nl + 1))
+            pos = pos + nl + 1
+        }
+    }
+    return out
+}
+
+// stripLineEnd removes a trailing newline and carriage return from a line
+// token so name detection is robust on LF and CRLF sources.
+func stripLineEnd(line) {
+    return trimSuffix(trimSuffix(line, "\n"), "\r")
+}
+
+// importNameOf extracts the module name from an import declaration line, or ""
+// when the line is not exactly `import <name>` (surrounding whitespace and a
+// trailing CR are allowed). C import blocks ("import \"C\"") return "".
+func importNameOf(line) {
+    let t = trim(stripLineEnd(line))
+    if (len(t) < 7) { return "" }
+    if (substr(t, 0, 7) != "import ") { return "" }
+    let rest = trim(substr(t, 7, len(t) - 7))
+    if (len(rest) == 0) { return "" }
+    let c0 = substr(rest, 0, 1)
+    if (c0 == "\"" || c0 == ".") { return "" }
+    let name = ""
     let i = 0
-    while (i < n) {
-        let name = files[i]
-        let isKark = endsWith(name, ".kark")
-        if (isKark == true && name != target) {
-            let fsrc = readFile(dir + "/" + name)
-            if (contains(fsrc, "func main(") == 0) {
-                content = content + fsrc + "\n\n"
+    let stop = 0
+    let alpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_."
+    while (i < len(rest) && stop == 0) {
+        let c = substr(rest, i, 1)
+        if (indexOf(alpha, c) >= 0) {
+            name = name + c
+            i = i + 1
+        } else {
+            stop = 1
+        }
+    }
+    if (len(trim(substr(rest, i, len(rest) - i))) > 0) { return "" }
+    return name
+}
+
+// isImportLine reports whether a line declares a module import (import math,
+// import std.string) as opposed to a C import block.
+func isImportLine(line) {
+    if (importNameOf(line) == "") { return 0 }
+    return 1
+}
+
+// arrHas reports whether array arr contains value x.
+func arrHas(arr, x) {
+    let i = 0
+    while (i < len(arr)) {
+        if (arr[i] == x) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// moduleImportNames returns the distinct module import names declared in a
+// source text, in declaration order.
+func moduleImportNames(source) {
+    let lines = sourceLines(source)
+    let names = []
+    let i = 0
+    while (i < len(lines)) {
+        let name = importNameOf(lines[i])
+        if (name != "") {
+            if (arrHas(names, name) == 0) {
+                names = appendArray(names, name)
             }
         }
         i = i + 1
     }
-    content = content + readFile(path)
+    return names
+}
+
+// stripModuleImports removes every module import declaration line, keeping the
+// newline so the assembled text preserves the original line numbering exactly
+// (mirrors the Go assembler's dotted-import line strip).
+func stripModuleImports(text) {
+    let lines = sourceLines(text)
+    let out = ""
+    let i = 0
+    while (i < len(lines)) {
+        let line = lines[i]
+        if (isImportLine(line) == 1) {
+            if (hasSuffix(line, "\n") == 1) { out = out + "\n" }
+        } else {
+            out = out + line
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// collectKarkFiles returns the sorted .kark file names directly inside dir
+// (empty for a missing/non-directory path), excluding exclude.
+func collectKarkFiles(dir, exclude) {
+    let entries = listFiles(dir)
+    let out = []
+    let i = 0
+    while (i < len(entries)) {
+        let name = entries[i]
+        if (endsWith(name, ".kark") == true && name != exclude) {
+            out = appendArray(out, name)
+        }
+        i = i + 1
+    }
+    return sortStrings(out)
+}
+
+// moduleDirSource concatenates every .kark file of a module directory in sorted
+// order, falling back to a single-file module (<dirPath>.kark). Returns "" when
+// the module is absent.
+func moduleDirSource(dirPath) {
+    let names = collectKarkFiles(dirPath, "")
+    let content = ""
+    let i = 0
+    while (i < len(names)) {
+        content = content + readFile(dirPath + "/" + names[i]) + "\n\n"
+        i = i + 1
+    }
+    if (content == "") {
+        let single = readFile(dirPath + ".kark")
+        if (single != "") { content = single + "\n\n" }
+    }
     return content
+}
+
+// findStdlibRoot locates the effective standard-library root for a project
+// root directory: first the sandbox staging area (<rootDir>/lib), then the
+// nearest ancestor holding a stdlib/ tree. A candidate must carry the
+// canonical std.string module (so unrelated directories named `stdlib`, such
+// as examples/stdlib, are never mistaken for the library).
+func findStdlibRoot(rootDir) {
+    let libRoot = rootDir + "/lib"
+    if (moduleDirSource(libRoot + "/string") != "") { return libRoot }
+    let probe = rootDir
+    let up = 0
+    while (up < 14) {
+        let cand = probe + "/stdlib"
+        if (moduleDirSource(cand + "/string") != "") { return cand }
+        let parent = dirName(probe)
+        if (parent == probe) { return "" }
+        probe = parent
+        up = up + 1
+    }
+    return ""
+}
+
+// resolveStdlibModule returns a std.X module's source from the effective
+// standard-library root, or "" when no stdlib is found.
+func resolveStdlibModule(sub, rootDir) {
+    let root = findStdlibRoot(rootDir)
+    if (root == "") { return "" }
+    return moduleDirSource(root + "/" + sub)
+}
+
+// resolveUserModule returns a bare user module's source: a sibling file
+// <name>.kark or a sibling directory <name>/ of .kark files, relative to dir.
+func resolveUserModule(name, dir) {
+    return moduleDirSource(dir + "/" + name)
+}
+
+// siblingContent joins the root's same-directory sibling .kark modules
+// (excluding the target and any file declaring its own main), sorted.
+func siblingContent(dir, target) {
+    let names = collectKarkFiles(dir, target)
+    let content = ""
+    let i = 0
+    while (i < len(names)) {
+        let src = readFile(dir + "/" + names[i])
+        if (contains(src, "func main(") == 0) {
+            content = content + src + "\n\n"
+        }
+        i = i + 1
+    }
+    return content
+}
+
+// assembleProject returns the self-contained assembled source for a project
+// root file, or "" (after printing error[K122] for an unresolvable module)
+// when assembly cannot complete. check/build/run/kir/verifykir all compile
+// through this function.
+func assembleProject(path) {
+    let rootSrc = readFile(path)
+    if (rootSrc == "") { return "" }
+    let dir = dirName(path)
+    let base = baseName(path)
+    let names = moduleImportNames(rootSrc)
+    let content = ""
+    if (len(names) == 0) {
+        content = siblingContent(dir, base)
+    } else {
+        let i = 0
+        while (i < len(names)) {
+            let name = names[i]
+            let m = ""
+            if (hasPrefix(name, "std.") == 1) {
+                m = resolveStdlibModule(trimPrefix(name, "std."), dir)
+            } else {
+                m = resolveUserModule(name, dir)
+            }
+            if (m == "") {
+                print("error[K122]: module '" + name + "' not found (assembling " + path + ")")
+                return ""
+            }
+            content = content + m
+            i = i + 1
+        }
+    }
+    content = content + rootSrc
+    return stripModuleImports(content)
 }
 
 // ============================================================
