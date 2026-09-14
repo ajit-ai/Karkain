@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **119** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **post-121** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -122,6 +122,77 @@ classes re-proven non-regressions — bootstrap stage-2 SEGFAULT reproduced
 identically on pristine HEAD worktree 1017068, combined-CLI-gate OOM crash
 with every constituent gate passing individually; **NO tag/release cut**
 (owner-only, listed as Planned in `installation.rst` honestly).)
+Also completed: **120 — GA Envelope + Compiler Independence / KIR v1 text
+emitter** (verdict **COMPLETE**; GA/public-material envelope — LICENSE,
+AUTHORS, CODE_OF_CONDUCT, `.github/workflows/ci.yml` Phase-120 steps, README
+export-permissions/contributing sections, Sphinx conf.py copyright/GA
+metadata, developer-preview/installation docs [binaries still listed Planned
+honestly], owner attribution, validated by `pkg/cli/phase120_ga_envelope_test.go`;
+compiler-owned intermediate representation: **KIR v1 text** — a deterministic,
+line-oriented, depth-indented rendering of the parsed AST emitted by
+`kirEmit` + 5 accessor helpers in `src/compiler/kir.kark` (the first compiler
+component written ENTIRELY in Karkain and owned by the self-hosted kcc;
+parser-agnostic S-expression forms, raw string-token echoes; `fileBaseName`
+header so output is path-location-independent — byte-identical across temp
+sandbox runs), exposed by `kcc kir` (dispatch in `src/compiler/main.kark`) and
+the CLI `karkain kir` (`pkg/cli/kir.go` KCCKirCommand — Go side only routes:
+syntax preflight, assembly, dispatch; NO Go KIR emitter, no fallback);
+space-form `print x` (kcc-parity) now accepted by the Go parser
+(`parsePrint` optional parens in `pkg/parser/parser.go`) so the Go preflight no
+longer rejects KIR-renderable programs; gates `pkg/cli/phase120_kir_test.go`
+(EmitterEndToEnd markers, ByteDeterminism, SpaceFormPrintParity, SelfHosting —
+kcc renders kir.kark itself, ExampleCoverage — `examples/self-hosting/kir/
+main.kark` prints `15/20/1/15` identically on both engines, ExitCodeContract),
+plus `src/compiler/main.kark` `dirName`/`baseName`/`endsWith` user helpers
+(later WIP-removed); regressions green: all unit suites, CLI phase 114/115/116/
+117/118/119 gates, conformance 59/59, probes 11/11, verify-examples 49/0/5,
+Sphinx html `-W` + linkcheck `-W`, `go vet`, `go build`. Known limitation
+(document, NOT a defect): kcc-per-file KIR emission assembles the whole
+`src/compiler` tree (~6399 KIR lines, ~66–95s on the 4GB host) — pre-existing
+Phase-120 emitter cost, gates sized accordingly. Reports:
+`docs/audit/PHASE-120-KIR-FINAL-REPORT.md`.)
+Also completed: **121 — Compiler Independence Foundation** (verdict
+**COMPLETE**; plan-driven — mandatory BASELINE report
+`docs/audit/PHASE-121-BASELINE-COMPILER-INDEPENDENCE.md`, ONE target chosen:
+**Target E** — KIR becomes an engine-internal invariant rather than a CLI-only
+artifact; only existing `.kark` extended, no second compiler architecture.
+Implementation: `kirVerify` + 4 helpers (`kirIndentCount`, `kirIsDigits`,
+`kirIsStructureLine`, `kirHasLineNo` [last-` line: `-occurrence scan so
+expression-embedded match-arm markers can't confuse the suffix check]) in
+`src/compiler/kir.kark` verify the KIR v1 structural contract — exact `KIR v1`
+header, basename `source:` line, two-space indentation per level, monotone
++1 nesting, and ` line: <decimal>` statement suffixes exempting bare `block`
+introducers and `stmt <type>` fallbacks — written in Karkain with only
+builtins/user helpers (checked by the Phase 99 self-hosted checker, zero Go);
+`checkFile` runs it on the DEFAULT kcc check path after the Phase 99 type
+checker — silent on success, `error[K121]` + no `[ok]` + exit 3 on drift;
+new `verifykir` kcc command + `verifyFile` (`[ok] kir text: N lines` +
+`[ok] kir verify: N lines ok`); CLI `karkain kir --verify <file>` via new
+`KCCKirVerifyCommand` in `pkg/cli/kir.go` + `--verify` flag routing/rejection
+in `cmd/karkain/main.go`; gate `pkg/cli/phase121_compiler_independence_test.go`
+(VerifyCommand + count agreement + determinism, CompilerSelfVerify [kir.kark
+self-verify = 6399 lines + default check of full compiler assembly through the
+checkFile hook], DefaultCheckInvariant, VerifierPresence, ExitCodeContract);
+deleted the orphaned `pkg/cli/phase121_module_resolution_test.go` (guarded the
+rejected hard-coded WIP `resolveModulePath`/`replaceDots`/
+`loadSourceWithModules`/`extractImports`/`startsWith`). Go dependency
+classification final: KEEP (CLI routing, main.go contract), BRIDGE
+(`kccAssembleSource`/module resolution stays Go — the documented next
+bottleneck), REMOVE-only-for-IR (no Go KIR). Self-hosting Q4 flipped
+NO→YES (compiler emits AND verifies its own IR on the default path). Docs:
+`kir.rst` (interface + "Structural verification" section + boundaries),
+`docs/inventory/compiler-dependencies.json` (`kirVerify`, `structural_rules`,
+engine-invariant status). Regressions green: Phase 121 gate 164.3s, Phase 120
+85.8s, Phase 99/117/118 204.7s (incl. CompilerSourcesTypeCheck 71.5s), Phase
+114 497.2s, conformance+probes 132.5s, phases 115/116, verify-examples
+49/0/5, all pkg suites, `pkg/codegen` (incl. carried-over correctness-sweep
+gate `phase121_correctness_test.go`), `go vet`, `go build`. NUMBERING
+RECONCILIATION: the untracked draft `ROADMAP-PLAN.md` numbered 120=GA envelope,
+121=correctness sweep; the driving plan doc names 120=GA+KIR emitter and
+121=Compiler Independence Foundation — the correction-sweep (closures/`fn`,
+`alloc(T,n)`/`free` hardening) is retained as carried-over hardening under its
+own green gate. `ROADMAP.md` remains a stale pre-50 planning doc (encoding-
+corrupted); AGENTS.md + audit reports are the authoritative completion record.)
 Also completed: **111** — Cross-Compilation
 (`--target <triple>` is a real, explicit cross-compilation switch backed by
 the Karkain-owned target model `pkg/target` (arch/os/env, canonical short

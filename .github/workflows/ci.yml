@@ -6,6 +6,9 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  # Manual trigger. Selecting a tag in the "Run workflow" dropdown makes the
+  # release job run against that tag (github.ref becomes refs/tags/<tag>).
+  workflow_dispatch:
 
 jobs:
   docs:
@@ -72,7 +75,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gcc
 
       - name: Run unit tests
-        run: go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1 -v
+        # -p 1 runs each package's test binary sequentially. Parallel package
+        # execution intermittently stalled the Phase 107 concurrency gates
+        # (TestPhase107_CodegenSpawnJoin) under combined-suite load; sequential
+        # package runs keep the unit gate deterministic on 2-core runners.
+        run: go test -p 1 ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1 -v
 
       - name: Vet
         run: go vet ./...
@@ -131,11 +138,11 @@ jobs:
             ext: ""
             format: tar.gz
           - goos: linux
-            goarch: armv7
+            goarch: arm
             ext: ""
             format: tar.gz
           - goos: linux
-            goarch: i386
+            goarch: "386"
             ext: ""
             format: tar.gz
           - goos: linux
@@ -158,6 +165,14 @@ jobs:
             goarch: amd64
             ext: ""
             format: tar.gz
+          - goos: netbsd
+            goarch: amd64
+            ext: ""
+            format: tar.gz
+          - goos: openbsd
+            goarch: amd64
+            ext: ""
+            format: tar.gz
     steps:
       - uses: actions/checkout@v4
 
@@ -168,8 +183,10 @@ jobs:
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch == 'armv7' && 'arm' || matrix.goarch == 'i386' && '386' || matrix.goarch }}
-          GOARM: ${{ matrix.goarch == 'armv7' && '7' || '' }}
+          # Matrix uses real GOARCH values (arm, 386) so the archive name and
+          # the Go build agree with the certified 13-archive release set.
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarch == 'arm' && '7' || '' }}
           CGO_ENABLED: '0'
         run: |
           BINARY="karkain${{ matrix.ext }}"
@@ -235,9 +252,11 @@ jobs:
 
             ### Supported Platforms
             - Windows (amd64, arm64)
-            - Linux (amd64, arm64, armv7, i386, ppc64le, s390x)
+            - Linux (amd64, arm64, arm, 386, ppc64le, s390x)
             - macOS (amd64 Intel, arm64 Apple Silicon)
             - FreeBSD (amd64)
+            - NetBSD (amd64)
+            - OpenBSD (amd64)
 
             ### Checksums (SHA-256)
             ```

@@ -65,6 +65,24 @@ func main() {
         return
     }
 
+    if (command == "kir") {
+        if (argc < 3) {
+            print("Usage: karkain kir <file.kark>")
+            return
+        }
+        kirFile(args[2])
+        return
+    }
+
+    if (command == "verifykir") {
+        if (argc < 3) {
+            print("Usage: karkain verifykir <file.kark>")
+            return
+        }
+        verifyFile(args[2])
+        return
+    }
+
     if (command == "lsp") {
         startLSP()
         return
@@ -80,7 +98,9 @@ func printUsage() {
     print("Usage: karkain <command> [options] <file>")
     print("")
     print("Commands:")
-    print("  check    Parse and type-check a .kark file")
+    print("  check    Parse, type-check and KIR-verify a .kark file")
+    print("  kir      Emit KIR v1 text from a .kark file")
+    print("  verifykir  Emit and structurally verify KIR v1 text from a .kark file")
     print("  build    Compile a .kark file to target code")
     print("  run      Compile and execute a .kark file")
     print("  test     Discover and run *_test.kark files")
@@ -122,7 +142,82 @@ func checkFile(path) {
         return
     }
 
+    // Phase 121: the KIR structural invariant runs on the default check path.
+    // The self-hosted emitter must round-trip its own v1 contract on every
+    // accepted file; failures print error[K121] and skip the [ok] verdict so
+    // the CLI maps it to ExitCompile. Success is silent.
+    let kirLines = kirEmit(ast, path)
+    let kirProbs = kirVerify(kirLines, path)
+    if (len(kirProbs) > 0) {
+        print("error[K121]: KIR structural verification failed for " + path)
+        let pi = 0
+        while (pi < len(kirProbs)) {
+            print(kirProbs[pi])
+            pi = pi + 1
+        }
+        return
+    }
+
     print("[ok] " + path + " parsed successfully")
+}
+
+// Phase 120: KIR v1 text extraction. Mirrors checkFile's parse entry,
+// but renders the parsed AST as deterministic KIR text instead of
+// reporting a pass/fail verdict. Parse errors surface identically;
+// success prints the KIR v1 text lines followed by a path-less
+// confirmation line (so repeated runs are byte-identical).
+func kirFile(path) {
+    let source = readFile(path)
+    if (source == "") { return }
+
+    let tokens = tokenize(source)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
+
+    if (hasParserErrors(state)) {
+        printParserErrors(state)
+        return
+    }
+
+    let lines = kirEmit(ast, path)
+    let li = 0
+    while (li < len(lines)) {
+        print(lines[li])
+        li = li + 1
+    }
+    print("[ok] kir text: " + str(len(lines)) + " lines")
+}
+
+// Phase 121: standalone KIR structural verification. Parses the file, emits
+// KIR v1 text and checks it against the structural contract. Success prints
+// the deterministic count markers; failures print error[K121] problem lines
+// and no [ok] (so the CLI maps them to ExitCompile).
+func verifyFile(path) {
+    let source = readFile(path)
+    if (source == "") { return }
+
+    let tokens = tokenize(source)
+    let state = createParserState(tokens, source)
+    let ast = parse(tokens, source)
+
+    if (hasParserErrors(state)) {
+        printParserErrors(state)
+        return
+    }
+
+    let lines = kirEmit(ast, path)
+    let problems = kirVerify(lines, path)
+    if (len(problems) > 0) {
+        print("error[K121]: KIR structural verification failed for " + path)
+        let pi = 0
+        while (pi < len(problems)) {
+            print(problems[pi])
+            pi = pi + 1
+        }
+        return
+    }
+    print("[ok] kir text: " + str(len(lines)) + " lines")
+    print("[ok] kir verify: " + str(len(lines)) + " lines ok")
 }
 
 func buildFile(path, target) {
