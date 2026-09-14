@@ -109,6 +109,8 @@ func (g *Generator) hostNativeFlags(cFile, exeFile string) []string {
 	flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp"}
 	if target.Host().OS == target.OSWindows {
 		flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-lgmp"}
+	} else {
+		flags = append(flags, "-D_POSIX_C_SOURCE=200809L", "-lm")
 	}
 	if g.cfg.Debug {
 		flags = append(flags, "-g")
@@ -144,7 +146,7 @@ func (g *Generator) detectWindowsCrossCompiler(tg target.Target, cFile, exeFile 
 // GNU cross gcc or clang --target.
 func (g *Generator) detectLinuxCrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
 	if cc := os.Getenv("CC"); cc != "" {
-		return cc, []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp"}, nil
+		return cc, []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}, nil
 	}
 	arch := tg.Arch.String()
 	names := []string{arch + "-linux-gnu-gcc", arch + "-pc-linux-gnu-gcc", arch + "-unknown-linux-gnu-gcc"}
@@ -152,7 +154,7 @@ func (g *Generator) detectLinuxCrossCompiler(tg target.Target, cFile, exeFile st
 	for _, n := range names {
 		searched = append(searched, n)
 		if _, err := exec.LookPath(n); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp"}
+			flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
 			}
