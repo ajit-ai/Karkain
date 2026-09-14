@@ -1,8 +1,8 @@
 {
-  "phase": 120,
+  "phase": 122,
   "title": "Compiler Dependency Inventory — Karkain 1.0.0 (Stable)",
   "verified": "2026-09-14",
-  "scope": "The single source of truth for what the Karkain compiler holds today, what it owns on the path to self-hosting, and which Go/C components are bootstrap infrastructure versus compiler responsibility. Phase 121 (Compiler Independence Foundation) treats this inventory as its baseline.",
+  "scope": "The single source of truth for what the Karkain compiler holds today, what it owns on the path to self-hosting, and which Go/C components are bootstrap infrastructure versus compiler responsibility. Phases 121 (Compiler Independence Foundation) and 122 (Compiler Pipeline Ownership) treat this inventory as their baseline.",
   "compiler_components": {
     "lexer": {
       "implementation": "Go + Karkain",
@@ -39,6 +39,13 @@
       "active_path": "kcc kir / karkain kir emit deterministic KIR v1 text via src/compiler/kir.kark. Phase 121 makes KIR an engine-internal invariant: kirVerify runs inside checkFile on the default kcc check path (silent on success, error[K121] + exit 3 on drift) and standalone via kcc verifykir / karkain kir --verify. KIR text does not yet feed the backend (documented post-121 boundary).",
       "status": "ACTIVE (kcc), owned by Karkain"
     },
+    "assembly": {
+      "implementation": "Karkain (owned) + Go BRIDGE",
+      "go": "pkg/cli/kcc_engine.go kccStageInput/flatAssemblyEligible/findKarkainStdlib/kccMirrorFlat (sandbox staging only)",
+      "karkain": "src/compiler/main.kark assembleProject + helpers (moduleImportNames, stripModuleImports, siblingContent, moduleDirSource, resolveStdlibModule, resolveUserModule, marker-gated findStdlibRoot)",
+      "active_path": "Phase 122: kcc composes its OWN input for FLAT projects (no karkain.toml; imports std.* or sibling-resolvable) on the real CLI path — check/build/run/kir/verifykir all stage through kccStageInput (sandbox mirror + lib/ stdlib tree) and assemble in assembleProject. The compiler's own 10-file tree, examples/module_system and examples/stdlib_v2 all assemble this way. Manifest / workspace / package-manager assemblies and transitive non-local resolution keep the Go module-aware kccAssembleSource/resolveSourcesRun (documented BRIDGE).",
+      "status": "ACTIVE (kcc, flat path)"
+    },
     "codegen": {
       "implementation": "Go + Karkain",
       "go": "pkg/codegen (63 files), entry codegen.go (C23 emit + native/DWARF/SIMD/WASM/npu)",
@@ -62,12 +69,13 @@
     }
   },
   "pipeline": {
-    "source": "desc('lexer -> parser -> AST -> semantic analysis -> KIR -> code generation -> runtime -> executable')",
-    "kir_invariant": "KIR is verified by the compiler itself on the default kcc check path (kirVerify in checkFile, error[K121] on drift). Text remains on-demand (kcc kir / karkain kir); wiring it into build/run as the codegen input is a post-121 boundary."
+    "source": "desc('assembly -> lexer -> parser -> AST -> semantic analysis -> KIR -> code generation -> runtime -> executable')",
+    "kir_invariant": "KIR is verified by the compiler itself on the default kcc check path (kirVerify in checkFile, error[K121] on drift). Text remains on-demand (kcc kir / karkain kir); wiring it into build/run as the codegen input is a post-121 boundary.",
+    "flat_assembly_ownership": "since Phase 122 the compiler composes its own input for flat projects (assembleProject in src/compiler/main.kark); Go only stages it into a sandbox (kccStageInput + lib/ mirror). Non-flat (manifest/workspace/PM) assemblies remain Go-owned."
   },
   "ownership_horizon": {
-    "current": "10 .kark files under src/compiler run the kcc engine end-to-end (lex/parse/check/codegen), bootstrapped through the Go front end.",
-    "target": "Karkain compiler components invoke themselves: kcc gains Karkain-owned module resolution/assembly, KIR-consumption, and a bootstrap path (Phase 121+).",
+    "current": "10 .kark files under src/compiler run the kcc engine end-to-end (assemble/lex/parse/check/codegen), bootstrapped through the Go front end. Flat-project assembly (sibling + std.* imports) is Karkain-owned as of Phase 122.",
+    "target": "Karkain compiler components invoke themselves: kcc gains Karkain-owned manifest/workspace/PM-aware module resolution and KIR-consumption (Phase 123+).",
     "ultimate": "KCC self-hosting: the Karkain compiler rebuilds itself with no Go compiler front-end responsibility."
   },
   "kir_contract": {

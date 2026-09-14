@@ -3,7 +3,6 @@ package cli
 import (
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -46,9 +45,10 @@ func KCCKirCommand(w io.Writer, file string, verbose bool) CommandResult {
 			os.RemoveAll(sandbox)
 		}
 	}()
-	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
-	kirFile := filepath.Join(sandbox, base+".kark")
-	if err := os.WriteFile(kirFile, []byte(prog), 0o644); err != nil {
+	// Phase 122: flat projects are staged so kcc's own assembler composes the
+	// input (identical to the check path); legacy assembly stays a single file.
+	kirFile, err := kccStageInput(file, sandbox)
+	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
 	out, code := runKCC(bin, "kir", kirFile)
@@ -95,9 +95,10 @@ func KCCKirVerifyCommand(w io.Writer, file string, verbose bool) CommandResult {
 			os.RemoveAll(sandbox)
 		}
 	}()
-	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
-	kirFile := filepath.Join(sandbox, base+".kark")
-	if err := os.WriteFile(kirFile, []byte(prog), 0o644); err != nil {
+	// Phase 122: flat projects are staged so kcc's own assembler composes the
+	// input (identical to the check path); legacy assembly stays a single file.
+	kirFile, err := kccStageInput(file, sandbox)
+	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
 	out, code := runKCC(bin, "verifykir", kirFile)

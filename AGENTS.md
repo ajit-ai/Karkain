@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-121** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **post-122** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -193,6 +193,61 @@ RECONCILIATION: the untracked draft `ROADMAP-PLAN.md` numbered 120=GA envelope,
 `alloc(T,n)`/`free` hardening) is retained as carried-over hardening under its
 own green gate. `ROADMAP.md` remains a stale pre-50 planning doc (encoding-
 corrupted); AGENTS.md + audit reports are the authoritative completion record.)
+Also completed: **122 — Compiler Pipeline Ownership** (verdict **COMPLETE**;
+plan-driven — mandatory BASELINE `docs/audit/
+PHASE-122-BASELINE-COMPILER-PIPELINE-OWNERSHIP.md`; the kcc production CLI
+path had NO self-hosted input composition — Go `kccAssembleSource`/
+`resolveSourcesRun` composed the compiler's input text, so Phase 122 moves
+**flat** project assembly (no `karkain.toml`, every import `std.*` or sibling
+file/dir) INTO the compiler: `src/compiler/main.kark` gains `assembleProject`
+(module `import <name>` declared on a source line with `import std.x` /
+`import math` — resolved via `moduleImportNames`, `resolveStdlibModule`,
+`resolveUserModule`, `siblingContent` [sorted, excludes the root and any
+sibling declaring its own `func main(`], `moduleDirSource` [dir-of-files then
+single-file fallback], `stripModuleImports` [preserves blank lines → exact
+line numbers; C import blocks untouched], `collectKarkFiles`/`sourceLines`/
+`stripLineEnd`/`importNameOf` CRLF-robust, no new builtins) and every driver
+entry — check/build/run/kir/verifykir — now compiles through it (lines
+116/170/196/224/253). **Defect root-caused and fixed**: stdlib discovery was a
+blind walk-up that adopted the leftover demo tree `examples/stdlib/collections`
+(Phase-109 demo with its own `func main`) shadowing the real repo `stdlib`
+(breaking `examples/stdlib_v2` on flat paths); `findStdlibRoot` is now
+MARKER-GATED — a candidate stdlib root must carry the canonical `std.string`
+module, and the sandbox `<rootDir>/lib` is checked first. Go BRIDGE (kept
+deliberately): `kccStageInput`/`flatAssemblyEligible`/`findKarkainStdlib`/
+`kccMirrorFlat` in `pkg/cli/kcc_engine.go` mirror flat projects into a temp
+sandbox (root + siblings + `lib/` copy of the real stdlib tree) so kcc
+assembles alone; manifest/workspace/PM and transitive non-local assemblies
+keep Go `kccAssembleSource` (documented next bottleneck); `kccTargetPreflight`
+(NPU) unchanged. Gate `pkg/cli/phase122_pipeline_ownership_test.go` (7
+subtests — PASS 191.0s): CompilerSelfCheck (default kcc `check` of the
+compiler's own tree via assembleProject, 94.7s), KIRContinuity (`kir --verify`
+of `kir.kark` still exactly 6399 lines + 6399 verified), ModuleSystem
+(`examples/module_system` 42/9 + sibling-join KIR ordering + byte-determinism),
+StdlibV2 (`examples/stdlib_v2` four `std.*` imports byte-identical golden to
+the Phase 109 Go-engine run + KIR has the real `collections` module + one main),
+StdlibShadowMarker (regression: fake local `stdlib/` with its own `func main`
+is never adopted — direct kcc AND CLI print `7`, never `SHADOW-BAD`/`999`),
+MissingModuleRejected (`import std.nope` → CLI exit non-zero naming `nope`/
+`not found`, never `[ok]`; direct kcc prints `error[K122]`), WiringPresence
+(guards the 6 Karkain helpers + `kccStageInput`/`flatAssemblyEligible`/
+`findKarkainStdlib`/`kccMirrorFlat` + kir.go staging). Negatives: kcc itself
+always exits 0 — CLI maps `[ok]`-less output to `ExitCompile(3)` and pre-empts
+unresolvable modules at the Go legacy layer (exit 1). Regressions green:
+Phase 122/121/120 gates, Phase 119/118/117/116/115 + `TestPhase120_GaEnvelope`,
+Phase 114 corpus (GoEngine+KCCParity goldens), conformance 59/59 + probes
+11/11, phases 111/110/105/106/107/103/102(foundation both engines)/100/101/99/
+98/97/96/95 + non-phase CLI unit tests (389.6s), all non-CLI pkg suites,
+`go vet`, `go build`. Pre-existing failures re-proven at pristine HEAD
+(477f448) — documented, NOT regressions, NOT modified: legacy Phase 88–90
+`build --target c23`-writes-`.c`-beside-source tests (kcc-default era Phase 97
+moved non-compile-only builds to sandbox `*.c23`; pass only under
+`KARKAIN_ENGINE=go`) and the bootstrap Stage-2 SEGFAULT (`TestBootstrap_
+Stage2SelfHosting`/`BitwiseIdentity`, exit 0xc0000005 — documented ~4GB-host
+kcc-OOM class; Stage-1 GO-engine transpile succeeds). Docs: final evidence
+report `docs/audit/PHASE-122-COMPILER-PIPELINE-OWNERSHIP-FINAL-EVIDENCE-REPORT.md`,
+`docs/inventory/compiler-dependencies.json` (new `assembly` component,
+flat-path ownership, Karkain-owned status).)
 Also completed: **111** — Cross-Compilation
 (`--target <triple>` is a real, explicit cross-compilation switch backed by
 the Karkain-owned target model `pkg/target` (arch/os/env, canonical short
