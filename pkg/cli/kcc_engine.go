@@ -8,10 +8,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
 	"karkain/pkg/codegen"
+	"karkain/pkg/pm"
 )
 
 // EngineKind selects which front end powers the check/build/run commands.
@@ -281,9 +283,11 @@ func KCCCheckCommand(w io.Writer, file string, verbose bool) CommandResult {
 			os.RemoveAll(sandbox)
 		}
 	}()
-	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
-	checkFile := filepath.Join(sandbox, base+".kark")
-	if err := os.WriteFile(checkFile, []byte(prog), 0o644); err != nil {
+	// Phase 122: flat projects are staged (root + siblings + stdlib tree) so the
+	// self-hosted engine's own assembler (assembleProject) composes the input;
+	// everything else keeps the legacy single assembled file.
+	checkFile, err := kccStageInput(file, sandbox)
+	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
 	out, code := runKCC(bin, "check", checkFile)
@@ -326,8 +330,10 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 		}
 	}()
 	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
-	srcFile := filepath.Join(sandbox, base+".kark")
-	if err := os.WriteFile(srcFile, []byte(prog), 0o644); err != nil {
+	// Phase 122: same staging decision as KCCCheckCommand — the self-hosted
+	// engine assembles flat projects itself inside the sandbox.
+	srcFile, err := kccStageInput(file, sandbox)
+	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
 
@@ -391,6 +397,200 @@ func kccAssembleSource(file string) (string, error) {
 	}
 	re := regexp.MustCompile(`(?m)^[ \t]*import[ \t]+[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*[ \t]*\r?$`)
 	return re.ReplaceAllString(text, ""), nil
+}
+
+// ---- Phase 122: flat project detection and sandbox mirroring ----
+
+// dirHasKark reports whether dir contains at least one .kark entry.
+func dirHasKark(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".kark") {
+			return true
+		}
+	}
+	return false
+}
+
+// findKarkainStdlib walks upward from startDir looking for the Karkain standard
+// library tree (a directory containing stdlib/string/string.kark). Returns ""
+// when no stdlib tree is an ancestor.
+func findKarkainStdlib(startDir string) string {
+	dir := startDir
+	for {
+		cand := filepath.Join(dir, "stdlib", "string", "string.kark")
+		if info, err := os.Stat(cand); err == nil && !info.IsDir() {
+			return filepath.Join(dir, "stdlib")
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// copyFileContents copies a file's bytes to dstPath.
+func copyFileContents(srcPath, dstPath string) error {
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dstPath, data, 0o644)
+}
+
+// copyKarkDir copies every *.kark file from srcDir into dstDir (created),
+// skipping subdirectories.
+func copyKarkDir(srcDir, dstDir string) error {
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".kark") {
+			continue
+		}
+		if err := copyFileContents(filepath.Join(srcDir, e.Name()), filepath.Join(dstDir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// flatAssemblyEligible reports whether a target's project is FLAT: compilable
+// by the self-hosted engine's own assembler (assembleProject in
+// src/compiler/main.kark) with no Go-side module-graph assistance. A
+// project is flat when it is not a manifest/workspace project (karkain.toml
+// present), its root parses, and every declared import is either a
+// standard-library name (std.*, with a stdlib tree available) or resolves to a
+// sibling <name>.kark file or <name>/ directory of .kark files. Everything
+// else keeps the legacy Go module-aware assembly.
+func flatAssemblyEligible(targetFile string) (bool, error) {
+	root := effectiveRootFile(targetFile)
+	if proj, err := pm.FindProjectRoot(filepath.Dir(root)); err == nil {
+		if _, serr := os.Stat(filepath.Join(proj, pm.ManifestFile)); serr == nil {
+			return false, nil
+		}
+	}
+	data, err := os.ReadFile(root)
+	if err != nil {
+		return false, err
+	}
+	prog := parseProgramStrict(string(data))
+	if prog == nil {
+		return false, nil
+	}
+	if len(prog.Imports) == 0 {
+		return true, nil
+	}
+	dir := filepath.Dir(root)
+	for _, imp := range prog.Imports {
+		if strings.HasPrefix(imp.Name, "std.") {
+			if findKarkainStdlib(dir) == "" {
+				return false, nil
+			}
+			continue
+		}
+		if info, serr := os.Stat(filepath.Join(dir, imp.Name+".kark")); serr == nil && !info.IsDir() {
+			continue
+		}
+		if dirHasKark(filepath.Join(dir, imp.Name)) {
+			continue
+		}
+		return false, nil
+	}
+	return true, nil
+}
+
+// kccMirrorFlat stages a flat project's sources into the sandbox so the
+// self-hosted engine's own assembler (assembleProject) composes the input
+// text: the root file plus every sibling .kark, sibling module directories
+// containing .kark files, and the standard-library tree under sandbox/lib are
+// mirrored verbatim, then kcc is run on the staged root. Returns the staged
+// root path. The file set is mirrored in sorted order so the assembly is
+// deterministic and byte-identical to the legacy Go sibling join.
+func kccMirrorFlat(targetFile, sandbox string) (string, error) {
+	root := effectiveRootFile(targetFile)
+	dir := filepath.Dir(root)
+	base := filepath.Base(root)
+	stagedRoot := filepath.Join(sandbox, base)
+	if err := copyFileContents(root, stagedRoot); err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if name == base {
+			continue
+		}
+		srcPath := filepath.Join(dir, name)
+		if strings.HasSuffix(name, ".kark") {
+			if err := copyFileContents(srcPath, filepath.Join(sandbox, name)); err != nil {
+				return "", err
+			}
+			continue
+		}
+		if info, serr := os.Stat(srcPath); serr == nil && info.IsDir() && dirHasKark(srcPath) {
+			if err := copyKarkDir(srcPath, filepath.Join(sandbox, name)); err != nil {
+				return "", err
+			}
+		}
+	}
+	if sb := findKarkainStdlib(dir); sb != "" {
+		subs, rerr := os.ReadDir(sb)
+		if rerr == nil {
+			for _, sub := range subs {
+				if !sub.IsDir() {
+					continue
+				}
+				subName := sub.Name()
+				if _, serr := os.Stat(filepath.Join(sb, subName, subName+".kark")); serr == nil {
+					if err := copyKarkDir(filepath.Join(sb, subName), filepath.Join(sandbox, "lib", subName)); err != nil {
+						return "", err
+					}
+				}
+			}
+		}
+	}
+	return stagedRoot, nil
+}
+
+// kccStageInput composes the file the self-hosted engine will compile inside a
+// sandbox and returns its absolute path. For flat projects the root file is
+// mirrored so kcc's own assembleProject builds the assembly from the staged
+// project; otherwise the legacy Go module-aware assembler writes the single
+// assembled file.
+func kccStageInput(file, sandbox string) (string, error) {
+	flat, err := flatAssemblyEligible(file)
+	if err != nil {
+		return "", err
+	}
+	if flat {
+		return kccMirrorFlat(file, sandbox)
+	}
+	prog, err := kccAssembleSource(file)
+	if err != nil {
+		return "", err
+	}
+	base := strings.TrimSuffix(filepath.Base(file), filepath.Ext(file))
+	checkFile := filepath.Join(sandbox, base+".kark")
+	if err := os.WriteFile(checkFile, []byte(prog), 0o644); err != nil {
+		return "", err
+	}
+	return checkFile, nil
 }
 
 // kccTestSource returns the dependency-aware content for a test file: the
@@ -476,19 +676,10 @@ func KCCRunCommand(w io.Writer, file string, cfg codegen.Config, verbose bool) C
 			os.RemoveAll(sandbox)
 		}
 	}()
-	copyPath := filepath.Join(sandbox, base+".kark")
-	// Phase 97: assemble the full project/module source (manifest dependencies
-	// and same-directory siblings upstream, root file last) rather than a plain
-	// copy of the target. Non-project files fall back to the sibling join, so
-	// single-file builds are unchanged.
-	prog, err := kccAssembleSource(file)
+	// Phase 122: same staging decision as KCCCheckCommand — the self-hosted
+	// engine assembles flat projects itself inside the sandbox.
+	copyPath, err := kccStageInput(file, sandbox)
 	if err != nil {
-		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
-	}
-	if bad, n := kccTargetPreflight(file, prog); bad {
-		return CommandResult{ExitCode: ExitCompile, Message: checkStageMessage(checkStageSema, n)}
-	}
-	if err := os.WriteFile(copyPath, []byte(prog), 0o644); err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
 
