@@ -1198,7 +1198,10 @@ Value readLine(Value handle) {
     }
     if (!_karkain_files[idx]) return make_string("");
     char buf[4096];
-    if (fgets(buf, sizeof(buf), _karkain_files[idx]) == NULL) return make_string("");
+    if (fgets(buf, sizeof(buf), _karkain_files[idx]) == NULL) {
+        fclose(_karkain_files[idx]); _karkain_files[idx] = NULL;
+        return make_string("");
+    }
     int len = (int)strlen(buf);
     while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) buf[--len] = '\0';
     return make_string(buf);
@@ -1844,6 +1847,7 @@ Value readLineEOF(Value handle) {
     if (!_karkain_files[idx]) { array_push(&r, make_string("")); array_push(&r, make_bool(1)); return r; }
     char buf[4096];
     if (fgets(buf, sizeof(buf), _karkain_files[idx]) == NULL) {
+        fclose(_karkain_files[idx]); _karkain_files[idx] = NULL;
         array_push(&r, make_string("")); array_push(&r, make_bool(1)); return r;
     }
     int len = (int)strlen(buf);
