@@ -1,0 +1,57 @@
+// Status: Runnable
+// Engine: kcc, go
+// Purpose: exercises the full KIR v1 emitter surface of the Karkain
+// compiler (src/compiler/kir.kark) — functions, recursion, struct and
+// enum declarations, array/map/struct literals, for-in, if/else (incl.
+// the space-form print), while, and return/print forms.
+//
+// Run:
+//   karkain kir   main.kark     (Go CLI gateway -> self-hosted kcc)
+//   kcc      kir main.kark      (direct self-hosted engine)
+//   karkain run  main.kark      (both engines print identical stdout)
+//
+// KIR output is deterministic: identical input yields identical bytes,
+// ending in `[ok] kir text: N lines`.
+
+// Type declarations exercise the struct/enum KIR forms.
+type Point struct { x int; y int }
+enum Color { Red, Green }
+
+// Recursion exercises function/kernel/return/binary KIR forms.
+func fib(n) {
+    if (n < 2) {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+func main() {
+    let n = 6
+    var total = 0
+    total = fib(n) + 1
+
+    // Arrays: array-literal + for-in loop KIR forms.
+    let arr = [1, 2, 3]
+    for i in arr {
+        total = total + i
+    }
+
+    // Maps and struct literals: map/struct KIR forms.
+    let m = {"a": 1, "b": 2}
+    let p = Point { x: total, y: 0 }
+
+    // If/else (space-form print), then a while loop.
+    if (total > 10) {
+        print total
+    } else {
+        print 0
+    }
+    while (total < 20) {
+        total = total + 1
+    }
+    print total
+
+    // Keep the map/struct values live so the emits stay varied.
+    print m["a"]
+    print p.x
+}

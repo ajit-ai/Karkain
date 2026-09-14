@@ -154,6 +154,22 @@ func funcPublic(n) {
     return false
 }
 
+// setFuncCaptures attaches a let-bound lambda's capture list (Phase 121).
+// It lives at index 8; slots 6/7 (@target / public) are padded with "" when
+// unset so the slot layout stays stable.
+func setFuncCaptures(n, caps) {
+    if (len(n) <= 6) { n = appendArray(n, "") }
+    if (len(n) <= 7) { n = appendArray(n, "") }
+    n = appendArray(n, caps)
+    return n
+}
+
+// funcCaptures returns a let-bound lambda's captured free variables, or [].
+func funcCaptures(n) {
+    if (len(n) > 8) { return n[8] }
+    return []
+}
+
 // ============================================================
 // VarDecl node: [NODE_VAR_DECL, name, value, typeName, line]
 // ============================================================
@@ -443,6 +459,33 @@ func sliceLeft(n)   { return n[1] }
 func sliceStart(n)  { return n[2] }
 func sliceEnd(n)    { return n[3] }
 func sliceLine(n)   { return n[4] }
+
+// ============================================================
+// Alloc: [NODE_ALLOC, typeName, count, line]
+// Free:  [NODE_FREE, ptr, line]
+// ============================================================
+
+func makeAlloc(typeName, count, line) {
+    let n = makeNode(NODE_ALLOC())
+    n = appendArray(n, typeName)
+    n = appendArray(n, count)
+    n = appendArray(n, line)
+    return n
+}
+
+func allocTypeName(n) { return n[1] }
+func allocCount(n)    { return n[2] }
+func allocLine(n)     { return n[3] }
+
+func makeFree(ptr, line) {
+    let n = makeNode(NODE_FREE())
+    n = appendArray(n, ptr)
+    n = appendArray(n, line)
+    return n
+}
+
+func freePtr(n)   { return n[1] }
+func freeLine(n)  { return n[2] }
 
 // ============================================================
 // Dot: [NODE_DOT, left, right, line]

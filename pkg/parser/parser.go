@@ -394,7 +394,17 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 		lambda := p.parseLambda()
 		fn := p.arena.AllocFuncDecl(name, lambda.Params, lambda.Body, nil)
 		fn.ParamTypes = lambda.ParamTypes
-		fn.Captures = lambda.Captures // Phase 54: propagate captures to named binding
+		// Phase 54: propagate captures to the named binding. The binding's own
+		// name is never a capture — recursive calls inside the body route to the
+		// top-level C symbol, so capturing it would reference a nonexistent
+		// variable at the binding site.
+		captures := make([]string, 0, len(lambda.Captures))
+		for _, c := range lambda.Captures {
+			if c != name {
+				captures = append(captures, c)
+			}
+		}
+		fn.Captures = captures
 		node := &VarDeclStmt{Name: name, Value: fn, Col: nameCol, EndCol: nameEndCol}
 		setNodeLine(node, line)
 		return node
@@ -488,9 +498,17 @@ func normalizeOrdering(s string) (string, bool) {
 func (p *Parser) parsePrint() *PrintStmt {
 	line := int(p.curToken.Line)
 	p.nextToken() // consume 'print'
-	p.nextToken() // consume '('
+	// Phase 120 parity: kcc accepts both `print(val)` and `print val`
+	// (src/compiler/parser.kark parsePrint skips an optional '('). The Go
+	// parser used to consume '(' unconditionally, which made space-form
+	// `print x` swallow the value and eat the statement terminator.
+	if p.curToken.Type == lexer.TokenLParen {
+		p.nextToken() // consume '('
+	}
 	val := p.parseExpr()
-	p.nextToken() // consume ')'
+	if p.curToken.Type == lexer.TokenRParen {
+		p.nextToken() // consume ')'
+	}
 	node := &PrintStmt{Value: val}
 	setNodeLine(node, line)
 	return node
@@ -1297,6 +1315,10 @@ func (p *Parser) parsePrimaryExpr() Node {
 			return nil
 		}
 		return nil
+	case lexer.TokenAlloc:
+		return p.parseAlloc()
+	case lexer.TokenFree:
+		return p.parseFree()
 	case lexer.TokenSome:
 		// Phase 42: Some(value)
 		p.nextToken() // consume 'Some'

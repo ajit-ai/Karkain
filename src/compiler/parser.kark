@@ -32,6 +32,296 @@ func psLine(state)      { return state[4] }
 func psSource(state)    { return state[5] }
 func setPsPos(state, v)  { state[1] = v }
 
+// ============================================================
+// Phase 121: free-variable capture analysis for lambdas (mirrors
+// pkg/parser/captures.go). computeCaptures returns the ordered,
+// deduplicated identifiers referenced in the body that are neither
+// parameters nor locally declared inside it.
+// ============================================================
+
+func psListHas(list, item) {
+    let i = 0
+    while (i < len(list)) {
+        if (list[i] == item) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// reads: [[seen], [order]]; capsAdd appends name if new.
+func capsAdd(s, name) {
+    if (name == "") { return s }
+    if (psListHas(s[0], name) == 1) { return s }
+    s[0] = appendArray(s[0], name)
+    s[1] = appendArray(s[1], name)
+    return s
+}
+
+func capRemove(s, name) {
+    let out = []
+    let i = 0
+    while (i < len(s[0])) {
+        if (s[0][i] != name) { out = appendArray(out, s[0][i]) }
+        i = i + 1
+    }
+    s[0] = out
+    return s
+}
+
+func computeCaptures(params, body) {
+    let s = [[], []]
+    let i = 0
+    while (i < len(body)) {
+        s = walkCapturesStmt(s, body[i])
+        i = i + 1
+    }
+    let j = 0
+    while (j < len(params)) {
+        s = capRemove(s, params[j])
+        j = j + 1
+    }
+    i = 0
+    while (i < len(body)) {
+        s = markLocalsStmt(s, body[i])
+        i = i + 1
+    }
+    return s[0]
+}
+
+func walkCapturesStmt(s, node) {
+    if (len(node) < 1) { return s }
+    let nt = getNodeType(node)
+    if (nt == "Ident") { return capsAdd(s, identName(node)) }
+    if (nt == "ExprStmt") { return walkCapturesExpr(s, exprStmtExpr(node)) }
+    if (nt == "Return") {
+        let rv = returnExpr(node)
+        if (len(rv) == 0) { return s }
+        return walkCapturesExpr(s, rv)
+    }
+    if (nt == "Print") { return walkCapturesExpr(s, printExpr(node)) }
+    if (nt == "Block") {
+        let inner = blockStmts(node)
+        let i = 0
+        while (i < len(inner)) {
+            s = walkCapturesStmt(s, inner[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "If") {
+        s = walkCapturesExpr(s, ifCondition(node))
+        let tb = ifThen(node)
+        let i = 0
+        while (i < len(tb)) {
+            s = walkCapturesStmt(s, tb[i])
+            i = i + 1
+        }
+        let eb = ifElse(node)
+        i = 0
+        while (i < len(eb)) {
+            s = walkCapturesStmt(s, eb[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "While") {
+        s = walkCapturesExpr(s, whileCondition(node))
+        let wb = whileBody(node)
+        let i = 0
+        while (i < len(wb)) {
+            s = walkCapturesStmt(s, wb[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "ForIn") {
+        s = walkCapturesExpr(s, forInIter(node))
+        s = capsAdd(s, forInVar(node))
+        let fb = forInBody(node)
+        let i = 0
+        while (i < len(fb)) {
+            s = walkCapturesStmt(s, fb[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "VarDecl" || nt == "LetDecl" || nt == "ConstDecl") {
+        let nm = varDeclName(node)
+        if (nt == "LetDecl") { nm = letDeclName(node) }
+        if (nt == "ConstDecl") { nm = constDeclName(node) }
+        s = capsAdd(s, nm)
+        s = capRemove(s, nm)
+        let val = varDeclValue(node)
+        if (nt == "LetDecl") { val = letDeclValue(node) }
+        if (nt == "ConstDecl") { val = constDeclValue(node) }
+        if (getNodeType(val) == "FuncDecl") {
+            let cc = funcCaptures(val)
+            let ci = 0
+            while (ci < len(cc)) {
+                s = capsAdd(s, cc[ci])
+                ci = ci + 1
+            }
+            return s
+        }
+        return walkCapturesExpr(s, val)
+    }
+    if (nt == "FuncDecl") {
+        // A let-bound lambda inside another closure: its own captures are
+        // references from this body too.
+        let cp = funcCaptures(node)
+        let i = 0
+        while (i < len(cp)) {
+            s = capsAdd(s, cp[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "Lambda") {
+        let lp = lambdaParams(node)
+        let lb = lambdaBody(node)
+        let lc = computeCaptures(lp, lb)
+        let i = 0
+        while (i < len(lc)) {
+            s = capsAdd(s, lc[i])
+            i = i + 1
+        }
+        return s
+    }
+    return walkCapturesExpr(s, node)
+}
+
+func walkCapturesExpr(s, node) {
+    if (len(node) < 1) { return s }
+    let nt = getNodeType(node)
+    if (nt == "Ident") { return capsAdd(s, identName(node)) }
+    if (nt == "BinaryExpr") {
+        s = walkCapturesExpr(s, binaryLeft(node))
+        return walkCapturesExpr(s, binaryRight(node))
+    }
+    if (nt == "UnaryExpr") {
+        return walkCapturesExpr(s, unaryOperand(node))
+    }
+    if (nt == "Call") {
+        s = capsAdd(s, callFunc(node))
+        let args = callArgs(node)
+        let i = 0
+        while (i < len(args)) {
+            s = walkCapturesExpr(s, args[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "Index") {
+        s = walkCapturesExpr(s, indexLeft(node))
+        return walkCapturesExpr(s, indexExpr(node))
+    }
+    if (nt == "Slice") {
+        s = walkCapturesExpr(s, sliceLeft(node))
+        s = walkCapturesExpr(s, sliceStart(node))
+        return walkCapturesExpr(s, sliceEnd(node))
+    }
+    if (nt == "Member") {
+        s = walkCapturesExpr(s, memberObject(node))
+        return capsAdd(s, memberField(node))
+    }
+    if (nt == "ArrayLiteral") {
+        let elems = arrayElements(node)
+        let i = 0
+        while (i < len(elems)) {
+            s = walkCapturesExpr(s, elems[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "MapLiteral") {
+        let ks = mapKeys(node)
+        let vs = mapValues(node)
+        let i = 0
+        while (i < len(ks)) {
+            s = walkCapturesExpr(s, ks[i])
+            s = walkCapturesExpr(s, vs[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "Lambda") {
+        let lp = lambdaParams(node)
+        let lb = lambdaBody(node)
+        let lc = computeCaptures(lp, lb)
+        let i = 0
+        while (i < len(lc)) {
+            s = capsAdd(s, lc[i])
+            i = i + 1
+        }
+        return s
+    }
+    return s
+}
+
+func markLocalsStmt(s, node) {
+    if (len(node) < 1) { return s }
+    let nt = getNodeType(node)
+    if (nt == "VarDecl" || nt == "LetDecl" || nt == "ConstDecl") {
+        let nm = varDeclName(node)
+        if (nt == "LetDecl") { nm = letDeclName(node) }
+        if (nt == "ConstDecl") { nm = constDeclName(node) }
+        return capRemove(s, nm)
+    }
+    if (nt == "Block") {
+        let inner = blockStmts(node)
+        let i = 0
+        while (i < len(inner)) {
+            s = markLocalsStmt(s, inner[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "If") {
+        let tb = ifThen(node)
+        let i = 0
+        while (i < len(tb)) {
+            s = markLocalsStmt(s, tb[i])
+            i = i + 1
+        }
+        let eb = ifElse(node)
+        i = 0
+        while (i < len(eb)) {
+            s = markLocalsStmt(s, eb[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "While") {
+        let wb = whileBody(node)
+        let i = 0
+        while (i < len(wb)) {
+            s = markLocalsStmt(s, wb[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "ForIn") {
+        s = capRemove(s, forInVar(node))
+        let fb = forInBody(node)
+        let i = 0
+        while (i < len(fb)) {
+            s = markLocalsStmt(s, fb[i])
+            i = i + 1
+        }
+        return s
+    }
+    if (nt == "FuncDecl") {
+        let fb = funcBody(node)
+        let i = 0
+        while (i < len(fb)) {
+            s = markLocalsStmt(s, fb[i])
+            i = i + 1
+        }
+        return s
+    }
+    return s
+}
+
 func hasParserErrors(state) { return len(psErrors(state)) > 0 }
 
 func printParserErrors(state) {
@@ -556,10 +846,79 @@ func parseVarDecl(state) {
         psAdvance(state)
     }
 
-    let value = parseExpr(state)
+    let value = []
+    let isFn = 0
+    if (psCurKind(state) == TK_FN()) {
+        // Phase 121: let x = fn(a, b) { ... } desugars to a named FuncDecl so
+        // the closure is emitted as a top-level C function (mirrors the Go
+        // parser). The binding's own name is never a capture — recursive calls
+        // inside the body route to the top-level C symbol.
+        isFn = 1
+        let lambda = parseLambda(state)
+        let caps = computeCaptures(lambdaParams(lambda), lambdaBody(lambda))
+        caps = capRemove([caps, caps], name)[0]
+        value = setFuncCaptures(makeFuncDecl(name, lambdaParams(lambda), lambdaBody(lambda), line, 0), caps)
+    } else {
+        value = parseExpr(state)
+    }
     if (isConst == 1) { return makeConstDecl(name, value, typeName, line) }
     if (isLet == 1) { return makeLetDecl(name, value, typeName, line) }
     return makeVarDecl(name, value, typeName, line)
+}
+
+// ============================================================
+// Phase 121: lambda expressions — fn(a, b) { return a + b }
+// ============================================================
+
+func parseLambda(state) {
+    let line = psLine(state)
+    psAdvance(state) // consume 'fn'
+    if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
+    let params = []
+    while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
+        if (psCurKind(state) == TK_IDENT()) {
+            params = appendArray(params, psCurLiteral(state))
+            psAdvance(state)
+            if (psIsTypeToken(state)) { psAdvance(state) }
+        } else {
+            psAdvance(state)
+        }
+        if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+    }
+    if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    let body = []
+    if (psCurKind(state) == TK_LBRACE()) {
+        psAdvance(state)
+        body = parseBlock(state)
+        if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
+    }
+    return makeLambda(params, body, line)
+}
+
+// ============================================================
+// Phase 121: alloc(T, n) builds a managed array of n zero slots;
+// free(x) is a runtime-managed no-op. Mirrors the Go parser.
+// ============================================================
+
+func parseAlloc(state) {
+    let line = psLine(state)
+    psAdvance(state) // consume 'alloc'
+    if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
+    let tname = psCurLiteral(state)
+    psAdvance(state) // consume type name
+    if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+    let count = parseExpr(state)
+    if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    return makeAlloc(tname, count, line)
+}
+
+func parseFree(state) {
+    let line = psLine(state)
+    psAdvance(state) // consume 'free'
+    if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
+    let ptr = parseExpr(state)
+    if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    return makeFree(ptr, line)
 }
 
 // ============================================================
@@ -948,6 +1307,19 @@ func parsePrimary(state) {
     // Identifier or function call or struct literal
     if (kind == TK_IDENT()) {
         return parseIdentOrCall(state)
+    }
+
+    // Phase 121: lambda expressions are full primary values.
+    if (kind == TK_FN()) {
+        return parseLambda(state)
+    }
+
+    // Phase 121: alloc(T, n) / free(x) in expression position.
+    if (kind == TK_ALLOC()) {
+        return parseAlloc(state)
+    }
+    if (kind == TK_FREE()) {
+        return parseFree(state)
     }
 
     // Match expression

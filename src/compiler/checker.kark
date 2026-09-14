@@ -538,6 +538,23 @@ func checkExpr(tab, e, loop) {
         return
     }
 
+    // Phase 121: a let-bound lambda arrives as a FuncDecl value; bind its
+    // params and check its body exactly like a top-level function.
+    if (nt == "FuncDecl") {
+        checkFuncDecl(tab, e)
+        return
+    }
+
+    // Phase 121: alloc(T, n) / free(x) operands are plain expressions.
+    if (nt == "Alloc") {
+        checkExpr(tab, allocCount(e), loop)
+        return
+    }
+    if (nt == "Free") {
+        checkExpr(tab, freePtr(e), loop)
+        return
+    }
+
     if (nt == "ArrayLiteral") {
         let elems = arrayElements(e)
         let i = 0
