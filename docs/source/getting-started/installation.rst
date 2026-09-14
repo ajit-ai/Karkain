@@ -13,8 +13,8 @@ Pre-compiled binaries
 =====================
 
 :implemented:`Available` — pre-built binaries for **v1.0.0** have been
-built and validated. They are published on `GitHub Releases
-<https://github.com/ajit-ai/Karkain/releases>`_ at the maintainers'
+built and validated as a **13-archive set**. They are published on `GitHub
+Releases <https://github.com/ajit-ai/Karkain/releases>`_ at the maintainers'
 discretion; until the v1.0.0 release is cut, the archives are not yet
 downloadable and the :ref:`build-from-source <installation-source-build>`
 path below is the way to get the toolchain. Each archive (when published)
@@ -58,12 +58,12 @@ Archive naming convention:
      - ``karkain-v1.0.0-linux-arm64.tar.gz``
      - :implemented:`Available`
    * - Linux
-     - armv7
-     - ``karkain-v1.0.0-linux-armv7.tar.gz``
+     - arm (ARMv7)
+     - ``karkain-v1.0.0-linux-arm.tar.gz``
      - :implemented:`Available`
    * - Linux
-     - i386
-     - ``karkain-v1.0.0-linux-i386.tar.gz``
+     - 386
+     - ``karkain-v1.0.0-linux-386.tar.gz``
      - :implemented:`Available`
    * - Linux
      - ppc64le
@@ -84,6 +84,14 @@ Archive naming convention:
    * - FreeBSD
      - amd64
      - ``karkain-v1.0.0-freebsd-amd64.tar.gz``
+     - :implemented:`Available`
+   * - NetBSD
+     - amd64
+     - ``karkain-v1.0.0-netbsd-amd64.tar.gz``
+     - :implemented:`Available`
+   * - OpenBSD
+     - amd64
+     - ``karkain-v1.0.0-openbsd-amd64.tar.gz``
      - :implemented:`Available`
    * - Docker
      - (multi-arch)

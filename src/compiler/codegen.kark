@@ -18,6 +18,11 @@ func createCodegenState(target) {
     state = appendArray(state, [])       // 7: kernels
     state = appendArray(state, "")       // 8: current function name
     state = appendArray(state, "")       // 9: source file name (runtime error diagnostics)
+    state = appendArray(state, [])       // 10: let-bound lambda names
+    state = appendArray(state, [])       // 11: parallel capture lists
+    state = appendArray(state, [])       // 12: parallel FuncDecl nodes
+    state = appendArray(state, [])       // 13: currently-emitting closure caps
+    state = appendArray(state, [])       // 14: emitted closure-env registry
     return state
 }
 
@@ -107,6 +112,7 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value make_map(void) { Value r; r.type=TYPE_MAP; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static Value mk_nil(void) { Value r; r.type=TYPE_INT; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static void array_push(Value* a, Value e) { Value* c=(Value*)malloc(sizeof(Value)); *c=e; a->length++; a->items=(Value**)realloc(a->items,sizeof(Value*)*a->length); a->items[a->length-1]=c; }")
+    emitLine(state, "static Value make_alloc_array(Value n) { long long count=(n.type==TYPE_INT)?n.intVal:0; if(count<0){ count=0; } Value v=make_array(); long long i; for(i=0;i<count;i++){ array_push(&v,make_int(0)); } return v; }")
     emitLine(state, "static Value karkain_slice(Value v, Value s, Value e) { long long start=(s.type==TYPE_INT)?s.intVal:0; long long end=(e.type==TYPE_INT)?e.intVal:-1; if(v.type==TYPE_STRING){ long long n=(long long)strlen(v.strVal?v.strVal:\"\"); if(end<0) end+=n+1; if(start<0) start=0; if(end>n) end=n; if(start>=end||start>=n) return make_string(\"\"); long long len=end-start; char* buf=(char*)malloc((size_t)len+1); memcpy(buf,v.strVal+start,(size_t)len); buf[len]=0; Value r=make_string(buf); free(buf); return r; } if(v.type==TYPE_ARRAY){ long long n=(long long)v.length; if(end<0) end+=n+1; if(start<0) start=0; if(end>n) end=n; Value out=make_array(); if(start<end){ long long i; for(i=start;i<end;i++) array_push(&out,*v.items[i]); } return out; } return make_int(0); }")
     emitLine(state, "static Value map_get(Value m, Value k);")
     emitLine(state, "static Value array_get(Value a, Value i) { if(a.type==TYPE_MAP) return map_get(a,i); if(a.type==TYPE_STRING&&i.type==TYPE_INT){ int si=(int)i.intVal; int sl=strlen(a.strVal?a.strVal:\"\"); if(si<0||si>=sl) return make_int(0); char c[2]={a.strVal[si],0}; return make_string(c); } if(a.type!=TYPE_ARRAY) return make_int(0); int idx=(int)i.intVal; if(idx<0||idx>=a.length) return make_int(0); return *a.items[idx]; }")
@@ -251,7 +257,14 @@ func emitC11Expr(state, node) {
         if (literalValue(node) == "true") { emit(state, "make_bool(1)") }
         if (literalValue(node) == "false") { emit(state, "make_bool(0)") }
     }
-    if (nt == "Ident") { emit(state, identName(node)) }
+    if (nt == "Ident") {
+        let nm = identName(node)
+        if (capInList(codegenCurrentCaps(state), nm) == 1) {
+            emit(state, "(*_env->" + nm + ")")
+        } else {
+            emit(state, nm)
+        }
+    }
 
     if (nt == "BinaryExpr") {
         if (binaryOp(node) == "=") {
@@ -341,6 +354,29 @@ func emitC11Expr(state, node) {
 
         if (fname == "getArgs") {
             emit(state, "_karkain_get_args()")
+        } else if (codegenLocalFuncHas(state, fname)) {
+            // Phase 121: let-bound lambda call — closures take the env holder
+            // as their first argument; zero-capture lambdas call the bare
+            // top-level symbol.
+            let ccaps = codegenLocalFuncCapsFor(state, fname)
+            let au = 0
+            emit(state, "karkain_user_" + fname + "(")
+            if (len(ccaps) > 0) {
+                emit(state, "_genv_" + fname)
+                let src = 0
+                while (src < argc) {
+                    emit(state, ", ")
+                    emitC11Expr(state, args[src])
+                    src = src + 1
+                }
+            } else {
+                while (au < argc) {
+                    if (au > 0) { emit(state, ", ") }
+                    emitC11Expr(state, args[au])
+                    au = au + 1
+                }
+            }
+            emit(state, ")")
         } else if (hasUserFunc(state, fname)) {
             emit(state, "karkain_user_" + fname + "(")
             let au = 0
@@ -635,6 +671,19 @@ func emitC11Expr(state, node) {
         emit(state, ", \"" + codegenSourceName(state) + "\", " + indexLine(node) + ")")
     }
 
+    // Phase 121: alloc(T, n) builds a managed array of n zero slots; free(x)
+    // is a runtime-managed no-op cast. Mirrors the Go backend exactly.
+    if (nt == "Alloc") {
+        emit(state, "make_alloc_array(")
+        emitC11Expr(state, allocCount(node))
+        emit(state, ")")
+    }
+    if (nt == "Free") {
+        emit(state, "(void)(")
+        emitC11Expr(state, freePtr(node))
+        emit(state, ")")
+    }
+
     if (nt == "Slice") {
         emit(state, "karkain_slice(")
         emitC11Expr(state, sliceLeft(node))
@@ -727,18 +776,23 @@ func emitC11Stmt(state, node) {
     let nt = getNodeType(node)
 
     if (nt == "VarDecl") {
+        if (getNodeType(varDeclValue(node)) == "FuncDecl") { emitClosureBinding(state, varDeclValue(node)); return }
         emitLine(state, "Value " + varDeclName(node) + " = ")
         emitC11Expr(state, varDeclValue(node))
         emit(state, ";")
     }
 
     if (nt == "LetDecl") {
+        // Phase 121: let x = fn(...) — the definition was emitted top-level by
+        // the closure pass; the binding site only initializes the capture env.
+        if (getNodeType(letDeclValue(node)) == "FuncDecl") { emitClosureBinding(state, letDeclValue(node)); return }
         emitLine(state, "Value " + letDeclName(node) + " = ")
         emitC11Expr(state, letDeclValue(node))
         emit(state, ";")
     }
 
     if (nt == "ConstDecl") {
+        if (getNodeType(constDeclValue(node)) == "FuncDecl") { emitClosureBinding(state, constDeclValue(node)); return }
         emitLine(state, "Value " + constDeclName(node) + " = ")
         emitC11Expr(state, constDeclValue(node))
         emit(state, ";")
@@ -971,6 +1025,77 @@ func hasUserFunc(state, fname) {
     return 0
 }
 
+// ============================================================
+// Phase 121: let-bound lambda (closure) registry. State slots 10-13:
+//   10: local-func names, 11: parallel capture lists, 12: parallel
+//   FuncDecl nodes, 13: currently-emitting closure's capture list.
+// ============================================================
+
+func codegenLocalFuncs(state)    { return state[10] }
+func codegenLocalFuncNodes(state) { return state[12] }
+func codegenCurrentCaps(state)   { return state[13] }
+func setCodegenCurrentCaps(state, caps) { state[13] = caps }
+
+func codegenLocalFuncCapsFor(state, name) {
+    let names = codegenLocalFuncs(state)
+    let caps = state[11]
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] == name) { return caps[i] }
+        i = i + 1
+    }
+    return []
+}
+
+func codegenLocalFuncHas(state, name) {
+    let names = codegenLocalFuncs(state)
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] == name) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func registerLocalFunc(state, name, caps, node) {
+    if (codegenLocalFuncHas(state, name) == 1) { return }
+    state[10] = appendArray(codegenLocalFuncs(state), name)
+    state[11] = appendArray(state[11], caps)
+    state[12] = appendArray(codegenLocalFuncNodes(state), node)
+}
+
+func capInList(caps, name) {
+    let i = 0
+    while (i < len(caps)) {
+        if (caps[i] == name) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// collectLocalFuncsC11 walks statements (recursively through blocks and
+// function bodies) registering every let-bound lambda FuncDecl value.
+func collectLocalFuncsC11(state, stmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        let nt = getNodeType(stmts[i])
+        if (nt == "VarDecl" || nt == "LetDecl" || nt == "ConstDecl") {
+            let val = varDeclValue(stmts[i])
+            if (nt == "LetDecl") { val = letDeclValue(stmts[i]) }
+            if (nt == "ConstDecl") { val = constDeclValue(stmts[i]) }
+            if (getNodeType(val) == "FuncDecl") {
+                registerLocalFunc(state, funcName(val), funcCaptures(val), val)
+                collectLocalFuncsC11(state, funcBody(val))
+            }
+        } else if (nt == "FuncDecl") {
+            collectLocalFuncsC11(state, funcBody(stmts[i]))
+        } else if (nt == "Block") {
+            collectLocalFuncsC11(state, blockStmts(stmts[i]))
+        }
+        i = i + 1
+    }
+}
+
 func generateC11(ast, sourceName) {
     let state = createCodegenState("c11")
     setCodegenSourceName(state, sourceName)
@@ -982,10 +1107,17 @@ func generateC11(ast, sourceName) {
     while (i < len(stmts)) {
         if (getNodeType(stmts[i]) == "FuncDecl") {
             emitC11ForwardDecl(state, stmts[i])
+            // Phase 121: register + declare let-bound lambdas so closures are
+            // usable from any top-level function regardless of definition order.
+            emitLocalFuncDecls(state, funcBody(stmts[i]))
         }
         i = i + 1
     }
     emitNewline(state)
+
+    // Phase 121: emit every let-bound lambda as a top-level C function. Their
+    // definitions must NOT nest inside the enclosing function's body.
+    emitClosureDefs(state)
 
     i = 0
     while (i < len(stmts)) {
@@ -994,6 +1126,135 @@ func generateC11(ast, sourceName) {
     }
 
     return codegenOutput(state)
+}
+
+// Phase 121: for every let-bound lambda discovered in the given statements,
+// emit the closure-env typedef + holder and the forward prototype exactly once.
+func emitLocalFuncDecls(state, stmts) {
+    collectLocalFuncsC11(state, stmts)
+    let names = codegenLocalFuncs(state)
+    let nodes = codegenLocalFuncNodes(state)
+    let i = 0
+    while (i < len(names)) {
+        let nm = names[i]
+        if (hasEmittedClosureEnv(state, nm) == 0) {
+            markEmittedClosureEnv(state, nm)
+            let caps = funcCaptures(nodes[i])
+            if (len(caps) > 0) {
+                emitLine(state, "typedef struct {")
+                let c = 0
+                while (c < len(caps)) {
+                    emitLine(state, "  Value* " + caps[c] + ";")
+                    c = c + 1
+                }
+                emitLine(state, "} ClosureEnv_" + nm + ";")
+                emitLine(state, "static ClosureEnv_" + nm + "* _genv_" + nm + ";")
+                emitNewline(state)
+            }
+            // Forward prototype (env param first when captures exist).
+            let params = funcParams(nodes[i])
+            emit(state, "Value " + emitC11FuncSymbol(nm) + "(")
+            let pfirst = 1
+            if (len(caps) > 0) {
+                emit(state, "ClosureEnv_" + nm + "* _env")
+                pfirst = 0
+            }
+            let p = 0
+            while (p < len(params)) {
+                if (pfirst == 0) { emit(state, ", ") }
+                emit(state, "Value " + params[p])
+                pfirst = 0
+                p = p + 1
+            }
+            emitLine(state, ");")
+        }
+        i = i + 1
+    }
+}
+
+// Phase 121: emit every registered let-bound lambda's top-level C body.
+func emitClosureDefs(state) {
+    let names = codegenLocalFuncs(state)
+    let nodes = codegenLocalFuncNodes(state)
+    let i = 0
+    while (i < len(names)) {
+        emitC11ClosureDef(state, nodes[i])
+        i = i + 1
+    }
+}
+
+func emitC11ClosureDef(state, node) {
+    let fnName = funcName(node)
+    let params = funcParams(node)
+    let caps = funcCaptures(node)
+    let savedCaps = codegenCurrentCaps(state)
+    setCodegenCurrentCaps(state, caps)
+    state[8] = fnName
+    emit(state, "Value " + emitC11FuncSymbol(fnName) + "(")
+    let pfirst = 1
+    if (len(caps) > 0) {
+        emit(state, "ClosureEnv_" + fnName + "* _env")
+        pfirst = 0
+    }
+    let i = 0
+    while (i < len(params)) {
+        if (pfirst == 0) { emit(state, ", ") }
+        emit(state, "Value " + params[i])
+        pfirst = 0
+        i = i + 1
+    }
+    emitLine(state, ") {")
+    state[2] = codegenIndent(state) + 1
+    emitLine(state, "karkain_frame_enter(\"" + fnName + "\", \"" + codegenSourceName(state) + "\");")
+    emitLine(state, "karkain_set_line(" + funcLine(node) + ");")
+    let body = funcBody(node)
+    i = 0
+    while (i < len(body)) {
+        emitC11Stmt(state, body[i])
+        i = i + 1
+    }
+    emitLine(state, "karkain_frame_leave();")
+    state[2] = codegenIndent(state) - 1
+    emitLine(state, "}")
+    emitNewline(state)
+    state[8] = ""
+    setCodegenCurrentCaps(state, savedCaps)
+}
+
+// Phase 121: track which closure env typedefs have been emitted.
+func hasEmittedClosureEnv(state, name) {
+    let envs = state[14]
+    let i = 0
+    while (i < len(envs)) {
+        if (envs[i] == name) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func markEmittedClosureEnv(state, name) {
+    state[14] = appendArray(state[14], name)
+}
+
+// Phase 121: binding-site env instance init `{ static ClosureEnv_x _e; ...caps;
+// _genv_x = &_e; }`. When the lambda captures nothing there is no env at all.
+func emitClosureBinding(state, node) {
+    let fnName = funcName(node)
+    let caps = funcCaptures(node)
+    if (len(caps) == 0) { return }
+emitLine(state, "{ static ClosureEnv_" + fnName + " _e;")
+    let i = 0
+    while (i < len(caps)) {
+        let c = caps[i]
+        if (capInList(codegenCurrentCaps(state), c) == 1) {
+            emitLine(state, "_e." + c + " = &(*_env->" + c + ");")
+        } else {
+            emitLine(state, "_e." + c + " = &" + c + ";")
+        }
+        i = i + 1
+    }
+    emitLine(state, "_genv_" + fnName + " = &_e;")
+    emitLine(state, "}")
 }
 
 // Forward declaration so functions can call each other regardless of

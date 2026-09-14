@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # -- Project information -----------------------------------------------------
 
 project = "Karkain"
-author = "The Karkain Project"
+author = "Ajit Kumar"
 copyright = "2026, The Karkain Project"
 
 # Version and release describe the LANGUAGE, not one binary.

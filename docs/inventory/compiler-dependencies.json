@@ -1,0 +1,88 @@
+{
+  "phase": 120,
+  "title": "Compiler Dependency Inventory — Karkain 1.0.0 (Stable)",
+  "verified": "2026-09-14",
+  "scope": "The single source of truth for what the Karkain compiler holds today, what it owns on the path to self-hosting, and which Go/C components are bootstrap infrastructure versus compiler responsibility. Phase 121 (Compiler Independence Foundation) treats this inventory as its baseline.",
+  "compiler_components": {
+    "lexer": {
+      "implementation": "Go + Karkain",
+      "go": "pkg/lexer (3 files), entry lexer.go",
+      "karkain": "src/compiler/lexer.kark (tokenize/psCurKind)",
+      "active_path": "kcc (self-hosted) is the default engine for check/build/run; its lexer is src/compiler/lexer.kark. Go lexer serves LSP, fmt, the bootstrap stage-1 (KARKAIN_ENGINE=go), and Go-front-end fallbacks.",
+      "status": "ACTIVE (both)"
+    },
+    "parser": {
+      "implementation": "Go + Karkain",
+      "go": "pkg/parser (13 files), entry parser.go, phase120 makes print(value) and print value parity",
+      "karkain": "src/compiler/parser.kark (parse/tokenize/createParserState)",
+      "active_path": "kcc parses with src/compiler/parser.kark; bootstrap stage-1 and Go tooling parse with pkg/parser.",
+      "status": "ACTIVE (both)"
+    },
+    "ast": {
+      "implementation": "Go + Karkain",
+      "go": "pkg/parser/ast.go + pkg/parser/arena",
+      "karkain": "src/compiler/ast.kark (make* constructors + accessors)",
+      "active_path": "kcc builds src/compiler ASTs; Go builds pkg/parser ASTs.",
+      "status": "ACTIVE (both)"
+    },
+    "semantic_analysis": {
+      "implementation": "Go + Karkain",
+      "go": "pkg/sema (37 files), resolver resolve.go",
+      "karkain": "src/compiler/checker.kark + sema.kark + atypes.kark (2-pass conservative checker)",
+      "active_path": "kcc check/build/run run the self-hosted checker for compiler-internal passes; the Go resolver powers runSemanticPreflight/kccTargetPreflight which gate BOTH engines at the CLI layer (K002/K102 errors, exit 3).",
+      "status": "ACTIVE (both)"
+    },
+    "kir": {
+      "implementation": "Karkain (owned)",
+      "go": "NONE (Go only routes: pkg/cli/kir.go KCCKirCommand + KCCKirVerifyCommand)",
+      "karkain": "src/compiler/kir.kark (kirEmit + kirVerify) — Phases 120 + 121",
+      "active_path": "kcc kir / karkain kir emit deterministic KIR v1 text via src/compiler/kir.kark. Phase 121 makes KIR an engine-internal invariant: kirVerify runs inside checkFile on the default kcc check path (silent on success, error[K121] + exit 3 on drift) and standalone via kcc verifykir / karkain kir --verify. KIR text does not yet feed the backend (documented post-121 boundary).",
+      "status": "ACTIVE (kcc), owned by Karkain"
+    },
+    "codegen": {
+      "implementation": "Go + Karkain",
+      "go": "pkg/codegen (63 files), entry codegen.go (C23 emit + native/DWARF/SIMD/WASM/npu)",
+      "karkain": "src/compiler/codegen.kark (kcc C23 emitter)",
+      "active_path": "kcc build/run use src/compiler/codegen.kark; bootstrap stage-1 uses pkg/codegen.",
+      "status": "ACTIVE (both)"
+    },
+    "runtime": {
+      "implementation": "C + Go + Karkain",
+      "c": "runtime/freestanding/*, runtime/core/*, runtime/concurrency/c/*, src/compiler/runtime.c committed",
+      "go": "pkg/codegen preamble helpers (C strings), pkg/runtime gate harnesses",
+      "active_path": "Generated C links against the embedded runtime helpers emitted by both codegen paths.",
+      "status": "ACTIVE"
+    },
+    "bootstrap": {
+      "implementation": "Go primary + gcc",
+      "go": "pkg/bootstrap (3 files), kcc_engine.go buildKCC",
+      "contract": "stage-1: Go front end emits src/compiler/main.c; gcc links kcc.exe. Bootstrap identity gate asserts stage2 == stage3 bitwise.",
+      "active_path": "kccBinaryPath rebuilds kcc.exe when any src/compiler/*.kark is newer (kccStale).",
+      "status": "ACTIVE"
+    }
+  },
+  "pipeline": {
+    "source": "desc('lexer -> parser -> AST -> semantic analysis -> KIR -> code generation -> runtime -> executable')",
+    "kir_invariant": "KIR is verified by the compiler itself on the default kcc check path (kirVerify in checkFile, error[K121] on drift). Text remains on-demand (kcc kir / karkain kir); wiring it into build/run as the codegen input is a post-121 boundary."
+  },
+  "ownership_horizon": {
+    "current": "10 .kark files under src/compiler run the kcc engine end-to-end (lex/parse/check/codegen), bootstrapped through the Go front end.",
+    "target": "Karkain compiler components invoke themselves: kcc gains Karkain-owned module resolution/assembly, KIR-consumption, and a bootstrap path (Phase 121+).",
+    "ultimate": "KCC self-hosting: the Karkain compiler rebuilds itself with no Go compiler front-end responsibility."
+  },
+  "kir_contract": {
+    "ownership": "Karkain-owned (src/compiler/kir.kark)",
+    "invariants": [
+      "path-less `source: <basename>` header and `[ok] kir text: N lines` marker",
+      "byte-deterministic output for identical input across runs and sandboxes",
+      "parse errors surface before emission (exit 3), never a partial `[ok]`"
+    ],
+    "structural_rules": [
+      "header line exactly `KIR v1`; source line names exactly the basename",
+      "two-space indentation per depth level; nesting depth never jumps forward by more than one level",
+      "every statement line ends ` line: <decimal>` except `block` and `stmt <type>`",
+      "verified by kirVerify inside checkFile on the default kcc check path (error[K121] + exit 3 on drift)"
+    ],
+    "serialization": "text v1, one line per statement, depth-indented, all expression forms parenthesized"
+  }
+}

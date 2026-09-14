@@ -1,0 +1,438 @@
+// ============================================================
+// KIR v1 text emitter (Phase 120)
+//
+// Deterministic, line-oriented rendering of a parsed Karkain AST as
+// KIR (Karkain Intermediate Representation) text. The self-hosted
+// compiler owns this component: it feeds only on the AST produced by
+// the in-tree parser and accessors, so it is independent of any
+// external IR, front-end, or library.
+//
+// Contract:
+//   * Deterministic: identical source bytes always yield identical
+//     output text, regardless of host paths or sandbox locations.
+//   * Line-oriented: each statement is one line; nesting is expressed
+//     as two-space indentation per depth level.
+//   * Expression forms are stable, single-line S-expressions.
+//   * String literals echo the raw token text (escapes preserved).
+//
+// The emitter is checker-clean for the Phase 99 two-pass semantic
+// gate and uses only the conservative subset of the language surface.
+// ============================================================
+
+// kirEmit renders a parsed Program node as KIR v1 text lines.
+// path is used only for the basename header so the output stays
+// independent of the host location of the source file.
+func kirEmit(ast, path) {
+    let lines = []
+    lines = appendArray(lines, "KIR v1")
+    lines = appendArray(lines, "source: " + fileBaseName(path))
+    let imports = progImports(ast)
+    let c = 0
+    while (c < len(imports)) {
+        lines = kirImport(lines, imports[c], 0)
+        c = c + 1
+    }
+    lines = kirStmts(lines, programStatements(ast), 0)
+    return lines
+}
+
+// kirImport renders an import / cimport declaration as one line.
+func kirImport(lines, node, depth) {
+    let pad = kirIndent(depth)
+    let t = getNodeType(node)
+    if (t == "Import") {
+        return appendArray(lines, pad + "import " + importName(node) + " line: " + str(importLine(node)))
+    }
+    if (t == "CImport") {
+        return appendArray(lines, pad + "cimport (" + str(len(cimportContent(node))) + " bytes) line: " + str(cimportLine(node)))
+    }
+    return appendArray(lines, pad + "stmt <" + t + ">")
+}
+
+// kirStmts appends the rendered form of every statement in stmts.
+func kirStmts(lines, stmts, depth) {
+    let i = 0
+    while (i < len(stmts)) {
+        lines = kirStmt(lines, stmts[i], depth)
+        i = i + 1
+    }
+    return lines
+}
+
+// kirStmt renders one statement into line(s). Multi-line statements
+// (function bodies, blocks, control flow) recurse at depth + 1.
+func kirStmt(lines, node, depth) {
+    let pad = kirIndent(depth)
+    let t = getNodeType(node)
+
+    if (t == "FuncDecl") {
+        lines = appendArray(lines, pad + "func " + funcName(node) + " (params: " + kirJoin(funcParams(node)) + ") line: " + str(funcLine(node)))
+        return kirStmts(lines, funcBody(node), depth + 1)
+    }
+    if (t == "KernelDecl") {
+        lines = appendArray(lines, pad + "kernel " + kernelName(node) + " (params: " + kirJoin(kernelParams(node)) + ") line: " + str(kernelLine(node)))
+        return kirStmts(lines, kernelBody(node), depth + 1)
+    }
+    if (t == "StructDecl") {
+        return appendArray(lines, pad + "struct " + structDeclName(node) + " (" + kirJoin(structDeclFields(node)) + ") line: " + str(structDeclLine(node)))
+    }
+    if (t == "EnumDecl") {
+        return appendArray(lines, pad + "enum " + enumDeclName(node) + " (" + kirJoin(enumDeclVariants(node)) + ") line: " + str(enumDeclLine(node)))
+    }
+    if (t == "VarDecl") {
+        return appendArray(lines, pad + "var " + varDeclName(node) + " = " + kirExpr(varDeclValue(node)) + " line: " + str(varDeclLine(node)))
+    }
+    if (t == "LetDecl") {
+        return appendArray(lines, pad + "let " + letDeclName(node) + " = " + kirExpr(letDeclValue(node)) + " line: " + str(letDeclLine(node)))
+    }
+    if (t == "ConstDecl") {
+        return appendArray(lines, pad + "const " + constDeclName(node) + " = " + kirExpr(constDeclValue(node)) + " line: " + str(constDeclLine(node)))
+    }
+    if (t == "Return") {
+        if (len(retVal(node)) < 1) {
+            return appendArray(lines, pad + "return line: " + str(retLine(node)))
+        }
+        return appendArray(lines, pad + "return " + kirExpr(retVal(node)) + " line: " + str(retLine(node)))
+    }
+    if (t == "Print") {
+        return appendArray(lines, pad + "print " + kirExpr(printVal(node)) + " line: " + str(printLine(node)))
+    }
+    if (t == "ExprStmt") {
+        return appendArray(lines, pad + kirExpr(exprStmtExpr(node)) + " line: " + str(exprStmtLine(node)))
+    }
+    if (t == "Block") {
+        lines = appendArray(lines, pad + "block")
+        return kirStmts(lines, blockStmts(node), depth + 1)
+    }
+    if (t == "If") {
+        lines = appendArray(lines, pad + "if " + kirExpr(ifCond(node)) + " line: " + str(ifLine(node)))
+        lines = kirStmts(lines, ifCons(node), depth + 1)
+        if (len(ifAlt(node)) > 0) {
+            lines = appendArray(lines, pad + "else line: " + str(ifLine(node)))
+            lines = kirStmts(lines, ifAlt(node), depth + 1)
+        }
+        return lines
+    }
+    if (t == "While") {
+        lines = appendArray(lines, pad + "while " + kirExpr(whileCond(node)) + " line: " + str(whileLine(node)))
+        return kirStmts(lines, whileBody(node), depth + 1)
+    }
+    if (t == "For") {
+        lines = appendArray(lines, pad + "for " + kirInit(forInit(node)) + "; " + kirCond(forCond(node)) + "; " + kirPost(forPost(node)) + " line: " + str(forLine(node)))
+        return kirStmts(lines, forBody(node), depth + 1)
+    }
+    if (t == "ForIn") {
+        lines = appendArray(lines, pad + "forin " + forInVar(node) + " in " + kirExpr(forInIter(node)) + " line: " + str(forInLine(node)))
+        return kirStmts(lines, forInBody(node), depth + 1)
+    }
+    if (t == "Break") {
+        return appendArray(lines, pad + "break line: " + str(breakLine(node)))
+    }
+    if (t == "Continue") {
+        return appendArray(lines, pad + "continue line: " + str(continueLine(node)))
+    }
+    if (t == "Match") {
+        lines = appendArray(lines, pad + "match " + kirExpr(matchValue(node)) + " line: " + str(matchLine(node)))
+        let arms = matchArms(node)
+        let a = 0
+        while (a < len(arms)) {
+            lines = kirArm(lines, arms[a], depth + 1)
+            a = a + 1
+        }
+        return lines
+    }
+    if (t == "Alloc") {
+        return appendArray(lines, pad + "alloc " + allocTypeName(node) + " " + kirExpr(allocCount(node)) + " line: " + str(allocLine(node)))
+    }
+    if (t == "Free") {
+        return appendArray(lines, pad + "free " + kirExpr(freePtr(node)) + " line: " + str(freeLine(node)))
+    }
+    if (t == "GlobalId") {
+        return appendArray(lines, pad + "global_id " + str(globalIdDim(node)) + " line: " + str(globalIdLine(node)))
+    }
+    return appendArray(lines, pad + "stmt <" + t + ">")
+}
+
+// kirArm renders one match arm and its body.
+func kirArm(lines, node, depth) {
+    let pad = kirIndent(depth)
+    let lines2 = appendArray(lines, pad + "case " + armPatternType(node) + " " + armBinding(node) + " " + kirPattern(armPatternValue(node)) + " line: " + str(armLine(node)))
+    return kirStmts(lines2, armBody(node), depth + 1)
+}
+
+// kirPattern renders a match-arm pattern value (empty -> "_").
+func kirPattern(node) {
+    if (len(node) < 1) { return "_" }
+    return kirExpr(node)
+}
+
+// kirInit renders a for-loop init clause: a declaration or an
+// expression, or "_" when empty.
+func kirInit(node) {
+    if (len(node) < 1) { return "_" }
+    let t = getNodeType(node)
+    if (t == "LetDecl") { return "let " + letDeclName(node) + " = " + kirExpr(letDeclValue(node)) }
+    if (t == "VarDecl") { return "var " + varDeclName(node) + " = " + kirExpr(varDeclValue(node)) }
+    if (t == "ConstDecl") { return "const " + constDeclName(node) + " = " + kirExpr(constDeclValue(node)) }
+    return kirExpr(node)
+}
+
+// kirCond renders a for-loop condition (empty -> "_").
+func kirCond(node) {
+    if (len(node) < 1) { return "_" }
+    return kirExpr(node)
+}
+
+// kirPost renders a for-loop post expression (empty -> "_").
+func kirPost(node) {
+    if (len(node) < 1) { return "_" }
+    return kirExpr(node)
+}
+
+// kirExpr renders a single expression as a stable S-expression.
+func kirExpr(node) {
+    if (len(node) < 1) { return "_" }
+    let t = getNodeType(node)
+    if (t == "Ident") { return identName(node) }
+    if (t == "IntLiteral") { return literalValue(node) }
+    if (t == "FloatLiteral") { return literalValue(node) }
+    if (t == "BoolLiteral") { return literalValue(node) }
+    if (t == "StringLiteral") { return "\"" + literalValue(node) + "\"" }
+    if (t == "BinaryExpr") {
+        return "(" + binaryOp(node) + " " + kirExpr(binaryLeft(node)) + " " + kirExpr(binaryRight(node)) + ")"
+    }
+    if (t == "UnaryExpr") {
+        return "(" + unaryOp(node) + " " + kirExpr(unaryOperand(node)) + ")"
+    }
+    if (t == "Call") {
+        let s = "(call " + callFunc(node)
+        let args = callArgs(node)
+        let i = 0
+        while (i < len(args)) {
+            s = s + " " + kirExpr(args[i])
+            i = i + 1
+        }
+        return s + ")"
+    }
+    if (t == "Index") {
+        return "(index " + kirExpr(indexLeft(node)) + " " + kirExpr(indexExpr(node)) + ")"
+    }
+    if (t == "Member") {
+        return "(member " + kirExpr(memberObject(node)) + " " + memberField(node) + ")"
+    }
+    if (t == "Slice") {
+        return "(slice " + kirExpr(sliceLeft(node)) + " " + kirBound(sliceStart(node)) + " " + kirBound(sliceEnd(node)) + ")"
+    }
+    if (t == "ArrayLiteral") {
+        let s = "(array"
+        let elems = arrayLitElems(node)
+        let i = 0
+        while (i < len(elems)) {
+            s = s + " " + kirExpr(elems[i])
+            i = i + 1
+        }
+        return s + ")"
+    }
+    if (t == "MapLiteral") {
+        let s = "(map"
+        let keys = mapKeys(node)
+        let vals = mapValues(node)
+        let i = 0
+        while (i < len(keys)) {
+            s = s + " " + kirExpr(keys[i]) + "=" + kirExpr(vals[i])
+            i = i + 1
+        }
+        return s + ")"
+    }
+    if (t == "StructLiteral") {
+        let s = "(struct " + structLitName(node) + " "
+        let fields = structLitFields(node)
+        let i = 0
+        while (i < len(fields)) {
+            s = s + kirField(fields[i])
+            if (i + 1 < len(fields)) { s = s + " " }
+            i = i + 1
+        }
+        return s + ")"
+    }
+    if (t == "Lambda") {
+        return "(lambda (params: " + kirJoin(lambdaParams(node)) + ") body=" + str(len(lambdaBody(node))) + ")"
+    }
+    if (t == "Match") {
+        let s = "(match " + kirExpr(matchValue(node))
+        let arms = matchArms(node)
+        let i = 0
+        while (i < len(arms)) {
+            s = s + " (" + armPatternType(arms[i]) + " " + armBinding(arms[i]) + " " + kirPattern(armPatternValue(arms[i])) + " line: " + str(armLine(arms[i])) + ")"
+            i = i + 1
+        }
+        return s + ")"
+    }
+    if (t == "FuncDecl") {
+        return "(closure " + funcName(node) + " (params: " + kirJoin(funcParams(node)) + ") body=" + str(len(funcBody(node))) + ")"
+    }
+    if (t == "Alloc") {
+        return "(alloc " + allocTypeName(node) + " " + kirExpr(allocCount(node)) + ")"
+    }
+    if (t == "Free") {
+        return "(free " + kirExpr(freePtr(node)) + ")"
+    }
+    if (t == "Borrow") {
+        return "(borrow " + kirExpr(borrowOp(node)) + ")"
+    }
+    if (t == "GlobalId") {
+        return "(global_id " + str(globalIdDim(node)) + ")"
+    }
+    return "(expr <" + t + ">)"
+}
+
+// kirBound renders a slice bound (empty -> "_").
+func kirBound(node) {
+    if (len(node) < 1) { return "_" }
+    return kirExpr(node)
+}
+
+// kirField renders one struct-literal field, an "=" binary node
+// whose left side is the field name identifier.
+func kirField(field) {
+    let t = getNodeType(field)
+    if (t == "BinaryExpr" && binaryOp(field) == "=") {
+        return kirExpr(binaryLeft(field)) + "=" + kirExpr(binaryRight(field))
+    }
+    return kirExpr(field)
+}
+
+// kirJoin renders an array of name strings as a ", "-separated list.
+func kirJoin(items) {
+    let s = ""
+    let i = 0
+    while (i < len(items)) {
+        if (i > 0) { s = s + ", " }
+        s = s + items[i]
+        i = i + 1
+    }
+    return s
+}
+
+// kirIndent returns depth*2 spaces.
+func kirIndent(depth) {
+    let s = ""
+    let i = 0
+    while (i < depth) {
+        s = s + "  "
+        i = i + 1
+    }
+    return s
+}
+
+// ============================================================
+// KIR v1 structural verifier (Phase 121)
+//
+// kirVerify renders the same AST the emitter produces and checks
+// every line against the KIR v1 structural contract:
+//   * header line is exactly "KIR v1"
+//   * source line names exactly the file basename
+//   * indentation is two spaces per depth level
+//   * nesting depth never jumps forward by more than one level
+//   * every statement line ends " line: <decimal>" unless it is a
+//     bare "block" introducer or an unknown-type fallback
+//
+// It uses only language builtins and user helpers defined in this
+// file, so it is itself engine-independent: on the default kcc check
+// path it proves the self-hosted pipeline round-trips its own KIR
+// contract. Returns a (possibly empty) array of problem descriptions.
+// ============================================================
+
+// kirIndentCount returns the number of leading spaces in line.
+func kirIndentCount(line) {
+    let n = len(line)
+    let i = 0
+    while (i < n) {
+        let ch = substr(line, i, 1)
+        if (ch != " ") { return i }
+        i = i + 1
+    }
+    return n
+}
+
+// kirIsDigits reports whether s is non-empty and all ASCII digits.
+func kirIsDigits(s) {
+    let n = len(s)
+    if (n == 0) { return 0 }
+    let digits = "0123456789"
+    let i = 0
+    while (i < n) {
+        let ch = substr(s, i, 1)
+        if (contains(digits, ch) == 0) { return 0 }
+        i = i + 1
+    }
+    return 1
+}
+
+// kirIsStructureLine reports whether line is exempt from the
+// " line: <decimal>" suffix rule (bare "block" introducers and the
+// unknown-node fallback are not annotated with line numbers).
+func kirIsStructureLine(line) {
+    let t = trim(line)
+    if (t == "block") { return 1 }
+    if (len(t) >= 6 && substr(t, 0, 6) == "stmt <") { return 1 }
+    return 0
+}
+
+// kirHasLineNo reports whether the FINAL " line: " in line is followed
+// only by decimal digits. Scanning from the last occurrence keeps
+// expression-embedded markers such as match-arm "(... line: N)" from
+// being mistaken for the statement-level suffix.
+func kirHasLineNo(line) {
+    let marker = " line: "
+    let mlen = 7
+    let ln = len(line)
+    let last = -1
+    let i = 0
+    while (i + mlen <= ln) {
+        if (substr(line, i, mlen) == marker) {
+            last = i
+        }
+        i = i + 1
+    }
+    if (last < 0) { return 0 }
+    let tail = substr(line, last + mlen, ln - last - mlen)
+    return kirIsDigits(tail)
+}
+
+// kirVerify checks the emitter's own output (as produced by kirEmit)
+// against the KIR v1 contract. problems is empty on success.
+func kirVerify(lines, path) {
+    let problems = []
+    let n = len(lines)
+    if (n < 3) {
+        problems = appendArray(problems, "kir text has fewer than 3 lines")
+        return problems
+    }
+    if (lines[0] != "KIR v1") {
+        problems = appendArray(problems, "line 1: header is not 'KIR v1'")
+    }
+    let encoded = "source: " + fileBaseName(path)
+    if (lines[1] != encoded) {
+        problems = appendArray(problems, "line 2: source header is not '" + encoded + "'")
+    }
+    let i = 2
+    let depth = 0
+    while (i < n) {
+        let line = lines[i]
+        let ind = kirIndentCount(line)
+        if ((ind % 2) != 0) {
+            problems = appendArray(problems, "line " + str(i + 1) + ": indentation " + str(ind) + " is not a multiple of 2")
+        }
+        let d = ind / 2
+        if (d > depth + 1) {
+            problems = appendArray(problems, "line " + str(i + 1) + ": nesting depth jumps from " + str(depth) + " to " + str(d))
+        }
+        depth = d
+        if (kirIsStructureLine(line) == 0 && kirHasLineNo(line) == 0) {
+            problems = appendArray(problems, "line " + str(i + 1) + ": statement line lacks a ' line: <decimal>' suffix")
+        }
+        i = i + 1
+    }
+    return problems
+}

@@ -20,7 +20,9 @@ the same front end but differ in how they produce code.
    * - **kcc (self-hosted)**
      - A Karkain-to-C23 transpiler written in Karkain itself. The default
        engine for ``karkain check``/``build``/``run``/``test``. Produces
-       byte-identical C output on both engines.
+       byte-identical C output on both engines. Also owns the Karkain IR
+       (KIR) emitter — the first compiler component written entirely in
+       Karkain (Phase 120).
      - ``src/compiler/*.kark``
 
 Both engines transpile to **C23**, which is then compiled to a native binary
@@ -71,6 +73,7 @@ Contents
    architecture
    pipeline
    kcc
+   kir
    hir
    ssa
    runtime
