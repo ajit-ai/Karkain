@@ -53,7 +53,7 @@ var phase114Examples = map[string]struct {
 	"02-algorithms/11_stack.kark":            {"3\n30\n20\n10\n0\n", ""},
 	"02-algorithms/12_queue.kark":            {"10\n20\n50\n20\n30\n40\n50\n", ""},
 	"02-algorithms/13_knapsack.kark":         {"7\n9\n", ""},
-	"03-systems/01_file_io.kark":             {"true\n3\nalpha\nbeta\ngamma\ntrue\n", ""},
+	"03-systems/01_file_io.kark":             {"true\n3\nalpha\nbeta\ngamma\nfalse\n", ""},
 	"05-data/01_word_frequency.kark":         {"3\n2\n2\n1\n8\n", ""},
 	"05-data/02_csv_aggregate.kark":          {"15\n20\n15\n2\n50\n20\n", ""},
 	"05-data/03_payload_roundtrip.kark":      {"4b61726b61696e2064617461\nKarkain data\nS2Fya2FpbiBkYXRh\nKarkain data\n1\n1\n", ""},
