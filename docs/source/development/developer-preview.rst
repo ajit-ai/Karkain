@@ -4,9 +4,8 @@ Developer Preview
 .. note::
 
    This page documents the Developer Preview capability summary (Phases
-   113–116). It is superseded by the Beta 1 assessment — see
-   :doc:`/status/beta` for the current public status and the Beta 1 stable
-   core.
+   113–116). It is superseded by **Karkain 1.0.0 (Stable)** — see
+   :doc:`/status/index` for the current public status and the stable core.
 
 Karkain is a **working compiler and language with tested capabilities**.
 This page is an honest summary of what works today and what does not.

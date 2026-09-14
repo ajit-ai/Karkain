@@ -59,6 +59,8 @@ type Generator struct {
 	lambdaCount      int                         // Phase 48: unique lambda naming
 	lambdaBuf        strings.Builder             // Phase 48: lambda function definitions to inject
 	closureVars      map[string]bool             // Phase 54: let-bound lambdas with captures
+	closureHeaders   map[string]bool             // Phase 121: closure env typedef+holder already emitted up-front
+	localFuncs       map[string]bool             // Phase 121: let-bound lambda names (call routing)
 	lastClosureInit  string                      // Phase 54: env-instance init emitted at binding site
 	quantumRegisters []string                    // Phase 14: declared quantum registers, in declaration order
 	needsHTTP        bool                        // Phase 55b: track if http.get is used (strip stub otherwise)
@@ -75,18 +77,124 @@ type Generator struct {
 
 	// Phase 110: profiling state. FIDs are assigned in source order and match
 	// the emitted C name table, so reports are deterministic across runs.
-	profiling bool
-	profFID   map[string]int
-	profNames []string
-	curProfID int // fid of the function whose body is currently being emitted
+	profiling     bool
+	profFID       map[string]int
+	profNames     []string
+	curProfID     int      // fid of the function whose body is currently being emitted
+	enclosingName string   // Phase 121: name of the function whose body is being generated
+	enclosingCaps []string // Phase 121: captures of the enclosing function, if any
 }
+
+// envCapField returns the C struct-field name backing a closure capture. The
+// field is prefixed so it can never collide with the `#define cap (*_env->...)`
+// macro active inside a capturing closure body (a bare `.base` field would be
+// re-lexed and expanded by the preprocessor).
+func envCapField(cap string) string { return "karkain_cap_" + sanitizeC(cap) }
 
 func New(cfg Config) *Generator {
 	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl),
-		closureVars: make(map[string]bool), userFuncs: make(map[string]bool),
+		closureVars: make(map[string]bool), closureHeaders: make(map[string]bool),
+		localFuncs: make(map[string]bool), userFuncs: make(map[string]bool),
 		simdVars: make(map[string]string), concFns: make(map[string]*parser.FuncDecl),
 		concSpawned: make(map[string]bool), concHandlers: make(map[string]bool),
 		profFID: make(map[string]int), curProfID: -1}
+}
+
+// collectLocalFuncs recursively finds let-bound lambda definitions (desugared
+// to VarDeclStmt carrying a FuncDecl) inside a body, including lambdas nested
+// inside their own bodies.
+func collectLocalFuncs(body []parser.Node) []*parser.FuncDecl {
+	var out []*parser.FuncDecl
+	for _, s := range body {
+		switch n := s.(type) {
+		case *parser.VarDeclStmt:
+			if fn, ok := n.Value.(*parser.FuncDecl); ok {
+				out = append(out, fn)
+				out = append(out, collectLocalFuncs(fn.Body)...)
+			}
+		case *parser.BlockStmt:
+			out = append(out, collectLocalFuncs(n.Statements)...)
+		case *parser.IfStmt:
+			out = append(out, collectLocalFuncs(n.Consequence)...)
+			out = append(out, collectLocalFuncs(n.Alternative)...)
+		case *parser.WhileStmt:
+			out = append(out, collectLocalFuncs(n.Body)...)
+		case *parser.ForInStmt:
+			out = append(out, collectLocalFuncs(n.Body)...)
+		}
+	}
+	return out
+}
+
+// bodyTouchesClosures reports whether a function body defines a let-bound
+// lambda or calls one. Closure-bearing functions take the legacy (non-SSA)
+// emission path so deferred definitions in lambdaBuf always flush correctly.
+func (g *Generator) bodyTouchesClosures(body []parser.Node) bool {
+	if len(collectLocalFuncs(body)) > 0 {
+		return true
+	}
+	for _, s := range body {
+		if touchesClosuresNode(s, g.localFuncs) {
+			return true
+		}
+	}
+	return false
+}
+
+func touchesClosuresNode(n parser.Node, localFuncs map[string]bool) bool {
+	switch node := n.(type) {
+	case *parser.CallExpr:
+		if localFuncs[node.Function] {
+			return true
+		}
+		for _, a := range node.Args {
+			if touchesClosuresNode(a, localFuncs) {
+				return true
+			}
+		}
+	case *parser.BlockStmt:
+		for _, s := range node.Statements {
+			if touchesClosuresNode(s, localFuncs) {
+				return true
+			}
+		}
+	case *parser.VarDeclStmt:
+		return touchesClosuresNode(node.Value, localFuncs)
+	case *parser.ExprStmt:
+		return touchesClosuresNode(node.Expression, localFuncs)
+	case *parser.ReturnStmt:
+		if node.Value != nil {
+			return touchesClosuresNode(node.Value, localFuncs)
+		}
+	case *parser.PrintStmt:
+		return touchesClosuresNode(node.Value, localFuncs)
+	case *parser.IfStmt:
+		if touchesClosuresNode(node.Condition, localFuncs) {
+			return true
+		}
+		for _, s := range node.Consequence {
+			if touchesClosuresNode(s, localFuncs) {
+				return true
+			}
+		}
+		for _, s := range node.Alternative {
+			if touchesClosuresNode(s, localFuncs) {
+				return true
+			}
+		}
+	case *parser.WhileStmt:
+		if touchesClosuresNode(node.Condition, localFuncs) {
+			return true
+		}
+		for _, s := range node.Body {
+			if touchesClosuresNode(s, localFuncs) {
+				return true
+			}
+		}
+	case *parser.ForInStmt:
+		return touchesClosuresNode(node.Iter, localFuncs)
+	}
+	return false
 }
 
 // orNative returns cfg.Target for diagnostics, falling back to "native" when
@@ -231,6 +339,29 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		}
 	}
 
+	// Phase 121: let-bound lambda (closure) forward declarations. Env typedefs
+	// and holders are emitted up-front so prototypes below can reference them,
+	// keeping closures callable from any top-level function regardless of
+	// definition order.
+	for _, stmt := range prog.Statements {
+		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			for _, lf := range collectLocalFuncs(fn.Body) {
+				g.localFuncs[lf.Name] = true
+				if len(lf.Captures) > 0 && !g.closureHeaders[lf.Name] {
+					g.closureVars[lf.Name] = true
+					g.closureHeaders[lf.Name] = true
+					envT := "ClosureEnv_" + sanitizeC(lf.Name)
+					holder := "_genv_" + sanitizeC(lf.Name)
+					var fields strings.Builder
+					for _, cap := range lf.Captures {
+						fmt.Fprintf(&fields, "\tValue* %s;\n", envCapField(cap))
+					}
+					fmt.Fprintf(&sb, "typedef struct {\n%s} %s;\nstatic %s* %s;\n\n", fields.String(), envT, envT, holder)
+				}
+			}
+		}
+	}
+
 	// Phase 40: Generate forward declarations for all functions
 	// This enables cross-file references when multiple .kark files are concatenated
 	for _, stmt := range prog.Statements {
@@ -245,6 +376,18 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 				params = []string{"int _karkain_argc", "char** _karkain_argv"}
 			}
 			fmt.Fprintf(&sb, "%s %s(%s);\n", retType, userFuncC(fn.Name), strings.Join(params, ", "))
+			// Phase 121: prototypes for the let-bound lambdas in this body so a
+			// call from any earlier function is well-formed.
+			for _, lf := range collectLocalFuncs(fn.Body) {
+				envParams := []string{}
+				for _, p := range lf.Params {
+					envParams = append(envParams, "Value "+p)
+				}
+				if len(lf.Captures) > 0 {
+					envParams = append([]string{"ClosureEnv_" + sanitizeC(lf.Name) + "* _env"}, envParams...)
+				}
+				fmt.Fprintf(&sb, "Value %s(%s);\n", userFuncC(lf.Name), strings.Join(envParams, ", "))
+			}
 		}
 	}
 	sb.WriteByte('\n')
@@ -269,9 +412,11 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	// Generate all function declarations
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
-			// Phase 53: SSA IR pipeline â€” lower, optimize, verify, emit.
+			// Phase 53: SSA IR pipeline — lower, optimize, verify, emit.
 			// Falls back to legacy emission on any lowering/verification failure.
-			if !g.cfg.DisableSSA {
+			// Phase 121: closure-bearing functions always use the legacy path so
+			// the deferred closure definitions in lambdaBuf flush correctly.
+			if !g.cfg.DisableSSA && !g.bodyTouchesClosures(fn.Body) {
 				if out, ok2 := g.emitFunctionViaIR(prog, fn); ok2 {
 					sb.WriteString(out)
 					continue
@@ -881,6 +1026,18 @@ void array_push(Value* arr, Value elem) {
     arr->arrVal.length++;
     arr->arrVal.items = (Value**)realloc(arr->arrVal.items, sizeof(Value*) * arr->arrVal.length);
     arr->arrVal.items[arr->arrVal.length - 1] = copy;
+}
+
+// Phase 121: alloc(T, n) builds a managed array of n zero slots. The result is
+// a normal TYPE_ARRAY Value, so alloc(...) results flow through the same
+// checked index/assign machinery as any other array — no raw pointers.
+Value make_alloc_array(Value n) {
+    Value val = make_array();
+    long long count = (n.type == TYPE_INT) ? n.intVal : 0;
+    if (count < 0) count = 0;
+    long long i;
+    for (i = 0; i < count; i++) array_push(&val, make_int(0));
+    return val;
 }
 
 int values_equal(Value a, Value b) {
@@ -2150,22 +2307,30 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		g.closureVars[fn.Name] = true
 		var fields strings.Builder
 		for _, cap := range fn.Captures {
-			fmt.Fprintf(&fields, "\tValue* %s;\n", cap)
-			closureDefs += fmt.Sprintf("#define %s (*_env->%s)\n", cap, cap)
+			fmt.Fprintf(&fields, "\tValue* %s;\n", envCapField(cap))
+			closureDefs += fmt.Sprintf("#define %s (*_env->%s)\n", cap, envCapField(cap))
 			closureUndefs += fmt.Sprintf("#undef %s\n", cap)
 		}
 		holder := "_genv_" + sanitizeC(fn.Name)
 		inits := ""
 		for _, cap := range fn.Captures {
-			inits += fmt.Sprintf("_e.%s = &%s; ", cap, cap)
+			inits += fmt.Sprintf("_e.%s = &%s; ", envCapField(cap), cap)
 		}
-		g.lambdaBuf.WriteString(fmt.Sprintf(
-			"typedef struct {\n%s} %s;\nstatic %s* %s;\n\n", fields.String(), envT, envT, holder))
+		// Phase 121: when the up-front prescan already emitted the env typedef
+		// and holder, only the binding-site instance init remains.
+		if !g.closureHeaders[fn.Name] {
+			g.lambdaBuf.WriteString(fmt.Sprintf(
+				"typedef struct {\n%s} %s;\nstatic %s* %s;\n\n", fields.String(), envT, envT, holder))
+		}
 		params = append([]string{envT + "* _env"}, params...)
 		g.lastClosureInit = fmt.Sprintf("\t{ static %s _e; %s%s = &_e; }\n", envT, inits, holder)
 	} else {
 		g.lastClosureInit = ""
 	}
+	// Phase 121: save this function's own binding-site init before emitting the
+	// body — nested let-bound lambdas set lastClosureInit to *their* init, so it
+	// must be restored after the body for the caller's binding site.
+	myInit := g.lastClosureInit
 
 	retType := "Value"
 	fnName := userFuncC(fn.Name)
@@ -2207,7 +2372,7 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 
 	// Phase 48: Generate body first to collect any lambda definitions
 	g.lambdaBuf.Reset()
-	// Phase 110: remember the enclosing function id so return statements can
+	// Phase 121: remember the enclosing function id so return statements can
 	// emit their leave hook; reset when the body generation is done.
 	g.curProfID = -1
 	if g.profiling {
@@ -2215,11 +2380,18 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 			g.curProfID = id
 		}
 	}
+	savedEnclosing := g.enclosingName
+	savedEnclosingCaps := g.enclosingCaps
+	g.enclosingName = fn.Name
+	g.enclosingCaps = fn.Captures
 	var bodySb strings.Builder
 	for _, stmt := range fn.Body {
 		bodySb.WriteString(g.genStatement(stmt))
 	}
 	g.curProfID = -1
+	g.lastClosureInit = myInit
+	g.enclosingName = savedEnclosing
+	g.enclosingCaps = savedEnclosingCaps
 
 	// Now build the full output: lambda defs + function
 	var sb strings.Builder
@@ -2578,10 +2750,44 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 		if node.IsMatrix {
 			return g.genMatrixDecl(node)
 		}
-		// Phase 48/54: let x = fn(...) â†’ emit as named function declaration
+		// Phase 48/54: let x = fn(...) → emit as named function declaration.
+		// Phase 121: the definition is deferred to lambdaBuf so it lands at top
+		// level (before this function's body) instead of nesting inside it; only
+		// the capture env instance init belongs at the binding site.
 		if fn, ok := node.Value.(*parser.FuncDecl); ok {
-			out := g.genFuncDecl(fn)
-			return out + g.lastClosureInit // Phase 54: env instance init after closure def
+			capByEnv := false
+			if g.enclosingName != "" && g.closureVars[g.enclosingName] {
+				capByEnv = true
+			}
+			g.lambdaBuf.WriteString(g.genFuncDecl(fn))
+			// Phase 121: build the binding-site init here (not in genFuncDecl) so
+			// the access form can depend on the enclosing context. At module
+			// scope the captured names are plain C variables (`&cap`); inside a
+			// capturing closure the enclosing captures are only in scope through
+			// its `#define` macros, so the field name must not be re-lexed —
+			// reach them through the env param directly (`&_env->cap`). Names
+			// that are locals of the enclosing function stay plain `&cap`.
+			if len(fn.Captures) == 0 {
+				return ""
+			}
+			envT := "ClosureEnv_" + sanitizeC(fn.Name)
+			holder := "_genv_" + sanitizeC(fn.Name)
+			var inits strings.Builder
+			for _, cap := range fn.Captures {
+				envCap := false
+				for _, ec := range g.enclosingCaps {
+					if ec == cap {
+						envCap = true
+						break
+					}
+				}
+				if capByEnv && envCap {
+					fmt.Fprintf(&inits, "_e.%s = _env->%s; ", envCapField(cap), envCapField(cap))
+				} else {
+					fmt.Fprintf(&inits, "_e.%s = &%s; ", envCapField(cap), cap)
+				}
+			}
+			return fmt.Sprintf("\t{ static %s _e; %s%s = &_e; }\n", envT, inits.String(), holder)
 		}
 		// Phase 70/106: `let x [N]f32 = ...` — fixed-lane SIMD vector variable.
 		if node.IsSIMD {
@@ -2676,12 +2882,12 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 		}
 		res.WriteString("\t}\n")
 		return res.String()
+	// Phase 121: alloc(T, n) is a managed array of n zero slots.
 	case *parser.AllocExpr:
-		countExpr := g.mapLiteralToC(node.Count)
-		cType := g.mapKarkainTypeToC(node.Type)
-		return fmt.Sprintf("(%s*)malloc(%s * sizeof(%s))", cType, countExpr, cType)
+		return fmt.Sprintf("\tmake_alloc_array(%s);\n", g.genExpr(node.Count))
+	// Phase 121: memory is runtime-managed, so free(x) is a no-op cast.
 	case *parser.FreeExpr:
-		return fmt.Sprintf("free(%s)", g.genExpr(node.Ptr))
+		return fmt.Sprintf("\t(void)(%s);\n", g.genExpr(node.Ptr))
 	case *parser.AddressOf:
 		return fmt.Sprintf("&(%s)", g.genExpr(node.Operand))
 	case *parser.QRegDeclStmt:
@@ -3114,7 +3320,8 @@ func (g *Generator) genExpr(node parser.Node) string {
 		for _, arg := range n.Args {
 			args = append(args, g.genExpr(arg))
 		}
-		// Phase 54: closure variables carry an implicit env argument
+		// Phase 54/121: closure variables carry an implicit env argument; all
+		// let-bound lambdas route through the karkain_user_* namespace.
 		if g.closureVars[n.Function] {
 			return fmt.Sprintf("%s(_genv_%s%s)", userFuncC(n.Function), sanitizeC(n.Function),
 				func() string {
@@ -3123,6 +3330,9 @@ func (g *Generator) genExpr(node parser.Node) string {
 					}
 					return ""
 				}())
+		}
+		if g.localFuncs[n.Function] {
+			return fmt.Sprintf("%s(%s)", userFuncC(n.Function), strings.Join(args, ", "))
 		}
 		if g.userFuncs[n.Function] {
 			return fmt.Sprintf("%s(%s)", userFuncC(n.Function), strings.Join(args, ", "))
@@ -3207,12 +3417,13 @@ func (g *Generator) genExpr(node parser.Node) string {
 		return g.genSIMDExpr(n)
 	case *parser.AtomicOp:
 		return g.genAtomicExpr(n)
+	// Phase 121: alloc(T, n) is a managed array of n zero slots.
 	case *parser.AllocExpr:
 		countExpr := g.genExpr(n.Count)
-		cType := g.mapKarkainTypeToC(n.Type)
-		return fmt.Sprintf("(%s*)malloc(%s * sizeof(%s))", cType, countExpr, cType)
+		return fmt.Sprintf("make_alloc_array(%s)", countExpr)
+	// Phase 121: memory is runtime-managed, so free(x) is a no-op cast.
 	case *parser.FreeExpr:
-		return fmt.Sprintf("free(%s)", g.genExpr(n.Ptr))
+		return fmt.Sprintf("(void)(%s)", g.genExpr(n.Ptr))
 	case *parser.DotExpr:
 		// Phase 50: Struct field access via map_get â€” structs are stored as maps internally
 		left := g.genExpr(n.Left)

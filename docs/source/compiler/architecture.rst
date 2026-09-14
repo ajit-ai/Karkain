@@ -184,3 +184,17 @@ item:
 These boundaries are intentional: the Go engine serves as the reference
 implementation, and kcc parity is verified incrementally through
 conformance and parity test gates.
+
+Compiler independence
+---------------------
+
+Phase 120 established the first compiler component written entirely in
+Karkain and owned by the self-hosted compiler: the **KIR emitter**
+(``src/compiler/kir.kark``), gatewayed by ``kcc kir`` / ``karkain kir``.
+See :doc:`kir` for its contract. The dependency inventory
+(``docs/inventory/compiler-dependencies.json``) classifies every compiler
+component as Go-only, Karkain-owned, or dual, and records KEEP/MIGRATE
+targets on the self-hosting path. Phase 121 ("Compiler Independence
+Foundation") extends this: one Karkain-owned component from the inventory
+becomes measurably more real, more integrated, and more responsible in
+the actual kcc pipeline, with an evidence report instead of a plan.

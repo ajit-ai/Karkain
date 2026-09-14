@@ -308,6 +308,11 @@ Use the [bug report template](.github/ISSUE_TEMPLATE/bug_report.yml); include
 vulnerabilities use the **private** path in [SECURITY.md](SECURITY.md) — do
 not open a public issue.
 
+## Credits
+
+Karkain is developed and maintained by [Ajit Kumar](AUTHORS). See
+[AUTHORS](AUTHORS) for the full attribution list and contributor guidelines.
+
 ## License
 
 MIT — see [LICENSE](LICENSE). In short: use it, modify it, ship it; the

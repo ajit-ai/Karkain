@@ -104,6 +104,19 @@ func walkCaptures(n Node, cs *captureSet) {
 		}
 	case *VarDeclStmt:
 		walkCaptures(node.Name, cs)
+		if node.Value != nil {
+			if fdl, ok := node.Value.(*FuncDecl); ok {
+				// Phase 121: nested let-bound lambda. Its captures must be
+				// available at the binding site inside this body, so they
+				// propagate here; names re-declared in this body are removed
+				// again by markLocals.
+				for _, c := range fdl.Captures {
+					cs.add(c)
+				}
+			} else {
+				walkCaptures(node.Value, cs)
+			}
+		}
 		cs.remove(node.Name)
 	}
 }

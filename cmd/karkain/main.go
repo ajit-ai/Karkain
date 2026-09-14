@@ -30,6 +30,7 @@ COMPILER COMMANDS:
   build <file.kark>        Compile to native executable
   transpile <file.kark>    Generate C or other backend output
   check <file.kark>        Validate syntax and semantics
+  kir <file.kark>         Emit KIR v1 text (--verify checks structure, self-hosted)
   test <path>              Discover and run *_test.kark files
   test --compile [dir]     Run compile-pass/compile-fail corpus (diagnostics)
 bench <path>             Time bench_-prefixed functions (single run each)
@@ -1172,6 +1173,7 @@ func main() {
 	engine := cli.EngineFromEnv() // Phase 95: KARKAIN_ENGINE / --engine selects self-hosted kcc
 	incrementalBuild := false     // Phase 105: `karkain build --incremental` uses the content-addressed cache
 	incrementalCache := ""        // Phase 105: optional cache directory override for --incremental
+	kirVerify := false            // Phase 121: `karkain kir --verify` runs the KIR structural verifier
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -1299,7 +1301,15 @@ func main() {
 				fmt.Println("Error: --incremental-cache flag requires a directory path")
 				os.Exit(cli.ExitUsage)
 			}
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "lsp", "language-server", "fmt":
+		case "--verify":
+			// Phase 121: kir --verify <file> checks KIR v1 structure. Only valid
+			// for the kir command; reject it when another command is set.
+			if command != "" && command != "kir" {
+				fmt.Println("Error: --verify is only valid with the kir command")
+				os.Exit(cli.ExitUsage)
+			}
+			kirVerify = true
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1442,6 +1452,43 @@ func main() {
 			os.Exit(cli.ExitUsage)
 		}
 		result := cli.LintCommand(targetFile, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	if command == "kir" {
+		if targetFile == "" {
+			fmt.Println("Error: No input .kark file specified")
+			printHelp()
+			os.Exit(cli.ExitUsage)
+		}
+		if err := cli.ValidateKarFile(targetFile); err != nil {
+			fmt.Println(err)
+			os.Exit(cli.ExitUsage)
+		}
+		if _, statErr := os.Stat(targetFile); statErr != nil {
+			if os.IsNotExist(statErr) {
+				fmt.Printf("Error: cannot open '%s': file not found\n", targetFile)
+				os.Exit(cli.ExitUsage)
+			}
+			fmt.Printf("Error: cannot access '%s': %v\n", targetFile, statErr)
+			os.Exit(cli.ExitUsage)
+		}
+// KIR text extraction is a compiler-owned component on the self-hosted
+	// engine only (Phase 120). No Go-engine fallback: the flagrouting stays
+	// honest rather than faking a KIR that no component produced.
+	// Phase 121: --verify runs the self-hosted structural verifier instead of
+	// dumping the text; both paths stay compiler-owned.
+	if kirVerify {
+		result := cli.KCCKirVerifyCommand(nil, targetFile, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	result := cli.KCCKirCommand(nil, targetFile, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}
