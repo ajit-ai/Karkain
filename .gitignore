@@ -82,3 +82,7 @@ docs/build/
 # Python bytecode under docs
 __pycache__/
 *.pyc
+
+# WASM build outputs (karkain build --target wasm32-wasi)
+examples/wasm/**/build/
+examples/self-hosting/**/*.c

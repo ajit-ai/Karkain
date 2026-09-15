@@ -79,8 +79,10 @@ What ships in 1.0.0 today
   when a cross-linker is missing (never a silent host fallback).
 * Runtime error model with source locations and stack traces.
 * Incremental compilation cache, DWARF debug sections, profiling.
-* Experimental surfaces (may change): concurrency runtime, WASM target,
-  SIMD/vector types, profiling/trace — Go engine only, kcc parity deferred.
+* Experimental surfaces (may change): concurrency runtime, SIMD/vector
+  types, profiling/trace — Go engine only, kcc parity deferred. The WASM
+  target graduated to a :production-candidate:`Production Candidate` in
+  Phase 123 (WASI exit codes, stderr, ``getArgs()``).
 
 Future
 ======

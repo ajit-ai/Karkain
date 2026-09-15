@@ -9,7 +9,8 @@ Authoritative list of the 15-category example corpus. Jargon:
 - **Engine**: `both` = Go front end + self-hosted `kcc` reproduce identical
   stdout; `go` = Go front end only.
 - **Target**: default native (x86_64-windows host). `wasm32-wasi` is a
-  separate Phase 108 corpus (`examples/wasm`).
+  separate Phase 108/123 corpus (`examples/wasm`) — Go-engine production
+  candidate, pinned by `pkg/cli/phase123_cli_test.go` (`TestPhase123_Wasm*`).
 
 ## Category map
 

@@ -177,7 +177,8 @@ Project status
    * - SIMD / vector types
      - :implemented:`Implemented` — x86 + ARM lane types
    * - WASM (``wasm32-wasi``)
-     - :experimental:`Experimental` — Go-engine backend, wasmtime-gated
+     - :production-candidate:`Production Candidate` — Go-engine backend,
+        wasmtime-gated; WASI exit codes, stderr and ``getArgs()`` implemented
    * - GPU / NPU / quantum kernels
      - :planned:`Planned` — backend abstractions exist, language surface is not
         released

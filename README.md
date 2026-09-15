@@ -8,7 +8,8 @@
 Karkain is a statically typed systems programming language with a
 self-hosted compiler, a byte-identical dual-engine pipeline, a real standard
 library, native executables, cross-compilation, and an experimental
-concurrency/WASM surface. It compiles `.kark` source to C23 and delegates to a
+concurrency surface (WASM is a Go-engine production candidate). It compiles
+`.kark` source to C23 and delegates to a
 host C compiler (GCC/Clang/MSVC) for final machine code.
 
 **Honesty policy:** the status vocabulary in
@@ -80,6 +81,14 @@ self-hosted `kcc` engine):
 - **Developer tooling** — formatter, linter, LSP server, VS Code extension,
   DWARF debug info, incremental compilation, profiling
 
+WASM bounds (Go engine; the self-hosted `kcc` parity is the documented
+boundary):
+
+- **WASM target** (Phases 108/123) — `karkain build --target wasm32-wasi`
+  emits deterministic WASM binaries; run with `wasmtime`. WASI exit codes,
+  `stderr` diagnostics and `getArgs()` are implemented. Classified
+  **production candidate**.
+
 Neuro/heterogeneous work:
 
 - **AI / ML** — hand-rolled arithmetic demonstrations only (nearest
@@ -108,8 +117,6 @@ Experimental means *real and testable, but the surface may change*:
 
 - **Concurrency runtime** (Phase 107) — `spawn`/`join`, channels, actors.
   Go engine only; kcc parity deferred.
-- **WASM target** (Phase 108) — `karkain build --target wasm32-wasi` emits
-  deterministic binaries; run with `wasmtime`. Go engine only.
 - **SIMD/vector types** (Phase 106) — `[N]f32`/`[N]f64`/`[N]i32`/`[N]i64`
   with `@simd_*` builtins.
 - **Profiling & debug trace** — `karkain prof` and `karkain debug`, both
@@ -248,7 +255,8 @@ karkain target                                   # host triple + matrix
 ```
 
 `karkain run --target <foreign>` is refused (cross-run needs an emulator or
-remote target). `wasm32-wasi` uses the experimental WASM backend.
+remote target). `wasm32-wasi` uses the Karkain-owned WASM backend (production
+candidate, `wasmtime`-gated).
 
 ## Project structure
 

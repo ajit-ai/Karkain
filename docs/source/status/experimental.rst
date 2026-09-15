@@ -11,10 +11,6 @@ it.
 
    * - Feature
      - Why it is experimental
-   * - **WASM target** (``wasm32-wasi``)
-     - Go-engine only and wasmtime-gated. The backend emits deterministic,
-       verified WASM binaries, but the embedding into the pipeline is new
-       (Phase 108) and there is no kcc parity.
    * - **Package manager**
      - Local resolver + lockfile + atomic fetch only; there is **no
        registry**. ``pkg add/remove/update`` from a remote registry is a

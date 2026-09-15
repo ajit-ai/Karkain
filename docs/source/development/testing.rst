@@ -81,6 +81,7 @@ introduced. Examples:
    pkg/cli/phase100_runtime_test.go     # runtime error model (parity)
    pkg/cli/phase107_concurrency_test.go  # concurrency runtime (E2E)
    pkg/cli/phase108_cli_test.go         # wasm32-wasi (E2E through wasmtime)
+   pkg/cli/phase123_cli_test.go         # enum ADT parity + WASI boundary gate
    pkg/cli/phase109_stdlib_test.go      # standard library v2 (multi-module)
    pkg/cli/phase110_profiling_test.go   # karkain prof (text/json/folded)
    pkg/cli/phase111_cross_compile_test.go  # cross-compilation triples

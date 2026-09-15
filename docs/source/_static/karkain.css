@@ -11,6 +11,7 @@
 
 .karkain-status-stable { color: #1a7f37; background: #dafbe1; }
 .karkain-status-implemented { color: #0a3069; background: #ddf4ff; }
+.karkain-status-production-candidate { color: #1a5fb4; background: #d6e8ff; }
 .karkain-status-experimental { color: #7a5000; background: #fff8c5; }
 .karkain-status-developer-preview { color: #542c8e; background: #fbefff; }
 .karkain-status-planned { color: #57606a; background: #eaeef2; }

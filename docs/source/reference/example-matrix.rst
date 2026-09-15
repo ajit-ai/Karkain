@@ -84,9 +84,9 @@ default).
      - Go only
      - ``08-concurrency/*``, ``examples/concurrency/pipeline``
    * - WASM target
-     - Experimental
+     - Production Candidate
      - Go only
-     - ``examples/wasm/hello.kark``
+     - ``examples/wasm/{hello,functions,control_flow,data,strings_builtin}``
    * - Networking / HTTP
      - Not Yet Implemented
      - —
