@@ -21,6 +21,8 @@ the self-hosted `kcc` engine, and is pinned by
 | 10   | `10_structs.kark`             | `type` records, construction, field access |
 | 11   | `11_match.kark`               | `match`, `Some`/`None` Options            |
 | 12   | `12_casts.kark`               | `int(f)`, `str(n)`, int/float division     |
+| 13   | `13_enums.kark`               | `enum` variants, `EnumName.Variant` tags, matching |
+| 14   | `14_adt_match.kark`           | ADT-style tagged `match` over enum values |
 
 ## Standalone helpers vs. the rest of the corpus
 
@@ -33,8 +35,8 @@ deliberately simple, single-concept path.
 - Output is line-oriented (one `print` per line).
 - String arrays print with different bracket styling per engine, so examples
   enumerate string collections element-by-element.
-- The `_` fallback arm of `match` currently behaves differently on `kcc`, so
-  runnable examples use exhaustive arms (documented in the category pages).
+- `match` arms (literal, enum-variant, and `_` wildcard) run byte-identically
+  on both engines.
 
 ## Run
 

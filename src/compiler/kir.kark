@@ -283,6 +283,12 @@ func kirExpr(node) {
     if (t == "GlobalId") {
         return "(global_id " + str(globalIdDim(node)) + ")"
     }
+    if (t == "EnumVariantExpr") {
+        let s = "(enum_variant " + enumVariantExprEnumName(node) + " " + enumVariantExprVariant(node)
+        let val = enumVariantExprValue(node)
+        if (len(val) > 0) { s = s + " " + kirExpr(val) }
+        return s + ")"
+    }
     return "(expr <" + t + ">)"
 }
 

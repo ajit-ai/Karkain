@@ -1,0 +1,14 @@
+// K113: an unknown enum variant used in a match arm pattern.
+enum Color { Red, Green }
+
+func f(c) {
+    match c {
+        Color.Purple => 1,
+        _ => 2
+    }
+}
+
+func main() {
+    let c = Color.Red
+    print(f(c))
+}

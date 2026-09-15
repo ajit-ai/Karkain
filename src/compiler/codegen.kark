@@ -23,6 +23,7 @@ func createCodegenState(target) {
     state = appendArray(state, [])       // 12: parallel FuncDecl nodes
     state = appendArray(state, [])       // 13: currently-emitting closure caps
     state = appendArray(state, [])       // 14: emitted closure-env registry
+    state = appendArray(state, [])       // 15: enum declaration nodes (Phase 123)
     return state
 }
 
@@ -41,6 +42,35 @@ func setCodegenOutput(state, output) { state[1] = output }
 func setCodegenIndent(state, indent) { state[2] = indent }
 func setCodegenCurrentFunc(state, name) { state[8] = name }
 func setCodegenSourceName(state, name) { state[9] = name }
+
+// Phase 123: enum declaration registry + variant index lookup (mirrors Go
+// g.enumDecls map + getEnumVariantIndex used by genEnumVariantExpr / match).
+func codegenEnumDecls(state) { return state[15] }
+func registerEnumDecl(state, decl) { state[15] = appendArray(codegenEnumDecls(state), decl) }
+
+// getEnumVariantIndex returns the 1-based integer tag for EnumName.Variant
+// from the registered enum declarations (matching genEnumDecl's make_int(i+1)).
+func getEnumVariantIndex(state, enumName, variant) {
+    let decls = codegenEnumDecls(state)
+    let d = 0
+    while (d < len(decls)) {
+        if (enumDeclName(decls[d]) == enumName) {
+            let vars = enumDeclVariants(decls[d])
+            let v = 0
+            while (v < len(vars)) {
+                // raw entries are "Name:" (unit) or "Name:payload"
+                let entry = vars[v]
+                if (entry == variant) { return v + 1 }
+                let prefix = variant + ":"
+                if (len(entry) >= len(prefix) && substr(entry, 0, len(prefix)) == prefix) { return v + 1 }
+                v = v + 1
+            }
+            return -1
+        }
+        d = d + 1
+    }
+    return -1
+}
 
 func emit(state, text) {
     state[1] = codegenOutput(state) + text
@@ -630,6 +660,31 @@ func emitC11Expr(state, node) {
             else if (pt == "None") { emit(state, "_match_val.type == TYPE_OPTION && _match_val.optVal.tag == 0") }
             else if (pt == "Ok") { emit(state, "_match_val.type == TYPE_RESULT && _match_val.resVal.tag == 0") }
             else if (pt == "Err") { emit(state, "_match_val.type == TYPE_RESULT && _match_val.resVal.tag == 1") }
+            else if (pt == "enum_variant") {
+                // Phase 123: EnumName.Variant arm => compare the int tag.
+                // Binding form is "Enum.Variant" (parser strcat'd the two).
+                let bnd = armBinding(arm)
+                let paylen = len(bnd)
+                let col = -1
+                let cx = 0
+                while (cx < paylen) {
+                    if (substr(bnd, cx, 1) == ".") { col = cx }
+                    cx = cx + 1
+                }
+                let enm = bnd
+                let varName = ""
+                let idx = -1
+                if (col >= 0) {
+                    enm = substr(bnd, 0, col)
+                    varName = substr(bnd, col + 1, paylen - col - 1)
+                    idx = getEnumVariantIndex(state, enm, varName)
+                }
+                if (idx >= 0) {
+                    emit(state, "is_truthy(binary_op(_match_val, \"==\", make_int(" + str(idx) + ")))")
+                } else {
+                    emit(state, "1")
+                }
+            }
             else if (pt == "literal") {
                 emit(state, "is_truthy(binary_op(_match_val, \"==\", ")
                 emitC11Expr(state, armPatternValue(arm))
@@ -641,6 +696,7 @@ func emitC11Expr(state, node) {
                 if (pt == "Some") { emit(state, "Value " + binding + " = *_match_val.optVal.inner; ") }
                 else if (pt == "Ok") { emit(state, "Value " + binding + " = *_match_val.resVal.okVal; ") }
                 else if (pt == "Err") { emit(state, "Value " + binding + " = *_match_val.resVal.errVal; ") }
+                else if (pt == "enum_variant") { /* Phase 123: no binding; the arm matches on tag only */ }
                 else { emit(state, "Value " + binding + " = _match_val; ") }
             }
             emitMatchArmBody(state, armBody(arm))
@@ -661,6 +717,23 @@ func emitC11Expr(state, node) {
         emit(state, "map_get(")
         emitC11Expr(state, memberObject(node))
         emit(state, ", make_string(\"" + memberField(node) + "\"))")
+    }
+
+    // Phase 123: EnumName.Variant or EnumName.Variant(payload) construction.
+    // Mirrors Go genExpr for *parser.EnumVariantExpr: unit variants reference
+    // the #define'd int-tag constant; payload variants call the generated
+    // Enum_make_Variant(payload) constructor.
+    if (nt == "EnumVariantExpr") {
+        let en = enumVariantExprEnumName(node)
+        let varName = enumVariantExprVariant(node)
+        let val = enumVariantExprValue(node)
+        if (val != []) {
+            emit(state, en + "_make_" + varName + "(")
+            emitC11Expr(state, val)
+            emit(state, ")")
+        } else {
+            emit(state, en + "_" + varName)
+        }
     }
 
     if (nt == "Index") {
@@ -981,6 +1054,13 @@ func emitC11Stmt(state, node) {
         emitNewline(state)
     }
 
+    if (nt == "EnumDecl") {
+        // Phase 123: enum declarations are emitted in the generateC11 pre-pass
+        // (C int-tag constants / payload constructors); nothing to emit here.
+        emitLine(state, "// enum " + enumDeclName(node) + " { ")
+        emitNewline(state)
+    }
+
     if (nt == "StructDecl") {
         emitLine(state, "// struct " + structName(node) + " { ")
         emitNewline(state)
@@ -1102,8 +1182,20 @@ func generateC11(ast, sourceName) {
     emitC11Preamble(state)
     emitC11ValueRuntime(state)
 
+    // Phase 123: generate enum declarations (C int-tag constants / payload
+    // constructors) before functions, mirroring the Go emitters
+    // genEnumDecl / generator.enumDecls first pass.
     let stmts = programStatements(ast)
     let i = 0
+    while (i < len(stmts)) {
+        if (getNodeType(stmts[i]) == "EnumDecl") {
+            registerEnumDecl(state, stmts[i])
+            emitC11EnumDecl(state, stmts[i])
+        }
+        i = i + 1
+    }
+    emitNewline(state)
+    i = 0
     while (i < len(stmts)) {
         if (getNodeType(stmts[i]) == "FuncDecl") {
             emitC11ForwardDecl(state, stmts[i])
@@ -1126,6 +1218,46 @@ func generateC11(ast, sourceName) {
     }
 
     return codegenOutput(state)
+}
+
+// Phase 123: emit a Karkain enum declaration as C int-tag constants and
+// payload constructors, mirroring the Go emitter genEnumDecl (codegen.go).
+// Unit variants become `#define Enum_Variant make_int(i+1)`; payload variants
+// become `Value Enum_make_Variant(Value payload) { (void)payload; return
+// make_int(i+1); }`. Variant raw entries are "Name:" (unit) or "Name:payload".
+func emitC11EnumDecl(state, node) {
+    let vars = enumDeclVariants(node)
+    let en = enumDeclName(node)
+    let v = 0
+    while (v < len(vars)) {
+        // split "Name" / "Name:payload" at the first ':'
+        let entry = vars[v]
+        let plen = len(entry)
+        let colon = -1
+        let ci = 0
+        while (ci < plen) {
+            if (substr(entry, ci, 1) == ":") { colon = ci }
+            ci = ci + 1
+        }
+        let vname = entry
+        let hasPayload = 0
+        if (colon >= 0) {
+            vname = substr(entry, 0, colon)
+            let payloadTxt = substr(entry, colon + 1, plen - colon - 1)
+            if (payloadTxt != "") { hasPayload = 1 }
+        }
+        let tag = str(v + 1)
+        if (hasPayload == 1) {
+            emitLine(state, "Value " + en + "_make_" + vname + "(Value payload) {")
+            emitLine(state, "  (void)payload;")
+            emitLine(state, "  return make_int(" + tag + ");")
+            emitLine(state, "}")
+        } else {
+            emitLine(state, "#define " + en + "_" + vname + " make_int(" + tag + ")")
+        }
+        v = v + 1
+    }
+    emitNewline(state)
 }
 
 // Phase 121: for every let-bound lambda discovered in the given statements,

@@ -140,17 +140,29 @@ func checkerBuiltinArity(name) {
 func createCheckerTab() {
     let tab = []
     tab = appendArray(tab, [])  // 0: global symbol names
-    tab = appendArray(tab, [])  // 1: global symbol kinds ("func", "struct", ...)
+    tab = appendArray(tab, [])  // 1: global symbol kinds ("func", "struct", "enum", ...)
     tab = appendArray(tab, [])  // 2: global symbol arities
     tab = appendArray(tab, [])  // 3: error messages
     tab = appendArray(tab, [])  // 4: current function locals
     tab = appendArray(tab, [])  // 5: current function const names (immutable bindings)
+    tab = appendArray(tab, [])  // 6: enum variant lists (parallel to 0/1/2)
     return tab
 }
 
 func ckErrors(tab)  { return tab[3] }
 func ckLocals(tab)  { return tab[4] }
 func ckConsts(tab)  { return tab[5] }
+
+// strFindChar returns the index of the first occurrence of `c` in `s`,
+// or -1 when absent. (Self-hosted builtins include substr/len but no indexOf.)
+func strFindChar(s, c) {
+    let i = 0
+    while (i < len(s)) {
+        if (substr(s, i, 1) == c) { return i }
+        i = i + 1
+    }
+    return -1
+}
 
 func ckConstAdd(tab, name) {
     if (name == "") { return }
@@ -172,6 +184,52 @@ func ckDeclare(tab, name, kind, count) {
     tab[0] = appendArray(tab[0], name)
     tab[1] = appendArray(tab[1], kind)
     tab[2] = appendArray(tab[2], count)
+    tab[6] = appendArray(tab[6], [])
+}
+
+// ckSetEnumVariants attaches a variant list to a declared enum (kind "enum").
+// Rebuilds the parallel variants table (top-level writes only: nested element
+// assignment is not relied upon by the self-hosted compiler).
+func ckSetEnumVariants(tab, name, variants) {
+    let names = tab[0]
+    let rebuilt = []
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] == name) {
+            rebuilt = appendArray(rebuilt, variants)
+        } else {
+            rebuilt = appendArray(rebuilt, tab[6][i])
+        }
+        i = i + 1
+    }
+    tab[6] = rebuilt
+}
+
+// ckEnumHasVariant reports whether `name` is a declared enum with variant `v`.
+// Raw entries are "Name:" (unit) or "Name:payload"; match on the leading
+// variant name (which is followed by ':' or is the whole entry).
+func ckEnumHasVariant(tab, name, v) {
+    let names = tab[0]
+    let kinds = tab[1]
+    let vari = tab[6]
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] == name && kinds[i] == "enum") {
+            let vs = vari[i]
+            let j = 0
+            while (j < len(vs)) {
+                let entry = vs[j]
+                if (entry == v) { return 1 }
+                // entry's variant name is the longest prefix before ':'
+                let prefix = v + ":"
+                let pl = len(prefix)
+                if (len(entry) >= pl && substr(entry, 0, pl) == prefix) { return 1 }
+                j = j + 1
+            }
+        }
+        i = i + 1
+    }
+    return 0
 }
 
 func ckKind(tab, name) {
@@ -259,7 +317,10 @@ func collectDecls(tab, stmts) {
             if (name != "" && ckKind(tab, name) != "") {
                 ckAddError(tab, "K107", enumDeclLine(s), "duplicate type definition '" + name + "'")
             } else {
-                ckDeclare(tab, name, "struct", 0)
+                ckDeclare(tab, name, "enum", 0)
+                // Phase 123: index variants so EnumName.Variant uses resolve.
+                // Raw entries are "Name:" (unit) or "Name:payload".
+                ckSetEnumVariants(tab, name, enumDeclVariants(s))
             }
         }
         i = i + 1
@@ -485,6 +546,30 @@ func checkStmt(tab, s, loop) {
 
     if (nt == "Match") {
         checkExpr(tab, matchValue(s), loop)
+        // Phase 123: validate enum_variant arms against declared enums and
+        // walk each arm's pattern value and body. Binding form is "Enum.Variant".
+        let arms = matchArms(s)
+        let a = 0
+        while (a < len(arms)) {
+            let arm = arms[a]
+            if (armPatternType(arm) == "enum_variant") {
+                let b = armBinding(arm)
+                let sep = strFindChar(b, ".")
+                if (sep >= 0) {
+                    let en = substr(b, 0, sep)
+                    let vr = substr(b, sep + 1, len(b) - sep - 1)
+                    if (ckKind(tab, en) == "") {
+                        ckAddError(tab, "K106", armLine(arm), "use of undefined enum type '" + en + "' in match arm")
+                    } else if (ckEnumHasVariant(tab, en, vr) == 0) {
+                        ckAddError(tab, "K113", armLine(arm), "unknown enum variant '" + en + "." + vr + "' in match arm")
+                    }
+                }
+            }
+            if (armPatternValue(arm) != []) { checkExpr(tab, armPatternValue(arm), loop) }
+            let body = armBody(arm)
+            if (getNodeType(body) == "Block") { checkStmts(tab, blockStmts(body), loop) }
+            a = a + 1
+        }
         return
     }
 }
@@ -520,8 +605,51 @@ func checkExpr(tab, e, loop) {
         return
     }
 
-    if (nt == "Dot") {
+    if (nt == "Member") {
         checkExpr(tab, dotLeft(e), loop)
+        return
+    }
+
+    // Phase 123: EnumName.Variant[(payload)] construction. Gate on the enum
+    // type existing and the variant being a member; payloads are value reads.
+    if (nt == "Match") {
+        checkExpr(tab, matchValue(e), loop)
+        let arms = matchArms(e)
+        let a = 0
+        while (a < len(arms)) {
+            let arm = arms[a]
+            if (armPatternType(arm) == "enum_variant") {
+                let b = armBinding(arm)
+                let sep = strFindChar(b, ".")
+                if (sep >= 0) {
+                    let en = substr(b, 0, sep)
+                    let vr = substr(b, sep + 1, len(b) - sep - 1)
+                    if (ckKind(tab, en) == "") {
+                        ckAddError(tab, "K106", armLine(arm), "use of undefined enum type '" + en + "' in match arm")
+                    } else if (ckEnumHasVariant(tab, en, vr) == 0) {
+                        ckAddError(tab, "K113", armLine(arm), "unknown enum variant '" + en + "." + vr + "' in match arm")
+                    }
+                }
+            }
+            if (armPatternValue(arm) != []) { checkExpr(tab, armPatternValue(arm), loop) }
+            let body = armBody(arm)
+            if (getNodeType(body) == "Block") { checkStmts(tab, blockStmts(body), loop) }
+            a = a + 1
+        }
+        return
+    }
+
+    if (nt == "EnumVariantExpr") {
+        let en = enumVariantExprEnumName(e)
+        if (en != "") {
+            if (ckKind(tab, en) == "") {
+                ckAddError(tab, "K106", enumVariantExprLine(e), "use of undefined enum type '" + en + "'")
+            } else if (ckEnumHasVariant(tab, en, enumVariantExprVariant(e)) == 0) {
+                ckAddError(tab, "K113", enumVariantExprLine(e), "unknown enum variant '" + en + "." + enumVariantExprVariant(e) + "'")
+            }
+        }
+        let val = enumVariantExprValue(e)
+        if (val != []) { checkExpr(tab, val, loop) }
         return
     }
 

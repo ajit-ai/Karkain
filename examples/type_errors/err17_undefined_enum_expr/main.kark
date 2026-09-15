@@ -1,0 +1,7 @@
+// K102: an enum-type name that was never declared, used as the base of a
+// dotted expression (EnumName.Variant construction). Both engines resolve
+// the dotted base as an identifier: kcc K102, Go K002.
+func main() {
+    let x = MissingKind.Purple
+    print(x)
+}

@@ -78,6 +78,7 @@ func NODE_SIMD_BUILTIN()  { return 90 }
 func NODE_ATOMIC_OP()     { return 91 }
 func NODE_LINEAR_TYPE()   { return 92 }
 func NODE_PACKED_STRUCT() { return 93 }
+func NODE_ENUM_VARIANT_EXPR() { return 95 }
 
 // ============================================================
 // Node constructors — create AST nodes as arrays
@@ -503,6 +504,27 @@ func dotLeft(n)   { return n[1] }
 func dotRight(n)  { return n[2] }
 func dotLine(n)   { return n[3] }
 
+// ============================================================
+// EnumVariantExpr: [NODE_ENUM_VARIANT_EXPR, enumName, variant, value, line]
+// value is [] for unit variants (EnumName.Variant); a parsed expression node
+// for payload variants (EnumName.Variant(expr)). Mirrors pkg/parser/ast.go
+// EnumVariantExpr{EnumName, Variant, Value}.
+// ============================================================
+
+func makeEnumVariantExpr(enumName, variant, value, line) {
+    let n = makeNode(NODE_ENUM_VARIANT_EXPR())
+    n = appendArray(n, enumName)
+    n = appendArray(n, variant)
+    n = appendArray(n, value)
+    n = appendArray(n, line)
+    return n
+}
+
+func enumVariantExprEnumName(n) { return n[1] }
+func enumVariantExprVariant(n)  { return n[2] }
+func enumVariantExprValue(n)    { return n[3] }
+func enumVariantExprLine(n)     { return n[4] }
+
 // Self-hosted aliases matching the Go codegen's MemberExpr/Return/Print
 // accessor names, used by sema.kark and the emit* functions.
 func memberObject(n) { return dotLeft(n) }
@@ -757,6 +779,7 @@ func getNodeType(node) {
     if (t == NODE_EXPR_STMT()) { return "ExprStmt" }
     if (t == NODE_STRUCT_DECL()) { return "StructDecl" }
     if (t == NODE_ENUM_DECL()) { return "EnumDecl" }
+    if (t == NODE_ENUM_VARIANT_EXPR()) { return "EnumVariantExpr" }
     if (t == NODE_IDENT()) { return "Ident" }
     if (t == NODE_INT_LIT()) { return "IntLiteral" }
     if (t == NODE_FLOAT_LIT()) { return "FloatLiteral" }

@@ -1,0 +1,11 @@
+// K106: an enum type that was never declared, used in a match arm pattern.
+func f(c) {
+    match c {
+        Missing.Variant => 1,
+        _ => 2
+    }
+}
+
+func main() {
+    print(f(1))
+}

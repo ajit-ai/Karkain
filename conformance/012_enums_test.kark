@@ -1,0 +1,50 @@
+enum Color { Red, Green, Blue }
+
+func test_enum_unit_variants() {
+    let a = Color.Red
+    let b = Color.Blue
+    assert_eq(a, Color.Red)
+    assert_ne(a, b)
+}
+
+func test_enum_match_dispatch() {
+    let c = Color.Green
+    let r = match c {
+        Color.Red => 100,
+        Color.Green => 200,
+        _ => 999,
+    }
+    assert_eq(r, 200)
+}
+
+func test_enum_match_wildcard() {
+    let c = Color.Blue
+    let r = match c {
+        Color.Red => 100,
+        Color.Green => 200,
+        _ => 999,
+    }
+    assert_eq(r, 999)
+}
+
+func classify(c) {
+    let r = match c {
+        Color.Red => 1,
+        _ => 0,
+    }
+    return r
+}
+
+func test_enum_through_function() {
+    assert_eq(classify(Color.Red), 1)
+    assert_eq(classify(Color.Green), 0)
+}
+
+func test_enum_if_chain() {
+    let c = Color.Green
+    if (c == Color.Green) {
+        assert_eq(1, 1)
+    } else {
+        assert_eq(0, 1)
+    }
+}
