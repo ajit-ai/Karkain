@@ -15,7 +15,7 @@ Authoritative list of the 15-category example corpus. Jargon:
 
 | # | Category               | Files | Runnable | Experimental | Planned |
 |---|------------------------|-------|----------|--------------|---------|
-| 01| Fundamentals           | 12    | 12       | 0            | 0       |
+| 01| Fundamentals           | 14    | 14       | 0            | 0       |
 | 02| Algorithms             | 13    | 13       | 0            | 0       |
 | 03| Systems                | 1     | 1        | 0            | 0       |
 | 04| Networking             | 0     | 0        | 0            | 1 (dir) |
@@ -30,7 +30,7 @@ Authoritative list of the 15-category example corpus. Jargon:
 | 13| Finance                | 4     | 4        | 0            | 0       |
 | 14| Security               | 4     | 4        | 0            | 0       |
 | 15| Developer Tools        | 2     | 1 + 1    | 0            | 0       |
-|    | **Total**              | **50**| **47 + 1 test-mode** | **2**  | **4**   |
+|    | **Total**              | **52**| **49 + 1 test-mode** | **2**  | **4**   |
 
 ## Individual examples
 
@@ -48,6 +48,8 @@ Authoritative list of the 15-category example corpus. Jargon:
 | 01-fundamentals/10_structs.kark | Runnable | both | struct records | gcc | ana 100 150 150 130 |
 | 01-fundamentals/11_match.kark | Runnable | both | match + Options | gcc | 300 7 1000000 three |
 | 01-fundamentals/12_casts.kark | Runnable | both | int/float/str casts | gcc | 3 3.4 4.5 9 7 256 3 3.5 640 0 |
+| 01-fundamentals/13_enums.kark | Runnable | both | enum variants, matching | gcc | 1 1 100 200 300 0 |
+| 01-fundamentals/14_adt_match.kark | Runnable | both | ADT-style tagged match | gcc | 10 20 30 1 |
 | 02-algorithms/01_linear_search.kark | Runnable | both | linear search | gcc | 2 3 -1 |
 | 02-algorithms/02_binary_search.kark | Runnable | both | halving search | gcc | 3 0 7 -1 -1 -1 |
 | 02-algorithms/03_min_max.kark | Runnable | both | min/max | gcc | 1 12 -9 -1 |

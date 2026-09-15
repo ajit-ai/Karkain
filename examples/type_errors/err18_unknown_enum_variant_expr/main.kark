@@ -1,0 +1,7 @@
+// K113: an unknown enum variant in EnumName.Variant expression construction.
+enum Color { Red, Green }
+
+func main() {
+    let x = Color.Purple
+    print(x)
+}
