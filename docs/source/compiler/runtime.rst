@@ -169,17 +169,28 @@ linear memory:
 - **Heap cells** (8-byte aligned): i32 type tag (same order as the C
   runtime: ``TYPE_INT=0`` … ``TYPE_BOOL=5``), i32 length, then data
   (string bytes or array element slots).
-- **WASI** — output via ``wasi_snapshot_preview1.fd_write`` with a
-  fixed scratch region (``iovs`` at offset 8, decimal digits at 16).
-- **Runtime functions** (indices 1–24): ``rt_Write``,
-  ``rt_PrintValue``, ``rt_Box``, ``rt_SetTag``, ``rt_MkArray``,
-  ``rt_MkString``, ``rt_Eq``, ``rt_Ne``, ``rt_Error``, and arithmetic
-  helpers.
+- **WASI boundary** (Phase 123): four imports are fixed at the head of
+  the function index space — ``fd_write`` (0), ``args_sizes_get`` (1),
+  ``args_get`` (2) and ``proc_exit`` (3). Output uses a fixed scratch
+  region (``iovs`` at offset 8, decimal digits at 16); runtime-error
+  paths write to fd 2 and terminate with ``proc_exit(1)``.
+- **Runtime functions**: the module-defined helpers start at index 4
+  (``rt_Alloc``) up to ``UserBase=30``; ``rt_GetArgs`` (28) and the
+  ``_start`` bootstrap (29) are part of this range. 25 runtime bodies
+  implement ``rt_Write``, ``rt_PrintValue``, ``rt_Box``, ``rt_SetTag``,
+  ``rt_MkArray``, ``rt_MkString``, ``rt_Eq``, ``rt_Ne``, ``rt_Error``,
+  ``rt_GetArgs``, arithmetic helpers and more.
+- **``_start``**: zero the argc/argv-length scratch cells, call
+  ``args_sizes_get``, allocate the argument buffer and pointer array via
+  ``rt_Alloc``, call ``args_get``, store the argument count and pointer
+  array into globals 1 and 2, call ``main``, derive the process exit code
+  from the returned ``Value`` (``int(v>>1)`` when unboxed, else 0) and
+  terminate with ``proc_exit``.
 - **Heap** begins at ``0x10000`` (heap base tracked in global 0).
 
 The emitters ``module.go``/``emit.go`` produce a dependency-free WASM
 binary v1 module that ``wasmtime run --dir . <tmp.wasm>`` executes with
-stdio passthrough.
+stdio passthrough and argument forwarding.
 
 Host platform boundary
 ----------------------

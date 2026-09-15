@@ -69,16 +69,29 @@ func CompileProgram(prog *parser.Program, srcFile string) ([]byte, error) {
 		mainIdx: -1,
 	}
 	g.fileBase = filepath.Base(srcFile)
-	g.mb.Globals = []Global{{
-		Type: I32, Mut: true,
-		Init: func() []byte {
-			var b []byte
-			b = append(b, 0x41)
-			b = appendSleb(b, heapBase)
-			b = append(b, 0x0b)
-			return b
-		}(),
-	}}
+	// Global 0: linear-memory heap pointer. Globals 1-2: argc/argv gathered by
+	// the WASI _start bootstrap and consumed by getArgs().
+	zeroInit := func() []byte {
+		var b []byte
+		b = append(b, 0x41)
+		b = appendSleb(b, 0)
+		b = append(b, 0x0b)
+		return b
+	}()
+	g.mb.Globals = []Global{
+		{
+			Type: I32, Mut: true,
+			Init: func() []byte {
+				var b []byte
+				b = append(b, 0x41)
+				b = appendSleb(b, heapBase)
+				b = append(b, 0x0b)
+				return b
+			}(),
+		},
+		{Type: I32, Mut: true, Init: zeroInit},
+		{Type: I32, Mut: true, Init: zeroInit},
+	}
 
 	fnames := collectFuncNames(prog)
 	if err := g.scanUnsupported(prog, fnames); err != nil {
@@ -98,9 +111,9 @@ func CompileProgram(prog *parser.Program, srcFile string) ([]byte, error) {
 	}
 	base := len(g.mb.Codes)
 	for i, fd := range userFuncs {
-		// each runtime body occupies one function index; fd_write import
-		// holds index 0, so the first user fn is base+1.
-		g.funcIdx[fd.Name] = base + i + 1
+		// Imports occupy indices 0..len(Imports)-1 (fd_write, args_sizes_get,
+		// args_get, proc_exit); runtime bodies follow, then user functions.
+		g.funcIdx[fd.Name] = base + i + len(g.mb.Imports)
 	}
 	for _, fd := range userFuncs {
 		g.emitFunc(fd)
@@ -137,14 +150,89 @@ func collectFuncNames(prog *parser.Program) map[string]bool {
 	return out
 }
 
-// emitStart builds the _start function body.
+// emitStart builds the _start function body: it gathers command-line args via
+// the WASI boundary (args_sizes_get/args_get), stores argc/argv in globals for
+// getArgs(), calls main, then exits with the Karkain main() exit code.
 func (g *gen) emitStart(mainIdx int) int {
 	e := NewEmitter()
-	e.Call(mainIdx)
+	// p0 i32 argvBuf, p1 i32 argc, p2 i32 argvPtrs, p3 i64 main result
+	e.ExtraLocals = []ValueType{I32, I32, I32, I64}
+
+	// Zero the arg-size cells so a failed args_sizes_get leaves argc = 0.
+	e.I32Const(offWasiArgc)
+	e.I32Const(0)
+	e.I32Store(4, 0)
+	e.I32Const(offWasiArgvBufLen)
+	e.I32Const(0)
+	e.I32Store(4, 0)
+
+	// args_sizes_get(&offWasiArgc, &offWasiArgvBufLen)
+	e.I32Const(offWasiArgc)
+	e.I32Const(offWasiArgvBufLen)
+	e.Call(g.rt.ArgsSizesGet)
 	e.Drop()
+
+	// argvBuf = alloc(align8(bufLen))
+	e.I32Const(offWasiArgvBufLen)
+	e.I32Load(4, 0)
+	e.I32Const(7)
+	e.I32Add()
+	e.I32Const(-8)
+	e.I32And()
+	e.Call(g.rt.Alloc)
+	e.LocalSet(p0)
+
+	// argc = *offWasiArgc
+	e.I32Const(offWasiArgc)
+	e.I32Load(4, 0)
+	e.LocalSet(p1)
+
+	// argvPtrs = alloc(align8(argc*4))
+	e.LocalGet(p1)
+	e.I64ExtendI32U()
+	e.I64Const(4)
+	e.I64Mul()
+	e.I32WrapI64()
+	e.I32Const(7)
+	e.I32Add()
+	e.I32Const(-8)
+	e.I32And()
+	e.Call(g.rt.Alloc)
+	e.LocalSet(p2)
+
+	// args_get(argvPtrs, argvBuf)
+	e.LocalGet(p2)
+	e.LocalGet(p0)
+	e.Call(g.rt.ArgsGet)
+	e.Drop()
+
+	// Persist argc/argv for getArgs().
+	e.LocalGet(p1)
+	e.GlobalSet(wasiArgcGlobal)
+	e.LocalGet(p2)
+	e.GlobalSet(wasiArgvGlobal)
+
+	// main() -> i64 Value; extract exit code: unboxed int (bit0==0) => v>>1.
+	e.Call(mainIdx)
+	e.LocalSet(p3)
+	e.LocalGet(p3)
+	e.I64Const(1)
+	e.I64And()
+	e.I64Eqz()
+	e.BeginIf(I32)
+	e.LocalGet(p3)
+	e.I64Const(1)
+	e.I64ShrS()
+	e.I32WrapI64()
+	e.Else()
+	e.I32Const(0)
+	e.Close()
+	e.Call(g.rt.ProcExit)
 	e.End()
-	g.mb.Codes = append(g.mb.Codes, Code{Body: e.Bytes()})
-	return len(g.mb.Codes)
+
+	g.mb.Codes = append(g.mb.Codes, Code{Body: e.Bytes(), Locals: e.ExtraLocals})
+	// Function index = import count + position within the code section.
+	return len(g.mb.Codes) + len(g.mb.Imports) - 1
 }
 
 // --- function emission ---
@@ -494,6 +582,41 @@ func (g *gen) genBinary(x *parser.BinaryExpr) {
 
 // genAssign emits `lhs = rhs`, leaving the assigned value (or, for index
 // assignment, the container) on the stack.
+// genPostfix emits `id++`/`id--`: read the local, add/subtract one (Value
+// encoding of 1 is i64 2), then tee the result back into the local and leave it
+// on the stack (expression value).
+func (g *gen) genPostfix(x *parser.BinaryExpr) {
+	id := g.postfixIdent(x)
+	idx := g.lookup(id.Name)
+	if idx < 0 {
+		panic(fmt.Sprintf("wasm backend: undefined identifier %q", id.Name))
+	}
+	g.e.LocalGet(idx)
+	g.e.I64Const(2)
+	switch x.Operator {
+	case "+":
+		g.e.Call(g.rt.Add)
+	case "-":
+		g.e.Call(g.rt.Sub)
+	default:
+		panic(fmt.Sprintf("wasm backend: unsupported postfix operator %q", x.Operator))
+	}
+	g.e.LocalTee(idx)
+}
+
+// postfixIdent walks the left spine of a postfix expression to find the
+// target identifier. The parser represents `i++` as nested BinaryExpr nodes
+// (both with nil Right), so we recurse until we reach the Identifier.
+func (g *gen) postfixIdent(x *parser.BinaryExpr) *parser.Identifier {
+	if id, ok := x.Left.(*parser.Identifier); ok {
+		return id
+	}
+	if inner, ok := x.Left.(*parser.BinaryExpr); ok {
+		return g.postfixIdent(inner)
+	}
+	panic(fmt.Sprintf("wasm backend: postfix target %T", x.Left))
+}
+
 func (g *gen) genAssign(x *parser.BinaryExpr) {
 	if id, ok := x.Left.(*parser.Identifier); ok {
 		idx := g.lookup(id.Name)
@@ -521,6 +644,19 @@ func (g *gen) genArith(x *parser.BinaryExpr) {
 	switch x.Operator {
 	case "&&", "||":
 		g.genShortCircuit(x)
+		return
+	}
+	if x.Right == nil {
+		// Postfix increment/decrement (i++ / i--) parses as a "+"/"-" binary
+		// expression whose right operand is nil.
+		g.genPostfix(x)
+		return
+	}
+	if ux, ok := x.Right.(*parser.UnaryExpr); ok && ux.Operator == "-" && ux.Operand == nil {
+		// `n--` lexes as two '-' tokens: the parser turns the second into a
+		// unary minus over an empty operand, so the expression is `n - (-x)`.
+		// Treat it as a postfix decrement, matching the self-hosted engine.
+		g.genPostfix(x)
 		return
 	}
 	g.genExpr(x.Left)
@@ -633,6 +769,8 @@ func (g *gen) genCall(x *parser.CallExpr) {
 	case "len":
 		g.genExpr(x.Args[0])
 		g.e.Call(g.rt.Len)
+	case "getArgs":
+		g.e.Call(g.rt.GetArgs)
 	default:
 		panic(fmt.Sprintf("wasm backend: unknown function %q", x.Function))
 	}
@@ -661,12 +799,12 @@ func (g *gen) scanUnsupported(prog *parser.Program, fnames map[string]bool) erro
 		switch c.Function {
 		case "len":
 			return
+		case "getArgs":
+			return
 		case "assert", "assert_eq", "assert_ne":
 			add("assertions")
 		case "spawn", "join", "send", "receive", "channel", "actor", "actorSend", "actorState", "setActorState", "actorStop", "wait_all", "chanSend", "chanClose":
 			add("concurrency")
-		case "getArgs":
-			add("getArgs")
 		case "sqrt", "pow", "abs", "fabs", "floor", "ceil", "round", "sin", "cos", "tan":
 			add("math builtins")
 		default:

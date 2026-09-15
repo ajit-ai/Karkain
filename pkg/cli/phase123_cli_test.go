@@ -36,6 +36,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -195,4 +196,330 @@ func main() {
 	if strings.Contains(out, "<ConstDecl>") {
 		t.Errorf("KIR corrupted EnumVariantExpr as const-decl reference:\n%s", out)
 	}
+}
+
+// ── Phase 123 Part B — WASM Stabilization & Production Foundation ────────────
+
+// wasmExample holds a WASM corpus entry: source path relative to
+// examples/wasm and expected stdout lines (separated by newline).
+type wasmExample struct {
+	relDir  string // subdirectory under examples/wasm ("" for root hello.kark)
+	wantOut string
+}
+
+var phase123WasmCorpus = []wasmExample{
+	{"", "hello wasmtime\n42\ndone\n"},
+	{"functions", "5\n14\n"},
+	{"control_flow", "30\n120\n"},
+	{"data", "5\n30\n"},
+	{"strings_builtin", "12\n"},
+}
+
+// buildAndRunWasm compiles a .kark file to .wasm, runs it with wasmtime,
+// and returns the stdout string.  Returns error on build or run failure.
+func buildAndRunWasm(t *testing.T, srcFile string, args ...string) (string, error) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	outWasm := filepath.Join(tmpDir, "out.wasm")
+	cmd := exec.Command("go", "run", "../../cmd/karkain", "build",
+		"--target", "wasm32-wasi", "-o", outWasm, srcFile)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build failed: %v\n%s", err, out)
+	}
+
+	wt := findWasmtime()
+	if wt == "" {
+		t.Skip("wasmtime not found; install from https://wasmtime.dev")
+	}
+	runArgs := append([]string{"run", outWasm}, args...)
+	run := exec.Command(wt, runArgs...)
+	run.Dir = tmpDir
+	var stdout, stderr bytes.Buffer
+	run.Stdout = &stdout
+	run.Stderr = &stderr
+	err := run.Run()
+	if stderr.Len() > 0 {
+		t.Logf("wasmtime stderr: %s", strings.TrimSpace(stderr.String()))
+	}
+	return stdout.String(), err
+}
+
+// TestPhase123_WasmExampleCorpus builds and runs all five Phase 123 WASM
+// examples through the real pipeline (karkain build --target wasm32-wasi
+// + wasmtime run) and asserts the expected stdout.
+func TestPhase123_WasmExampleCorpus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping WASM corpus in short mode")
+	}
+	wt := findWasmtime()
+	if wt == "" {
+		t.Skip("wasmtime not found")
+	}
+	root := repoRoot(t)
+	examplesDir := filepath.Join(root, "examples", "wasm")
+	if _, err := os.Stat(examplesDir); err != nil {
+		t.Skip("examples/wasm/ missing")
+	}
+
+	for _, ex := range phase123WasmCorpus {
+		name := ex.relDir
+		if name == "" {
+			name = "hello"
+		}
+		t.Run(name, func(t *testing.T) {
+			srcFile := filepath.Join(examplesDir, ex.relDir, "main.kark")
+			if ex.relDir == "" {
+				srcFile = filepath.Join(examplesDir, "hello.kark")
+			}
+			if _, err := os.Stat(srcFile); err != nil {
+				t.Skipf("source missing: %v", err)
+			}
+			got, err := buildAndRunWasm(t, srcFile)
+			if err != nil {
+				t.Fatalf("wasmtime run failed: %v\nstdout: %s", err, got)
+			}
+			if got != ex.wantOut {
+				t.Errorf("stdout mismatch\ngot:  %q\nwant: %q", got, ex.wantOut)
+			}
+		})
+	}
+}
+
+// TestPhase123_WasmExitCodeContract verifies that `return N` in a .kark
+// program translates to wasmtime exit code N for a set of representative
+// values.
+func TestPhase123_WasmExitCodeContract(t *testing.T) {
+	wt := findWasmtime()
+	if wt == "" {
+		t.Skip("wasmtime not found")
+	}
+
+	cases := []struct {
+		code string
+		want int
+	}{
+		{"func main() { return 0 }", 0},
+		{"func main() { return 1 }", 1},
+		{"func main() { return 3 }", 3},
+		{"func main() { return 42 }", 42},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("exit_%d", tc.want), func(t *testing.T) {
+			dir := t.TempDir()
+			srcFile := filepath.Join(dir, "main.kark")
+			if err := os.WriteFile(srcFile, []byte(tc.code), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			tmpDir := t.TempDir()
+			outWasm := filepath.Join(tmpDir, "out.wasm")
+			cmd := exec.Command("go", "run", "../../cmd/karkain", "build",
+				"--target", "wasm32-wasi", "-o", outWasm, srcFile)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("build failed: %v\n%s", err, out)
+			}
+			run := exec.Command(wt, "run", outWasm)
+			run.Dir = tmpDir
+			err := run.Run()
+			got := exitCode(err)
+			if got != tc.want {
+				t.Errorf("exit code: got %d, want %d (err=%v)", got, tc.want, err)
+			}
+		})
+	}
+}
+
+// TestPhase123_WasmRuntimeError verifies that a runtime error (division
+// by zero) produces "runtime error:" on stderr and exit code 1.
+func TestPhase123_WasmRuntimeError(t *testing.T) {
+	wt := findWasmtime()
+	if wt == "" {
+		t.Skip("wasmtime not found")
+	}
+	src := `func main() {
+    let x = 10
+    let y = 0
+    let z = x / y
+    print(z)
+}
+`
+	dir := t.TempDir()
+	srcFile := filepath.Join(dir, "main.kark")
+	if err := os.WriteFile(srcFile, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tmpDir := t.TempDir()
+	outWasm := filepath.Join(tmpDir, "out.wasm")
+	cmd := exec.Command("go", "run", "../../cmd/karkain", "build",
+		"--target", "wasm32-wasi", "-o", outWasm, srcFile)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build failed: %v\n%s", err, out)
+	}
+
+	run := exec.Command(wt, "run", outWasm)
+	run.Dir = tmpDir
+	var stderr bytes.Buffer
+	run.Stderr = &stderr
+	err := run.Run()
+	got := exitCode(err)
+	if got != 1 {
+		t.Errorf("exit code: got %d, want 1", got)
+	}
+	if !strings.Contains(stderr.String(), "runtime error:") {
+		t.Errorf("stderr missing 'runtime error:': %q", stderr.String())
+	}
+}
+
+// TestPhase123_WasmGetArgs verifies that getArgs() returns an array
+// of the CLI arguments.
+func TestPhase123_WasmGetArgs(t *testing.T) {
+	wt := findWasmtime()
+	if wt == "" {
+		t.Skip("wasmtime not found")
+	}
+	src := `func main() {
+    let args = getArgs()
+    print(len(args))
+    for (let i = 0; i < len(args); i++) {
+        print(args[i])
+    }
+}
+`
+	dir := t.TempDir()
+	srcFile := filepath.Join(dir, "main.kark")
+	if err := os.WriteFile(srcFile, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tmpDir := t.TempDir()
+	outWasm := filepath.Join(tmpDir, "out.wasm")
+	cmd := exec.Command("go", "run", "../../cmd/karkain", "build",
+		"--target", "wasm32-wasi", "-o", outWasm, srcFile)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build failed: %v\n%s", err, out)
+	}
+
+	run := exec.Command(wt, "run", outWasm, "alpha", "beta", "42")
+	run.Dir = tmpDir
+	out, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("wasmtime run failed: %v\n%s", err, out)
+	}
+	got := string(out)
+	// Expected: argc=4, then 4 argument strings
+	if !strings.Contains(got, "4") {
+		t.Errorf("expected argc 4 in output:\n%s", got)
+	}
+	if !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") || !strings.Contains(got, "42") {
+		t.Errorf("missing expected arguments in output:\n%s", got)
+	}
+}
+
+// TestPhase123_WasmNegativeFeatures verifies that unsupported language
+// features — structs, maps, and the module system (import) — are rejected
+// at WASM build time with a deterministic K108 diagnostic that identifies
+// the unsupported feature and the selected target.  All failures exit 3 and
+// are never reported as [ok].  The stdlib import fixture lives inside the
+// repository tree so stdlib discovery succeeds and the WASM backend's own
+// modules gate fires (rather than an out-of-tree module-resolution failure).
+func TestPhase123_WasmNegativeFeatures(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string // diagnostic fragment expected on failure
+	}{
+		{"struct", `func main() { let s = Point{ x: 1, y: 2 }; print(s.x) }`, "K108"},
+		{"map", `func main() { let m = identity({ "a": 1 }); print(m["a"]) }
+func identity(x) { return x }`, "K108"},
+		{"import", "import std.io\nfunc main() { print(\"hi\") }", "K108"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			// The stdlib import fixture must live inside the repository tree so
+			// stdlib discovery succeeds and the WASM backend's own K108 modules
+			// gate fires (an out-of-tree temp file fails earlier at module
+			// resolution with "module not found", which is still deterministic
+			// but does not exercise the target-specific diagnostic).
+			if tc.name == "import" {
+				root := repoRoot(t)
+				dir = t.TempDir()
+				probe := filepath.Join(root, "examples", "wasm", ".tmp-import-probe")
+				if err := os.RemoveAll(probe); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.MkdirAll(probe, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				defer os.RemoveAll(probe)
+				dir = probe
+			}
+			srcFile := filepath.Join(dir, "main.kark")
+			if err := os.WriteFile(srcFile, []byte(tc.src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			tmpDir := t.TempDir()
+			outWasm := filepath.Join(tmpDir, "out.wasm")
+			cmd := exec.Command("go", "run", "../../cmd/karkain", "build",
+				"--target", "wasm32-wasi", "-o", outWasm, srcFile)
+			out, err := cmd.CombinedOutput()
+			sout := string(out)
+			if err == nil {
+				t.Fatalf("expected build failure for %s, got success:\n%s", tc.name, sout)
+			}
+			if !strings.Contains(sout, tc.want) {
+				t.Errorf("expected diagnostic %q for %s, got:\n%s", tc.want, tc.name, sout)
+			}
+			if strings.Contains(sout, "[ok]") {
+				t.Errorf("rejected %s program still reported [ok]:\n%s", tc.name, sout)
+			}
+		})
+	}
+}
+
+// TestPhase123_WasmDeterminism builds the same source twice and asserts
+// byte-identical .wasm output.
+func TestPhase123_WasmDeterminism(t *testing.T) {
+	wt := findWasmtime()
+	if wt == "" {
+		t.Skip("wasmtime not found")
+	}
+	src := `func main() { let s = 0; for (let i = 1; i <= 100; i++) { s = s + i }; print(s) }
+`
+	dir := t.TempDir()
+	srcFile := filepath.Join(dir, "main.kark")
+	if err := os.WriteFile(srcFile, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	build := func() []byte {
+		tmpDir := t.TempDir()
+		outWasm := filepath.Join(tmpDir, "out.wasm")
+		cmd := exec.Command("go", "run", "../../cmd/karkain", "build",
+			"--target", "wasm32-wasi", "-o", outWasm, srcFile)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("build failed: %v\n%s", err, out)
+		}
+		b, err := os.ReadFile(outWasm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+
+	a := build()
+	b := build()
+	if !bytes.Equal(a, b) {
+		t.Fatalf("non-deterministic wasm output: len=%d vs %d", len(a), len(b))
+	}
+	t.Logf("deterministic wasm: %d bytes", len(a))
+}
+
+// exitCode extracts the exit code from an exec.ExitError, defaulting to -1.
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return ee.ExitCode()
+	}
+	return -1
 }

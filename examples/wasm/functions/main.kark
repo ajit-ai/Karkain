@@ -1,0 +1,12 @@
+func add(a int, b int) int {
+    return a + b
+}
+
+func double(x int) int {
+    return x + x
+}
+
+func main() {
+    print(add(2, 3))
+    print(double(7))
+}

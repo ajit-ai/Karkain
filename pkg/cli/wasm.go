@@ -24,7 +24,11 @@ func wasmBuildCommand(prog *parser.Program, sourceFile string, outputPath string
 	out := outputPath
 	if out == "" {
 		base := strings.TrimSuffix(sourceFile, filepath.Ext(sourceFile))
-		out = base + ".wasm"
+		buildDir := filepath.Join(filepath.Dir(sourceFile), "build")
+		if err := os.MkdirAll(buildDir, 0o755); err != nil {
+			return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("create build dir: %v", err)}
+		}
+		out = filepath.Join(buildDir, filepath.Base(base)+".wasm")
 	}
 
 	if err := os.WriteFile(out, bin, 0o755); err != nil {

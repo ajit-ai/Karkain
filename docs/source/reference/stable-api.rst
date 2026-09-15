@@ -147,8 +147,9 @@ Stable target model
      - Contract
    * - Legacy aliases
      - ``native`` (host default), ``c23`` (C23 source output),
-       ``native-link`` (Phase 84 linker pipeline), ``wasm32-wasi`` (WASM
-       module; Go-engine, ``wasmtime``-gated).
+        ``native-link`` (Phase 84 linker pipeline), ``wasm32-wasi`` (WASM
+        module; Go-engine, ``wasmtime``-gated, production candidate with
+        WASI exit codes/stderr/``getArgs()``).
    * - Conventional triples
      - ``x86_64-windows``, ``x86_64-linux``, ``aarch64-linux``,
        ``wasm32-wasi`` — canonical short triples plus long-form
