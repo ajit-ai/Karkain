@@ -1,0 +1,31 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 01 Fundamentals
+//
+// Match dispatches on an enum value with tag-only arms. Payload variants
+// participate by tag: the pattern is EnumName.Variant (no binding), and the
+// arm runs on any value of that variant. A wildcard arm (_) is the fallback.
+// Arms are separated by commas (optional after the last arm).
+//
+// Run:  karkain run examples/01-fundamentals/14_adt_match.kark
+
+enum Shape { Circle(r), Rect(w), Unit }
+
+func tag(s) {
+    return match s {
+        Shape.Circle => 10,
+        Shape.Rect => 20,
+        Shape.Unit => 30,
+        _ => 0,
+    }
+}
+
+func main() {
+    let a = Shape.Circle(5)
+    let b = Shape.Rect(2)
+    let c = Shape.Unit
+    print(tag(a))
+    print(tag(b))
+    print(tag(c))
+    print(a == Shape.Circle(9)) // same tag, so equal
+}

@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-122** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **post-123** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -248,6 +248,48 @@ kcc-OOM class; Stage-1 GO-engine transpile succeeds). Docs: final evidence
 report `docs/audit/PHASE-122-COMPILER-PIPELINE-OWNERSHIP-FINAL-EVIDENCE-REPORT.md`,
 `docs/inventory/compiler-dependencies.json` (new `assembly` component,
 flat-path ownership, Karkain-owned status).)
+Also completed: **123 — Language Core Completion / Enum ADT Parity** (verdict
+**COMPLETE**; enums and `match` now byte-identical on both engines with checker
+validation. Root-cause fixes in `src/compiler/*.kark`: (1) statement-position
+`match` is wrapped by `parseBlock`'s else branch into `ExprStmt(Match(...))`,
+so `checkStmt`'s Match branch never fired and match arms were never type-checked
+— `checkExpr` now has a `Match` case (mirrors the checkStmt branch: validates
+`matchValue`, enum-variant arms → `error[K106]`/`error[K113]`, walks arm pattern
+values + bodies); (2) the checker dispatched on node type `"Dot"` but
+`getNodeType(NODE_DOT)` returns `"Member"` — fixed, so `MissingKind.Purple` in an
+expression now raises `error[K102] undefined identifier 'MissingKind'` on kcc
+(matching Go's K002; closes the previously-documented member-access gap);
+`error[K113] unknown enum variant 'Color.Purple' in match arm` and
+`error[K106] use of undefined enum type` now fire in BOTH match arms and
+expressions. Parity: payload destructuring `Shape.Circle(r) =>` rejected
+identically on both parsers (`expected '=>' in match arm, got '('`); program
+goldens byte-identical Go↔kcc (13_enums `1/1/100/200/300/0`, 14_adt_match
+`10/20/30/1`); documented intentional strictness (kcc rejects unknown enum
+variant/enum at check time K113/K106, Go check defers to C compile — both
+reject). Match-arm **bodies** remain unchecked on both engines (parity; e.g.
+`_ => 2 + nope` passes check, fails at C compile on both). New permanent
+corpus: `examples/01-fundamentals/13_enums.kark` + `14_adt_match.kark` (pinned
+in Phase 114 gate, 49→51), `conformance/012_enums_test.kark` (5 tests, passes
+both engines), negative fixtures `examples/type_errors/err15_unknown_enum_
+variant_match` (K113) / `err16_undefined_enum_match_arm` (K106) / `err17_
+undefined_enum_expr` (K102 — both engines resolve dotted base) / `err18_unknown_
+enum_variant_expr` (K113); gate `pkg/cli/phase123_cli_test.go` (3 subtests:
+EnumMatchChecker positive+negative, MatchArmParseErrorParity — drives the real
+binary with CombinedOutput because Go-engine and Phase 105 preflight diagnostics
+render to stderr via `renderDiagnostics` at `pkg/cli/check.go:106`, both engines
+route parse errors through the Go-side kcc preflight, EnumVariantExpressionKIR).
+SPEC.md: Enum row status now ✓, §3.5 Match documents `EnumName.Variant` tag-only
+patterns + `=>` requirement + K106/K113, capability summary gains an Enums row,
+Known-Gaps enum-payload row now Phase 123 (payload recorded but semantically
+dropped; no payload destructuring). Example counts updated 50→52 in README.md,
+`examples/EXAMPLES.md` (fundamentals 12→14, total 49+1 test-mode+2 experimental
++4 planned-dirs), `docs/source/examples/index.rst` (52 files), category README
+determinism note (both-engine match parity now). `go vet ./pkg/cli/` clean; all
+three Phase 123 subtests PASS; Phase 99 gate still green after checker changes
+(123.3s); `kcc check src/compiler/main.kark` → `[ok]`. Write tool / PowerShell
+`Set-Content -Encoding UTF8` write a UTF-8 BOM (`EF BB BF`) that the Go lexer
+rejects — test fixtures must be BOM-stripped. Reports:
+`docs/audit/PHASE-123-ENUM-ADT-PARITY-FINAL-REPORT.md`.)
 Also completed: **111** — Cross-Compilation
 (`--target <triple>` is a real, explicit cross-compilation switch backed by
 the Karkain-owned target model `pkg/target` (arch/os/env, canonical short

@@ -100,7 +100,7 @@ yet defined in the lexer.)
 | Map | Ã¢Å“â€¦ | `{k1: v1, k2: v2}` | Key-value store |
 | Slice | Ã¢Å“â€¦ | `arr[start:end]` | View over an array (open-ended with nil end) |
 | Struct | Ã¢Å“â€¦ | `struct Name { f: T, ... }` | Named field record |
-| Enum | Ã°Å¸Å¸Â¡ | `enum Name { A, B(int) }` | Algebraic data type with payload variants |
+| Enum | Ã¢Å“â€¦ | `enum Name { A, B(int) }` | Algebraic data type with payload variants |
 | Matrix | Ã¢Å“â€¦ | `matrix Name[rows, cols] of float64` | Continuous row-major 2D array, AVX2-optimized |
 | Tensor | Ã°Å¸â€œÂ | `Tensor<f32, [32, 3]>` | Parametric N-D tensor with shape |
 | Pointer | Ã¢Å“â€¦ | `*T` | Raw C pointer |
@@ -185,7 +185,17 @@ match value {
 ```
 
 Patterns: `Some(binding)`, `None`, `Ok(binding)`, `Err(binding)`, literals,
-and wildcard. Arms are comma-separated.
+and wildcard. Arms are comma-separated (the trailing comma is optional).
+
+Enum variant patterns are `EnumName.Variant` (tag-only — payload variants are
+matched on their tag, with no binding; payload destructuring
+`Shape.Circle(r)` is not part of the language and is rejected by both parsers
+with `expected '=>' in match arm`). The pattern must be followed by `=>`
+exactly. On both engines the self-hosted checker validates enum patterns at
+check time: an undeclared enum type in a pattern or construction raises
+`error[K106]`, and an unknown variant raises `error[K113]` (the Go resolver
+defers those two to the C compiler instead; go check passes and the build
+fails on the undeclared tag constant).
 
 ### 3.6 Error propagation Ã°Å¸Å¸Â¡
 
@@ -510,7 +520,7 @@ function calls use the `C.` prefix (`C.sqrt(...)`). FFI package
 | Area | Gap | Tracking |
 |------|-----|----------|
 | Self-hosted compiler | `self_host_parser_test.kark` (retired in 1.0 cleanup); `src/compiler/*.kark` now complete (99+ gates) | Phase 88 → 99+ |
-| Enum payload variants | Enums parse but payload handling unstable | BUG-7 |
+| Enum payload variants | Payloads are recorded but semantically dropped at construction (the tag is observable); payload destructuring in match patterns is not part of the language | Phase 123 |
 | Struct codegen | Certain codegen paths incomplete | BUG-1 |
 | Option/Result match arms | Codegen edge cases | BUG-2 |
 | Index assignment | Specific patterns | BUG-3 |
@@ -540,7 +550,8 @@ gated by `pkg/cli/phase102_foundation_test.go`.
 | Strings | Y | concat, index, length, prefix check |
 | `if` / `elif` / `else` | Y | incl. unparenthesized condition |
 | Loops | Y | `while`; C-style `for` with empty init; `for (let i = ...)` |
-| `match` | Y | int and string discriminants, wildcard arm |
+| `match` | Y | int and string discriminants, enum-variant arms, wildcard arm |
+| Enums (ADT) | Y | `enum Name { A, B(int) }`; `EnumName.Variant` construction, equality, tag-only match arms; kcc checker K106/K113 (Phase 123) |
 | Maps | Y | literal, get/set/has, default-value semantics |
 | Structs | Y | `type T struct { ... }`, `,` and `;` field separators |
 | Records as methods | Y | record-as-first-argument idiom (no receiver syntax) |
