@@ -18,7 +18,7 @@ explicitly.
 The 15-category framework
 =========================
 
-The Phase 114/116 corpus populates the framework with 50 ``.kark`` source
+The Phase 114/116/123 corpus populates the framework with 52 ``.kark`` source
 files (15 categories, 4 of them deliberately Planned — README only). See the
 inventory ``examples/EXAMPLES.md`` for the authoritative file list.
 
@@ -118,7 +118,7 @@ corpus:
 
 ``scripts/verify-examples.ps1`` classifies every example by its declared
 status (``Runnable`` / ``Experimental`` / ``Planned``) and runs the runnable
-ones through the real CLI — 49 examples pass; 5 are deliberately skipped (the
+ones through the real CLI — 51 examples pass; 5 are deliberately skipped (the
 test-mode runner and the four Planned categories).
 
 Validation corpus

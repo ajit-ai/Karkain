@@ -1,0 +1,31 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 01 Fundamentals
+//
+// Enums are algebraic data types. A unit variant (Color.Red) is a named
+// constant; a payload variant (Shape.Circle(r)) carries a value that is
+// recorded but, in the current semantic, dropped at construction (the tag
+// alone is observable). Enum values are constructed with
+// EnumName.Variant and compared with ==.
+//
+// Run:  karkain run examples/01-fundamentals/13_enums.kark
+
+enum Color { Red, Green, Blue }
+
+func describe(c) {
+    if (c == Color.Red) { return 100 }
+    if (c == Color.Green) { return 200 }
+    return 300
+}
+
+func main() {
+    let a = Color.Red
+    let b = Color.Green
+    let d = Color.Blue
+    print(a == Color.Red)
+    print(b == Color.Green)
+    print(describe(a))
+    print(describe(b))
+    print(describe(d))
+    print(Color.Green == Color.Blue)
+}

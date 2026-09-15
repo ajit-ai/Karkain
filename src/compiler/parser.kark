@@ -18,11 +18,28 @@ func createParserState(tokens, source) {
     state = appendArray(state, 1)    // line
     state = appendArray(state, source)
     state = appendArray(state, 0)    // noStructAtBrace (Phase 81: unparenthesized if condition)
+    state = appendArray(state, [])   // enumNames (Phase 123: enum variant patterns/construction)
     return state
 }
 
 func psNoStructAtBrace(state) { return state[6] }
 func setPsNoStructAtBrace(state, v) { state[6] = v }
+
+// ============================================================
+// Phase 123: parser-level enum registry. Enum names are recorded at
+// parseEnumDecl so that EnumName.Variant expressions and match arms lower to
+// EnumVariantExpr / enum_variant patterns (mirroring the Go parser's
+// p.enumNames map). Declarations precede use, matching the Go front end.
+// ============================================================
+
+func psEnumNames(state) { return state[7] }
+func setPsEnumNames(state, v) { state[7] = v }
+func psAddEnumName(state, name) {
+    let names = psEnumNames(state)
+    names = appendArray(names, name)
+    setPsEnumNames(state, names)
+}
+func isEnumName(state, name) { return psListHas(psEnumNames(state), name) }
 
 func psTokens(state)    { return state[0] }
 func psPos(state)       { return state[1] }
@@ -1104,6 +1121,7 @@ func parseEnumDecl(state) {
 
     let name = psCurLiteral(state)
     psAdvance(state) // consume name
+    psAddEnumName(state, name) // Phase 123: enable EnumName.Variant syntax
 
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
 
@@ -1377,11 +1395,26 @@ func parseIdentOrCall(state) {
         return makeCall(name, args, line, col)
     }
 
-    // Dot access: name.field or name.field(args)
+    // Dot access: name.field, name.field(args), or EnumName.Variant[(payload)]
     if (psCurKind(state) == TK_DOT()) {
         psAdvance(state) // consume '.'
         let field = psCurLiteral(state)
         psAdvance(state)
+
+        // Enum variant: EnumName.Variant or EnumName.Variant(payload).
+        // Phase 123: mirrors pkg/parser/parser.go which produces
+        // EnumVariantExpr gated on p.enumNames. Must precede the method-call
+        // and member-access paths so enum construction never lowers to
+        // map_get (member access on an int tag).
+        if (isEnumName(state, name)) {
+            let payload = []
+            if (psCurKind(state) == TK_LPAREN()) {
+                psAdvance(state) // consume '('
+                payload = parseExpr(state)
+                if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+            }
+            return makeEnumVariantExpr(name, field, payload, line)
+        }
 
         // Method call: name.method(args)
         if (psCurKind(state) == TK_LPAREN()) {
@@ -1541,20 +1574,38 @@ func parseMatchExpr(state) {
             pValue = parsePrimary(state)
         } else if (pkind == TK_IDENT()) {
             let nm = psCurLiteral(state)
-            if (nm == "_") {
+            psAdvance(state) // consume identifier
+            // Phase 123: Enum.Variant pattern — matches Go parseMatchExpr which
+            // treats ANY dotted identifier arm as enum_variant (no enumNames
+            // gate here; the tag lookup in codegen falls back to always-match
+            // for unknown enums).
+            if (psCurKind(state) == TK_DOT()) {
+                psAdvance(state) // consume '.'
+                let variant2 = psCurLiteral(state)
+                psAdvance(state) // consume variant name
+                pType = "enum_variant"
+                pBinding = nm + "." + variant2
+            } else if (nm == "_") {
                 pType = "wildcard"
-                psAdvance(state)
             } else {
                 pType = "binding"
                 pBinding = nm
-                psAdvance(state)
             }
         } else {
             // Unknown pattern token: skip it so the loop cannot stall.
             psAdvance(state)
         }
 
-        if (psCurKind(state) == TK_FAT_ARROW()) { psAdvance(state) }
+        // Phase 123: mirror Go parseMatchExpr — after any pattern the next
+        // token MUST be '=>' (payload destructuring `Enum.Variant(x)` is not
+        // part of the language; Go rejects it with an error). On mismatch add
+        // the same diagnostic and still advance so the loop cannot stall.
+        if (psCurKind(state) == TK_FAT_ARROW()) {
+            psAdvance(state)
+        } else {
+            psAddError(state, "expected '=>' in match arm, got '" + psCurLiteral(state) + "'")
+            psAdvance(state)
+        }
 
         // Body: block, print statement, or a bare expression.
         let body = []
@@ -1573,10 +1624,12 @@ func parseMatchExpr(state) {
 
         arms = appendArray(arms, makeMatchArm(pType, pBinding, pValue, body, psLine(state)))
 
+        // Phase 123: comma is OPTIONAL between arms — mirror Go parseMatchExpr
+        // which consumes an optional comma and then lets the loop parse the
+        // next arm naturally. Previously this blindly advanced one token on a
+        // non-comma (mis-parsing every arm after the first in comma-less
+        // matches such as `Color.Red => 100` newline `Color.Green => 200`).
         if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
-        if (psCurKind(state) != TK_COMMA() && psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
-            psAdvance(state)
-        }
     }
 
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }

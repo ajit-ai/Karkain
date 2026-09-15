@@ -48,7 +48,7 @@ karkain build hello.kark      # native executable
 **Documentation:**
 
 - [Getting Started](docs/source/getting-started/index.rst) — installation, first program, project layout
-- [Karkain by Example](docs/source/examples/index.rst) — 50 real, runnable programs
+- [Karkain by Example](docs/source/examples/index.rst) — 52 real, runnable programs
 - [Language Guide](docs/source/language/index.rst) — the language as it actually works
 - [Standard Library](docs/source/stdlib/index.rst) — `std.string`, `std.collections`, `std.io`, `std.encoding`, `std.crypto`, `std.testing`
 - [CLI Reference](docs/source/tools/index.rst) — every command, flag and exit code
@@ -117,7 +117,7 @@ Experimental means *real and testable, but the surface may change*:
 
 ## Example corpus
 
-`examples/` holds **50 real `.kark` programs across 15 categories** — 48
+`examples/` holds **52 real `.kark` programs across 15 categories** — 50
 Runnable (incl. test-mode), 2 Experimental, 4 Planned (README only).
 
 ```bash
@@ -267,7 +267,7 @@ Karkain/
 ├── src/compiler/        # self-hosted compiler, written in .kark
 ├── stdlib/              # Karkain standard library sources (.kark)
 ├── conformance/         # 59 native test_* functions, both engines
-├── examples/            # 50 examples across 15 categories
+├── examples/            # 52 examples across 15 categories
 ├── scripts/             # build / release / verify scripts
 ├── docs/                # Sphinx documentation + phase audit reports
 ├── .github/workflows/   # CI and docs publishing
