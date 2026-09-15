@@ -30,14 +30,18 @@ const (
 
 // Fixed linear-memory layout (all offsets are bytes).
 const (
-	scratchNwritten  = 0    // 4 bytes: fd_write result slot
-	scratchIOVec     = 8    // 8 bytes: iovs {ptr, len}
-	scratchDigits    = 16   // 128 bytes: decimal conversion scratch
-	scratchDigitsEnd = 144
-	staticBase       = 0x200
-	poolBase         = 0x230
-	heapBase         = 0x10000
-	heapGlobal       = 0 // global index
+	scratchNwritten   = 0    // 4 bytes: fd_write result slot
+	scratchIOVec      = 8    // 8 bytes: iovs {ptr, len}
+	scratchDigits     = 16   // 128 bytes: decimal conversion scratch
+	scratchDigitsEnd  = 144
+	offWasiArgc       = 160  // 4 bytes: argc cell written by args_sizes_get
+	offWasiArgvBufLen = 164  // 4 bytes: argv buffer size cell
+	staticBase        = 0x200
+	poolBase          = 0x230
+	heapBase          = 0x10000
+	heapGlobal        = 0    // global index
+	wasiArgcGlobal    = 1    // global index: argc gathered at _start
+	wasiArgvGlobal    = 2    // global index: argv pointer array gathered at _start
 )
 
 // Fixed static string offsets inside the static region.
@@ -76,6 +80,9 @@ func staticBytes() []byte {
 // RuntimeFunc holds the function indices of the embedded runtime helpers.
 type RuntimeFunc struct {
 	FDWrite     int
+	ArgsSizesGet int
+	ArgsGet     int
+	ProcExit    int
 	Alloc       int
 	WriteRaw    int
 	WriteI64    int
@@ -100,40 +107,47 @@ type RuntimeFunc struct {
 	Set         int
 	MakeString  int
 	MakeArray   int
+	GetArgs     int
 	Start       int
 	UserBase    int
 }
 
-// runtimeConsts returns the fixed runtime function indices.
+// runtimeConsts returns the fixed runtime function indices. The four imports
+// (fd_write, args_sizes_get, args_get, proc_exit) always occupy indices 0-3;
+// module-defined runtime bodies follow from index 4, then user functions.
 func runtimeConsts() RuntimeFunc {
 	return RuntimeFunc{
-		FDWrite:    0,
-		Alloc:      1,
-		WriteRaw:   2,
-		WriteI64:   3,
-		PrintValue: 4,
-		RTError:    5,
-		Add:        6,
-		Sub:        7,
-		Mul:        8,
-		Div:        9,
-		Mod:        10,
-		Eq:         11,
-		Ne:         12,
-		Lt:         13,
-		Gt:         14,
-		Le:         15,
-		Ge:         16,
-		IsTruthy:   17,
-		Not:        18,
-		Neg:        19,
-		Len:        20,
-		Get:        21,
-		Set:        22,
-		MakeString: 23,
-		MakeArray:  24,
-		Start:      25,
-		UserBase:   26,
+		FDWrite:     0,
+		ArgsSizesGet: 1,
+		ArgsGet:     2,
+		ProcExit:    3,
+		Alloc:       4,
+		WriteRaw:    5,
+		WriteI64:    6,
+		PrintValue:  7,
+		RTError:     8,
+		Add:         9,
+		Sub:         10,
+		Mul:         11,
+		Div:         12,
+		Mod:         13,
+		Eq:          14,
+		Ne:          15,
+		Lt:          16,
+		Gt:          17,
+		Le:          18,
+		Ge:          19,
+		IsTruthy:    20,
+		Not:         21,
+		Neg:         22,
+		Len:         23,
+		Get:         24,
+		Set:         25,
+		MakeString:  26,
+		MakeArray:   27,
+		GetArgs:     28,
+		Start:       29,
+		UserBase:    30,
 	}
 }
 
@@ -156,12 +170,31 @@ type kindOffsets struct {
 func addRuntime(mb *ModuleBuilder, st *statics, srcFileBase string) (RuntimeFunc, kindOffsets) {
 	rt := runtimeConsts()
 
-	// Type section entries (order matters for indices below).
+	// Type section entries. Imported function types are added first; the
+	// import order fixes the function indices 0-3 (fd_write, args_sizes_get,
+	// args_get, proc_exit) which runtimeConsts depends on.
 	tFdWrite := mb.AddType(FuncType{Params: []ValueType{I32, I32, I32, I32}, Results: []ValueType{I32}})
-	mb.Imports = append(mb.Imports, Import{
-		Module: "wasi_snapshot_preview1", Field: "fd_write",
-		Kind: ImportFunc, TypeIdx: tFdWrite,
-	})
+	tArgsSizesGet := mb.AddType(FuncType{Params: []ValueType{I32, I32}, Results: []ValueType{I32}})
+	tArgsGet := mb.AddType(FuncType{Params: []ValueType{I32, I32}, Results: []ValueType{I32}})
+	tProcExit := mb.AddType(FuncType{Params: []ValueType{I32}})
+	mb.Imports = append(mb.Imports,
+		Import{
+			Module: "wasi_snapshot_preview1", Field: "fd_write",
+			Kind: ImportFunc, TypeIdx: tFdWrite,
+		},
+		Import{
+			Module: "wasi_snapshot_preview1", Field: "args_sizes_get",
+			Kind: ImportFunc, TypeIdx: tArgsSizesGet,
+		},
+		Import{
+			Module: "wasi_snapshot_preview1", Field: "args_get",
+			Kind: ImportFunc, TypeIdx: tArgsGet,
+		},
+		Import{
+			Module: "wasi_snapshot_preview1", Field: "proc_exit",
+			Kind: ImportFunc, TypeIdx: tProcExit,
+		},
+	)
 
 	addType := func(ft FuncType) int { return mb.AddType(ft) }
 
@@ -554,7 +587,10 @@ func addRuntime(mb *ModuleBuilder, st *statics, srcFileBase string) (RuntimeFunc
 		e.I32Const(offNewline)
 		e.I32Const(1)
 		e.Call(rt.WriteRaw)
-		e.Unreachable()
+		// Deterministic process exit code (native parity): a Karkain runtime
+		// error terminates the program with exit status 1.
+		e.I32Const(1)
+		e.Call(rt.ProcExit)
 	})
 
 	// --- rt_add/rt_sub/rt_mul ---
@@ -1248,6 +1284,86 @@ func addRuntime(mb *ModuleBuilder, st *statics, srcFileBase string) (RuntimeFunc
 		e.I64Or()
 	})
 
+	// --- get_args () -> i64 ---
+	// Materializes the Karkain argument array from the argc/argv gathered at
+	// _start (stored in globals wasiArgcGlobal/wasiArgvGlobal). Each argument
+	// becomes a boxed string; the result is the same array-of-strings Value the
+	// native/C engine produces for getArgs().
+	tGetArgs := addType(FuncType{Results: []ValueType{I64}})
+	mb.FuncTypes = append(mb.FuncTypes, tGetArgs)
+	mb.addCode("get_args", runtimeLocals("get_args"), func(e *Emitter) {
+		// cell = mk_array(argc)
+		e.GlobalGet(wasiArgcGlobal)
+		e.Call(rt.MakeArray)
+		e.LocalSet(p2) // p2 i64: array Value
+		e.LocalGet(p2)
+		e.I64Const(1)
+		e.I64ShrS()
+		e.I32WrapI64()
+		e.LocalSet(p1) // p1 i32: array cell ptr
+		e.I32Const(0)
+		e.LocalSet(p0) // p0 i32: i
+		e.BeginBlock(noResult)
+		e.BeginLoop(noResult)
+		e.LocalGet(p0)
+		e.GlobalGet(wasiArgcGlobal)
+		e.I32GeS()
+		e.BrIf(1)
+		// addr = cell + 8 + i*8
+		e.LocalGet(p1)
+		e.I32Const(8)
+		e.I32Add()
+		e.LocalGet(p0)
+		e.I64ExtendI32U()
+		e.I64Const(8)
+		e.I64Mul()
+		e.I32WrapI64()
+		e.I32Add()
+		e.LocalSet(p3)
+		// str ptr = argv[i]
+		e.GlobalGet(wasiArgvGlobal)
+		e.LocalGet(p0)
+		e.I64ExtendI32U()
+		e.I64Const(4)
+		e.I64Mul()
+		e.I32WrapI64()
+		e.I32Add()
+		e.I32Load(4, 0)
+		e.LocalSet(p4)
+		// len = strlen(str)
+		e.I32Const(0)
+		e.LocalSet(p5)
+		e.BeginBlock(noResult)
+		e.BeginLoop(noResult)
+		e.LocalGet(p4)
+		e.LocalGet(p5)
+		e.I32Add()
+		e.I32Load8U(0)
+		e.I32Eqz()
+		e.BrIf(1)
+		e.LocalGet(p5)
+		e.I32Const(1)
+		e.I32Add()
+		e.LocalSet(p5)
+		e.Br(0)
+		e.Close()
+		e.Close()
+		// *(addr) = mk_string(str, len)
+		e.LocalGet(p3)
+		e.LocalGet(p4)
+		e.LocalGet(p5)
+		e.Call(rt.MakeString)
+		e.I64Store(8, 0)
+		e.LocalGet(p0)
+		e.I32Const(1)
+		e.I32Add()
+		e.LocalSet(p0)
+		e.Br(0)
+		e.Close()
+		e.Close()
+		e.LocalGet(p2)
+	})
+
 	return rt, ko
 }
 
@@ -1297,6 +1413,9 @@ func runtimeLocals(name string) []ValueType {
 		return []ValueType{I32, I32, I32, I32}
 	case "mk_array":
 		return []ValueType{I32, I32}
+	case "get_args":
+		// p0 i32: i, p1 i32: array cell, p2 i64: array Value, p3/p4/p5: scratch
+		return []ValueType{I32, I32, I64, I32, I32, I32}
 	case "is_truthy":
 		return []ValueType{I32, I32}
 	case "rt_len":

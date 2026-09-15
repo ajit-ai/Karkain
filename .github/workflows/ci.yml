@@ -74,6 +74,11 @@ jobs:
       - name: Install GCC and GMP
         run: sudo apt-get update && sudo apt-get install -y gcc libgmp-dev
 
+      - name: Install wasmtime (WASM gate runner)
+        run: |
+          curl -sSf https://wasmtime.dev/install.sh | bash
+          echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+
       - name: Run unit tests
         # -p 1 runs each package's test binary sequentially. Parallel package
         # execution intermittently stalled the Phase 107 concurrency gates
@@ -107,6 +112,9 @@ jobs:
 
       - name: Run Phase 122 compiler-pipeline-ownership gate
         run: go test ./pkg/cli/ -run 'TestPhase122' -count=1
+
+      - name: Run Phase 123 enum-ADT + WASM boundary gates
+        run: go test ./pkg/cli/ -run 'TestPhase123' -count=1
 
       - name: Run conformance tests
         run: |

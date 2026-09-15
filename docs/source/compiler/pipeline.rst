@@ -247,11 +247,17 @@ WASM path
 **Package:** ``pkg/wasm``
 
 The WASM backend is a dependency-free, handwritten WASM binary v1
-emitter. It embeds a WASI-compatible runtime (``fd_write`` via
+emitter. It embeds a WASI-compatible runtime (``fd_write``,
+``args_sizes_get``, ``args_get`` and ``proc_exit`` via
 ``wasi_snapshot_preview1``), boxed value semantics (``i64``-tagged
-integers, heap cells with type tag + length + data), and 24 runtime
-functions. It is invoked by ``karkain build --target wasm32-wasi`` and
-run under ``wasmtime``.
+integers, heap cells with type tag + length + data), 25 runtime bodies
+plus a ``_start`` bootstrap, and a pattern that derives the process exit
+code from ``main``'s returned value. It is invoked by ``karkain build
+--target wasm32-wasi`` and run under ``wasmtime``. Unsupported language
+constructs are rejected deterministically with ``error K108 ...``
+(stderr on runtime errors; ``getArgs()`` returns the WASI argument
+vector). See :doc:`/status/scope` for the
+:production-candidate:`Production Candidate` classification.
 
 Native path
 ~~~~~~~~~~~

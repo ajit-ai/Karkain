@@ -37,7 +37,7 @@ inventory ``examples/EXAMPLES.md`` for the authoritative file list.
      - ``examples/02-algorithms/`` (13) + ``examples/algorithms/`` (21)
    * - :doc:`Systems <systems>`
      - :implemented:`Implemented` (specific examples)
-     - ``examples/03-systems/``, concurrency pipeline, WASM hello
+     - ``examples/03-systems/``, concurrency pipeline, WASM corpus (5)
    * - :doc:`Networking <networking>`
      - :not-implemented:`Not Yet Implemented`
      - —
@@ -145,8 +145,10 @@ Example inventory (repository)
   language surface on both engines.
 * ``examples/concurrency/`` — ``pipeline/``, the Phase 107 concurrency
   runtime demo (spawn/join, channels, actors).
-* ``examples/wasm/`` — ``hello.kark``, the ``wasm32-wasi`` target demo
-  (Phase 108).
+* ``examples/wasm/`` — the ``wasm32-wasi`` target corpus (Phases 108/123):
+  ``hello.kark`` plus ``functions``, ``control_flow``, ``data`` and
+  ``strings_builtin``. Go-engine production candidate, gated by
+  ``pkg/cli/phase123_cli_test.go``.
 * ``examples/stdlib_v2/`` — multi-module end-to-end program importing
   ``std.string``, ``std.collections``, ``std.encoding`` and ``std.crypto``
   (Phase 109).
