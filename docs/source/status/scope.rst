@@ -4,16 +4,16 @@ Release-Candidate Scope
 
 This page is the authoritative status matrix for the Karkain 1.0.0
 release-readiness work (Phase 119). It classifies every surface of Karkain
-into exactly one of five buckets so an external contributor can tell at a
-glance what may be relied on, what may change, what does not exist yet, and
-what blocks a release candidate.
+into exactly one of the buckets below so an external contributor can tell
+at a glance what may be relied on, what may change, what does not exist
+yet, and what blocks a release candidate.
 
 .. contents:: Sections
    :local:
    :depth: 1
 
-The five buckets
-================
+The status buckets
+==================
 
 .. list-table:: Status matrix vocabulary
    :widths: 22 78
@@ -24,6 +24,10 @@ The five buckets
    * - :stable:`Stable Beta Core`
      - Regression-gated on both engines. External developers can rely on
        this surface; changes are deliberate, documented and justified.
+   * - :production-candidate:`Production Candidate`
+     - Implemented, testable, functionally complete for its documented
+       surface, and deterministic — but tied to one engine and not yet in
+       the Stable Core gates.
    * - :experimental:`Experimental`
      - Implemented and testable, but the surface may change between
        releases without notice. Every experimental item states why.
@@ -79,6 +83,27 @@ gates.
 
 See :doc:`/reference/stable-api` for the full Beta API snapshot.
 
+Production Candidate
+====================
+
+Implemented, testable, and functionally complete for the documented
+surface, but still tied to one engine and/or not yet part of the
+:stable:`Stable Beta Core` regression gates.
+
+.. list-table:: Production Candidate
+   :widths: 26 74
+   :header-rows: 1
+
+   * - Surface
+     - Scope
+   * - WASM target
+     - ``wasm32-wasi`` Go-engine backend, ``wasmtime``-gated (Phase 123).
+       WASI process entry with real exit codes, ``stderr`` runtime-error
+       diagnostics and ``getArgs()`` are implemented and gated. The K108
+       diagnostic contract rejects every unsupported construct
+       deterministically: structs, maps, C-interop, concurrency, modules/
+       imports and cross-engine ``kcc`` use.
+
 Experimental
 ============
 
@@ -96,8 +121,6 @@ may change between releases.
      - ``karkain prof`` — Go-engine only.
    * - Debug tracing
      - Phase 112 debug-trace module — Go-engine only.
-   * - WASM target
-     - ``wasm32-wasi`` Go-engine backend, ``wasmtime``-gated.
    * - SIMD / vector types
      - ``@simd_*`` lane types — Go-engine only, x86 + ARM via portable
        helpers.

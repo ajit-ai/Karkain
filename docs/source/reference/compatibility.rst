@@ -112,7 +112,9 @@ Multi-argument ``println``
 WASM target
    WASM compilation (``--target wasm32-wasi``) is only available on the
    Go engine and requires ``wasmtime`` on the host. The ``kcc`` engine
-   does not support WASM.
+   does not support WASM. Since Phase 123 the Go-engine WASM backend is a
+   :production-candidate:`Production Candidate` — WASI exit codes, stderr
+   diagnostics and ``getArgs()`` are implemented and gated.
 
 Runtime errors and stack traces
    Both engines produce identical ``runtime error: <kind> at <file>:<line>``

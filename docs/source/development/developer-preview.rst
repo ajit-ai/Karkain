@@ -34,7 +34,8 @@ What works today
   ``check/build/run/test``; bootstrap identity (stage-2 == stage-3) is
   proven bitwise identical.
 * **WASM target** — ``wasm32-wasi`` backend emits real WASM binaries
-  runnable under ``wasmtime`` (Go engine only).
+  runnable under ``wasmtime`` (Go engine only). WASI exit codes, stderr
+  diagnostics and ``getArgs()`` are implemented (production candidate).
 * **Concurrency runtime** — channels, actors, task spawning via the Go
   engine; kcc parity is deferred.
 * **DWARF debug info** — debug sections are emitted and self-verified by a

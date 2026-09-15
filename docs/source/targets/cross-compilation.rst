@@ -44,9 +44,10 @@ matrix is:
      - Same story as ``x86_64-linux``: mechanism implemented, needs a
        triple-prefixed GNU cross-gcc on PATH to actually build.
    * - ``wasm32-wasi``
-     - unchanged
-     - Unchanged from Phase 108: the dedicated Karkain-owned WASM
-       backend emits the module directly (no cross-linker needed).
+     - :production-candidate:`Production Candidate`
+     - The dedicated Karkain-owned WASM backend emits the module directly
+       (no cross-linker needed). Phase 123 added the WASI boundary: exit
+       codes, stderr diagnostics and ``getArgs()``.
 
 A compiler that does not have a cross-linker installed gets a
 deterministic failure (below), not a wrong-architecture binary.

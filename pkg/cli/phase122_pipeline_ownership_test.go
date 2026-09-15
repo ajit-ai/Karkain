@@ -14,7 +14,7 @@ package cli
 // Success criterion (baseline report): the default kcc path assembles
 // std.*-importing projects (stdlib_v2) and sibling-importing projects
 // (module_system) without any Go-side source concatenation, with byte-identical
-// output, while the whole-tree KIR invariant (6399 lines) and the Phase 121
+// output, while the whole-tree KIR invariant (6645 lines) and the Phase 121
 // self-verification hook survive unchanged.
 //
 // Regression covered: standard-library discovery is MARKER-GATED (a candidate
@@ -64,14 +64,17 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 	t.Run("KIRContinuity", func(t *testing.T) {
 		// Phase 121's whole-tree KIR invariant must survive the pipeline
 		// change: the assembled compiler tree (sibling join) still emits and
-		// verifies exactly 6399 KIR lines.
+		// verifies exactly 6645 KIR lines. NOTE: the count grew from the
+		// Phase 122 baseline 6399 to 6645 because Phase 123's enum-ADT commit
+		// extended the compiler sources (parser/checker/codegen/ast/kir); the
+		// pin is refreshed to the validated current value.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 6399 {
-			t.Errorf("whole-tree kir text = %d lines, want 6399:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 6645 {
+			t.Errorf("whole-tree kir text = %d lines, want 6645:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

@@ -38,10 +38,11 @@ carries a one-line description.
    * - **SIMD / vector types** (Phase 106)
      - ``[N]f32``/``[N]f64``/``[N]i32``/``[N]i64`` lane types with
        ``@simd_*`` builtins on x86 and ARM.
-   * - **WASM target** (Phase 108)
+   * - **WASM target** (Phase 123)
      - Karkain-owned ``wasm32-wasi`` backend emits deterministic WASM
-       binaries. The target as a whole is experimental — see
-       :doc:`/status/experimental`.
+        binaries; WASI exit codes, ``stderr`` diagnostics and ``getArgs()``
+        implemented. :production-candidate:`Production Candidate` — see
+        :doc:`/reference/stable-api` target column.
    * - **Runtime error model** (Phase 100)
      - Checked division/modulo/indexing report
        ``runtime error: <kind> at <file>:<line>``, identically on both

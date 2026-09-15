@@ -11,8 +11,10 @@ Karkain:
 * ``examples/concurrency/pipeline/main.kark`` — the Phase 107 concurrency
   runtime (spawn/join, channels, actors), validated end-to-end by
   ``pkg/cli/phase107_concurrency_test.go`` (Go engine).
-* ``examples/wasm/hello.kark`` — the Phase 108 ``wasm32-wasi`` target, gated by
-  ``pkg/cli/phase108_cli_test.go``.
+* ``examples/wasm/`` — the Phase 108 ``wasm32-wasi`` target hardened to a
+  :production-candidate:`Production Candidate` in Phase 123, gated by
+  ``pkg/cli/phase123_cli_test.go`` (five corpus programs: ``hello.kark``
+  plus ``functions``, ``control_flow``, ``data``, ``strings_builtin``).
 
 File I/O (new)
 --------------
@@ -157,8 +159,23 @@ Expected output (verified byte-exact):
    done
 
 The emitted binary is deterministically byte-identical across builds. The
-WASM backend is Go-engine only and wasmtime-gated: see
-:doc:`/targets/cross-compilation` and :doc:`/status/experimental`.
+WASI boundary is implemented end-to-end: ``return N`` from ``main`` becomes
+the wasmtime exit code, runtime errors (e.g. division by zero) print
+``runtime error: <kind> at <file>:<line>`` to stderr and exit 1, and
+``getArgs()`` returns the host CLI arguments from the WASI start bootstrap.
+Since Phase 123 the target is a
+:production-candidate:`Production Candidate` (Go engine,
+``wasmtime``-gated) with a five-program example corpus:
+``hello.kark`` plus ``examples/wasm/functions`` (typed functions),
+``examples/wasm/control_flow`` (``for``/``while``/``if`` with postfix
+``i++``/``n--``), ``examples/wasm/data`` (arrays) and
+``examples/wasm/strings_builtin`` (string length). Every unsupported
+construct — structs, maps, C-interop, concurrency, modules/imports,
+stdlib — is rejected deterministically with ``error K108: feature '...' is
+not supported for target wasm32-wasi`` and exit 3, never silently wrong.
+
+See :doc:`/targets/cross-compilation` and :doc:`/status/scope` for the
+production-candidate classification.
 
 .. seealso::
 

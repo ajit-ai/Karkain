@@ -107,6 +107,7 @@ from docutils.parsers.rst import roles  # noqa: E402
 _STATUS_ROLES = [
     "stable",
     "implemented",
+    "production-candidate",
     "experimental",
     "developer-preview",
     "planned",
