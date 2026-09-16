@@ -83,7 +83,12 @@ func phase95KCC(t *testing.T) string {
 	}
 
 	bin := filepath.Join(sandbox, "kcc.exe")
-	link := exec.Command("gcc", "-std=c99", "-x", "c", filepath.Join(comp, "main.c"), "-o", bin, "-lgmp")
+	// Mirror the production kcc link flags (kcc_engine.go): the POSIX macro
+	// exposes strdup under strict -std=c99 and -lm resolves sqrt/fmod in the
+	// emitted runtime helpers (libm). Without -lm the stage-1 link fails on
+	// glibc hosts (exposed by the Phase 123 CI gate on ubuntu-latest).
+	link := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L",
+		filepath.Join(comp, "main.c"), "-o", bin, "-lgmp", "-lm")
 	link.Dir = comp
 	if out, err := link.CombinedOutput(); err != nil {
 		t.Fatalf("stage-1 link failed: %v\n%s", err, string(out))
