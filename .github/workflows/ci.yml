@@ -36,6 +36,7 @@ jobs:
             docs/build/html/stdlib/index.html \
             docs/build/html/tools/index.html \
             docs/build/html/targets/index.html \
+            docs/build/html/targets/compute-targets.html \
             docs/build/html/compiler/index.html \
             docs/build/html/status/index.html \
             docs/build/html/status/scope.html \
@@ -115,6 +116,9 @@ jobs:
 
       - name: Run Phase 123 enum-ADT + WASM boundary gates
         run: go test ./pkg/cli/ -run 'TestPhase123' -count=1
+
+      - name: Run Phase 124 compute-target gate
+        run: go test ./pkg/cli/ -run 'TestPhase124' -count=1
 
       - name: Run conformance tests
         run: |

@@ -27,6 +27,12 @@ it.
      - ``pkg/backend/*`` (CPU/GPU) and ``pkg/npu/*`` are real Go packages
        but the **language surface is not released**: you cannot write tensor
        or NPU kernels in ``.kark`` today.
+   * - **GPU/NPU/quantum compute targets**
+     - Phase 124 models the accelerator targets (``gpu-experimental``,
+       ``npu-experimental``, ``quantum-experimental``) in ``pkg/target`` with
+       capabilities, accepted KIR classes and a deterministic lowering
+       boundary, but no accelerator code is emitted yet; the language surface
+       for kernels stays planned.
    * - **GPU backend** (``pkg/backend/gpu``)
      - Emits WGSL compute shaders internally (Phase 76) but exposes **no
        language surface**. Nothing in the language selects or drives a GPU

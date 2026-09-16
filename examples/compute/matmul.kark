@@ -1,0 +1,35 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 99 Compute Target Workloads
+//
+// 2x2 matrix multiplication: the canonical matmul workload the Phase 124
+// GPU and NPU compute targets declare a native tensor/matrix operation for.
+// Prints the four cells of row-major C = A x B.
+//
+// Run:  karkain run examples/compute/matmul.kark
+
+// dot x y computes the dot product of two length-2 row vectors.
+func dot(x, y) {
+    let s = 0
+    let i = 0
+    while (i < 2) {
+        s = s + x[i] * y[i]
+        i = i + 1
+    }
+    return s
+}
+
+func main() {
+    let A = [[1, 2], [3, 4]]
+    let B = [[5, 6], [7, 8]]
+    let i = 0
+    let j = 0
+    while (i < 2) {
+        j = 0
+        while (j < 2) {
+            print(dot(A[i], [B[0][j], B[1][j]]))
+            j = j + 1
+        }
+        i = i + 1
+    }
+}

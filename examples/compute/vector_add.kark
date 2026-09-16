@@ -1,0 +1,31 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 99 Compute Target Workloads
+//
+// Element-wise vector addition: the classic data-parallel workload that the
+// Phase 124 GPU and NPU compute targets declare tensor/add operations for.
+// The program itself runs on the host CPU (both engines); it exists here to
+// illustrate the KIR profile the accelerator lowering boundary accepts.
+//
+// Run:  karkain run examples/compute/vector_add.kark
+
+func add(a, b) {
+    let out = []
+    let i = 0
+    while (i < len(a)) {
+        out = appendArray(out, a[i] + b[i])
+        i = i + 1
+    }
+    return out
+}
+
+func main() {
+    let a = [3, 1, 4]
+    let b = [1, 5, 9]
+    let c = add(a, b)
+    let i = 0
+    while (i < len(c)) {
+        print(c[i])
+        i = i + 1
+    }
+}
