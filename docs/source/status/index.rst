@@ -10,7 +10,7 @@ describes something real today or something planned.
    :depth: 1
 
 The six-level model
-===================
+-------------------
 
 .. list-table:: Status vocabulary
    :widths: 24 76
@@ -38,7 +38,7 @@ The six-level model
        presented as available.
 
 Honesty rules
-=============
+-------------
 
 * **Never** describe a hypothetical feature as available. A feature is
   ``Implemented`` only when it is exercised by a gate test through the real
@@ -50,7 +50,7 @@ Honesty rules
   ``Not Yet Implemented``, not silently omitted.
 
 The catalog pages
-=================
+-----------------
 
 .. toctree::
    :maxdepth: 2

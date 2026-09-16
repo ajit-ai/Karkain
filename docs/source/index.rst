@@ -88,6 +88,7 @@ The documentation is organized in three layers.
 
 .. toctree::
    :maxdepth: 2
+   :titlesonly:
    :caption: Learn Karkain
 
    getting-started/index
@@ -95,6 +96,7 @@ The documentation is organized in three layers.
 
 .. toctree::
    :maxdepth: 2
+   :titlesonly:
    :caption: Karkain Developer
 
    stdlib/index
@@ -104,6 +106,7 @@ The documentation is organized in three layers.
 
 .. toctree::
    :maxdepth: 2
+   :titlesonly:
    :caption: Karkain Internals
 
    compiler/index
@@ -111,6 +114,7 @@ The documentation is organized in three layers.
 
 .. toctree::
    :maxdepth: 1
+   :titlesonly:
    :caption: Status & Reference
 
    status/index

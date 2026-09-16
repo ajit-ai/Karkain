@@ -15,7 +15,7 @@ This page is an honest summary of what works today and what does not.
    :depth: 1
 
 What works today
-================
+----------------
 
 * **Language core** — variables (``let``/``var``/``const``), functions,
   control flow (``while``/``for-in``/C-style ``for``), structs (records),
@@ -44,7 +44,7 @@ What works today
 * **Developer tools** — formatter, linter, VS Code extension, LSP server.
 
 What does not work
-==================
+------------------
 
 * **Networking** — no TCP/UDP sockets, no HTTP client/server.
 * **Databases** — no drivers, no query language, no structured-data format.
@@ -59,7 +59,7 @@ What does not work
   kcc does not support nesting.
 
 Honest assessment
-=================
+-----------------
 
 Karkain is **not a production-ready system**. It is a real, working
 compiler and language with a tested self-hosted pipeline, a meaningful

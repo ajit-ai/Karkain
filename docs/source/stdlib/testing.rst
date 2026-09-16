@@ -12,7 +12,7 @@ canonical Karkain (untyped parameters, no type annotations) and parses and
 compiles identically on the Go engine and the self-hosted ``kcc`` engine.
 
 Importing
-=========
+---------
 
 .. code-block:: karkain
 
@@ -25,10 +25,10 @@ Importing
    ``karkain run``, exactly like the other ``stdlib`` modules.
 
 Module reference
-================
+----------------
 
 Assertions
-----------
+~~~~~~~~~~
 
 ``test_expect_true(cond)``
    Checks that ``cond`` is truthy. Fails the program otherwise.
@@ -53,7 +53,7 @@ Assertions
    Returns: nothing
 
 Result counting
----------------
+~~~~~~~~~~~~~~~
 
 ``test_pass_count(results)``
    Counts the truthy entries in an array of check results.
@@ -74,7 +74,7 @@ Result counting
    Returns: ``string``
 
 Example
-=======
+-------
 
 Soft checks accumulate a results array, then ``test_summary`` turns them into
 a single report line:

@@ -11,7 +11,7 @@ the repository layout, the key packages and how they relate.
    :depth: 1
 
 Repository top-level
-====================
+--------------------
 
 .. code-block:: text
 
@@ -28,7 +28,7 @@ Repository top-level
    scripts/                    # build and utility scripts
 
 The CLI
-=======
+-------
 
 ``cmd/karkain/main.go`` is the single binary: ``karkain build``, ``run``,
 ``test``, ``check``, ``fmt``, ``lint``, ``debug``, ``prof``, ``target``,
@@ -36,7 +36,7 @@ The CLI
 The command surface is documented in :doc:`/tools/cli`.
 
 The 23 Go packages
-==================
+------------------
 
 .. list-table:: Key packages
    :widths: 30 70
@@ -100,7 +100,7 @@ The 23 Go packages
      - Module graph and ``std.*`` resolution.
 
 The self-hosted compiler
-========================
+------------------------
 
 ``src/compiler/`` contains 8 ``.kark`` source files:
 
@@ -120,7 +120,7 @@ the Go front end on the same source files.
 trees.
 
 The transitional architecture
-=============================
+-----------------------------
 
 Karkain is in a transitional state:
 
@@ -138,7 +138,7 @@ command and hosts the test harnesses. The self-hosted compiler
 profiling, tracing, WASM or native-linking codegen.
 
 The runtime boundary
-====================
+--------------------
 
 .. code-block:: text
 

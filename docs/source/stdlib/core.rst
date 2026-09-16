@@ -21,7 +21,7 @@ standard-library expansion lands proper builtin backing and canonical-syntax
 versions of these helpers.
 
 What is in the source file
-==========================
+--------------------------
 
 The file defines helper functions matching this surface (documented
 **only** as the future direction of the module — treat none of these as
@@ -39,7 +39,7 @@ Typed signatures and ``Option``/``Result`` interaction will change when the
 module is made importable, so do not write code against this surface.
 
 Error status
-============
+------------
 
 .. code-block:: text
 

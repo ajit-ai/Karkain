@@ -26,7 +26,7 @@ any of them is a module resolution error (exit code ``3``):
    import std.time        // rejected — no such module
 
 Source-present but not importable
-=================================
+---------------------------------
 
 Separately, these module names **do** have source files under ``stdlib/``,
 but the files are **not importable** through the toolchain:
@@ -46,7 +46,7 @@ and will become importable when that boundary is lifted. Do not write
 programs that depend on them.
 
 Implemented today
-=================
+-----------------
 
 The importable, tested modules are :doc:`strings`, :doc:`collections`,
 :doc:`io`, :doc:`encoding`, :doc:`crypto` and :doc:`testing`.

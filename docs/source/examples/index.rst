@@ -16,7 +16,7 @@ explicitly.
 --------------- 
 
 The 15-category framework
-=========================
+-------------------------
 
 The Phase 114/116/123 corpus populates the framework with 52 ``.kark`` source
 files (15 categories, 4 of them deliberately Planned — README only). See the
@@ -106,7 +106,7 @@ inventory ``examples/EXAMPLES.md`` for the authoritative file list.
 --------------- 
 
 How to explore
-==============
+--------------
 
 The fastest path is the :doc:`/getting-started/first-program`, then run the
 corpus:
@@ -122,7 +122,7 @@ ones through the real CLI — 51 examples pass; 5 are deliberately skipped (the
 test-mode runner and the four Planned categories).
 
 Validation corpus
-=================
+-----------------
 
 Three checked-in corpora give these examples their weight:
 
@@ -137,7 +137,7 @@ Three checked-in corpora give these examples their weight:
   Runnable example to a golden output on both engines.
 
 Example inventory (repository)
-==============================
+------------------------------
 
 * ``examples/algorithms/`` — 21 algorithm programs (factorial, fibonacci,
   gcd, lcm, power, sieve, and more).

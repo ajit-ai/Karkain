@@ -15,17 +15,17 @@ All functions are implemented in pure canonical Karkain with untyped
 parameters.
 
 Importing
-=========
+---------
 
 .. code-block:: karkain
 
    import std.io
 
 Module reference
-================
+----------------
 
 Reading
--------
+~~~~~~~
 
 ``io_read_all(path)``
    Reads the complete contents of ``path`` into a string. Returns ``""`` if
@@ -49,7 +49,7 @@ Reading
    Returns: ``string[]``
 
 Writing
--------
+~~~~~~~
 
 ``io_write_file(path, data)``
    Writes ``data`` to ``path``, replacing any existing content. Returns ``1``
@@ -68,7 +68,7 @@ Writing
    Returns: ``string``
 
 File lifecycle
---------------
+~~~~~~~~~~~~~~
 
 ``io_file_exists(path)``
    Returns ``true`` if ``path`` names an existing regular file that can be
@@ -84,7 +84,7 @@ File lifecycle
    Returns: the result of the underlying ``closeFile``.
 
 Process
--------
+~~~~~~~
 
 ``io_run(command)``
    Executes a shell command and returns its exit status. Delegates to the
@@ -92,14 +92,14 @@ Process
    Returns: ``int``
 
 Windows note
-=============
+-------------
 
 Call ``io_close`` before ``io_delete_file`` on Windows, or the operating
 system retains the open handle and the delete fails (the file stays locked).
 The same applies before removing files you have just read or written.
 
 Example
-=======
+-------
 
 .. code-block:: karkain
 

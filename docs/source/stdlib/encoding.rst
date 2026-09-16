@@ -17,14 +17,14 @@ Hex and Base64 behavior is verified against the NIST FIPS 180 vectors and
 RFC 4648, and is byte-identical on both engines.
 
 Importing
-=========
+---------
 
 .. code-block:: karkain
 
    import std.encoding
 
 Module reference
-================
+----------------
 
 ``hex_encode(data)``
    Returns the lowercase hexadecimal encoding of ``data`` (every byte becomes
@@ -63,7 +63,7 @@ Module reference
    Returns: ``bool``
 
 Malformed input
-===============
+---------------
 
 ``hex_decode`` and ``base64_decode`` fail with the same diagnostic on both
 engines:
@@ -77,7 +77,7 @@ as a program failure (exit code ``1``) — same source-located runtime error
 model used across the language.
 
 Verified vectors
-================
+----------------
 
 Hexadecimal (RFC 4648 §8 / FIPS 180):
 
@@ -107,7 +107,7 @@ UTF-8:
    utf8_valid("caf\xa9")        -> false  // lone continuation byte
 
 Example
-=======
+-------
 
 .. code-block:: karkain
 

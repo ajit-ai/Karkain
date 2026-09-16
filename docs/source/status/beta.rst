@@ -18,7 +18,7 @@ and what it deliberately does not.
    :depth: 1
 
 What Beta 1 means
-=================
+-----------------
 
 Beta 1 is a maturity statement about the **implemented** core, not a claim
 that every roadmap feature exists:
@@ -50,14 +50,14 @@ Features outside the stable core remain classified as
 stable.
 
 The Beta 1 stable core
-======================
+----------------------
 
 The following surface is the Beta 1 stable core. Both engines (the Go front
 end and the self-hosted ``kcc``) accept and run these features with
 byte-identical output on the golden corpus.
 
 Language
---------
+~~~~~~~~
 
 * Variables (``let``/``var``/``const``), functions, recursion, control flow
   (``if``/``else``, ``while``/C-style ``for``/``for-in``, ``break``/
@@ -69,7 +69,7 @@ Language
   ``public`` exports and qualified calls.
 
 Toolchain
----------
+~~~~~~~~~
 
 * ``karkain check | build | run | test | fmt | lint | debug | prof |
   target | explain | clean | pkg | lsp``.
@@ -83,7 +83,7 @@ Toolchain
   engines.
 
 Standard library
-----------------
+~~~~~~~~~~~~~~~~
 
 The public stdlib modules are ``std.string``, ``std.collections``,
 ``std.io``, ``std.encoding`` and ``std.crypto`` (plus ``std.testing`` just
@@ -91,7 +91,7 @@ for tests). ``std.encoding``/``std.crypto`` are backed by byte-level runtime
 builtins verified against NIST FIPS 180 and RFC 4648 test vectors.
 
 Examples
---------
+~~~~~~~~
 
 The example corpus (Phase 114/116: 49 pinned golden examples plus the
 developer/real-world categories) is regression-gated: every ``Runnable``
@@ -99,7 +99,7 @@ example carries a header declaring its engine and every golden is asserted
 byte-identical on every run.
 
 Compatibility expectations
-==========================
+--------------------------
 
 * **Stable core**: changes are deliberate, documented and accompanied by a
   regression test. Breaking the published stable surface requires a
@@ -114,7 +114,7 @@ claim is made, and the compatibility policy is intentionally lightweight
 until a release candidate establishes a full 1.0 matrix.
 
 Known limitations (honest list)
-===============================
+-------------------------------
 
 * **Engine boundaries** — concurrency, profiling, debug tracing, WASM and
   SIMD vector types are Go-engine only; ``kcc`` parity for those surfaces is
@@ -136,7 +136,7 @@ Known limitations (honest list)
   there is no public registry.
 
 Feedback expectations
-=====================
+---------------------
 
 Beta 1 exists to gather feedback on the *implemented* core. Report issues,
 incorrect diagnostics, engine divergences and missing documentation at the

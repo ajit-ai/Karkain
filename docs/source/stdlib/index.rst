@@ -8,7 +8,7 @@ any program through the normal toolchain (``import std.string`` and friends)
 on both engines — the Go front end and the self-hosted ``kcc`` engine.
 
 Implemented and importable modules
-==================================
+----------------------------------
 
 :implemented:`Implemented` — these modules are importable, tested, and
 byte-identical on both engines:
@@ -53,7 +53,7 @@ Modules that do not exist in the repository at all — ``std.memory``,
 :doc:`not-implemented <not-implemented>`.
 
 Invariants shared by every implemented module
-=============================================
+---------------------------------------------
 
 * Every module is written in canonical Karkain (untyped parameters, no type
   annotations) and produces byte-identical behavior on the Go engine and the
