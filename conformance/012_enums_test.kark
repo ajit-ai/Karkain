@@ -1,4 +1,4 @@
-enum Color { Red, Green, Blue }
+enum Color {Red, Green, Blue}
 
 func test_enum_unit_variants() {
     let a = Color.Red
@@ -42,7 +42,7 @@ func test_enum_through_function() {
 
 func test_enum_if_chain() {
     let c = Color.Green
-    if (c == Color.Green) {
+    if(c == Color.Green) {
         assert_eq(1, 1)
     } else {
         assert_eq(0, 1)
