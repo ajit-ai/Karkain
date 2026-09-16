@@ -179,9 +179,10 @@ Project status
    * - WASM (``wasm32-wasi``)
      - :production-candidate:`Production Candidate` — Go-engine backend,
         wasmtime-gated; WASI exit codes, stderr and ``getArgs()`` implemented
-   * - GPU / NPU / quantum kernels
-     - :planned:`Planned` — backend abstractions exist, language surface is not
-        released
+   * - GPU / NPU / quantum compute targets
+     - :experimental:`Experimental` — Phase 124: compute-target model and KIR
+         lowering boundary; the language surface for kernels stays
+         :planned:`Planned`
    * - Networking, databases, web, AI/ML
      - :planned:`Planned` — not yet supported
    * - Package registry
