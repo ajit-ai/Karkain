@@ -1363,7 +1363,7 @@ func main() {
 			}
 			os.Exit(result.ExitCode)
 		case "target":
-			result := cli.TargetCommand()
+			result := cli.TargetCommand(args[i+1:]...)
 			os.Exit(result.ExitCode)
 		case "config":
 			result := cli.ConfigCommand()

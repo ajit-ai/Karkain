@@ -27,6 +27,26 @@ Usage
 The ``Host:`` line is the canonical short host triple (arch-os-env), and
 the matrix lists every modeled target from the ``pkg/target`` package.
 
+Compute targets
+===============
+
+Phase 124 adds the accelerator-target catalog below the ``Default:`` line:
+
+.. code-block:: console
+
+    Compute targets (Phase 124 experimental):
+      cpu                  implemented   Reference scalar CPU executor (the default lowering surface)
+      gpu-experimental     experimental  Data-parallel kernel executor over tensor/matrix ops (model only; no vendor dependencies)
+      npu-experimental     experimental  Single-invocation neural inference over tensor/matrix ops (model only; no vendor dependencies)
+      quantum-experimental research      Quantum circuit executor over gate primitives and measurement (spec model only)
+      simd                 implemented   CPU executor with lane-vector arithmetic (Phase 106 @simd_* surface)
+      wasm32-wasi          experimental  WebAssembly/WASI executor (Phase 108 Karkain-owned wasm backend)
+
+``karkain target <name>`` prints the capability view of one compute target
+(capabilities, accepted KIR v1 classes, native tensor operations); unknown
+names are a usage error. The exact semantics and the KIR lowering boundary
+are documented in :doc:`/targets/compute-targets`.
+
 Cross-compilation
 =================
 
@@ -79,3 +99,4 @@ Exit codes
    :doc:`/targets/host-targets` — host detection and the target model.
    :doc:`/targets/cross-compilation` — Phase 111 cross-compilation.
    :doc:`/targets/target-triples` — triple format and normalization.
+   :doc:`/targets/compute-targets` — Phase 124 compute-target model.
