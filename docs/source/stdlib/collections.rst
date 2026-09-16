@@ -15,17 +15,17 @@ All functions are implemented in pure canonical Karkain with untyped
 parameters and are identical on the Go and ``kcc`` engines.
 
 Importing
-=========
+---------
 
 .. code-block:: karkain
 
    import std.collections
 
 Module reference
-================
+----------------
 
 Lookup
-------
+~~~~~~
 
 ``array_contains(arr, val)``
    Returns ``true`` if the integer array ``arr`` contains ``val``.
@@ -46,7 +46,7 @@ Lookup
    Returns: ``int``
 
 Construction
-------------
+~~~~~~~~~~~~
 
 ``array_fill(val, n)``
    Returns a new array of ``n`` elements all set to ``val``. Note the
@@ -72,7 +72,7 @@ Construction
    Returns: ``array``
 
 Shaping
--------
+~~~~~~~
 
 ``array_slice(arr, start, end)``
    Returns a sub-array of the integer array ``arr`` from ``start`` up to (but
@@ -106,7 +106,7 @@ Shaping
    Returns: ``array``
 
 Aggregation
------------
+~~~~~~~~~~~
 
 ``array_sum(arr)``
    Returns the sum of all elements.
@@ -126,7 +126,7 @@ Aggregation
    Returns: ``array`` — ``[int, int]``
 
 Maps
-----
+~~~~
 
 ``map_keys(m)``
    Returns an array of all keys in the map ``m``. Delegates to the runtime
@@ -148,7 +148,7 @@ Maps
    Returns: ``map``
 
 Example
-=======
+-------
 
 .. code-block:: karkain
 
@@ -168,7 +168,7 @@ Example
    }
 
 Note
-====
+----
 
 Map iteration order follows ``map_keys_of`` (the runtime builtin): keys are
 returned in the runtime's internal order, which is deterministic for a given
@@ -176,7 +176,7 @@ program but is not insertion order. Do not rely on ``map_keys`` /
 ``map_values`` ordering across programs.
 
 See also
-========
+--------
 
 :doc:`collections <../language/collections>` — the language's built-in array
 and map support.

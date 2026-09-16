@@ -9,7 +9,7 @@ root. This page summarizes the current state for documentation purposes.
    :depth: 1
 
 Completed phases (50–119)
-=========================
+-------------------------
 
 Phases 50–119 are complete and shipped as **Karkain 1.0.0 (Stable)**. A
 concise summary:
@@ -48,7 +48,7 @@ concise summary:
   QA battery, release documentation.
 
 Key cross-cutting milestones
-============================
+----------------------------
 
 * **Phases 71–78**: Math/Tensor IR chain and the CPU/GPU/NPU backend
   abstraction — internal packages with no language surface yet released.
@@ -58,7 +58,7 @@ Key cross-cutting milestones
   compiler for ``check/build/run/test``, with bootstrap identity.
 
 Current status
-==============
+--------------
 
 The project is **Karkain 1.0.0 (Stable)** (label adopted at Phase 119). The
 versioned language specification lives in ``SPEC.md``; the authoritative
@@ -67,7 +67,7 @@ compatibility guarantees are documented at :doc:`/status/compatibility`.
 Release notes are tracked at :doc:`/release-notes`.
 
 What ships in 1.0.0 today
-=========================
+-------------------------
 
 * Importable standard library modules (``std.string``, ``std.collections``,
   ``std.io``, ``std.encoding``, ``std.crypto``, ``std.testing``) on both
@@ -85,7 +85,7 @@ What ships in 1.0.0 today
   Phase 123 (WASI exit codes, stderr, ``getArgs()``).
 
 Future
-======
+------
 
 Beyond 1.0.0:
 

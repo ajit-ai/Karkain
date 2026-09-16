@@ -11,7 +11,7 @@ structure and how to run each layer.
    :depth: 1
 
 Go unit tests
-=============
+-------------
 
 Every ``pkg/*/...`` package has ``*_test.go`` files that run in-process
 without invoking the compiler subprocess. Run the core packages with:
@@ -32,7 +32,7 @@ On the documented 4 GB host, run single packages sequentially:
    GOMAXPROCS=1 GOGC=60 go test ./pkg/codegen/... -count=1
 
 Conformance corpus
-==================
+------------------
 
 ``conformance/`` contains 11 test files with **59** ``func test_*``
 functions:
@@ -55,7 +55,7 @@ These run through the real front end + C runtime on both engines. The test
 driver ensures byte-identical stdout and exit codes on both engines.
 
 E2E CLI tests
-=============
+-------------
 
 ``pkg/cli/*_test.go`` exercises the real CLI subprocess — ``karkain check``,
 ``karkain build``, ``karkain run``, ``karkain test``, ``karkain fmt``,
@@ -70,7 +70,7 @@ Run the full CLI suite (large, allocate dedicated time):
    go test ./pkg/cli/... -count=1
 
 Phase-specific gate tests
-=========================
+-------------------------
 
 Each major phase has a ``phase*_test.go`` gate that pins the behavior it
 introduced. Examples:
@@ -89,7 +89,7 @@ introduced. Examples:
 All gate tests must pass before merging.
 
 Memory constraints (documented)
-===============================
+-------------------------------
 
 On the documented ~4 GB host, running the full ``go test ./pkg/...`` tree
 in parallel causes stalls and OOMs. Mitigations:

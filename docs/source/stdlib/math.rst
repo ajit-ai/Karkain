@@ -24,7 +24,7 @@ math-primitive layer under ``runtime/freestanding`` and ``runtime/core`` as a
 future foundation).
 
 What is in the source file
-==========================
+--------------------------
 
 The file defines grouped math helpers matching this surface (documented
 **only** as the future direction of the module — treat none of these as
@@ -43,7 +43,7 @@ Signatures will change when the module is made importable, so do not write
 code against this surface.
 
 Error status
-============
+------------
 
 .. code-block:: text
 

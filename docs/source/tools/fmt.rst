@@ -18,7 +18,7 @@ Usage
   non-zero if any file would change.
 
 How it works
-============
+------------
 
 The formatter is deliberately conservative (contract-level, not a
 sophisticated AST pretty-printer): it preserves token text and order,
@@ -43,14 +43,14 @@ twice produces the same output.
     $ echo $?   # exits non-zero
 
 CI usage
-========
+--------
 
 ``--check`` is intended as a CI gate: run it over the whole source tree
 and fail the job when it reports unformatted files. The exit code is
 non-zero when any file would change.
 
 Exit codes
-==========
+----------
 
 - ``0`` — every file is (or became) canonical
 - ``1`` — ``--check`` found files that need formatting, or an I/O error

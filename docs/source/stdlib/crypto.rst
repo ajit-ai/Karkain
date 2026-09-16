@@ -11,14 +11,14 @@ returned as lowercase hexadecimal strings. The runtime implementation is the
 well-known compact public-domain algorithm built on the FIPS 180-4 constants.
 
 Importing
-=========
+---------
 
 .. code-block:: karkain
 
    import std.crypto
 
 Module reference
-================
+----------------
 
 ``sha256(data)``
    Returns the SHA-256 digest of ``data`` as a 64-character lowercase
@@ -31,7 +31,7 @@ Module reference
    Returns: ``string``
 
 Verified vectors (NIST FIPS 180)
-================================
+--------------------------------
 
 SHA-256:
 
@@ -55,7 +55,7 @@ Both engines produce byte-identical digests for the same input, so hashes of
 Go front end or the self-hosted ``kcc`` engine.
 
 Example
-=======
+-------
 
 .. code-block:: karkain
 

@@ -18,7 +18,7 @@ framing per the LSP specification). It is invoked directly by an editor
 or IDE client; there is no blocking network port.
 
 Capabilities
-============
+------------
 
 The server advertises and implements:
 
@@ -51,7 +51,7 @@ The server advertises and implements:
        :doc:`fmt`
 
 Diagnostics sync
-================
+----------------
 
 On every ``textDocument/didOpen`` and ``textDocument/didChange``, the
 server analyzes the document with the same engine-agnostic
@@ -66,7 +66,7 @@ The Go front-end engine is used for analysis regardless of the
 the self-hosted runner does not expose yet.
 
 Client integration
-==================
+------------------
 
 The LSP capability is what powers the bundled **VS Code extension**
 (``extension.js`` commands check/compile/run/format). Configure the

@@ -235,7 +235,7 @@ Expected output (verified):
    29
 
 Array stack and queue
-=====================
+---------------------
 
 ``examples/02-algorithms/11_stack.kark`` — a pointer-based stack over the
 language's dynamic array type (push via the array, pop by moving the top
@@ -251,7 +251,7 @@ index:
    :language: kark
 
 0/1 knapsack (dynamic programming)
-==================================
+----------------------------------
 
 ``examples/02-algorithms/13_knapsack.kark`` — a two-dimensional DP table
 built from arrays; answers are exact and deterministic:
@@ -279,7 +279,7 @@ Expected outputs (verified on both engines):
    9
 
 Note on arrays
-==============
+--------------
 
 Arrays are passed **by value** into functions. ``push(primes, n)`` above
 mutates a variable in the same scope; to grow an array inside a helper and

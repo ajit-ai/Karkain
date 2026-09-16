@@ -16,14 +16,14 @@ All functions are implemented in pure Karkain with untyped parameters and are
 identical on the Go and ``kcc`` engines.
 
 Importing
-=========
+---------
 
 .. code-block:: karkain
 
    import std.string
 
 Module reference
-================
+----------------
 
 ``str_len(s)``
    Returns the length (number of bytes) of ``s``. Delegates to ``len()``.
@@ -143,7 +143,7 @@ Module reference
    Returns: ``string``
 
 Example
-=======
+-------
 
 .. code-block:: karkain
 
@@ -167,6 +167,6 @@ Example
    ababab
 
 See also
-========
+--------
 
 :doc:`strings <../language/strings>` — the language's built-in string support.

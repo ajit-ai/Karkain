@@ -9,7 +9,7 @@ produce a correct, mergeable pull request.
    :depth: 1
 
 Fork, branch, commit, PR
-========================
+------------------------
 
 1. **Fork** the repository on GitHub.
 2. **Create a branch** off ``develop`` — descriptive names preferred, e.g.
@@ -22,7 +22,7 @@ Fork, branch, commit, PR
    feature boundary, what was tested, and any honest limitations.
 
 Branch workflow (hard rule)
-===========================
+---------------------------
 
 After **every** Phase completion and successful test run:
 
@@ -34,7 +34,7 @@ This ensures ``main`` always reflects the latest working state. This is a
 hard rule — never skip this step.
 
 Running the test suite
-======================
+----------------------
 
 Run the full test suite before committing. **All tests must pass.**
 
@@ -55,7 +55,7 @@ On the documented 4 GB host, run single-package tests sequentially:
    dedicated session rather than as part of a fast commit cycle.
 
 Code style
-==========
+----------
 
 * **No comments** in source unless explicitly asked for them.
 * Use the ``.kark`` extension for all Karkain source files.
@@ -65,7 +65,7 @@ Code style
   Go (``pkg/**/``); follow whichever applies to your change.
 
 Self-hosting boundary
-=====================
+---------------------
 
 Changes to ``src/compiler/*.kark`` are part of the self-hosted compiler.
 Modify them with care: the Go codegen path and the self-hosted ``kcc``
@@ -77,7 +77,7 @@ engine must agree. Test with both engines explicitly:
    KARKAIN_ENGINE=kcc go test ./pkg/cli/... -run TestPhase99_Selfhosted -count=1
 
 Language surface changes
-========================
+------------------------
 
 New keywords, builtins or runtime helpers need changes in multiple places at
 once — a minimal parity map:
@@ -95,7 +95,7 @@ All additions must pass the full regression suite on **both** engines before
 committing.
 
 Security rules
-==============
+--------------
 
 * Never commit secrets, keys or credentials.
 * Never log or expose secrets in generated code.
