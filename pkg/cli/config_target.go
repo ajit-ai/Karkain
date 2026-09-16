@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"karkain/pkg/codegen"
 	"karkain/pkg/target"
@@ -19,10 +20,15 @@ func sortedTargets() []string {
 	return out
 }
 
-// TargetCommand implements `karkain target`: it lists the host platform, the
-// closed set of targets the toolchain can genuinely produce output for today,
-// and the default used when --target is omitted.
-func TargetCommand() CommandResult {
+// TargetCommand implements `karkain target [compute-target]`: it lists the
+// host platform, the closed set of targets the toolchain can genuinely
+// produce output for today, and the default used when --target is omitted.
+// With an optional compute-target argument it prints the Phase-124 capability
+// view of that target instead; unknown compute-target names are a usage error.
+func TargetCommand(rest ...string) CommandResult {
+	if len(rest) > 0 {
+		return computeTargetDetail(rest[0])
+	}
 	fmt.Println("Host: " + target.Host().String())
 	fmt.Println("Supported targets:")
 	for _, t := range sortedTargets() {
@@ -32,7 +38,47 @@ func TargetCommand() CommandResult {
 		fmt.Printf("  %-14s %s\n", t.String(), target.Describe(t))
 	}
 	fmt.Println("Default: native")
+	fmt.Println("Compute targets (Phase 124 experimental):")
+	for _, ct := range target.ComputeTargets() {
+		fmt.Printf("  %-20s %-13s %s\n", ct.Name, ct.Maturity.String(), ct.Description)
+	}
 	return CommandResult{ExitCode: ExitSuccess, Message: ""}
+}
+
+// computeTargetDetail renders the capability view of one registered compute
+// target: identity, maturity, memory/execution model, the capability set, the
+// accepted KIR v1 classes and the native tensor ops.
+func computeTargetDetail(name string) CommandResult {
+	ct := target.LookupComputeTarget(name)
+	if ct == nil {
+		fmt.Printf("Error: unknown compute target '%s'\n", name)
+		fmt.Println("Known compute targets: " + strings.Join(computeTargetNames(), ", "))
+		return CommandResult{ExitCode: ExitUsage, Message: ""}
+	}
+	fmt.Printf("Compute target: %s\n", ct.Name)
+	fmt.Printf("Family:         %s\n", ct.Family)
+	fmt.Printf("Maturity:       %s\n", ct.Maturity.String())
+	if ct.Triple != nil {
+		fmt.Printf("Host triple:    %s\n", ct.Triple.String())
+	}
+	fmt.Printf("Memory model:   %s\n", ct.MemoryModel)
+	fmt.Printf("Execution model:  %s\n", ct.ExecutionModel)
+	fmt.Printf("Description:    %s\n", ct.Description)
+	fmt.Printf("Capabilities:   %s\n", strings.Join(ct.Capabilities.List(), ", "))
+	fmt.Printf("KIR classes:    %s\n", strings.Join(ct.KIRClasses.List(), ", "))
+	if ops := ct.TensorOpNames(); len(ops) > 0 {
+		fmt.Printf("Tensor ops:     %s\n", strings.Join(ops, ", "))
+	}
+	return CommandResult{ExitCode: ExitSuccess, Message: ""}
+}
+
+func computeTargetNames() []string {
+	cts := target.ComputeTargets()
+	out := make([]string, 0, len(cts))
+	for _, ct := range cts {
+		out = append(out, ct.Name)
+	}
+	return out
 }
 
 func aliasTargetNote(name string) string {

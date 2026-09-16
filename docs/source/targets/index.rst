@@ -21,6 +21,7 @@ cross-linker fails deterministically with a ``ToolchainError`` (exit 6)
    host-targets
    cross-compilation
    target-triples
+   compute-targets
 
 Overview
 ========
@@ -45,3 +46,4 @@ Overview
    :doc:`target-triples` — the triple format accepted and normalized.
    :doc:`host-targets` — how the host is detected and why it matters.
    :doc:`cross-compilation` — Phase 111 behavior and the honest matrix.
+   :doc:`compute-targets` — Phase 124 GPU/NPU/quantum target model.
