@@ -1,26 +1,57 @@
 Web
 ===
 
-:not-implemented:`Not Yet Implemented` — there is no web framework or HTTP
-server runnable from ``.kark`` today.
+:implemented:`Implemented` — ``std.http`` provides minimal HTTP/1.1 client
+and server building blocks callable from ``.kark`` on both engines, built on
+top of the ``std.net`` TCP socket primitives.
 
-The category directory ``examples/07-web/`` exists only to preserve the
-15-category framework and record the honest status: no web or HTTP surface is
-implemented, and a sockets prerequisite (see :doc:`/examples/networking`) has
-not shipped yet.
+The ``examples/07-web/`` category contains two runnable examples
+demonstrating HTTP request/response objects and server-side handling.
 
-The roadmap path is:
+.. list-table:: Examples
+   :widths: 40 60
 
-1. socket runtime in the generated C,
-2. ``std.net`` TCP client/server,
-3. ``std.http`` request/response,
-4. routing and middleware conventions,
-5. static file serving.
+   * - ``01_http_loopback.kark``
+     - Request/receive/serve loopback: server receives a request, creates a
+       200 response, client prints both.
+   * - ``02_http_codec.kark``
+     - HTTP object constructors and codecs: build and parse requests and
+       responses, read back fields.
 
-A plain TCP echo client/server will be the first real example once step (1)
-lands.
+Implemented ``std.http`` surface
+--------------------------------
+
+.. code-block:: kark
+
+   std.http (minimal HTTP/1.1):
+     http_make_request(method, path, headers, body) -> request
+     http_make_response(status, reason, headers, body) -> response
+     http_new_headers() -> headers map
+     http_parse_request(text) -> request
+     http_parse_response(text) -> response
+     http_parse_headers(header_body) -> headers map
+     http_split_message(text) -> parts
+     http_build_request(method, host, port, path, headers, body) -> wire text
+     http_build_response(status, reason, headers, body) -> wire text
+     http_request_send(method, host, port, path, headers, body) -> response
+     http_get(host, port, path) -> response
+     http_post(host, port, path, body) -> response
+     http_listen(host, port) -> listener    # raw socket level
+     http_accept(listener) -> connection
+     http_read_request(conn, max) -> request
+     http_write_response(conn, status, reason, body)
+     http_read_all(fd, limit) / http_read_until(fd, marker, limit)
+     http_close(fd)
+
+Values use the shapes ``Request { method, path, headers, body, error }`` and
+``Response { status, reason, headers, body, error }`` (headers: a name →
+value string map). Body transfer is Content-Length based and every message is
+terminated with ``Connection: close``; failure is signalled via the ``error``
+field (empty = success).
+
+HTTP runs on top of ``std.net`` TCP sockets, pinned byte-identical on both
+engines in the phase114 gate.
 
 .. seealso::
 
    :doc:`/examples/networking` — the prerequisite networking surface.
-   :doc:`/status/planned` — the roadmap vocabulary.

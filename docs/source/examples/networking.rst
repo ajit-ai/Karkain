@@ -1,28 +1,47 @@
 Networking
 ==========
 
-:not-implemented:`Not Yet Implemented` — no networking APIs are callable from
-``.kark`` today.
+:implemented:`Implemented` — ``std.net`` provides TCP client/server networking
+callable from ``.kark`` on both engines (the Go front end and the self-hosted
+``kcc`` engine), backed by socket primitives in the generated C preamble.
 
-The category directory ``examples/04-networking/`` exists in the corpus only
-to preserve the 15-category framework and carry an honest README: there is no
-socket or HTTP language surface, and ``std.net`` / ``std.http`` are not
-implemented (no stub or placeholder exists in the repository).
+The ``examples/04-networking/`` category contains two runnable examples
+demonstrating ``std.net`` TCP primitives end-to-end.
 
-An intended future surface (roadmap only, **not** implemented):
+.. list-table:: Examples
+   :widths: 40 60
+
+   * - :doc:`01_tcp_echo <networking>`
+     - TCP echo server + client loopback: bind, connect, send/recv, close.
+   * - :doc:`02_tcp_roundtrip <networking>`
+     - Two-message request/response round-trip over a single TCP connection.
+
+Implemented ``std.net`` surface
+-------------------------------
 
 .. code-block:: kark
 
    std.net:
-     tcp_connect(host, port) -> connection
-     tcp_listen(port) -> listener
-     http_get(url) -> response
-     http_server(port, handler) -> server
+     net_address(host, port) -> address     # { host, port }
+     net_endpoint(host, port) -> endpoint   # address + scheme ("tcp")
+     net_dial(point) -> connection fd       # TCP connect (or -1)
+     net_serve(point) -> listener fd        # bind + listen (or -1)
+     net_accept_next(listener) -> connection fd
+     net_recv(conn, max) -> received string
+     net_send(conn, data) -> bytes sent
+     net_shut(fd)
+     net_error() -> last-error string
+     net_fd_open(fd) -> bool                # fd >= 0
 
-None of the above is runnable. The prerequisite is a socket runtime in the
-generated C; until then this page stays honest and no example is provided.
+The module wraps the runtime builtins ``net_connect`` / ``net_listen`` /
+``net_accept`` / ``net_read`` / ``net_write`` / ``net_close`` /
+``net_last_error``. Blocking reads time out after 5 seconds; failures return
+-1 (or ``""``) and set a deterministic last-error string readable via
+``net_error``.
+
+Networking is pinned byte-identical on both engines in the phase114 gate —
+the runtime socket primitives live in the generated C preamble.
 
 .. seealso::
 
-   :doc:`/status/planned` — the capability roadmap.
-   :doc:`/examples/web` — the web category that depends on networking.
+   :doc:`/examples/web` — HTTP layer built on top of ``std.net``.

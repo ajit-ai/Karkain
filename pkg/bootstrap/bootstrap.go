@@ -298,6 +298,13 @@ func compileWithGCC(cFile, outputBinary string) error {
 		"-lm",
 		"-lgmp",
 	}
+	// The generated-C preamble carries the net_* runtime unconditionally, and
+	// MinGW gcc ignores #pragma comment(lib, ...): Winsock symbols must be
+	// resolved through an explicit -lws2_32 on Windows hosts. POSIX hosts use
+	// the syscall/socket API, so no extra library is needed there.
+	if runtime.GOOS == "windows" {
+		args = append(args, "-lws2_32")
+	}
 
 	return runCmd(filepath.Dir(outputBinary), "gcc", args...)
 }

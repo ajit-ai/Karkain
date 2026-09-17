@@ -290,6 +290,71 @@ three Phase 123 subtests PASS; Phase 99 gate still green after checker changes
 `Set-Content -Encoding UTF8` write a UTF-8 BOM (`EF BB BF`) that the Go lexer
 rejects — test fixtures must be BOM-stripped. Reports:
 `docs/audit/PHASE-123-ENUM-ADT-PARITY-FINAL-REPORT.md`.)
+Also completed: **125A — Standard-Library Networking / Database / Web slice +
+Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
+six new examples, unconditional net-runtime emission on BOTH engines, and the
+Windows `-lws2_32` link contract enforced across every generated-C linker.
+Modules: `stdlib/net/net.kark` (`net_address`/`net_endpoint`/`net_dial`/
+`net_serve`/`net_accept_next`/`net_recv`/`net_send`/`net_shut`/`net_error`/
+`net_fd_open` — thin wrappers over `net_connect`/`net_listen`/`net_accept`/
+`net_read`/`net_write`/`net_close`/`net_last_error`), `stdlib/http/http.kark`
+(`http_make_request`/`http_make_response`/`http_new_headers`/
+`http_parse_request`/`http_parse_response`/`http_parse_headers`/
+`http_split_message`/`http_build_request`/`http_build_response`/
+`http_request_send`/`http_get`/`http_post`/`http_listen`/`http_accept`/
+`http_read_request`/`http_write_response`/`http_read_all`/`http_read_until`/
+`http_close`), `stdlib/db/db.kark` (SQL-text engine: `db_engine`/`db_backend`/
+`db_open`/`db_execute`/`db_query`/`db_result`/`db_last_error`/`db_last_count`/
+`db_create`/`db_insert`/`db_select`/`db_update`/`db_delete`/`db_drop`/
+`db_begin`/`db_commit`/`db_rollback`/`db_prepare`/`db_execute_stmt`/`db_format`/
+`db_save`/`db_close`/`db_load`; documented `#karkain-db-v1` deterministic
+pipe-delimited persistence; reported via `db_engine()`; written in canonical
+Karkain for identical both-engine compile). Runtime emission: Go `pkg/codegen/
+codegen.go` emits the net runtime **unconditionally** in the generated-C
+preamble (+205 verified by the same gates that pin every byte), and the
+self-hosted `src/compiler/codegen.kark` mirrors it (+202) so kcc output is
+byte-identical; builtin registration in `pkg/sema/resolve.go` and checker
+tables in `src/compiler/{checker,sema}.kark`. **Windows Winsock link contract
+(real defect, root-caused and fixed):** because the preamble now references
+Winsock unconditionally and MinGW gcc ignores `#pragma comment(lib, ...)`,
+EVERY generated-C link on Windows needs `-lws2_32`. The Go host-native and
+cross paths already gained it (`pkg/codegen/cross_target.go` `hostNativeFlags`
++ 3 cross-compiler branches); kcc paths use `winsockLibFlag()` in
+`pkg/cli/kcc_engine.go` (stage-1 link, artifact link, sandbox run link + the
+`phase95_parity_test.go` raw link). **Bootstrap defect fixed**: `pkg/bootstrap`
+stage-1/stage-2/stage-3 `compileWithGCC` lacked the flag, so the bootstrap
+compiler link failed with undefined `__imp_WSAGetLastError`/`__imp_WSAStartup`/
+`__imp_getaddrinfo`/`__imp_socket`/`__imp_connect`/etc.; now appends `-lws2_32`
+on Windows (runtime.GOOS guard). Legacy `phase88/89/90` test raw-gcc links also
+gained `winsockLibFlag()`. Corpus: 6 new examples pinned in the Phase 114 gate
+(→61 total, all both-engine): `examples/04-networking/01_tcp_echo.kark`
+(print `4/ping/4/pong/4`-style loopback echo), `02_tcp_roundtrip.kark`,
+`examples/06-database/01_db_crud.kark` (`db_create`/`db_insert`/`db_select`/
+`db_update`/`db_delete`), `02_db_persist.kark` (`db_save`/`db_load` to a temp
+file), `examples/07-web/01_http_loopback.kark`, `02_http_codec.kark`;
+goldens byte-identical Go↔kcc (verified by targeted + full KCCParity runs).
+Docs honesty fix: `docs/source/examples/{networking,database,web}.rst` + the
+three category `README.md`s previously documented INVENTED surfaces
+(`tcp_connect`/`socket_send`/`db_where`/`http_serve`, etc.) — rewritten to the
+real module surfaces above, plus malformed `.. implemented:` → `:implemented:`.
+KIR continuity: whole-tree KIR count grew **6645 → 6910** (net runtime +
+builtins in `src/compiler/*.kark`), pin + note updated in
+`pkg/cli/phase122_pipeline_ownership_test.go` (re-verified stable, all 7
+subtests PASS 258s). Regressions green after the winsock fixes: `go build
+./...`, `go vet` (cli/bootstrap/codegen/sema), TestPhase88/89/90 (full suite
+86s), TestPhase95 (probes+conformance+engine-selection 167s), TestPhase101/
+109/117 (kcc+stdlib edge), TestPhase122, TestPhase123, `pkg/bootstrap`
+Stage-1 + all args tests (16s), `pkg/codegen`, net-example end-to-end
+`run --engine go` AND `run --engine kcc` both print the identical golden
+(`3/one/3/two/3` for 02_tcp_roundtrip). Documented environmental (NOT
+defects): bootstrap Stage-2/Stage-3 (`TestBootstrap_Stage2SelfHosting`/
+`BitwiseIdentity`) still hang/SEGFAULT on this ~4GB host — the pre-existing
+kcc-build-mode OOM class, unchanged by this slice (Stage-1 GO-engine path is
+the green gate on small hosts); the `TestPhase107_CodegenSpawnJoin` OOM flake
+in full-tree `./pkg/...` runs also remains the documented class (passes
+isolated). Reports: this record; `ROADMAP-PLAN.md` is a stale pre-50 planning
+doc whose "Phase 124/125" (x64 backend / incremental-build v2) are unrelated —
+AGENTS.md records the authoritative completion state.)
 Also completed: **111** — Cross-Compilation
 (`--target <triple>` is a real, explicit cross-compilation switch backed by
 the Karkain-owned target model `pkg/target` (arch/os/env, canonical short

@@ -80,6 +80,13 @@ func isCheckerBuiltin(name) {
     if (name == "sha512_hex") { return 1 }
     if (name == "map_keys_of") { return 1 }
     if (name == "http.get") { return 1 }
+    if (name == "net_connect") { return 1 }
+    if (name == "net_listen") { return 1 }
+    if (name == "net_accept") { return 1 }
+    if (name == "net_read") { return 1 }
+    if (name == "net_write") { return 1 }
+    if (name == "net_close") { return 1 }
+    if (name == "net_last_error") { return 1 }
     if (name == "Some") { return 1 }
     if (name == "None") { return 1 }
     if (name == "Ok") { return 1 }
@@ -130,6 +137,13 @@ func checkerBuiltinArity(name) {
     if (name == "sha256_hex") { return 1 }
     if (name == "sha512_hex") { return 1 }
     if (name == "map_keys_of") { return 1 }
+    if (name == "net_connect") { return 2 }
+    if (name == "net_listen") { return 2 }
+    if (name == "net_accept") { return 1 }
+    if (name == "net_read") { return 2 }
+    if (name == "net_write") { return 2 }
+    if (name == "net_close") { return 1 }
+    if (name == "net_last_error") { return 0 }
     return -1
 }
 

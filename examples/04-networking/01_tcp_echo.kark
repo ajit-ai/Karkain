@@ -1,0 +1,29 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 04 Networking
+//
+// Single-process TCP echo over loopback with std.net: the server listens on
+// 127.0.0.1:49051, the client connects, sends "ping", and the server echoes
+// it back. Client and server live in one process so the example is fully
+// deterministic.
+//
+// Run:  karkain run examples/04-networking/01_tcp_echo.kark
+
+import std.net
+
+func main() {
+    let ep = net_endpoint("127.0.0.1", 49051)
+    let srv = net_serve(ep)
+    let cli = net_dial(ep)
+    let conn = net_accept_next(srv)
+    let n = net_send(cli, "ping")
+    let echoed = net_recv(conn, 32)
+    println(n)
+    println(echoed)
+    let w = net_send(conn, "pong")
+    println(w)
+    let back = net_recv(cli, 32)
+    println(back)
+    let ok = net_shut(conn) + net_shut(cli) + net_shut(srv)
+    println(ok)
+}

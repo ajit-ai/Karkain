@@ -1,0 +1,44 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 07 Web
+//
+// HTTP over loopback with std.http building blocks: the client builds a GET
+// request with http_build_request, sends it over a raw TCP connection, and
+// the server reads it with http_read_request and answers with
+// http_write_response.  The client then reads the response with
+// http_read_all and parses it with http_parse_response.
+//
+// Run:  karkain run examples/07-web/01_http_loopback.kark
+
+import std.http
+
+func main() {
+    let srv = http_listen("127.0.0.1", 49052)
+    let cli = net_connect("127.0.0.1", 49052)
+    let conn = http_accept(srv)
+
+    // client builds and sends a request
+    let h = http_new_headers()
+    h["X-Test"] = "ok"
+    let pkt = http_build_request("GET", "127.0.0.1", 49052, "/hello", h, "")
+    let sent = net_write(cli, pkt)
+    println(sent)
+
+    // server reads and answers
+    let req = http_read_request(conn, 8192)
+    println(req["method"])
+    println(req["path"])
+    println(req["headers"]["X-Test"])
+    println(len(req["body"]))
+    let wrote = http_write_response(conn, 200, "OK", "hello /hello")
+    println(wrote)
+    http_close(conn)
+
+    // client reads and parses the response
+    let recv = http_read_all(cli, 65536)
+    let resp = http_parse_response(recv)
+    println(resp["status"])
+    println(resp["reason"])
+    println(resp["body"])
+    http_close(srv)
+}

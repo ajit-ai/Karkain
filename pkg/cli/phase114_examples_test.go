@@ -57,10 +57,16 @@ var phase114Examples = map[string]struct {
 	"02-algorithms/12_queue.kark":            {"10\n20\n50\n20\n30\n40\n50\n", ""},
 	"02-algorithms/13_knapsack.kark":         {"7\n9\n", ""},
 	"03-systems/01_file_io.kark":             {"true\n3\nalpha\nbeta\ngamma\nfalse\n", ""},
+	"04-networking/01_tcp_echo.kark":        {"4\nping\n4\npong\n3\n", ""},
+	"04-networking/02_tcp_roundtrip.kark":   {"3\none\n3\ntwo\n3\n", ""},
 	"05-data/01_word_frequency.kark":         {"3\n2\n2\n1\n8\n", ""},
 	"05-data/02_csv_aggregate.kark":          {"15\n20\n15\n2\n50\n20\n", ""},
 	"05-data/03_payload_roundtrip.kark":      {"4b61726b61696e2064617461\nKarkain data\nS2Fya2FpbiBkYXRh\nKarkain data\n1\n1\n", ""},
 	"05-data/04_token_stats.kark":            {"9\n3\n35\n", ""},
+	"06-database/01_db_crud.kark":            {"3\n1\nalice\n90\n2\nbob\n80\n3\ncarol\n95\n100\nalice\ncarol\ndb2\nembedded\n", ""},
+	"06-database/02_db_persist.kark":         {"true\n2\n1\nalpha\n2\nbeta\n", ""},
+	"07-web/01_http_loopback.kark":           {"90\nGET\n/hello\nok\n0\n70\n200\nOK\nhello /hello\n", ""},
+	"07-web/02_http_codec.kark":              {"GET\n/items\ntext/plain\n3\n201\nCreated\nok\n", ""},
 	"08-concurrency/01_parallel_sum.kark":    {"285\n", "go"},
 	"08-concurrency/02_channel_ping.kark":    {"5\n0\n8\n", "go"},
 	"09-ai/01_nearest_neighbor.kark":         {"10\n60\n100\n60\n", ""},
@@ -223,7 +229,7 @@ func TestPhase114_CorpusCoverage(t *testing.T) {
 			t.Errorf("pinned test file missing on disk: %s (%v)", rel, err)
 		}
 	}
-	if len(phase114Examples) != 52 {
-		t.Errorf("expected 52 pinned examples, got %d", len(phase114Examples))
+	if len(phase114Examples) != 58 {
+		t.Errorf("expected 58 pinned examples, got %d", len(phase114Examples))
 	}
 }

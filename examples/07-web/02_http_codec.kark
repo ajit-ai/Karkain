@@ -1,0 +1,32 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 07 Web
+//
+// HTTP wire codec (std.http) with no sockets: build a request with
+// http_build_request and parse it back with http_parse_request; build a
+// response with http_build_response and parse it back with
+// http_parse_response.  Exercises the deterministic text <-> value circuit
+// end to end.
+//
+// Run:  karkain run examples/07-web/02_http_codec.kark
+
+import std.http
+
+func main() {
+    // request round-trip
+    let h = http_new_headers()
+    h["Accept"] = "text/plain"
+    let pkt = http_build_request("GET", "example.invalid", 80, "/items", h, "abc")
+    let req = http_parse_request(pkt)
+    println(req["method"])
+    println(req["path"])
+    println(req["headers"]["Accept"])
+    println(len(req["body"]))
+
+    // response round-trip
+    let rwire = http_build_response(201, "Created", {}, "ok")
+    let resp = http_parse_response(rwire)
+    println(resp["status"])
+    println(resp["reason"])
+    println(resp["body"])
+}

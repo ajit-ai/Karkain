@@ -16,13 +16,13 @@ Authoritative list of the 15-category example corpus. Jargon:
 
 | # | Category               | Files | Runnable | Experimental | Planned |
 |---|------------------------|-------|----------|--------------|---------|
-| 01| Fundamentals           | 14    | 14       | 0            | 0       |
+| 01| Fundamentals           | 15    | 15       | 0            | 0       |
 | 02| Algorithms             | 13    | 13       | 0            | 0       |
 | 03| Systems                | 1     | 1        | 0            | 0       |
-| 04| Networking             | 0     | 0        | 0            | 1 (dir) |
+| 04| Networking             | 2     | 2        | 0            | 0       |
 | 05| Data                   | 4     | 4        | 0            | 0       |
-| 06| Database               | 0     | 0        | 0            | 1 (dir) |
-| 07| Web                    | 0     | 0        | 0            | 1 (dir) |
+| 06| Database               | 2     | 2        | 0            | 0       |
+| 07| Web                    | 2     | 2        | 0            | 0       |
 | 08| Concurrency            | 2     | 0        | 2            | 0       |
 | 09| AI                     | 2     | 2        | 0            | 0       |
 | 10| Machine Learning       | 2     | 2        | 0            | 0       |
@@ -31,7 +31,7 @@ Authoritative list of the 15-category example corpus. Jargon:
 | 13| Finance                | 4     | 4        | 0            | 0       |
 | 14| Security               | 4     | 4        | 0            | 0       |
 | 15| Developer Tools        | 2     | 1 + 1    | 0            | 0       |
-|    | **Total**              | **52**| **49 + 1 test-mode** | **2**  | **4**   |
+|    | **Total**              | **59**| **56 + 1 test-mode** | **2**  | **1**   |
 
 ## Individual examples
 
@@ -51,6 +51,7 @@ Authoritative list of the 15-category example corpus. Jargon:
 | 01-fundamentals/12_casts.kark | Runnable | both | int/float/str casts | gcc | 3 3.4 4.5 9 7 256 3 3.5 640 0 |
 | 01-fundamentals/13_enums.kark | Runnable | both | enum variants, matching | gcc | 1 1 100 200 300 0 |
 | 01-fundamentals/14_adt_match.kark | Runnable | both | ADT-style tagged match | gcc | 10 20 30 1 |
+| 01-fundamentals/15_closures.kark | Runnable | both | let-bound closures, captures | gcc | 42 42 42 42 16 1 |
 | 02-algorithms/01_linear_search.kark | Runnable | both | linear search | gcc | 2 3 -1 |
 | 02-algorithms/02_binary_search.kark | Runnable | both | halving search | gcc | 3 0 7 -1 -1 -1 |
 | 02-algorithms/03_min_max.kark | Runnable | both | min/max | gcc | 1 12 -9 -1 |
@@ -65,10 +66,16 @@ Authoritative list of the 15-category example corpus. Jargon:
 | 02-algorithms/12_queue.kark | Runnable | both | array queue (FIFO) | gcc | 10 20 50 20 30 40 50 |
 | 02-algorithms/13_knapsack.kark | Runnable | both | 0/1 knapsack (DP) | gcc | 7 9 |
 | 03-systems/01_file_io.kark | Runnable | both | std.io write/read/delete | gcc, std | true 3 alpha beta gamma true |
+| 04-networking/01_tcp_echo.kark | Runnable | both | std.net TCP echo | gcc | 4 ping 4 pong 3 |
+| 04-networking/02_tcp_roundtrip.kark | Runnable | both | std.net request/response | gcc | 3 one 3 two 3 |
 | 05-data/01_word_frequency.kark | Runnable | both | tokenize + tally | gcc, std | 3 2 2 1 8 |
 | 05-data/02_csv_aggregate.kark | Runnable | both | CSV-ish parse + aggregate | gcc, std | 15 20 15 2 50 20 |
 | 05-data/03_payload_roundtrip.kark | Runnable | both | hex/base64/utf8 | gcc, std | hex round-trips (see file) |
 | 05-data/04_token_stats.kark | Runnable | both | tokenize + filter/aggregate | gcc, std | 9 3 35 |
+| 06-database/01_db_crud.kark | Runnable | both | std.db in-memory CRUD | gcc | 3 1 alice 90 2 bob 80 3 carol 95 100 alice carol db2 embedded |
+| 06-database/02_db_persist.kark | Runnable | both | std.db file-backed persistence | gcc | true 2 1 alpha 2 beta |
+| 07-web/01_http_loopback.kark | Runnable | both | std.http server loopback | gcc | 90 GET /hello ok 0 70 200 OK hello /hello |
+| 07-web/02_http_codec.kark | Runnable | both | std.http constructors/destructors | gcc | GET /items text/plain 3 201 Created ok |
 | 08-concurrency/01_parallel_sum.kark | Experimental | go | spawn/join grid | gcc | 285 |
 | 08-concurrency/02_channel_ping.kark | Experimental | go | channel producer | gcc | 5 0 8 |
 | 09-ai/01_nearest_neighbor.kark | Runnable | both | Manhattan k-NN | gcc | 10 60 100 60 |
@@ -94,9 +101,6 @@ Authoritative list of the 15-category example corpus. Jargon:
 
 | Category | Honest status |
 |----------|---------------|
-| 04 Networking | sockets not implemented; std/http.go stubs not wired |
-| 06 Database | no std.db surface |
-| 07 Web | no web framework; http stubs not wired |
 | 11 Quantum | parser/lexer do not wire circuit/qubit/qpu; infrastructure only |
 
 ## Verification

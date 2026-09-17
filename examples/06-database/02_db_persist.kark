@@ -1,0 +1,30 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 06 Database
+//
+// Persistent SQL database (std.db): create a table, insert rows, save to a
+// file, close, reopen, and re-query to prove data survives across open calls.
+//
+// Run:  karkain run examples/06-database/02_db_persist.kark
+
+import std.db
+
+func main() {
+    let path = "demo.db.txt"
+    let db = db_open(path)
+    db = db_execute(db, "create table notes (id, body)")
+    db = db_execute(db, "insert into notes values (1, alpha)")
+    db = db_execute(db, "insert into notes values (2, beta)")
+    let saved = db_save(db)
+    println(saved)
+
+    let db2 = db_open(path)
+    let q = db_query(db2, "select * from notes")
+    println(q["count"])
+    let r0 = q["rows"][0]
+    let r1 = q["rows"][1]
+    println(r0[0])
+    println(r0[1])
+    println(r1[0])
+    println(r1[1])
+}

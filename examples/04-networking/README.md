@@ -1,37 +1,23 @@
-# 04 — Networking
+# 04 - Networking
 
-**Status: Planned**
-
-No networking APIs are callable from `.kark` today.
+**Status: Runnable**
 
 | Example | Status  | Notes |
 |---------|---------|-------|
-| (none)  | Planned | See below |
+| `01_tcp_echo.kark` | Runnable | TCP echo server + client loopback |
+| `02_tcp_roundtrip.kark` | Runnable | Two-message request/response round-trip |
 
-## What exists behind the scenes
+## What is implemented
 
-- No `std.net` / `std.http` surface exists and no Go placeholder stubs ship in
-  the repository — the networking modules are simply not implemented (they are
-  roadmap items, not files).
-- The 1.0.0 repository cleanup removed the Phase-15-era placeholder
-  `pkg/stdlib/http.go` stubs (they were never wired into any `.kark`-callable
-  surface); networking remains Planned.
-
-## Intended design (roadmap)
-
-A future networking module would provide a small, honest surface:
-
-```
-std.net:
-  tcp_connect(host, port) -> connection
-  tcp_listen(port) -> listener
-  http_get(url) -> response
-  http_server(port, handler) -> server
-```
-
-None of the above is runnable yet. Until a socket runtime exists in the
-generated C, examples stay Planned and this README stays the honest record.
+- `std.net` provides `net_address`, `net_endpoint`, `net_dial`, `net_serve`,
+  `net_accept_next`, `net_recv`, `net_send`, `net_shut`, `net_error` and
+  `net_fd_open` - TCP socket networking usable end-to-end from `.kark` on both
+  engines, byte-identical (pinned in the Phase 114 gate). The module wraps the
+  runtime builtins `net_connect`/`net_listen`/`net_accept`/`net_read`/
+  `net_write`/`net_close`/`net_last_error`.
 
 ## Run
 
-Nothing to run yet. See `docs/source/examples/networking.rst`.
+```powershell
+karkain run examples/04-networking/01_tcp_echo.kark
+```

@@ -18,8 +18,8 @@ explicitly.
 The 15-category framework
 -------------------------
 
-The Phase 114/116/123 corpus populates the framework with 52 ``.kark`` source
-files (15 categories, 4 of them deliberately Planned — README only). See the
+The Phase 114/116/123 corpus populates the framework with 59 ``.kark`` source
+files (15 categories, 1 of them deliberately Planned — README only). See the
 inventory ``examples/EXAMPLES.md`` for the authoritative file list.
 
 .. list-table:: Example categories
@@ -31,7 +31,7 @@ inventory ``examples/EXAMPLES.md`` for the authoritative file list.
      - Examples
    * - :doc:`Fundamentals <fundamentals>`
      - :implemented:`Implemented`
-     - ``examples/01-fundamentals/`` (12)
+     - ``examples/01-fundamentals/`` (15)
    * - :doc:`Algorithms <algorithms>`
      - :implemented:`Implemented`
      - ``examples/02-algorithms/`` (13) + ``examples/algorithms/`` (21)
@@ -39,17 +39,17 @@ inventory ``examples/EXAMPLES.md`` for the authoritative file list.
      - :implemented:`Implemented` (specific examples)
      - ``examples/03-systems/``, concurrency pipeline, WASM corpus (5)
    * - :doc:`Networking <networking>`
-     - :not-implemented:`Not Yet Implemented`
-     - —
+     - :implemented:`Implemented`
+     - ``examples/04-networking/`` (2)
    * - :doc:`Data <data>`
      - :implemented:`Implemented`
      - ``examples/05-data/`` (4)
    * - :doc:`Database <database>`
-     - :not-implemented:`Not Yet Implemented`
-     - —
+     - :implemented:`Implemented`
+     - ``examples/06-database/`` (2)
    * - :doc:`Web <web>`
-     - :not-implemented:`Not Yet Implemented`
-     - —
+     - :implemented:`Implemented`
+     - ``examples/07-web/`` (2)
    * - :doc:`Concurrency <concurrency>`
      - :experimental:`Experimental`
      - ``examples/08-concurrency/`` (2) + pipeline
@@ -118,8 +118,8 @@ corpus:
 
 ``scripts/verify-examples.ps1`` classifies every example by its declared
 status (``Runnable`` / ``Experimental`` / ``Planned``) and runs the runnable
-ones through the real CLI — 51 examples pass; 5 are deliberately skipped (the
-test-mode runner and the four Planned categories).
+ones through the real CLI — 58 examples pass; 2 are deliberately skipped (the
+test-mode runner and the one Planned category).
 
 Validation corpus
 -----------------
