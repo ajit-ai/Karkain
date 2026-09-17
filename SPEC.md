@@ -206,7 +206,7 @@ let v = mayFail()?    // unwraps Ok(v), or returns Err(e) early
 
 `?` desugars to `match expr { Ok(v) => v, Err(e) => return Err(e) }`.
 
-### 3.7 Lambdas & closures Ã¢Å“â€¦
+### 3.7 Lambdas & closures ✓
 
 ```
 fn(a, b) { return a + b }      // lambda
@@ -214,7 +214,13 @@ let add = fn(x: int, y: int) { return x + y }
 ```
 
 Lambdas capture free variables from the enclosing scope (Phase 54). Captures
-are recorded on the AST and lowered with the SSA backend.
+are recorded on the AST and lowered with the SSA backend. `let f = fn(...)`
+desugars to a named function value: captured variables are passed through a
+per-closure environment struct (mutable pointer-sharing semantics) and the
+call routes as `f(args)`. Lambda syntax accepts an optional return type before
+the body opener (`fn(a, b) int { ... }`). Multiple let-bound lambdas in one
+body are emitted as sibling definitions. Codegen is byte-identical on both
+engines (pinned by `examples/01-fundamentals/15_closures.kark`).
 
 ---
 
@@ -564,7 +570,7 @@ gated by `pkg/cli/phase102_foundation_test.go`.
 | Multi-error reporting | Y | ALL recoverable parse + resolve diagnostics in one invocation, exit 3, on both engine paths (Phase 105) |
 | Incremental build | Y | `karkain build --incremental` dependency-aware content cache; `karkain clean` purges (Phase 105) |
 | `float64()` / `bool()` / `string()` casts | N | not accepted by either engine |
-| Closures / `fn` codegen | N | known broken on both engines |
+| Closures / `fn` codegen | Y | `let f = fn(...)` lambdas incl. captures, siblings, optional return type; byte-identical on both engines (Phase 116; pinned `examples/01-fundamentals/15_closures.kark`) |
 | `const` declarations | N | not part of the engine surface |
 | User `import` | N | deferred; sibling/module assembly only |
 | Visibility rules | N | deferred to module system v2 (Phase 103) |

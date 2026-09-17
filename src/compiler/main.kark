@@ -795,8 +795,15 @@ func compileRunDriver(driver) {
     let compileCmd = "gcc -std=c99 -x c -D_POSIX_C_SOURCE=200809L -Wno-psabi -o karkain_test " + tempPath + " -lgmp -lm"
     let cc = system(compileCmd)
     if (cc != 0) {
-        removeFile(tempPath)
-        return 1
+        // Phase 125A: the networking preamble emits Winsock references
+        // behind #ifdef _WIN32. On Windows hosts the plain link fails, so
+        // retry with the Winsock library before declaring failure. POSIX
+        // hosts never take this branch (no WSA symbols to resolve).
+        let cc2 = system(compileCmd + " -lws2_32")
+        if (cc2 != 0) {
+            removeFile(tempPath)
+            return 1
+        }
     }
     // gcc adds .exe on Windows; resolve the actual artifact name.
     let exe = "karkain_test"

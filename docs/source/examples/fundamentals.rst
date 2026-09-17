@@ -2,7 +2,7 @@ Fundamentals
 ============
 
 :implemented:`Implemented` — the fundamentals examples are real, checked-in
-programs under ``examples/01-fundamentals/`` (12 targets) that round-trip the
+programs under ``examples/01-fundamentals/`` (15 targets) that round-trip the
 language surface on **both** engines (the Go front end and the self-hosted
 ``kcc`` engine), producing byte-identical stdout and exit codes. Each file is
 gated by ``pkg/cli/phase114_examples_test.go``.
@@ -42,6 +42,12 @@ modules → application layout`) also lives under ``examples/language_foundation
      - ``match`` on ``Option`` and literal-bound values
    * - ``12_casts.kark``
      - ``int(f)`` / ``str(n)`` / float-mixing casts
+   * - ``13_enums.kark``
+     - ``enum`` variants, ``EnumName.Variant`` tags and matching
+   * - ``14_adt_match.kark``
+     - ADT-style tagged ``match`` over enum values
+   * - ``15_closures.kark``
+     - ``let f = fn(...)`` closures with captured variables
 
 Hello world
 -----------
@@ -75,6 +81,8 @@ A walk through the beginner path:
 5. ``07_strings.kark`` + ``08_arrays.kark`` — the core collections
 6. ``09_maps.kark`` + ``10_structs.kark`` — associative and record data
 7. ``11_match.kark`` + ``12_casts.kark`` — option matching and numeric casts
+8. ``13_enums.kark`` + ``14_adt_match.kark`` — enums and ADT-style match
+9. ``15_closures.kark`` — let-bound closures and variable capture
 
 Match (excerpt)
 ---------------

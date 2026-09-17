@@ -2375,6 +2375,11 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	}
 
 	// Phase 48: Generate body first to collect any lambda definitions
+	// Phase 121 fix: the shared lambdaBuf may already hold deferred sibling
+	// lambdas written by the enclosing function's genStatement (line 2950).
+	// Reset it only for THIS function's nested-lambda collection, then restore
+	// the pending content so siblings appended by the caller are not lost.
+	pendingLambdas := g.lambdaBuf.String()
 	g.lambdaBuf.Reset()
 	// Phase 121: remember the enclosing function id so return statements can
 	// emit their leave hook; reset when the body generation is done.
@@ -2403,6 +2408,10 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 		sb.WriteString(g.lambdaBuf.String())
 		g.lambdaBuf.Reset()
 	}
+	// Phase 121 fix: restore deferred sibling lambdas that belonged to the
+	// enclosing function. The caller's genStatement appends this function's
+	// definition after them, preserving source order.
+	g.lambdaBuf.WriteString(pendingLambdas)
 	// Generated C entry point receives real argv so Karkain's getArgs() can
 	// expose the actual process arguments (not a placeholder).
 	sig := strings.Join(params, ", ")

@@ -903,6 +903,10 @@ func parseLambda(state) {
         if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
     }
     if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    // Phase 81 (lambda): an optional single return-type annotation may follow
+    // the parameter list (e.g. `fn(a, b) int { ... }`). Consume it so the
+    // brace that opens the body is properly aligned on both engines.
+    if (psIsTypeToken(state)) { psAdvance(state) }
     let body = []
     if (psCurKind(state) == TK_LBRACE()) {
         psAdvance(state)

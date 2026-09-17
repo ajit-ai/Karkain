@@ -683,6 +683,15 @@ func (p *Parser) parseLambda() *LambdaExpr {
 		}
 	}
 	p.nextToken() // consume ')'
+
+	// Phase 81 (lambda): an optional single return-type annotation may follow
+	// the parameter list (e.g. `fn(a, b) int { ... }`). It carries no stored
+	// semantics yet, but must be consumed so the brace that opens the body is
+	// properly aligned — otherwise the return type is treated as the body
+	// opener and the lambda body swallows whatever follows.
+	if p.curToken.Type == lexer.TokenIdent {
+		p.nextToken() // consume the return type
+	}
 	p.nextToken() // consume '{'
 	body := p.parseBlock()
 	p.nextToken() // consume '}'

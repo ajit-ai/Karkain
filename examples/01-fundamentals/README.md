@@ -23,6 +23,7 @@ the self-hosted `kcc` engine, and is pinned by
 | 12   | `12_casts.kark`               | `int(f)`, `str(n)`, int/float division     |
 | 13   | `13_enums.kark`               | `enum` variants, `EnumName.Variant` tags, matching |
 | 14   | `14_adt_match.kark`           | ADT-style tagged `match` over enum values |
+| 15   | `15_closures.kark`           | `let f = fn(...)` closures, captured variables |
 
 ## Standalone helpers vs. the rest of the corpus
 
