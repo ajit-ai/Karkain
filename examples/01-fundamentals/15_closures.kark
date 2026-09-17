@@ -1,0 +1,37 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 01 Fundamentals
+//
+// Closures: `let f = fn(...) { ... }` binds a named function value. A lambda
+// may use parameters only, or capture free variables from its enclosing scope
+// by reference. Several let-bound lambdas in one body are emitted siblings.
+//
+// Determinism note: lambda body generation used to reset the deferred-definition
+// buffer while folding each sibling, so only the LAST let-bound lambda got any
+// C emitted and the earlier ones never linked. All siblings are now emitted.
+//
+// Run:  karkain run examples/01-fundamentals/15_closures.kark
+
+func main() {
+    let add = fn(a int, b int) int { return a + b }
+    println(add(20, 22))
+
+    let base = 7
+    let inc = fn(n int) int { return n + 1 }
+    let addBase = fn(n int) int { return n + base }
+    println(inc(41))
+    println(addBase(35))
+
+    let x = 3
+    let y = 4
+    let captureBoth = fn(n int) int { return n + x + y }
+    let usesLocal = fn(n int) int {
+        let z = x * 2
+        return n + z
+    }
+    println(captureBoth(35))
+    println(usesLocal(10))
+
+    let noArgs = fn() { println(1) }
+    noArgs()
+}

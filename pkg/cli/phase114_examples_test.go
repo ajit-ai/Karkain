@@ -41,6 +41,7 @@ var phase114Examples = map[string]struct {
 	"01-fundamentals/11_match.kark":          {"300\n7\n1000000\nthree\n", ""},
 	"01-fundamentals/13_enums.kark":          {"1\n1\n100\n200\n300\n0\n", ""},
 	"01-fundamentals/14_adt_match.kark":      {"10\n20\n30\n1\n", ""},
+	"01-fundamentals/15_closures.kark":      {"42\n42\n42\n42\n16\n1\n", ""},
 	"01-fundamentals/12_casts.kark":          {"3\n3.4\n4.5\n9\n7\n256\n3\n3.5\n640\n0\n", ""},
 	"02-algorithms/01_linear_search.kark":    {"2\n3\n-1\n", ""},
 	"02-algorithms/02_binary_search.kark":    {"3\n0\n7\n-1\n-1\n-1\n", ""},
@@ -222,7 +223,7 @@ func TestPhase114_CorpusCoverage(t *testing.T) {
 			t.Errorf("pinned test file missing on disk: %s (%v)", rel, err)
 		}
 	}
-	if len(phase114Examples) != 51 {
-		t.Errorf("expected 51 pinned examples, got %d", len(phase114Examples))
+	if len(phase114Examples) != 52 {
+		t.Errorf("expected 52 pinned examples, got %d", len(phase114Examples))
 	}
 }

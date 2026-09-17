@@ -191,6 +191,44 @@ func main() {
 	}
 }
 
+// TestPhase121_MultipleSiblingClosuresEmitted pins the multi-lambda handling:
+// several let-bound closures in one body must ALL get emitted (each definition
+// present exactly once), not just the last one. genFuncDecl used to reset the
+// shared lambdaBuf while generating each lambda's body, wiping the definitions
+// previously deferred by the enclosing function — only the final sibling
+// survived, so the others failed to link at C level.
+func TestPhase121_MultipleSiblingClosuresEmitted(t *testing.T) {
+	src := `
+func main() {
+	let add = fn(a, b) { return a + b }
+	let inc = fn(x) { return x + 1 }
+	let dbl = fn(y) { return y * 2 }
+	println(add(20, 22))
+	println(inc(1))
+	println(dbl(5))
+}
+`
+	generated, _ := compileCOnly(t, src)
+	for _, def := range []string{
+		"Value karkain_user_add(Value a, Value b) {",
+		"Value karkain_user_inc(Value x) {",
+		"Value karkain_user_dbl(Value y) {",
+	} {
+		if n := strings.Count(generated, def); n != 1 {
+			t.Errorf("definition %q appears %d times, want exactly 1", def, n)
+		}
+	}
+	for _, call := range []string{
+		"karkain_user_add(make_int(20), make_int(22))",
+		"karkain_user_inc(make_int(1))",
+		"karkain_user_dbl(make_int(5))",
+	} {
+		if !strings.Contains(generated, call) {
+			t.Errorf("generated C missing call %q", call)
+		}
+	}
+}
+
 // TestPhase121_AllocFreeCodegenMarkers pins the managed alloc/free emission:
 // `alloc(T, n)` lowers to the pre-sized make_alloc_array helper and `free(x)`
 // to a no-op (void) discard — both in statement and expression forms.
