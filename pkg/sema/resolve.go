@@ -77,6 +77,9 @@ var builtinNames = map[string]bool{
 	"float": true, // Phase 112: float() conversion builtin
 	"add_checked": true, "sub_checked": true, "mul_checked": true,
 	"http.get": true,
+	// Phase 125A: networking builtins (TCP connect/listen/accept/read/write/close).
+	"net_connect": true, "net_listen": true, "net_accept": true,
+	"net_read": true, "net_write": true, "net_close": true, "net_last_error": true,
 	"Some":     true, "None": true, "Ok": true, "Err": true,
 	"assert": true, "assert_eq": true, "assert_ne": true,
 	// Phase 107: concurrency builtins (channels, tasks, actors).

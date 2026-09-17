@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,6 +16,17 @@ import (
 	"karkain/pkg/codegen"
 	"karkain/pkg/pm"
 )
+
+// winsockLibFlag returns "-lws2_32" on Windows hosts so native programs linking
+// the net builtins resolve Winsock symbols (MinGW gcc ignores
+// #pragma comment(lib, ...)). On POSIX hosts Winsock is not used and the flag
+// is empty so links never reference a nonexistent library.
+func winsockLibFlag() string {
+	if runtime.GOOS == "windows" {
+		return "-lws2_32"
+	}
+	return ""
+}
 
 // EngineKind selects which front end powers the check/build/run commands.
 // Phase 95: the self-hosted compiler (kcc, bootstrapped from src/compiler) is
@@ -196,7 +208,7 @@ func buildKCC(root string, w io.Writer) (string, error) {
 
 	stage1 := filepath.Join(srcDir, "main.c")
 	bin := filepath.Join(root, "kcc.exe")
-	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", stage1, "-o", bin, "-lgmp", "-lm")
+	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", stage1, "-o", bin, "-lgmp", "-lm", winsockLibFlag())
 	linkCmd.Dir = srcDir
 	if out, err := linkCmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("stage-1 link failed: %v\n%s", err, string(out))
@@ -369,7 +381,7 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 			exe += ".exe"
 		}
 	}
-	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", artifact, "-o", exe, "-lgmp", "-lm")
+	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", artifact, "-o", exe, "-lgmp", "-lm", winsockLibFlag())
 	if lout, err := linkCmd.CombinedOutput(); err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}
 	}
@@ -699,7 +711,7 @@ func KCCRunCommand(w io.Writer, file string, cfg codegen.Config, verbose bool) C
 	}
 	c23 := replaceExt(copyPath, ".c23")
 	exe := filepath.Join(sandbox, base+".exe")
-	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", c23, "-o", exe, "-lgmp", "-lm")
+	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", c23, "-o", exe, "-lgmp", "-lm", winsockLibFlag())
 	if lout, err := linkCmd.CombinedOutput(); err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}
 	}

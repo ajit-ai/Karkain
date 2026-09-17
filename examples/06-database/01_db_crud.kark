@@ -1,0 +1,50 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 06 Database
+//
+// In-memory SQL database (std.db): create a table, insert three rows, query
+// all rows, update a row with a WHERE clause, and run a column-subset
+// SELECT.  Engine and backend labels are also printed.
+//
+// Run:  karkain run examples/06-database/01_db_crud.kark
+
+import std.db
+
+func main() {
+    let db = db_open(":memory:")
+    db = db_execute(db, "create table users (id, name, score)")
+    db = db_execute(db, "insert into users values (1, alice, 90)")
+    db = db_execute(db, "insert into users values (2, bob, 80)")
+    db = db_execute(db, "insert into users values (3, carol, 95)")
+
+    // full table
+    let q = db_query(db, "select * from users")
+    println(q["count"])
+    let r0 = q["rows"][0]
+    let r1 = q["rows"][1]
+    let r2 = q["rows"][2]
+    println(r0[0])
+    println(r0[1])
+    println(r0[2])
+    println(r1[0])
+    println(r1[1])
+    println(r1[2])
+    println(r2[0])
+    println(r2[1])
+    println(r2[2])
+
+    // update one row
+    db = db_execute(db, "update users set score = 100 where name = bob")
+    let upd = db_query(db, "select * from users")
+    let u = upd["rows"][1]
+    println(u[2])
+
+    // column subset
+    let sub = db_query(db, "select name from users")
+    println(sub["rows"][0][0])
+    println(sub["rows"][2][0])
+
+    // engine info
+    println(db_engine())
+    println(db_backend())
+}

@@ -1,0 +1,360 @@
+// Karkain Standard Library - HTTP Module
+// Minimal HTTP/1.1 client and server building blocks built on the net_*
+// runtime builtins (available on BOTH the Go engine and the self-hosted kcc
+// engine). No closures and no threads are required: the server half is a set
+// of building blocks (http_listen / http_accept / http_read_request /
+// http_write_response) that a program drives in a deterministic, single-
+// process loopback choreography. http_get / http_post are one-shot clients
+// that work against any reachable HTTP server (including a remote one).
+//
+// Value shapes used by this module:
+//
+//   Request  { method, path, headers, body, error }
+//   Response { status (int), reason, headers, body, error }
+//   headers  = a map of header name (string) -> header value (string)
+//
+// Body transfer on both directions is Content-Length based; every message is
+// terminated with Connection: close so a peer can detect end-of-message.
+// Failure is always signalled via the `error` field (empty = success).
+//
+// Written in canonical Karkain (untyped params, no type annotations) so it
+// parses and compiles identically on BOTH engines.
+
+// ---------------------------------------------------------------------------
+// Constructors
+// ---------------------------------------------------------------------------
+
+// http_make_request builds a Request value.
+func http_make_request(method, path, headers, body) {
+    let r = {}
+    r["method"] = method
+    r["path"] = path
+    r["headers"] = headers
+    r["body"] = body
+    r["error"] = ""
+    return r
+}
+
+// http_make_response builds a Response value.
+func http_make_response(status, reason, headers, body) {
+    let r = {}
+    r["status"] = status
+    r["reason"] = reason
+    r["headers"] = headers
+    r["body"] = body
+    r["error"] = ""
+    return r
+}
+
+// http_new_headers returns an empty header map.
+func http_new_headers() {
+    return {}
+}
+
+// ---------------------------------------------------------------------------
+// Low-level string helpers (self-contained; no other module is imported)
+// ---------------------------------------------------------------------------
+
+// http_find returns the index of the first occurrence of sub in text, or -1.
+func http_find(text, sub) {
+    let n = len(text)
+    let m = len(sub)
+    if m == 0 {
+        return 0
+    }
+    let i = 0
+    while (i <= n - m) {
+        if substr(text, i, m) == sub {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// http_join joins elements from index `from` with single spaces.
+func http_join(parts, from) {
+    let out = ""
+    let i = from
+    while (i < len(parts)) {
+        if i > from {
+            out = out + " "
+        }
+        out = out + parts[i]
+        i = i + 1
+    }
+    return out
+}
+
+// ---------------------------------------------------------------------------
+// Wire-codec (text -> values and values -> text)
+// ---------------------------------------------------------------------------
+
+// http_parse_headers parses the header section (everything before the first
+// blank line) into a name -> value map. Line 0 is the status/request line and
+// is skipped.
+func http_parse_headers(header_body) {
+    let headers = {}
+    let lines = split(header_body, "\n")
+    let i = 1
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        let idx = http_find(line, ":")
+        if idx > 0 {
+            let name = trim(substr(line, 0, idx))
+            let val = trim(substr(line, idx + 1, len(line) - idx - 1))
+            headers[name] = val
+        }
+        i = i + 1
+    }
+    return headers
+}
+
+// http_split_message splits a full HTTP message into header body and payload.
+// Returns a map { head, body }.
+func http_split_message(text) {
+    let r = {}
+    let pos = http_find(text, "\r\n\r\n")
+    let head = text
+    let body = ""
+    if pos >= 0 {
+        head = substr(text, 0, pos)
+        body = substr(text, pos + 4, len(text) - pos - 4)
+    }
+    r["head"] = head
+    r["body"] = body
+    return r
+}
+
+// http_parse_response parses a full response message into a Response value.
+func http_parse_response(text) {
+    let resp = http_make_response(0, "", {}, "")
+    let msg = http_split_message(text)
+    let lines = split(msg["head"], "\n")
+    if len(lines) < 1 {
+        resp["error"] = "malformed response"
+        return resp
+    }
+    let status_line = trim(lines[0])
+    let parts = split(status_line, " ")
+    if len(parts) >= 2 {
+        resp["status"] = int(parts[1])
+    }
+    if len(parts) >= 3 {
+        resp["reason"] = http_join(parts, 2)
+    }
+    resp["headers"] = http_parse_headers(msg["head"])
+    resp["body"] = msg["body"]
+    return resp
+}
+
+// http_parse_request parses a full request message into a Request value.
+func http_parse_request(text) {
+    let req = http_make_request("", "", {}, "")
+    let msg = http_split_message(text)
+    let lines = split(msg["head"], "\n")
+    if len(lines) < 1 {
+        req["error"] = "malformed request"
+        return req
+    }
+    let request_line = trim(lines[0])
+    let parts = split(request_line, " ")
+    if len(parts) < 2 {
+        req["error"] = "malformed request line"
+        return req
+    }
+    req["method"] = parts[0]
+    req["path"] = parts[1]
+    req["headers"] = http_parse_headers(msg["head"])
+    req["body"] = msg["body"]
+    return req
+}
+
+// ---------------------------------------------------------------------------
+// Socket I/O helpers
+// ---------------------------------------------------------------------------
+
+// http_read_all reads from an fd until the peer closes. Returns "" if the
+// connection ended before any bytes arrived.
+func http_read_all(fd, limit) {
+    let buf = ""
+    let total = 0
+    while (total < limit) {
+        let chunk = net_read(fd, 4096)
+        if len(chunk) == 0 {
+            return buf
+        }
+        buf = buf + chunk
+        total = total + len(chunk)
+    }
+    return buf
+}
+
+// http_read_until reads from an fd until marker appears in the accumulated
+// buffer (or the peer closes, or limit bytes are read).
+func http_read_until(fd, marker, limit) {
+    let buf = ""
+    let total = 0
+    while (total < limit) {
+        if http_find(buf, marker) >= 0 {
+            return buf
+        }
+        let chunk = net_read(fd, 4096)
+        if len(chunk) == 0 {
+            return buf
+        }
+        buf = buf + chunk
+        total = total + len(chunk)
+    }
+    return buf
+}
+
+// ---------------------------------------------------------------------------
+// Wire builders
+// ---------------------------------------------------------------------------
+
+// http_build_request renders a Request value into HTTP/1.1 request text.
+func http_build_request(method, host, port, path, headers, body) {
+    let eol = "\r\n"
+    let sb = method + " " + path + " HTTP/1.1" + eol
+    sb = sb + "Host: " + host + eol
+    sb = sb + "Connection: close" + eol
+    let names = map_keys_of(headers)
+    let i = 0
+    while (i < len(names)) {
+        sb = sb + names[i] + ": " + headers[names[i]] + eol
+        i = i + 1
+    }
+    sb = sb + "Content-Length: " + str(len(body)) + eol
+    sb = sb + eol
+    sb = sb + body
+    return sb
+}
+
+// http_build_response renders a status/reason/headers/body tuple into
+// HTTP/1.1 response text.
+func http_build_response(status, reason, headers, body) {
+    let eol = "\r\n"
+    let sb = "HTTP/1.1 " + str(status) + " " + reason + eol
+    sb = sb + "Connection: close" + eol
+    let names = map_keys_of(headers)
+    let i = 0
+    while (i < len(names)) {
+        sb = sb + names[i] + ": " + headers[names[i]] + eol
+        i = i + 1
+    }
+    sb = sb + "Content-Length: " + str(len(body)) + eol
+    sb = sb + eol
+    sb = sb + body
+    return sb
+}
+
+// ---------------------------------------------------------------------------
+// One-shot client
+// ---------------------------------------------------------------------------
+
+// http_request_send performs a complete single-trip request and returns the
+// parsed Response value. On any failure the `error` field is set.
+func http_request_send(method, host, port, path, headers, body) {
+    let resp = http_make_response(0, "", {}, "")
+    let fd = net_connect(host, port)
+    if fd < 0 {
+        resp["error"] = net_last_error()
+        return resp
+    }
+    let pkt = http_build_request(method, host, port, path, headers, body)
+    let written = net_write(fd, pkt)
+    if written < 0 {
+        resp["error"] = net_last_error()
+        net_close(fd)
+        return resp
+    }
+    let text = http_read_all(fd, 262144)
+    net_close(fd)
+    if len(text) == 0 {
+        resp["error"] = "empty response"
+        return resp
+    }
+    return http_parse_response(text)
+}
+
+// http_get issues an HTTP GET request and returns the parsed Response.
+func http_get(host, port, path) {
+    return http_request_send("GET", host, port, path, {}, "")
+}
+
+// http_post issues an HTTP POST request with a body and returns the parsed
+// Response.
+func http_post(host, port, path, body) {
+    return http_request_send("POST", host, port, path, {}, body)
+}
+
+// ---------------------------------------------------------------------------
+// Server building blocks
+// ---------------------------------------------------------------------------
+
+// http_listen opens a listening socket and returns its Listener fd.
+func http_listen(host, port) {
+    return net_listen(host, port)
+}
+
+// http_accept blocks for the next connection on a Listener fd and returns the
+// Connection fd.
+func http_accept(listener) {
+    return net_accept(listener)
+}
+
+// http_read_request reads a request from a Connection fd (headers first, then
+// a Content-Length bounded body) and returns a parsed Request value.
+func http_read_request(conn, max) {
+    let req = http_make_request("", "", {}, "")
+    let text = http_read_until(conn, "\r\n\r\n", max)
+    if len(text) == 0 {
+        let err = net_last_error()
+        if len(err) > 0 {
+            req["error"] = err
+        } else {
+            req["error"] = "connection closed before request"
+        }
+        return req
+    }
+    let msg = http_split_message(text)
+    if len(msg["head"]) == 0 {
+        req["error"] = "incomplete request headers"
+        return req
+    }
+    let parsed = http_parse_request(text)
+    if len(parsed["error"]) > 0 {
+        return parsed
+    }
+    req = parsed
+    let cl = ""
+    if hasKey(req["headers"], "Content-Length") == 1 {
+        cl = req["headers"]["Content-Length"]
+    }
+    if len(cl) > 0 {
+        let need = int(cl)
+        let got = msg["body"]
+        while (len(got) < need) {
+            let chunk = net_read(conn, 4096)
+            if len(chunk) == 0 {
+                break
+            }
+            got = got + chunk
+        }
+        req["body"] = got
+    }
+    return req
+}
+
+// http_write_response writes a complete response and returns the number of
+// bytes sent, or -1 on failure.
+func http_write_response(conn, status, reason, body) {
+    let pkt = http_build_response(status, reason, {}, body)
+    return net_write(conn, pkt)
+}
+
+// http_close closes a Connection or Listener fd.
+func http_close(fd) {
+    return net_close(fd)
+}

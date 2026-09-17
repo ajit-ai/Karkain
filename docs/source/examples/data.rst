@@ -7,7 +7,7 @@ payload round-trips and a text token-statistics pipeline. Every file here
 runs byte-identically on **both** engines (Go front end and the self-hosted
 ``kcc`` engine) and is gated by ``pkg/cli/phase114_examples_test.go``.
 
-Data-storage (databases) remains a separate planned category:
+Data-storage (databases) is now implemented as a separate category:
 :doc:`/examples/database`.
 
 .. list-table:: examples/05-data/

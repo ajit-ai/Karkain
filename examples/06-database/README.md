@@ -1,32 +1,27 @@
-# 06 — Database
+# 06 - Database
 
-**Status: Planned**
-
-No database APIs exist in the Karkain language or stdlib.
+**Status: Runnable**
 
 | Example | Status  | Notes |
 |---------|---------|-------|
-| (none)  | Planned | See below |
+| `01_db_crud.kark` | Runnable | In-memory CRUD with SQL-text statements |
+| `02_db_persist.kark` | Runnable | File-backed persistence, close/reopen round-trip |
 
-## Intended API surface (roadmap — NOT implemented)
+## What is implemented
 
-```
-std.db:
-  db_connect(dsn) -> connection
-  db_execute(conn, sql) -> result        # parameterized once implemented
-  db_query(conn, sql) -> rows
-  db_close(conn)
-```
-
-The corpus must never imply unsupported database functionality exists.
-Until a database driver runtime ships, this category documents the intended
-shape only, and no `.kark` example is provided.
-
-## Parallels today
-
-Data persistence available today is file-based through `std.io`
-(see `examples/05-data` and `examples/03-systems/01_file_io.kark`).
+- `std.db` provides an in-memory SQL-text database engine: `db_open`,
+  `db_engine`, `db_backend`, `db_execute`, `db_query`, `db_result`,
+  `db_last_error`, `db_last_count`, `db_create`, `db_insert`, `db_select`,
+  `db_update`, `db_delete`, `db_drop`, `db_begin`, `db_commit`, `db_rollback`,
+  `db_prepare`, `db_execute_stmt`, `db_format`, `db_save`, `db_close` and
+  `db_load`.
+- The engine understands a small SQL subset (CREATE TABLE, INSERT INTO,
+  SELECT, UPDATE, DELETE, DROP TABLE) over pipe-delimited text catalogs; real
+  indexed/multi-field DB engines are planned for a later phase. `db_save`/
+  `db_open` provide file-backed persistence via `std.io` text snapshots.
 
 ## Run
 
-Nothing to run yet. See `docs/source/examples/database.rst`.
+```powershell
+karkain run examples/06-database/01_db_crud.kark
+```

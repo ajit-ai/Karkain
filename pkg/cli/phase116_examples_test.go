@@ -29,10 +29,7 @@ var phase116EngineRe = regexp.MustCompile(`^//\s*Engine:\s*([^\s]+)`)
 var phase116CategoryRe = regexp.MustCompile(`^//\s*Category:\s*(\d{2})`)
 
 var phase116PlannedDirs = map[string]bool{
-	"04-networking":  true,
-	"06-database":    true,
-	"07-web":         true,
-	"11-quantum":     true,
+	"11-quantum": true,
 }
 
 func phase116CorpusDirs(t *testing.T) []string {

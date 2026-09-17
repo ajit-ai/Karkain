@@ -1,0 +1,881 @@
+// Karkain Standard Library - Database Module
+// A backend-neutral, functional database layer. Every operation returns a
+// NEW Database value; nothing is mutated in place, so a saved snapshot is an
+// immutable shade of the database (see db_begin / db_rollback). Backends
+// share one SQL dialect; the current backend is `db2` (a small embedded,
+// deterministic file/line store). The engine is reported via db_engine() and
+// selected via db_backend().
+//
+// Database value shape:
+//
+//   { path,          // file path or ":memory:"
+//     tables,        // map: table name -> { cols, rows }
+//     ok,            // last operation succeeded (1 = yes, 0 = no)
+//     error,         // last error message ("" on success)
+//     count,         // last operation affected/returned row count
+//     cols,          // last SELECT column names
+//     rows,          // last SELECT rows (decoded values)
+//     tx }           // 1 inside a read-committed transaction, else 0
+//
+// SQL subset (keywords are case-insensitive, table/column names are not):
+//
+//   CREATE TABLE name ( col1, col2, ... )
+//   INSERT INTO name VALUES ( v1, v2, ... )        -- items quoted with '
+//   UPDATE name SET col = value WHERE col = value
+//   DELETE FROM name WHERE col = value
+//   SELECT * FROM name
+//   SELECT col1, col2 FROM name
+//   DROP TABLE name
+//
+// Values are typed by shape at insert time: an integer literal is stored as
+// an int, anything else (including a 'quoted string') as a string. SELECT
+// returns the stored values decoded to their runtime type. Limitations (all
+// documented): no parameter binding, no joins, one WHERE clause, values may
+// not contain '|' or newlines (the file format is pipe-delimited).
+//
+// The persistence format is a simple deterministic text format:
+//
+//   #karkain-db-v1
+//   c users|id|name
+//   r users|i:1|s:alice
+//
+// Written in canonical Karkain (untyped params, no type annotations) so it
+// parses and compiles identically on BOTH engines.
+
+// ---------------------------------------------------------------------------
+// String helpers
+// ---------------------------------------------------------------------------
+
+// db_index_of returns the index of the first occurrence of sub in text, or -1.
+func db_index_of(text, sub) {
+    let n = len(text)
+    let m = len(sub)
+    if m == 0 {
+        return 0
+    }
+    let i = 0
+    while (i <= n - m) {
+        if substr(text, i, m) == sub {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// db_lower lower-cases an ASCII string.
+func db_lower(s) {
+    let out = ""
+    let i = 0
+    while (i < len(s)) {
+        let c = substr(s, i, 1)
+        if c == "A" { out = out + "a" }
+        else if c == "B" { out = out + "b" }
+        else if c == "C" { out = out + "c" }
+        else if c == "D" { out = out + "d" }
+        else if c == "E" { out = out + "e" }
+        else if c == "F" { out = out + "f" }
+        else if c == "G" { out = out + "g" }
+        else if c == "H" { out = out + "h" }
+        else if c == "I" { out = out + "i" }
+        else if c == "J" { out = out + "j" }
+        else if c == "K" { out = out + "k" }
+        else if c == "L" { out = out + "l" }
+        else if c == "M" { out = out + "m" }
+        else if c == "N" { out = out + "n" }
+        else if c == "O" { out = out + "o" }
+        else if c == "P" { out = out + "p" }
+        else if c == "Q" { out = out + "q" }
+        else if c == "R" { out = out + "r" }
+        else if c == "S" { out = out + "s" }
+        else if c == "T" { out = out + "t" }
+        else if c == "U" { out = out + "u" }
+        else if c == "V" { out = out + "v" }
+        else if c == "W" { out = out + "w" }
+        else if c == "X" { out = out + "x" }
+        else if c == "Y" { out = out + "y" }
+        else if c == "Z" { out = out + "z" }
+        else { out = out + c }
+        i = i + 1
+    }
+    return out
+}
+
+// db_starts_with reports whether sql begins with the lowercase keyword kw
+// (case-insensitive compare of the prefix).
+func db_starts_with(sql, kw) {
+    let n = len(kw)
+    if len(sql) < n {
+        return false
+    }
+    return db_lower(substr(sql, 0, n)) == kw
+}
+
+// db_find_ci returns the first case-insensitive index of sub in text, or -1.
+func db_find_ci(text, sub) {
+    let n = len(text)
+    let m = len(sub)
+    if m == 0 {
+        return 0
+    }
+    let low = db_lower(sub)
+    let i = 0
+    while (i <= n - m) {
+        if db_lower(substr(text, i, m)) == low {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// db_first_word returns the leading token of s (stops at space or "(").
+func db_first_word(s) {
+    let t = trim(s)
+    let i = 0
+    while (i < len(t)) {
+        let c = substr(t, i, 1)
+        if c == " " || c == "(" {
+            break
+        }
+        i = i + 1
+    }
+    return substr(t, 0, i)
+}
+
+// db_after_word returns the trimmed remainder after the first token.
+func db_after_word(s) {
+    let t = trim(s)
+    let i = 0
+    while (i < len(t)) {
+        let c = substr(t, i, 1)
+        if c == " " || c == "(" {
+            break
+        }
+        i = i + 1
+    }
+    return trim(substr(t, i, len(t) - i))
+}
+
+// db_paren_inner returns the text inside the outer parentheses of s.
+func db_paren_inner(s) {
+    let t = trim(s)
+    if len(t) == 0 {
+        return ""
+    }
+    if substr(t, 0, 1) == "(" {
+        t = substr(t, 1, len(t) - 1)
+    }
+    let close = db_index_of(t, ")")
+    if close >= 0 {
+        t = substr(t, 0, close)
+    }
+    return trim(t)
+}
+
+// db_split_eq splits `left = value` on the first "=" into a map { left, right }.
+func db_split_eq(s) {
+    let r = {}
+    r["left"] = ""
+    r["right"] = ""
+    let i = db_index_of(s, "=")
+    if i < 0 {
+        return r
+    }
+    r["left"] = trim(substr(s, 0, i))
+    r["right"] = trim(substr(s, i + 1, len(s) - i - 1))
+    return r
+}
+
+// ---------------------------------------------------------------------------
+// Value helpers
+// ---------------------------------------------------------------------------
+
+// db_is_int reports whether s is a signed integer literal.
+func db_is_int(s) {
+    let n = len(s)
+    if n == 0 {
+        return false
+    }
+    let i = 0
+    if substr(s, 0, 1) == "-" {
+        i = 1
+        if n == 1 {
+            return false
+        }
+    }
+    while (i < n) {
+        let c = substr(s, i, 1)
+        if c != "0" && c != "1" && c != "2" && c != "3" && c != "4" && c != "5" && c != "6" && c != "7" && c != "8" && c != "9" {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// db_unquote strips surrounding single quotes from a string literal.
+func db_unquote(s) {
+    let n = len(s)
+    if n >= 2 && substr(s, 0, 1) == "'" && substr(s, n - 1, 1) == "'" {
+        return substr(s, 1, n - 2)
+    }
+    return s
+}
+
+// db_encode encodes a literal value into its typed cell form ("i:.." / "s:..").
+func db_encode(v) {
+    let t = db_unquote(trim(v))
+    if db_is_int(t) {
+        return "i:" + t
+    }
+    return "s:" + t
+}
+
+// db_value returns the plain string content of a stored cell.
+func db_value(cell) {
+    let n = len(cell)
+    if n >= 2 && substr(cell, 0, 2) == "i:" {
+        return substr(cell, 2, n - 2)
+    }
+    if n >= 2 && substr(cell, 0, 2) == "s:" {
+        return substr(cell, 2, n - 2)
+    }
+    return cell
+}
+
+// db_decode returns the runtime value of a stored cell (int for "i:", string
+// otherwise).
+func db_decode(cell) {
+    let n = len(cell)
+    if n >= 2 && substr(cell, 0, 2) == "i:" {
+        return int(substr(cell, 2, n - 2))
+    }
+    return db_value(cell)
+}
+
+// ---------------------------------------------------------------------------
+// Structure helpers (functional copies)
+// ---------------------------------------------------------------------------
+
+// db_array_copy builds a fresh copy of an array.
+func db_array_copy(a) {
+    let r = []
+    let i = 0
+    while (i < len(a)) {
+        push(r, a[i])
+        i = i + 1
+    }
+    return r
+}
+
+// db_tables_copy builds a fresh copy of every table inside db.
+func db_tables_copy(db) {
+    let src = db["tables"]
+    let out = {}
+    let names = map_keys_of(src)
+    let i = 0
+    while (i < len(names)) {
+        let t = src[names[i]]
+        let nt = {}
+        nt["cols"] = db_array_copy(t["cols"])
+        let rows_a = []
+        let j = 0
+        while (j < len(t["rows"])) {
+            push(rows_a, db_array_copy(t["rows"][j]))
+            j = j + 1
+        }
+        nt["rows"] = rows_a
+        out[names[i]] = nt
+        i = i + 1
+    }
+    return out
+}
+
+// db_seed builds a brand-new empty Database value for path.
+func db_seed(path) {
+    let d = {}
+    d["path"] = path
+    d["tables"] = {}
+    d["ok"] = 1
+    d["error"] = ""
+    d["count"] = 0
+    d["cols"] = []
+    d["rows"] = []
+    d["tx"] = 0
+    return d
+}
+
+// db_seed_path builds a fresh Database value carrying only path.
+func db_seed_path(db) {
+    let d = {}
+    d["path"] = db["path"]
+    d["tables"] = {}
+    d["ok"] = 1
+    d["error"] = ""
+    d["count"] = 0
+    d["cols"] = []
+    d["rows"] = []
+    d["tx"] = 0
+    return d
+}
+
+// db_err builds a failed Database value (same path/tables, error set).
+func db_err(db, msg) {
+    let ndb = db_seed_path(db)
+    ndb["tables"] = db_tables_copy(db)
+    ndb["ok"] = 0
+    ndb["error"] = msg
+    return ndb
+}
+
+// db_col_index returns the index of col in the table's columns, or -1.
+func db_col_index(t, col) {
+    let cols = t["cols"]
+    let i = 0
+    while (i < len(cols)) {
+        if cols[i] == col {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// ---------------------------------------------------------------------------
+// Engine / backend metadata
+// ---------------------------------------------------------------------------
+
+// db_engine returns the supported engine tag ("db2"), kept so a future
+// backend can switch transparently behind the same API.
+func db_engine() {
+    return "db2"
+}
+
+// db_backend returns a human-readable backend label.
+func db_backend() {
+    return "embedded"
+}
+
+// ---------------------------------------------------------------------------
+// Statements
+// ---------------------------------------------------------------------------
+
+// db_execute runs a single SQL statement and returns a NEW Database value
+// carrying the last-operation result (ok/error/count/cols/rows).
+func db_execute(db, sql) {
+    let s = trim(sql)
+    if db_starts_with(s, "create table ") {
+        return db_create(db, s)
+    }
+    if db_starts_with(s, "insert into ") {
+        return db_insert(db, s)
+    }
+    if db_starts_with(s, "select ") {
+        return db_select(db, s)
+    }
+    if db_starts_with(s, "update ") {
+        return db_update(db, s)
+    }
+    if db_starts_with(s, "delete from ") {
+        return db_delete(db, s)
+    }
+    if db_starts_with(s, "drop table ") {
+        return db_drop(db, s)
+    }
+    return db_err(db, "unsupported statement")
+}
+
+// db_query runs an SQL statement and returns its result as a fresh map
+// { ok, error, count, cols, rows } (the SELECT-oriented convenience).
+func db_query(db, sql) {
+    let ndb = db_execute(db, sql)
+    let r = {}
+    r["ok"] = ndb["ok"]
+    r["error"] = ndb["error"]
+    r["count"] = ndb["count"]
+    r["cols"] = ndb["cols"]
+    r["rows"] = ndb["rows"]
+    return r
+}
+
+// db_result exposes the last-operation result of a Database value as a fresh
+// map { ok, error, count, cols, rows }.
+func db_result(db) {
+    let r = {}
+    r["ok"] = db["ok"]
+    r["error"] = db["error"]
+    r["count"] = db["count"]
+    r["cols"] = db["cols"]
+    r["rows"] = db["rows"]
+    return r
+}
+
+// db_last_error returns the last error message ("" when ok).
+func db_last_error(db) {
+    return db["error"]
+}
+
+// db_last_count returns the last-operation affected/returned row count.
+func db_last_count(db) {
+    return db["count"]
+}
+
+// ---------------------------------------------------------------------------
+// Individual statements
+// ---------------------------------------------------------------------------
+
+// db_create handles: CREATE TABLE name ( col1, col2, ... )
+func db_create(db, sql) {
+    let rest = substr(sql, 13, len(sql) - 13)
+    let name = db_first_word(rest)
+    if len(name) == 0 {
+        return db_err(db, "no table name")
+    }
+    let fresh = db_tables_copy(db)
+    if hasKey(fresh, name) == 1 {
+        return db_err(db, "table already exists: " + name)
+    }
+    let inner = db_paren_inner(db_after_word(rest))
+    let parts = split(inner, ",")
+    let cols = []
+    let i = 0
+    while (i < len(parts)) {
+        push(cols, trim(parts[i]))
+        i = i + 1
+    }
+    if len(cols) == 0 {
+        return db_err(db, "no columns")
+    }
+    let t = {}
+    t["cols"] = cols
+    t["rows"] = []
+    fresh[name] = t
+    let ndb = db_seed_path(db)
+    ndb["tables"] = fresh
+    ndb["count"] = 0
+    ndb["cols"] = cols
+    return ndb
+}
+
+// db_insert handles: INSERT INTO name VALUES ( v1, v2, ... )
+func db_insert(db, sql) {
+    let rest = substr(sql, 12, len(sql) - 12)
+    let name = db_first_word(rest)
+    if len(name) == 0 {
+        return db_err(db, "no table name")
+    }
+    if hasKey(db["tables"], name) == 0 {
+        return db_err(db, "no such table: " + name)
+    }
+    let after = db_after_word(rest)
+    if !db_starts_with(after, "values ") {
+        return db_err(db, "expected VALUES")
+    }
+    let inner = db_paren_inner(db_after_word(after))
+    let parts = split(inner, ",")
+    let t = db["tables"][name]
+    if len(parts) != len(t["cols"]) {
+        return db_err(db, "value count mismatch")
+    }
+    let cells = []
+    let i = 0
+    while (i < len(parts)) {
+        push(cells, db_encode(parts[i]))
+        i = i + 1
+    }
+    let fresh = db_tables_copy(db)
+    let nt = fresh[name]
+    let new_rows = db_array_copy(nt["rows"])
+    push(new_rows, cells)
+    nt["rows"] = new_rows
+    fresh[name] = nt
+    let ndb = db_seed_path(db)
+    ndb["tables"] = fresh
+    ndb["count"] = 1
+    return ndb
+}
+
+// db_select handles: SELECT * FROM name  /  SELECT c1, c2 FROM name
+func db_select(db, sql) {
+    let rest = trim(substr(sql, 7, len(sql) - 7))
+    let idx = db_find_ci(rest, " from ")
+    if idx < 0 {
+        return db_err(db, "expected FROM")
+    }
+    let col_part = trim(substr(rest, 0, idx))
+    let table_part = trim(substr(rest, idx + 6, len(rest) - idx - 6))
+    let name = db_first_word(table_part)
+    if len(name) == 0 {
+        return db_err(db, "no table name")
+    }
+    if hasKey(db["tables"], name) == 0 {
+        return db_err(db, "no such table: " + name)
+    }
+    let t = db["tables"][name]
+    let cols = t["cols"]
+    let want_all = false
+    if col_part == "*" {
+        want_all = true
+    }
+    let want = []
+    if !want_all {
+        let cparts = split(col_part, ",")
+        let i = 0
+        while (i < len(cparts)) {
+            push(want, trim(cparts[i]))
+            i = i + 1
+        }
+    }
+    let out_rows = []
+    let src_rows = t["rows"]
+    let ri = 0
+    while (ri < len(src_rows)) {
+        let row = src_rows[ri]
+        let out = []
+        if want_all {
+            let ci = 0
+            while (ci < len(cols)) {
+                push(out, db_decode(row[ci]))
+                ci = ci + 1
+            }
+        } else {
+            let ci = 0
+            while (ci < len(want)) {
+                let cidx = db_col_index(t, want[ci])
+                if cidx >= 0 {
+                    push(out, db_decode(row[cidx]))
+                } else {
+                    push(out, "")
+                }
+                ci = ci + 1
+            }
+        }
+        push(out_rows, out)
+        ri = ri + 1
+    }
+    let out_cols = db_array_copy(cols)
+    if !want_all {
+        out_cols = db_array_copy(want)
+    }
+    let fresh = db_tables_copy(db)
+    let ndb = db_seed_path(db)
+    ndb["tables"] = fresh
+    ndb["count"] = len(out_rows)
+    ndb["cols"] = out_cols
+    ndb["rows"] = out_rows
+    return ndb
+}
+
+// db_matches reports whether a stored row matches a `col = value` condition.
+func db_matches(t, row, cond) {
+    let eq = db_split_eq(cond)
+    let cidx = db_col_index(t, eq["left"])
+    if cidx < 0 {
+        return false
+    }
+    return db_value(row[cidx]) == db_unquote(trim(eq["right"]))
+}
+
+// db_update handles: UPDATE name SET col = value WHERE col = value
+func db_update(db, sql) {
+    let rest = substr(sql, 7, len(sql) - 7)
+    let name = db_first_word(rest)
+    if len(name) == 0 {
+        return db_err(db, "no table name")
+    }
+    if hasKey(db["tables"], name) == 0 {
+        return db_err(db, "no such table: " + name)
+    }
+    let after = db_after_word(rest)
+    if !db_starts_with(after, "set ") {
+        return db_err(db, "expected SET")
+    }
+    let tail = trim(substr(after, 4, len(after) - 4))
+    let wi = db_find_ci(tail, " where ")
+    if wi < 0 {
+        return db_err(db, "expected WHERE")
+    }
+    let assign = trim(substr(tail, 0, wi))
+    let cond = trim(substr(tail, wi + 7, len(tail) - wi - 7))
+    let eq = db_split_eq(assign)
+    let t = db["tables"][name]
+    let cidx = db_col_index(t, eq["left"])
+    if cidx < 0 {
+        return db_err(db, "no such column: " + eq["left"])
+    }
+    let new_val = db_encode(eq["right"])
+    let rows = t["rows"]
+    let new_rows = []
+    let updated = 0
+    let i = 0
+    while (i < len(rows)) {
+        let row = db_array_copy(rows[i])
+        if db_matches(t, rows[i], cond) {
+            row[cidx] = new_val
+            updated = updated + 1
+        }
+        push(new_rows, row)
+        i = i + 1
+    }
+    let fresh = db_tables_copy(db)
+    let nt = fresh[name]
+    nt["rows"] = new_rows
+    fresh[name] = nt
+    let ndb = db_seed_path(db)
+    ndb["tables"] = fresh
+    ndb["count"] = updated
+    return ndb
+}
+
+// db_delete handles: DELETE FROM name WHERE col = value
+func db_delete(db, sql) {
+    let rest = substr(sql, 12, len(sql) - 12)
+    let name = db_first_word(rest)
+    if len(name) == 0 {
+        return db_err(db, "no table name")
+    }
+    if hasKey(db["tables"], name) == 0 {
+        return db_err(db, "no such table: " + name)
+    }
+    let after = db_after_word(rest)
+    if !db_starts_with(after, "where ") {
+        return db_err(db, "expected WHERE")
+    }
+    let cond = trim(substr(after, 6, len(after) - 6))
+    let t = db["tables"][name]
+    let rows = t["rows"]
+    let new_rows = []
+    let removed = 0
+    let i = 0
+    while (i < len(rows)) {
+        if db_matches(t, rows[i], cond) {
+            removed = removed + 1
+        } else {
+            push(new_rows, db_array_copy(rows[i]))
+        }
+        i = i + 1
+    }
+    let fresh = db_tables_copy(db)
+    let nt = fresh[name]
+    nt["rows"] = new_rows
+    fresh[name] = nt
+    let ndb = db_seed_path(db)
+    ndb["tables"] = fresh
+    ndb["count"] = removed
+    return ndb
+}
+
+// db_drop handles: DROP TABLE name
+func db_drop(db, sql) {
+    let rest = substr(sql, 11, len(sql) - 11)
+    let name = db_first_word(rest)
+    if len(name) == 0 {
+        return db_err(db, "no table name")
+    }
+    let fresh = db_tables_copy(db)
+    if hasKey(fresh, name) == 0 {
+        return db_err(db, "no such table: " + name)
+    }
+    let keep = {}
+    let names = map_keys_of(fresh)
+    let i = 0
+    while (i < len(names)) {
+        if names[i] != name {
+            keep[names[i]] = fresh[names[i]]
+        }
+        i = i + 1
+    }
+    let ndb = db_seed_path(db)
+    ndb["tables"] = keep
+    ndb["count"] = 0
+    return ndb
+}
+
+// ---------------------------------------------------------------------------
+// Transactions
+// ---------------------------------------------------------------------------
+
+// db_begin starts a transaction. Save the returned value immediately:
+//   let db = db_open(path)
+//   db = db_begin(db)
+//   let before = db
+// The value of `before` never changes (the layer is purely functional), so
+// db_rollback(db, before) restores exactly the pre-transaction tables.
+func db_begin(db) {
+    let ndb = db_seed_path(db)
+    ndb["tables"] = db_tables_copy(db)
+    ndb["tx"] = 1
+    return ndb
+}
+
+// db_commit ends a transaction, keeping the current tables.
+func db_commit(db) {
+    let ndb = db_seed_path(db)
+    ndb["tables"] = db_tables_copy(db)
+    ndb["tx"] = 0
+    ndb["count"] = db["count"]
+    return ndb
+}
+
+// db_rollback restores the tables from a snapshot taken at db_begin.
+func db_rollback(db, snapshot) {
+    let ndb = db_seed_path(db)
+    ndb["tables"] = db_tables_copy(snapshot)
+    ndb["tx"] = 0
+    ndb["count"] = 0
+    return ndb
+}
+
+// ---------------------------------------------------------------------------
+// Prepared statements
+// ---------------------------------------------------------------------------
+
+// db_prepare validates a statement name and returns a Statement value. No
+// parameter substitution is supported in the db2 backend; the statement text
+// is re-parsed at execution time.
+func db_prepare(db, sql) {
+    let st = {}
+    st["ok"] = 1
+    st["error"] = ""
+    st["sql"] = sql
+    return st
+}
+
+// db_execute_stmt runs a statement produced by db_prepare.
+func db_execute_stmt(db, st) {
+    return db_execute(db, st["sql"])
+}
+
+// ---------------------------------------------------------------------------
+// Persistence
+// ---------------------------------------------------------------------------
+
+// db_format renders the whole database into the deterministic text format.
+func db_format(db) {
+    let out = "#karkain-db-v1\n"
+    let names = map_keys_of(db["tables"])
+    let i = 0
+    while (i < len(names)) {
+        let t = db["tables"][names[i]]
+        out = out + "c " + names[i]
+        let j = 0
+        while (j < len(t["cols"])) {
+            out = out + "|" + t["cols"][j]
+            j = j + 1
+        }
+        out = out + "\n"
+        let k = 0
+        while (k < len(t["rows"])) {
+            let row = t["rows"][k]
+            out = out + "r " + names[i]
+            let m = 0
+            while (m < len(row)) {
+                out = out + "|" + row[m]
+                m = m + 1
+            }
+            out = out + "\n"
+            k = k + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// db_save writes the database to its file (no-op for ":memory:").
+func db_save(db) {
+    let path = db["path"]
+    if path == ":memory:" {
+        return true
+    }
+    let content = db_format(db)
+    let ok = writeFile(path, content)
+    if ok == 0 {
+        return false
+    }
+    return true
+}
+
+// db_close persists the database and returns it.
+func db_close(db) {
+    db_save(db)
+    let ndb = db_seed_path(db)
+    ndb["tables"] = db_tables_copy(db)
+    ndb["count"] = db["count"]
+    return ndb
+}
+
+// db_load parses persisted text into a fresh Database value.
+func db_load(d, content) {
+    let tables = {}
+    let lines = split(content, "\n")
+    let i = 0
+    while (i < len(lines)) {
+        let line = trim(lines[i])
+        i = i + 1
+        if len(line) == 0 {
+            continue
+        }
+        if substr(line, 0, 1) == "#" {
+            continue
+        }
+        let sp = db_index_of(line, " ")
+        if sp < 0 {
+            continue
+        }
+        let kind = trim(substr(line, 0, sp))
+        let rest = trim(substr(line, sp + 1, len(line) - sp - 1))
+        if kind == "c" {
+            let parts = split(rest, "|")
+            if len(parts) >= 1 {
+                let nt = {}
+                let cvec = []
+                let j = 1
+                while (j < len(parts)) {
+                    push(cvec, trim(parts[j]))
+                    j = j + 1
+                }
+                nt["cols"] = cvec
+                nt["rows"] = []
+                tables[parts[0]] = nt
+            }
+        }
+        if kind == "r" {
+            let parts = split(rest, "|")
+            if len(parts) >= 1 {
+                let tname = parts[0]
+                let row = []
+                let j = 1
+                while (j < len(parts)) {
+                    push(row, parts[j])
+                    j = j + 1
+                }
+                let t = tables[tname]
+                t["rows"] = db_array_copy(t["rows"])
+                let old = t["rows"]
+                let new_rows = db_array_copy(old)
+                push(new_rows, row)
+                t["rows"] = new_rows
+                tables[tname] = t
+            }
+        }
+    }
+    let ndb = db_seed_path(d)
+    ndb["tables"] = tables
+    ndb["count"] = 0
+    return ndb
+}
+
+// db_open opens (or creates) a database at path. Use ":memory:" for an
+// in-memory database that is never persisted.
+func db_open(path) {
+    let d = db_seed(path)
+    if path == ":memory:" {
+        return d
+    }
+    let content = readFile(path)
+    if len(content) == 0 {
+        return d
+    }
+    return db_load(d, content)
+}

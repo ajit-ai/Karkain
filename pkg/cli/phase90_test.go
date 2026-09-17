@@ -151,7 +151,7 @@ func TestPhase90_NativeExecutableGeneration(t *testing.T) {
 	// Compile C to native
 	cFile := filepath.Join(root, "kcc-tests", "release.c")
 	exeFile := filepath.Join(root, "kcc-tests", "release.exe")
-	cmd = exec.Command(gccPath, "-std=c99", "-o", exeFile, cFile, "-lm", "-lgmp")
+	cmd = exec.Command(gccPath, "-std=c99", "-o", exeFile, cFile, "-lm", "-lgmp", winsockLibFlag())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("gcc compilation failed: %v\n%s", err, string(out))
 	}

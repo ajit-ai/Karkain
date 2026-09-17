@@ -1,30 +1,26 @@
-# 07 — Web
+# 07 - Web
 
-**Status: Planned**
-
-No web framework or HTTP server is runnable from `.kark` today.
+**Status: Runnable**
 
 | Example | Status  | Notes |
 |---------|---------|-------|
-| (none)  | Planned | See below |
+| `01_http_loopback.kark` | Runnable | Request/receive/serve loopback |
+| `02_http_codec.kark` | Runnable | Request/response constructors and codecs |
 
-## What exists behind the scenes
+## What is implemented
 
-- No web framework or HTTP server exists. The Phase-15-era placeholder
-  `pkg/stdlib/http.go` stubs were removed in the 1.0.0 repository cleanup
-  (they were never wired into the language); web remains Planned.
-
-## Roadmap for this category
-
-1. socket runtime in the generated C (foundation)
-2. `std.net` TCP client/server (foundation)
-3. `std.http` request/response (serialization surface)
-4. routing + middleware conventions
-5. static file serving
-
-When step (1) lands, the first real `05_*/07-web` examples can be a plain
-TCP echo client/server. Until then this page stays honest.
+- `std.http` provides minimal HTTP/1.1 client and server building blocks:
+  `http_make_request`, `http_make_response`, `http_new_headers`,
+  `http_parse_request`, `http_parse_response`, `http_parse_headers`,
+  `http_split_message`, `http_build_request`, `http_build_response`,
+  `http_request_send`, `http_get`, `http_post`, `http_listen`, `http_accept`,
+  `http_read_request`, `http_write_response`, `http_read_all`,
+  `http_read_until` and `http_close`.
+- HTTP is built on top of `std.net` TCP sockets, runnable on both engines
+  with byte-identical output (pinned in the Phase 114 gate).
 
 ## Run
 
-Nothing to run yet. See `docs/source/examples/web.rst`.
+```powershell
+karkain run examples/07-web/01_http_loopback.kark
+```

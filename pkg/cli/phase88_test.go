@@ -78,7 +78,7 @@ func TestPhase88_SelfHostedCompilerCompiles(t *testing.T) {
 		exeFile = filepath.Join(root, "kcc.exe")
 	}
 
-	cmd := exec.Command(gccPath, "-std=c99", "-o", exeFile, cFile, "-lm", "-lgmp")
+	cmd := exec.Command(gccPath, "-std=c99", "-o", exeFile, cFile, "-lm", "-lgmp", winsockLibFlag())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("gcc failed to compile self-hosted compiler: %v\n%s", err, string(out))

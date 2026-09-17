@@ -1,0 +1,87 @@
+// Karkain Standard Library - Networking Module
+// Real TCP socket client/server layer built on the net_* runtime builtins
+// (net_connect / net_listen / net_accept / net_read / net_write / net_close /
+// net_last_error), which are available on BOTH the Go engine and the
+// self-hosted kcc engine.
+//
+// This module wraps the raw fd-based builtins behind friendly types:
+//
+//   Address    { host, port }        - a single socket endpoint
+//   Endpoint   { host, port, kind }  - an address with a scheme ("tcp")
+//   Connection = a listener-agnostic integer fd from net_dial / net_accept_next
+//   Listener   = an integer fd from net_serve
+//
+// Every networking function here returns -1 (or "") on failure and leaves a
+// deterministic last-error string readable via net_error(). Blocking reads
+// time out after 5 seconds ("read failure: timeout").
+//
+// Written in canonical Karkain (untyped params, no type annotations) so it
+// parses and compiles identically on BOTH engines.
+
+// net_address builds an Address value for a host/IP and port.
+func net_address(host, port) {
+    let a = {}
+    a["host"] = host
+    a["port"] = port
+    return a
+}
+
+// net_endpoint builds an Endpoint value (an Address tagged with a TCP scheme).
+func net_endpoint(host, port) {
+    let a = {}
+    a["host"] = host
+    a["port"] = port
+    a["kind"] = "tcp"
+    return a
+}
+
+// net_dial opens a TCP connection to an Address/Endpoint and returns the
+// Connection fd (>= 0) or -1 on failure (net_error has the reason).
+func net_dial(point) {
+    return net_connect(point["host"], point["port"])
+}
+
+// net_serve binds and listens on an Address/Endpoint, returning the Listener
+// fd (>= 0) or -1 on failure. The listener has SO_REUSEADDR set.
+func net_serve(point) {
+    return net_listen(point["host"], point["port"])
+}
+
+// net_accept_next blocks for the next pending connection on a Listener fd and
+// returns a Connection fd or -1 on failure.
+func net_accept_next(listener) {
+    return net_accept(listener)
+}
+
+// net_recv reads up to max bytes from a Connection. It returns "" on clean
+// EOF or on failure (net_error distinguishes those; a clean EOF leaves the
+// last-error string empty).
+func net_recv(conn, max) {
+    return net_read(conn, max)
+}
+
+// net_send writes data to a Connection and returns the number of bytes sent,
+// or -1 on failure.
+func net_send(conn, data) {
+    return net_write(conn, data)
+}
+
+// net_shut closes a Connection or Listener fd. Returns 1 on success, -1 on
+// failure.
+func net_shut(fd) {
+    return net_close(fd)
+}
+
+// net_error returns the deterministic last-error string from the most recent
+// failed network operation ("" when the last operation succeeded).
+func net_error() {
+    return net_last_error()
+}
+
+// net_fd_open reports whether a Connection/Listener fd is valid (>= 0).
+func net_fd_open(fd) {
+    if fd >= 0 {
+        return true
+    }
+    return false
+}

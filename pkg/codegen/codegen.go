@@ -1376,6 +1376,190 @@ Value karkain_writeFile(Value path, Value content) {
     return make_int(1);
 }
 
+// Phase 125A: Networking runtime (cross-platform TCP sockets). The socket
+// headers/types are already provided by the preamble (winsock2/windows on
+// _WIN32 with ws2_32 via #pragma comment(lib), sys/socket.h elsewhere plus
+// the closesocket alias). Every net builtin returns a Karkain Value; failures
+// return -1 (or "") and record a deterministic last-error string readable
+// through karkain_net_lastError. Blocking reads time out after 5 seconds so
+// a hung peer surfaces as "read failure: timeout" instead of hanging forever.
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+typedef SOCKET KarkainSock;
+#define KARKAIN_INVALID_SOCKET INVALID_SOCKET
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <errno.h>
+#include <sys/time.h>
+#include <unistd.h>
+#ifndef closesocket
+#define closesocket close
+#endif
+typedef int KarkainSock;
+#define KARKAIN_INVALID_SOCKET (-1)
+#endif
+static int _karkain_net_started = 0;
+static char _karkain_net_error[512] = "";
+
+static void karkain_net_err(const char* msg) {
+    snprintf(_karkain_net_error, sizeof(_karkain_net_error), "%s", msg ? msg : "network failure");
+}
+
+static void karkain_net_errno(const char* prefix) {
+#ifdef _WIN32
+    snprintf(_karkain_net_error, sizeof(_karkain_net_error), "%s: wsa error %d", prefix ? prefix : "network failure", (int)WSAGetLastError());
+#else
+    snprintf(_karkain_net_error, sizeof(_karkain_net_error), "%s: %s", prefix ? prefix : "network failure", strerror(errno));
+#endif
+}
+
+static void karkain_net_init(void) {
+#ifdef _WIN32
+    if (!_karkain_net_started) {
+        WSADATA wsa;
+        if (WSAStartup(MAKEWORD(2, 2), &wsa) == 0) _karkain_net_started = 1;
+        else karkain_net_errno("network init failed");
+    }
+#endif
+}
+
+static int karkain_net_resolve(const char* host, int port, struct sockaddr_storage* out, socklen_t* outlen) {
+    char pbuf[16];
+    struct addrinfo hints;
+    struct addrinfo* res = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    snprintf(pbuf, sizeof(pbuf), "%d", port);
+    int rc = getaddrinfo(host, pbuf, &hints, &res);
+    if (rc != 0 || res == NULL) {
+        karkain_net_err("invalid address");
+        return -1;
+    }
+    memcpy(out, res->ai_addr, res->ai_addrlen);
+    *outlen = (socklen_t)res->ai_addrlen;
+    freeaddrinfo(res);
+    return 0;
+}
+
+static Value karkain_net_connect(Value host, Value port) {
+    karkain_net_init();
+    _karkain_net_error[0] = '\0';
+    if (host.type != TYPE_STRING || port.type != TYPE_INT) { karkain_net_err("invalid address"); return make_int(-1); }
+    const char* h = host.strVal ? host.strVal : "";
+    int p = (int)port.intVal;
+    if (p < 0 || p > 65535) { karkain_net_err("invalid address"); return make_int(-1); }
+    struct sockaddr_storage addr;
+    socklen_t addrlen = 0;
+    if (karkain_net_resolve(h, p, &addr, &addrlen) != 0) return make_int(-1);
+    KarkainSock fd = (KarkainSock)socket(addr.ss_family, SOCK_STREAM, 0);
+    if (fd == KARKAIN_INVALID_SOCKET) { karkain_net_errno("connection failure"); return make_int(-1); }
+    if (connect(fd, (struct sockaddr*)&addr, addrlen) != 0) { karkain_net_errno("connection failure"); closesocket(fd); return make_int(-1); }
+    return make_int((long long)fd);
+}
+
+static Value karkain_net_listen(Value host, Value port) {
+    karkain_net_init();
+    _karkain_net_error[0] = '\0';
+    if (host.type != TYPE_STRING || port.type != TYPE_INT) { karkain_net_err("invalid address"); return make_int(-1); }
+    const char* h = host.strVal ? host.strVal : "";
+    int p = (int)port.intVal;
+    if (p < 0 || p > 65535) { karkain_net_err("invalid address"); return make_int(-1); }
+    struct sockaddr_storage addr;
+    socklen_t addrlen = 0;
+    if (karkain_net_resolve(h, p, &addr, &addrlen) != 0) return make_int(-1);
+    KarkainSock fd = (KarkainSock)socket(addr.ss_family, SOCK_STREAM, 0);
+    if (fd == KARKAIN_INVALID_SOCKET) { karkain_net_errno("connection failure"); return make_int(-1); }
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));
+    if (bind(fd, (struct sockaddr*)&addr, addrlen) != 0) { karkain_net_errno("connection failure"); closesocket(fd); return make_int(-1); }
+    if (listen(fd, 16) != 0) { karkain_net_errno("connection failure"); closesocket(fd); return make_int(-1); }
+    return make_int((long long)fd);
+}
+
+static Value karkain_net_accept(Value sfd) {
+    karkain_net_init();
+    _karkain_net_error[0] = '\0';
+    if (sfd.type != TYPE_INT) { karkain_net_err("invalid listener"); return make_int(-1); }
+    KarkainSock fd = (KarkainSock)sfd.intVal;
+    KarkainSock c = (KarkainSock)accept(fd, NULL, NULL);
+    if (c == KARKAIN_INVALID_SOCKET) { karkain_net_errno("accept failure"); return make_int(-1); }
+#ifdef _WIN32
+    unsigned long tmo = 5000;
+    setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tmo, sizeof(tmo));
+#else
+    struct timeval tv;
+    tv.tv_sec = 5;
+    tv.tv_usec = 0;
+    setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+    return make_int((long long)c);
+}
+
+static Value karkain_net_read(Value fdv, Value maxv) {
+    karkain_net_init();
+    _karkain_net_error[0] = '\0';
+    if (fdv.type != TYPE_INT || maxv.type != TYPE_INT) { karkain_net_err("read failure: invalid argument"); return make_string(""); }
+    KarkainSock fd = (KarkainSock)fdv.intVal;
+    long long maxn = maxv.intVal;
+    if (maxn < 0) maxn = 0;
+    if (maxn > 65536) maxn = 65536;
+    char* buf = (char*)malloc((size_t)maxn + 1);
+    if (!buf) { karkain_net_err("read failure: out of memory"); return make_string(""); }
+    int n = (int)recv(fd, buf, (size_t)maxn, 0);
+    if (n < 0) {
+        free(buf);
+#ifdef _WIN32
+        if (WSAGetLastError() == WSAETIMEDOUT) karkain_net_err("read failure: timeout");
+        else karkain_net_errno("read failure");
+#else
+        if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT) karkain_net_err("read failure: timeout");
+        else karkain_net_errno("read failure");
+#endif
+        return make_string("");
+    }
+    if (n == 0) { free(buf); return make_string(""); }
+    buf[n] = '\0';
+    Value r = make_string(buf);
+    free(buf);
+    return r;
+}
+
+static Value karkain_net_write(Value fdv, Value data) {
+    karkain_net_init();
+    _karkain_net_error[0] = '\0';
+    if (fdv.type != TYPE_INT || data.type != TYPE_STRING) { karkain_net_err("write failure: invalid argument"); return make_int(-1); }
+    KarkainSock fd = (KarkainSock)fdv.intVal;
+    const char* s = data.strVal ? data.strVal : "";
+    size_t total = strlen(s);
+    size_t sent = 0;
+    while (sent < total) {
+        size_t chunk = (total - sent) > (size_t)0x4000 ? (size_t)0x4000 : (total - sent);
+        int n = (int)send(fd, s + sent, (int)chunk, 0);
+        if (n <= 0) { karkain_net_errno("write failure"); return make_int(-1); }
+        sent += (size_t)n;
+    }
+    return make_int((long long)sent);
+}
+
+static Value karkain_net_close(Value fdv) {
+    karkain_net_init();
+    _karkain_net_error[0] = '\0';
+    if (fdv.type != TYPE_INT) { karkain_net_err("connection closed: invalid fd"); return make_int(-1); }
+    KarkainSock fd = (KarkainSock)fdv.intVal;
+    if (closesocket(fd) == 0) return make_int(1);
+    karkain_net_errno("connection closed");
+    return make_int(-1);
+}
+
+static Value karkain_net_last_error(void) {
+    return make_string(_karkain_net_error);
+}
+
 void print_value(Value v) {
     if (v.type == TYPE_INT) {
         printf("%lld\n", v.intVal);
@@ -3190,6 +3374,27 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Function == "writeFile" {
 			// CORRECT (Two separate calls to g.genExpr)
 			return fmt.Sprintf("karkain_writeFile(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "net_connect" {
+			return fmt.Sprintf("karkain_net_connect(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "net_listen" {
+			return fmt.Sprintf("karkain_net_listen(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "net_accept" {
+			return fmt.Sprintf("karkain_net_accept(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "net_read" {
+			return fmt.Sprintf("karkain_net_read(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "net_write" {
+			return fmt.Sprintf("karkain_net_write(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "net_close" {
+			return fmt.Sprintf("karkain_net_close(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "net_last_error" {
+			return "karkain_net_last_error()"
 		}
 		if n.Function == "http.get" {
 			g.needsHTTP = true

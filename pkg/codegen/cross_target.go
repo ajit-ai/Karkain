@@ -104,11 +104,13 @@ func (g *Generator) detectHostCompiler(cFile, exeFile string) (string, []string,
 
 // hostNativeFlags are the historical native compile flags: -std=c2x -O0 -lgmp,
 // with -mconsole when targeting Windows (host Windows builds; the POSIX branch
-// is used verbatim when the host itself is POSIX).
+// is used verbatim when the host itself is POSIX). Winsock symbols (net
+// builtins) resolve through an explicit -lws2_32 on Windows targets because
+// MinGW gcc ignores #pragma comment(lib, ...).
 func (g *Generator) hostNativeFlags(cFile, exeFile string) []string {
 	flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp"}
 	if target.Host().OS == target.OSWindows {
-		flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp"}
+		flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}
 	} else {
 		flags = append(flags, "-D_POSIX_C_SOURCE=200809L", "-lm")
 	}
@@ -123,12 +125,12 @@ func (g *Generator) hostNativeFlags(cFile, exeFile string) []string {
 // cross gcc or clang --target.
 func (g *Generator) detectWindowsCrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
 	if cc := os.Getenv("CC"); cc != "" {
-		return cc, []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp"}, nil
+		return cc, []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}, nil
 	}
 	prefix := target.MingwTriple(tg)
 	searched := []string{prefix + "-gcc"}
 	if _, err := exec.LookPath(prefix + "-gcc"); err == nil {
-		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp"}
+		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
 		}
@@ -136,7 +138,7 @@ func (g *Generator) detectWindowsCrossCompiler(tg target.Target, cFile, exeFile 
 	}
 	if _, err := exec.LookPath("clang"); err == nil {
 		searched = append(searched, "clang --target="+tg.String())
-		return "clang", []string{cFile, "-o", exeFile, "--target=" + target.MingwTriple(tg), "-std=c2x", "-O0", "-Wno-psabi", "-lgmp"}, nil
+		return "clang", []string{cFile, "-o", exeFile, "--target=" + target.MingwTriple(tg), "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}, nil
 	}
 	return "", nil, crossToolchainError(tg, searched...)
 }

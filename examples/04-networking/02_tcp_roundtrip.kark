@@ -1,0 +1,26 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 04 Networking
+//
+// Loopback TCP with the raw net builtins (net_listen / net_connect /
+// net_accept / net_write / net_read / net_close): a server socket receives a
+// message and answers, and the client reads the reply. Uses net_endpoint to
+// build the address value.
+//
+// Run:  karkain run examples/04-networking/02_tcp_roundtrip.kark
+
+import std.net
+
+func main() {
+    let ep = net_endpoint("127.0.0.1", 49051)
+    let srv = net_listen(ep["host"], ep["port"])
+    let cli = net_connect(ep["host"], ep["port"])
+    let conn = net_accept(srv)
+    println(net_write(cli, "one"))
+    let one = net_read(conn, 16)
+    println(one)
+    println(net_write(conn, "two"))
+    let two = net_read(cli, 16)
+    println(two)
+    println(net_close(conn) + net_close(cli) + net_close(srv))
+}
