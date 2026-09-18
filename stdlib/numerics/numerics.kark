@@ -1,0 +1,523 @@
+// Karkain Standard Library — Numerics Module (Phase 126)
+//
+// Deterministic numerical / AI-ML runtime foundation, written in canonical
+// Karkain. Every function here uses ONLY the byte-identical core surface:
+// untyped function parameters, `while`/`if`/`let`, array `push`+`len`+
+// indexing, and the four arithmetic operators on float64 + - * / with
+// integer loop counters. There are NO fake Tensor/Model/Inference types,
+// no fake GPU/NPU execution, and no reliance on the float builtins (sqrt,
+// pow, exp are documented byte-unreliable on float arguments on both
+// engines). Square roots and exponentials are computed here with fixed-
+// iteration Newton / Taylor series so output is byte-identical on BOTH
+// engines (Go front end + self-hosted kcc) BY CONSTRUCTION.
+//
+// Matrices are flat row-major float64[] plus explicit (rows, cols)
+// dimension parameters. Tensors are flat float64[] plus an explicit int[]
+// shape. Shape mismatches and invalid shapes raise a deterministic,
+// source-located `assert` error on both engines.
+//
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 126 AI/ML Numerical & Runtime Foundation
+
+// ============================================================
+// Vector ops (flat float64[])
+// ============================================================
+
+// numerics_vec_alloc returns a zero-initialized float64 vector of length n.
+func numerics_vec_alloc(n) {
+    let result = []
+    let i = 0
+    while (i < n) {
+        push(result, 0.0)
+        i = i + 1
+    }
+    return result
+}
+
+// numerics_vec_sum returns the sum of all elements.
+func numerics_vec_sum(v) {
+    let s = 0.0
+    let i = 0
+    while (i < len(v)) {
+        s = s + v[i]
+        i = i + 1
+    }
+    return s
+}
+
+// numerics_vec_mean returns the arithmetic mean of v.
+func numerics_vec_mean(v) {
+    assert(len(v) > 0)
+    return numerics_vec_sum(v) / len(v)
+}
+
+// numerics_vec_variance returns the population variance (mean of squared
+// deviations from the mean).
+func numerics_vec_variance(v) {
+    let m = numerics_vec_mean(v)
+    let s = 0.0
+    let i = 0
+    while (i < len(v)) {
+        let d = v[i] - m
+        s = s + d * d
+        i = i + 1
+    }
+    return s / len(v)
+}
+
+// numerics_newton_sqrt computes sqrt(x) with q Newton iterations starting
+// from 1.0. Pure arithmetic: byte-identical on both engines.
+func numerics_newton_sqrt(x, q) {
+    let r = 1.0
+    let i = 0
+    while (i < q) {
+        r = (r + x / r) / 2
+        i = i + 1
+    }
+    return r
+}
+
+// numerics_vec_stddev returns the population standard deviation of v
+// (variance via Newton sqrt, byte-identical on both engines).
+func numerics_vec_stddev(v) {
+    return numerics_newton_sqrt(numerics_vec_variance(v), 12)
+}
+
+// numerics_vec_dot returns the dot product of two equal-length vectors.
+func numerics_vec_dot(a, b) {
+    assert(len(a) == len(b))
+    let s = 0.0
+    let i = 0
+    while (i < len(a)) {
+        s = s + a[i] * b[i]
+        i = i + 1
+    }
+    return s
+}
+
+// numerics_vec_add returns the element-wise sum of two equal-length vectors.
+func numerics_vec_add(a, b) {
+    assert(len(a) == len(b))
+    let r = numerics_vec_alloc(len(a))
+    let i = 0
+    while (i < len(a)) {
+        r[i] = a[i] + b[i]
+        i = i + 1
+    }
+    return r
+}
+
+// numerics_vec_sub returns the element-wise difference a - b.
+func numerics_vec_sub(a, b) {
+    assert(len(a) == len(b))
+    let r = numerics_vec_alloc(len(a))
+    let i = 0
+    while (i < len(a)) {
+        r[i] = a[i] - b[i]
+        i = i + 1
+    }
+    return r
+}
+
+// numerics_vec_scale returns v scaled by scalar s.
+func numerics_vec_scale(v, s) {
+    let r = numerics_vec_alloc(len(v))
+    let i = 0
+    while (i < len(v)) {
+        r[i] = v[i] * s
+        i = i + 1
+    }
+    return r
+}
+
+// numerics_vec_l1 returns the L1 (Manhattan) norm of v.
+func numerics_vec_l1(v) {
+    let s = 0.0
+    let i = 0
+    while (i < len(v)) {
+        let x = v[i]
+        if (x < 0.0) {
+            x = -x
+        }
+        s = s + x
+        i = i + 1
+    }
+    return s
+}
+
+// numerics_vec_l2_sq returns the squared L2 norm (sum of squares).
+func numerics_vec_l2_sq(v) {
+    let s = 0.0
+    let i = 0
+    while (i < len(v)) {
+        s = s + v[i] * v[i]
+        i = i + 1
+    }
+    return s
+}
+
+// numerics_vec_l2 returns the L2 (Euclidean) norm of v via Newton sqrt.
+func numerics_vec_l2(v) {
+    return numerics_newton_sqrt(numerics_vec_l2_sq(v), 12)
+}
+
+// numerics_vec_max returns the largest element of v.
+func numerics_vec_max(v) {
+    assert(len(v) > 0)
+    let m = v[0]
+    let i = 1
+    while (i < len(v)) {
+        if (v[i] > m) {
+            m = v[i]
+        }
+        i = i + 1
+    }
+    return m
+}
+
+// numerics_vec_min returns the smallest element of v.
+func numerics_vec_min(v) {
+    assert(len(v) > 0)
+    let m = v[0]
+    let i = 1
+    while (i < len(v)) {
+        if (v[i] < m) {
+            m = v[i]
+        }
+        i = i + 1
+    }
+    return m
+}
+
+// numerics_vec_count_nonzero returns how many elements differ from 0.0.
+func numerics_vec_count_nonzero(v) {
+    let n = 0
+    let i = 0
+    while (i < len(v)) {
+        if (v[i] != 0.0) {
+            n = n + 1
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// ============================================================
+// Matrix ops (flat row-major float64[] + (rows, cols))
+// ============================================================
+
+// numerics_mat_zeros returns a rows*cols flat row-major zero matrix.
+func numerics_mat_zeros(rows, cols) {
+    return numerics_vec_alloc(rows * cols)
+}
+
+// numerics_mat_identity returns an n*n identity matrix as flat row-major.
+func numerics_mat_identity(n) {
+    let m = numerics_mat_zeros(n, n)
+    let i = 0
+    while (i < n) {
+        m[i * n + i] = 1.0
+        i = i + 1
+    }
+    return m
+}
+
+// numerics_mat_transpose returns the rows-by-cols transpose as a flat
+// cols-by-rows matrix.
+func numerics_mat_transpose(a, rows, cols) {
+    let t = numerics_mat_zeros(cols, rows)
+    let i = 0
+    while (i < rows) {
+        let j = 0
+        while (j < cols) {
+            t[j * rows + i] = a[i * cols + j]
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return t
+}
+
+// numerics_mat_mul computes C = A * B for A (rowsa x colsa) and B (rowsb x
+// colsb) with colsa == rowsb. Returns a flat rowsa x colsb matrix. Pure
+// arithmetic with an explicit assert on the inner dimension so a shape
+// mismatch is a deterministic, source-located error on both engines.
+func numerics_mat_mul(a, rowsa, colsa, b, rowsb, colsb) {
+    assert(colsa == rowsb)
+    let c = numerics_mat_zeros(rowsa, colsb)
+    let i = 0
+    while (i < rowsa) {
+        let j = 0
+        while (j < colsb) {
+            let acc = 0.0
+            let k = 0
+            while (k < colsa) {
+                acc = acc + a[i * colsa + k] * b[k * colsb + j]
+                k = k + 1
+            }
+            c[i * colsb + j] = acc
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return c
+}
+
+// numerics_mat_vec_mul computes y = A * x for A (rows x cols) and x of
+// length cols. Returns a flat vector of length rows.
+func numerics_mat_vec_mul(a, rows, cols, x) {
+    assert(len(x) == cols)
+    let y = numerics_mat_zeros(rows, 1)
+    let i = 0
+    while (i < rows) {
+        let acc = 0.0
+        let k = 0
+        while (k < cols) {
+            acc = acc + a[i * cols + k] * x[k]
+            k = k + 1
+        }
+        y[i] = acc
+        i = i + 1
+    }
+    return y
+}
+
+// numerics_vec_mat_mul computes the transpose case xᵀ * A: given x of length
+// rows and A (rows x cols), returns a flat vector of length cols.
+func numerics_vec_mat_mul(x, a, rows, cols) {
+    assert(len(x) == rows)
+    let y = numerics_mat_zeros(1, cols)
+    let j = 0
+    while (j < cols) {
+        let acc = 0.0
+        let k = 0
+        while (k < rows) {
+            acc = acc + x[k] * a[k * cols + j]
+            k = k + 1
+        }
+        y[j] = acc
+        j = j + 1
+    }
+    return y
+}
+
+// ============================================================
+// Tensor foundation (flat float64[] + explicit int[] shape)
+// ============================================================
+
+// numerics_tensor_numel returns the product of all shape entries.
+func numerics_tensor_numel(shape) {
+    let n = 1
+    let i = 0
+    while (i < len(shape)) {
+        assert(shape[i] > 0)
+        n = n * shape[i]
+        i = i + 1
+    }
+    return n
+}
+
+// numerics_tensor_zeros returns a zero flat tensor for the given shape.
+func numerics_tensor_zeros(shape) {
+    return numerics_vec_alloc(numerics_tensor_numel(shape))
+}
+
+// numerics_tensor_index computes the flat row-major offset for a multi-index
+// against a shape. Both args must have equal length; each component must be
+// in [0, shape[d]). Violations are deterministic source-located errors.
+func numerics_tensor_index(shape, idx) {
+    assert(len(shape) == len(idx))
+    let offset = 0
+    let d = 0
+    while (d < len(shape)) {
+        assert(idx[d] >= 0)
+        assert(idx[d] < shape[d])
+        offset = offset * shape[d] + idx[d]
+        d = d + 1
+    }
+    return offset
+}
+
+// numerics_tensor_get reads element at multi-index idx from flat tensor t.
+func numerics_tensor_get(t, shape, idx) {
+    return t[numerics_tensor_index(shape, idx)]
+}
+
+// numerics_tensor_set writes value v at multi-index idx into flat tensor t.
+func numerics_tensor_set(t, shape, idx, v) {
+    t[numerics_tensor_index(shape, idx)] = v
+}
+
+// numerics_tensor_rank returns the number of dimensions of a shape.
+func numerics_tensor_rank(shape) {
+    return len(shape)
+}
+
+// numerics_tensor_print_shape prints each dimension of a tensor's shape on its
+// own line using the canonical single-expression `print(int)` form. This is
+// intentionally NOT a "(2, 3, 4)" single-line rendering — building that needs
+// an int→string helper (`str_from_int` lives in the std.string module, not in
+// the Go engine), which would break byte-parity at module load on both
+// engines. Printing integer values one per line is the only form that is
+// byte-identical on Go and kcc by construction, so that is what we pin.
+func numerics_tensor_print_shape(shape) {
+    assert(len(shape) > 0)
+    let d = 0
+    while (d < len(shape)) {
+        print(shape[d])
+        d = d + 1
+    }
+}
+
+// ============================================================
+// Deterministic transcendental helpers (pure Taylor/Newton)
+// ============================================================
+
+// numerics_exp_taylor computes e^x via a fixed truncation of the Taylor
+// series. Pure arithmetic: byte-identical on both engines.
+func numerics_exp_taylor(x, terms) {
+    let sum = 1.0
+    let term = 1.0
+    let i = 1
+    while (i <= terms) {
+        term = term * x / i
+        sum = sum + term
+        i = i + 1
+    }
+    return sum
+}
+
+// numerics_sigmoid computes 1/(1+e^(-x)) with the Taylor exp.
+func numerics_sigmoid(x, terms) {
+    let e = numerics_exp_taylor(-x, terms)
+    return 1.0 / (1.0 + e)
+}
+
+// numerics_tanh computes (e^(2x)-1)/(e^(2x)+1) with the Taylor exp.
+func numerics_tanh(x, terms) {
+    let e = numerics_exp_taylor(2.0 * x, terms)
+    return (e - 1.0) / (e + 1.0)
+}
+
+// numerics_relu returns max(0, x).
+func numerics_relu(x) {
+    if (x < 0.0) {
+        return 0.0
+    }
+    return x
+}
+
+// numerics_softmax_denom returns the sum of e^(v[i]) (the normalization
+// denominator of a softmax).
+func numerics_softmax_denom(v, terms) {
+    let s = 0.0
+    let i = 0
+    while (i < len(v)) {
+        s = s + numerics_exp_taylor(v[i], terms)
+        i = i + 1
+    }
+    return s
+}
+
+// numerics_softmax returns the softmax probabilities of v.
+func numerics_softmax(v, terms) {
+    let d = numerics_softmax_denom(v, terms)
+    let r = numerics_vec_alloc(len(v))
+    let i = 0
+    while (i < len(v)) {
+        r[i] = numerics_exp_taylor(v[i], terms) / d
+        i = i + 1
+    }
+    return r
+}
+
+// ============================================================
+// Loss functions (AI-ML foundation)
+// ============================================================
+
+// numerics_mse returns the mean squared error between prediction and target
+// vectors.
+func numerics_mse(pred, target) {
+    assert(len(pred) == len(target))
+    let s = 0.0
+    let i = 0
+    while (i < len(pred)) {
+        let d = pred[i] - target[i]
+        s = s + d * d
+        i = i + 1
+    }
+    return s / len(pred)
+}
+
+// numerics_mae returns the mean absolute error between prediction and target
+// vectors.
+func numerics_mae(pred, target) {
+    assert(len(pred) == len(target))
+    let s = 0.0
+    let i = 0
+    while (i < len(pred)) {
+        let d = pred[i] - target[i]
+        if (d < 0.0) {
+            d = -d
+        }
+        s = s + d
+        i = i + 1
+    }
+    return s / len(pred)
+}
+
+// numerics_linear_pred returns the prediction of a linear model
+// y_hat = b + sum(w[k] * x[k]) for a single feature vector x.
+func numerics_linear_pred(w, b, x) {
+    assert(len(w) == len(x))
+    let y = b
+    let k = 0
+    while (k < len(w)) {
+        y = y + w[k] * x[k]
+        k = k + 1
+    }
+    return y
+}
+
+// numerics_layer_forward computes one dense layer forward pass:
+// z[k] = bias[k] + sum_j out[j] * w[j*K + k], then z[k] = numerics_relu(z[k])
+// if relu != 0, else the identity is kept. Returns the layer activation
+// vector of length K.
+func numerics_layer_forward(x, w, bias, J, K, use_relu) {
+    assert(len(x) == J)
+    assert(len(bias) == K)
+    let z = numerics_vec_alloc(K)
+    let k = 0
+    while (k < K) {
+        let acc = bias[k]
+        let j = 0
+        while (j < J) {
+            acc = acc + x[j] * w[j * K + k]
+            j = j + 1
+        }
+        if (use_relu != 0) {
+            z[k] = numerics_relu(acc)
+        } else {
+            z[k] = acc
+        }
+        k = k + 1
+    }
+    return z
+}
+
+// numerics_vec_append concatenates two vectors into a new vector.
+func numerics_vec_append(a, b) {
+    let r = numerics_vec_alloc(len(a) + len(b))
+    let i = 0
+    while (i < len(a)) {
+        r[i] = a[i]
+        i = i + 1
+    }
+    let j = 0
+    while (j < len(b)) {
+        r[len(a) + j] = b[j]
+        j = j + 1
+    }
+    return r
+}

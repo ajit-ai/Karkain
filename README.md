@@ -49,7 +49,7 @@ karkain build hello.kark      # native executable
 **Documentation:**
 
 - [Getting Started](docs/source/getting-started/index.rst) — installation, first program, project layout
-- [Karkain by Example](docs/source/examples/index.rst) — 52 real, runnable programs
+](docs/source/examples/index.rst) — 59 real, runnable programs
 - [Language Guide](docs/source/language/index.rst) — the language as it actually works
 - [Standard Library](docs/source/stdlib/index.rst) — `std.string`, `std.collections`, `std.io`, `std.encoding`, `std.crypto`, `std.testing`
 - [CLI Reference](docs/source/tools/index.rst) — every command, flag and exit code
@@ -124,8 +124,8 @@ Experimental means *real and testable, but the surface may change*:
 
 ## Example corpus
 
-`examples/` holds **52 real `.kark` programs across 15 categories** — 50
-Runnable (incl. test-mode), 2 Experimental, 4 Planned (README only).
+`examples/` holds **59 real `.kark` programs across 15 categories** — 56
+Runnable (incl. test-mode), 2 Experimental, 1 Planned (README only).
 
 ```bash
 karkain run examples/01-fundamentals/01_hello_world.kark

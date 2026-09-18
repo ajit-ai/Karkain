@@ -24,7 +24,7 @@ Authoritative list of the 15-category example corpus. Jargon:
 | 06| Database               | 2     | 2        | 0            | 0       |
 | 07| Web                    | 2     | 2        | 0            | 0       |
 | 08| Concurrency            | 2     | 0        | 2            | 0       |
-| 09| AI                     | 2     | 2        | 0            | 0       |
+| 09| AI                     | 3     | 3        | 0            | 0       |
 | 10| Machine Learning       | 2     | 2        | 0            | 0       |
 | 11| Quantum                | 0     | 0        | 0            | 1 (dir) |
 | 12| Scientific Computing   | 4     | 4        | 0            | 0       |
