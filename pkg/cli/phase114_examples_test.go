@@ -1,4 +1,4 @@
-package cli
+﻿package cli
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 
 // Phase 114 gate: the official example corpus.
 //
-// Every Runnable example in the 15-category corpus (examples/01-fundamentals …
+// Every Runnable example in the 15-category corpus (examples/01-fundamentals â€¦
 // examples/14-security + developer tools) must compile and run to a pinned
 // golden output on BOTH engines (Go front end and the self-hosted kcc engine)
 // with byte-identical stdout. Experimental examples (08-concurrency) are only
@@ -71,6 +71,7 @@ var phase114Examples = map[string]struct {
 	"08-concurrency/02_channel_ping.kark":    {"5\n0\n8\n", "go"},
 	"09-ai/01_nearest_neighbor.kark":         {"10\n60\n100\n60\n", ""},
 	"09-ai/02_linear_classifier.kark":        {"5\n1\n-1\n2\n-3\n", ""},
+	"09-ai/03_numerics_forward.kark":         {"0.3\n0.23\n2.71828\n0.5\n0.761594\n0\n3\n1.41421\n10\n5\n25\n1\n0.0466667\n0.2\n0.23\n", ""},
 	"10-machine-learning/01_linear_regression.kark": {"0.9\n1.3\n6.7\n", ""},
 	"10-machine-learning/02_gradient_descent.kark":  {"3\n7\n", ""},
 	"12-scientific-computing/01_sqrt_newton.kark":   {"1.41421\n3\n2\n0.5\n", ""},
@@ -229,7 +230,7 @@ func TestPhase114_CorpusCoverage(t *testing.T) {
 			t.Errorf("pinned test file missing on disk: %s (%v)", rel, err)
 		}
 	}
-	if len(phase114Examples) != 58 {
-		t.Errorf("expected 58 pinned examples, got %d", len(phase114Examples))
+	if len(phase114Examples) != 59 {
+		t.Errorf("expected 59 pinned examples, got %d", len(phase114Examples))
 	}
 }

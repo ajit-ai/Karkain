@@ -290,6 +290,10 @@ three Phase 123 subtests PASS; Phase 99 gate still green after checker changes
 `Set-Content -Encoding UTF8` write a UTF-8 BOM (`EF BB BF`) that the Go lexer
 rejects — test fixtures must be BOM-stripped. Reports:
 `docs/audit/PHASE-123-ENUM-ADT-PARITY-FINAL-REPORT.md`.)
+
+Also completed: **126 — Standard-Library Numerics Module (std.numerics) + both-engine corpus 59/59 byte-identical**.
+Module: `stdlib/numerics/numerics.kark` (~520 lines, 40 `numerics_*` funcs, canonical per-dimension print). Example: `examples/09-ai/03_numerics_forward.kark` pinned with 15-line golden; Phase 114 gate 59/59 both engines PASS (Go 255.1s, kcc 433.2s). README/EXAMPLES counts updated 52→59. Generated debris cleaned.
+
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
 six new examples, unconditional net-runtime emission on BOTH engines, and the

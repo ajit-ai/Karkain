@@ -1,0 +1,96 @@
+// ============================================================
+// 09-ai/03 — Deterministic ML forward pass on std.numerics
+// ============================================================
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc) — must be byte-identical
+// Category: 09 AI
+//
+// A two-layer neural-network forward pass built ENTIRELY on the canonical
+// `std.numerics` standard-library module (stdlib/numerics/numerics.kark).
+// The module computes every transcendental by pure Newton / Taylor arithmetic
+// (numerics_newton_sqrt, numerics_exp_taylor), so there are NO float sqrt /
+// pow / exp builtins anywhere: output is byte-identical on both engines BY
+// CONSTRUCTION — this file is the parity witness.
+//
+// Surface exercised:
+//   vec:   numerics_vec_alloc/sum/mean/dot/scale/add/l2/newton_sqrt
+//   mat:   numerics_mat_zeros/identity/transpose/mul
+//   nn:    numerics_layer_forward, numerics_relu/sigmoid/tanh/softmax
+//   loss:  numerics_mse, numerics_mae
+//
+// Run: karkain run examples/09-ai/03_numerics_forward.kark
+// (and with KARKAIN_ENGINE=kcc for the self-hosted leg)
+
+import std.numerics
+
+func main() {
+    // ---- Input / weights (flat row-major, deterministic) ----
+    let x = numerics_vec_alloc(2)
+    x[0] = 0.5
+    x[1] = -0.5
+    let w1 = numerics_mat_zeros(2, 2) // rows=2 in, cols=2 hid
+    w1[0] = 0.8
+    w1[1] = -0.2
+    w1[2] = 0.4
+    w1[3] = 0.9
+    let b1 = numerics_vec_alloc(2)
+    b1[0] = 0.1
+    b1[1] = -0.1
+    let w2 = numerics_mat_zeros(2, 1) // rows=2 hid, cols=1 out
+    w2[0] = 0.6
+    w2[1] = 0.3
+    let b2 = numerics_vec_alloc(1)
+    b2[0] = 0.05
+
+    // ---- Layer 1: relu dense 2->2 ----
+    let h = numerics_layer_forward(x, w1, b1, 2, 2, 1)
+    print(numerics_vec_sum(h))
+
+    // ---- Layer 2: identity dense 2->1 (no relu) ----
+    let o = numerics_layer_forward(h, w2, b2, 2, 1, 0)
+    print(o[0])
+
+    // ---- Activations on a fixed scalar (exercises numerics_exp_taylor) ----
+    print(numerics_exp_taylor(1.0, 12))
+    print(numerics_sigmoid(0.0, 12))
+    print(numerics_tanh(1.0, 12))
+    print(numerics_relu(-3.0))
+    print(numerics_relu(3.0))
+
+    // ---- Newton sqrt (no sqrt builtin anywhere) ----
+    print(numerics_newton_sqrt(2.0, 14))
+
+    // ---- mat ops parity ----
+    let m = numerics_mat_zeros(2, 2)
+    m[0] = 1.0
+    m[1] = 2.0
+    m[2] = 3.0
+    m[3] = 4.0
+    let t = numerics_mat_transpose(m, 2, 2)
+    print(numerics_vec_sum(t))
+    let mm = numerics_mat_mul(m, 2, 2, t, 2, 2)
+    print(mm[0])
+    print(mm[3])
+
+    // ---- softmax + loss ----
+    let logits = numerics_vec_alloc(3)
+    logits[0] = 1.0
+    logits[1] = 2.0
+    logits[2] = 3.0
+    let p = numerics_softmax(logits, 10)
+    print(numerics_vec_sum(p))
+
+    let pred = numerics_vec_alloc(3)
+    pred[0] = 0.7
+    pred[1] = 0.2
+    pred[2] = 0.1
+    let tgt = numerics_vec_alloc(3)
+    tgt[0] = 1.0
+    tgt[1] = 0.0
+    tgt[2] = 0.0
+    print(numerics_mse(pred, tgt))
+    print(numerics_mae(pred, tgt))
+
+    // ---- final logits computed from the trained layer ----
+    print(numerics_vec_sum(o))
+}
