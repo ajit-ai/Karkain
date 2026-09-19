@@ -13,14 +13,25 @@ Pre-compiled binaries
 =====================
 
 :implemented:`Available` — pre-built binaries for **v1.0.0** have been
-built and validated as a **13-archive set**. They are published on `GitHub
-Releases <https://github.com/ajit-ai/Karkain/releases>`_ at the maintainers'
-discretion; until the v1.0.0 release is cut, the archives are not yet
-downloadable and the :ref:`build-from-source <installation-source-build>`
-path below is the way to get the toolchain. Each archive (when published)
-contains the ``karkain`` binary, the standard library, ``README.md``,
-``LICENSE`` and a ``VERSION`` file. The repository install/verify scripts
-also build from source; see :ref:`installation-source-build`.
+built and validated as a **13-archive set**. The v1.0.0 GitHub Release
+(tag-triggered CI pipeline) publishes them to `GitHub Releases
+<https://github.com/ajit-ai/Karkain/releases>`_ with a ``checksums.txt``
+(SHA-256) listing; :ref:`release-status` below records whether the release is
+live. Each archive contains the ``karkain`` binary, the standard library,
+``README.md``, ``LICENSE`` and a ``VERSION`` file. The repository
+install/verify scripts also build from source; see
+:ref:`installation-source-build`.
+
+.. _release-status:
+
+.. note::
+
+   :planned:`Release cut pending` — once the owner publishes the v1.0.0
+   release (owner-only action on the existing CI pipeline), the archive
+   links below become live and this note should be removed. Until then the
+   archives are not yet downloadable and the
+   :ref:`build-from-source <installation-source-build>` path below is the
+   way to get the toolchain.
 
 .. note::
 
@@ -129,6 +140,30 @@ macOS
    tar xzf karkain-v1.0.0-darwin-amd64.tar.gz
    sudo mv karkain-v1.0.0-darwin-amd64/karkain /usr/local/bin/
    karkain --version
+
+Verifying the download
+----------------------
+
+Every archive is listed in the release's ``checksums.txt`` file (SHA-256).
+Always verify a downloaded archive against it before running:
+
+.. code-block:: bash
+
+   # Linux / macOS: compare the published checksum with the local file
+   sha256sum -c checksums.txt --ignore-missing   # (checks every listed file)
+
+   # Or check one archive directly:
+   grep "karkain-v1.0.0-linux-amd64.tar.gz" checksums.txt
+   echo "<published-sha256>  karkain-v1.0.0-linux-amd64.tar.gz" | sha256sum -c -
+
+Windows (PowerShell):
+
+.. code-block:: powershell
+
+   Get-FileHash .\karkain-v1.0.0-windows-amd64.zip -Algorithm SHA256
+
+   # Compare the output hash with the published value in checksums.txt; a
+   # matching SHA-256 means the archive is intact and authentic.
 
 Docker
 ------

@@ -1,0 +1,21 @@
+// Status: Runnable
+// Engine: go (kcc parity deferred to Phase 130)
+// Category: Closures
+//
+// Capture mutation: a `var` captured by-reference can be mutated through the
+// closure, and the change is visible back in the enclosing scope after every
+// call. The env field aliases the enclosing variable (pointer), so mutations
+// propagate both ways through the closure call.
+
+func main() {
+    var counter = 0
+    let bump = fn() int {
+        counter = counter + 1
+        return counter
+    }
+    println(bump())
+    println(bump())
+    println(counter)
+    println(bump())
+    println(counter)
+}

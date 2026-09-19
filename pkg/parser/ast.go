@@ -6,8 +6,8 @@ type Node interface{}
 
 type Program struct {
 	Statements []Node
-	CImports   []*CImportBlock   // C import blocks for codegen
-	Imports    []*ModuleImport   // Karkain module imports
+	CImports   []*CImportBlock // C import blocks for codegen
+	Imports    []*ModuleImport // Karkain module imports
 	Line       int
 }
 
@@ -24,15 +24,15 @@ type ModuleImport struct {
 type FuncDecl struct {
 	Name          string
 	Params        []string
-	ParamTypes    []string           // Phase 46: typed parameters (e.g., "int", "string")
+	ParamTypes    []string // Phase 46: typed parameters (e.g., "int", "string")
 	Body          []Node
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 	Captures      []string           // Phase 54: free variables captured from enclosing scope (lambdas only)
 	Public        bool               // Phase 80: visibility modifier (public decl usable across files/modules)
 	Target        string             // Phase 98: execution target from @target(...); "" = default (cpu)
 	Line          int
-	Col           int                // Phase 83: 0-based byte column of the function name token
-	EndCol        int                // Phase 83: 0-based byte column just past the function name
+	Col           int // Phase 83: 0-based byte column of the function name token
+	EndCol        int // Phase 83: 0-based byte column just past the function name
 }
 
 type VarDeclStmt struct {
@@ -220,9 +220,9 @@ type ResultErrExpr struct {
 // MatchExpr represents pattern matching:
 // match value { pattern => expr, ... }
 type MatchExpr struct {
-	Value   Node
-	Arms    []MatchArm
-	Line    int
+	Value Node
+	Arms  []MatchArm
+	Line  int
 }
 
 // MatchArm represents one arm of a match expression: pattern => expr
@@ -233,9 +233,9 @@ type MatchArm struct {
 
 // MatchPattern represents a pattern in match arms
 type MatchPattern struct {
-	Type       string // "Some", "None", "Ok", "Err", "literal", "wildcard"
-	Value      Node   // For literal patterns (42, "hello", true)
-	Binding    string // For variable bindings (e.g., x in Some(x))
+	Type    string // "Some", "None", "Ok", "Err", "literal", "wildcard"
+	Value   Node   // For literal patterns (42, "hello", true)
+	Binding string // For variable bindings (e.g., x in Some(x))
 }
 
 // SIMDBuiltinExpr represents SIMD intrinsics: @simd_add(a, b), @simd_mul(a, b)
@@ -297,10 +297,10 @@ func ParseSIMDVectorType(typeStr string) (lanes int, elem string, ok bool) {
 
 // AtomicOp represents an atomic builtin: @atomic_load/store/fetch_add/cas.
 type AtomicOp struct {
-	Op      string // "load", "store", "fetch_add", "fetch_sub", "cas", "exchange"
-	Args    []Node
-	Order   string // "relaxed", "acquire", "release", "acq_rel", "seq_cst"
-	Line    int
+	Op    string // "load", "store", "fetch_add", "fetch_sub", "cas", "exchange"
+	Args  []Node
+	Order string // "relaxed", "acquire", "release", "acq_rel", "seq_cst"
+	Line  int
 }
 
 // AlignmentAttr represents a cache-line/alignment attribute: @aligned(64).
@@ -333,7 +333,7 @@ type PackedStructDecl struct {
 type EnumDecl struct {
 	Name     string
 	Variants []EnumVariant
-	Public   bool          // Phase 80: visibility modifier
+	Public   bool // Phase 80: visibility modifier
 	Line     int
 }
 
@@ -430,8 +430,8 @@ type ActorDeclStmt struct {
 	Name     string
 	Params   []string
 	Body     []Node
-	State    []ActorStateField  // Phase 37: actor state fields
-	Handlers []ActorHandler     // Phase 37: message handlers
+	State    []ActorStateField // Phase 37: actor state fields
+	Handlers []ActorHandler    // Phase 37: message handlers
 	Line     int
 }
 
@@ -444,11 +444,11 @@ type ActorStateField struct {
 
 // ActorHandler represents a receive handler in an actor
 type ActorHandler struct {
-	MessageType string   // message type name
-	ParamName   string   // parameter binding name
-	ParamType   string   // parameter type
+	MessageType string // message type name
+	ParamName   string // parameter binding name
+	ParamType   string // parameter type
 	Body        []Node
-	IsReply     bool     // whether this handler replies
+	IsReply     bool // whether this handler replies
 }
 
 type SpawnExpr struct {
@@ -465,11 +465,11 @@ type ReceiveStmt struct {
 }
 
 type SendExpr struct {
-	Channel    Node
-	Message    Node
-	IsSync     bool // true = !? (request-reply), false = ! (async)
-	Timeout    Node // optional timeout for sync send
-	Line       int
+	Channel Node
+	Message Node
+	IsSync  bool // true = !? (request-reply), false = ! (async)
+	Timeout Node // optional timeout for sync send
+	Line    int
 }
 
 // Phase 17: Metaprogramming AST nodes
@@ -498,7 +498,6 @@ type UnquoteExpr struct {
 	Line int
 }
 
-
 type ComptimeExpr struct {
 	Expr Node // Expression evaluated at compile time
 	Line int
@@ -523,14 +522,11 @@ type TagExpr struct {
 	Line     int
 }
 
-
 // ComptimeStmt represents a compile-time evaluated statement: `comptime var x = ...`
 type ComptimeStmt struct {
 	Body []Node
 	Line int
 }
-
-
 
 // Parameter represents a typed parameter by value (safe, no pointers)
 type Parameter struct {
@@ -610,11 +606,27 @@ type ContinueStmt struct{ Line int }
 
 // Phase 48: Lambda / function pointer expressions: fn(a, b) { return a + b }
 type LambdaExpr struct {
-	Params    []string
+	Params     []string
 	ParamTypes []string
-	Body      []Node
-	Captures  []string // Phase 54: free variables captured from enclosing scope
-	Line      int
+	Body       []Node
+	Captures   []string // Phase 54: free variables captured from enclosing scope
+	Line       int
+}
+
+// Phase 127: Closure expression with explicit capture semantics.
+// A ClosureExpr represents a fn expression that captures variables from
+// its enclosing scope. Captures can be by-reference (for `var`) or by-value
+// (for `let`). The CapturesByRef field tracks which captures are by-reference.
+// The EnvName is the generated environment struct name for this closure.
+type ClosureExpr struct {
+	Params        []string
+	ParamTypes    []string
+	Body          []Node
+	Captures      []string // All captured variable names
+	CapturesByRef []bool   // Parallel to Captures: true = by-ref (var), false = by-value (let)
+	EnvName       string   // Generated environment struct name (e.g., "_closure_env_1")
+	ReturnsValue  bool     // True if closure body returns a value (not just statements)
+	Line          int
 }
 
 // Phase 48: Function reference expression (used when let x = fn(...) is desugared to named function)
@@ -634,7 +646,7 @@ type UnaryExpr struct {
 
 // GenericTypeParam represents a type parameter in a generic declaration, e.g., T: Numeric
 type GenericTypeParam struct {
-	Name       string   // Type parameter name, e.g., "T"
+	Name        string   // Type parameter name, e.g., "T"
 	Constraints []string // Trait constraints, e.g., ["Numeric"]
 }
 
@@ -661,8 +673,8 @@ type TraitMethod struct {
 // ImplDeclStmt represents an implementation of a trait for a concrete type:
 // impl Numeric for int { ... }
 type ImplDeclStmt struct {
-	TraitName string   // Name of the trait being implemented
-	ForType   string   // Concrete type implementing the trait
+	TraitName string     // Name of the trait being implemented
+	ForType   string     // Concrete type implementing the trait
 	Methods   []FuncDecl // Implemented methods
 	Line      int
 }
@@ -712,10 +724,10 @@ type TensorParam struct {
 // TensorOpExpr represents a built-in tensor operation call:
 // ops.matmul(x, w), ops.relu(mat), ops.softmax(x), ops.conv2d(x, k), ops.transpose(x)
 type TensorOpExpr struct {
-	Op     string // "matmul", "relu", "softmax", "conv2d", "transpose"
-	Args   []Node // Operands (Identifiers or other expressions)
-	Attrs  map[string]Node // Named attributes (e.g., dim: 1 for transpose, stride: 2 for conv2d)
-	Line   int
+	Op    string          // "matmul", "relu", "softmax", "conv2d", "transpose"
+	Args  []Node          // Operands (Identifiers or other expressions)
+	Attrs map[string]Node // Named attributes (e.g., dim: 1 for transpose, stride: 2 for conv2d)
+	Line  int
 }
 
 // TensorReturnStmt represents a return statement inside a tensor block
@@ -866,11 +878,11 @@ type SelectStmt struct {
 
 // SelectCase represents one branch of a select statement
 type SelectCase struct {
-	Channel Node    // the channel expression
-	Dir     string  // "send" or "recv"
-	VarName string  // variable binding for recv
-	Value   Node    // value for send
-	Body    []Node  // case body
+	Channel Node   // the channel expression
+	Dir     string // "send" or "recv"
+	VarName string // variable binding for recv
+	Value   Node   // value for send
+	Body    []Node // case body
 }
 
 // GreenSpawnExpr spawns a green thread: gospawn(fn(args...))
@@ -893,100 +905,193 @@ func GetLine(node Node) int {
 	}
 	// Statement-level nodes (most common for #line directives)
 	switch n := node.(type) {
-	case *Program: return n.Line
-	case *FuncDecl: return n.Line
-	case *VarDeclStmt: return n.Line
-	case *ReturnStmt: return n.Line
-	case *ExprStmt: return n.Line
-	case *IfStmt: return n.Line
-	case *WhileStmt: return n.Line
-	case *PrintStmt: return n.Line
-	case *ForStmt: return n.Line
-	case *ForInStmt: return n.Line
-	case *StructDeclStmt: return n.Line
-	case *EnumDecl: return n.Line
-	case *QRegDeclStmt: return n.Line
-	case *GateApplyStmt: return n.Line
-	case *ActorDeclStmt: return n.Line
-	case *MacroDeclStmt: return n.Line
-	case *ComptimeStmt: return n.Line
-	case *KernelDeclStmt: return n.Line
-	case *CoroutineDecl: return n.Line
-	case *TensorStmt: return n.Line
-	case *CircuitDecl: return n.Line
-	case *SelectStmt: return n.Line
-	case *QubitAssignStmt: return n.Line
-	case *TraitDeclStmt: return n.Line
-	case *ImplDeclStmt: return n.Line
-	case *LinearTypeDecl: return n.Line
-	case *PackedStructDecl: return n.Line
-	case *StmtList: return n.Line
-	case *BarrierStmt: return n.Line
-	case *BreakStmt: return n.Line
-	case *ContinueStmt: return n.Line
+	case *Program:
+		return n.Line
+	case *FuncDecl:
+		return n.Line
+	case *VarDeclStmt:
+		return n.Line
+	case *ReturnStmt:
+		return n.Line
+	case *ExprStmt:
+		return n.Line
+	case *IfStmt:
+		return n.Line
+	case *WhileStmt:
+		return n.Line
+	case *PrintStmt:
+		return n.Line
+	case *ForStmt:
+		return n.Line
+	case *ForInStmt:
+		return n.Line
+	case *StructDeclStmt:
+		return n.Line
+	case *EnumDecl:
+		return n.Line
+	case *QRegDeclStmt:
+		return n.Line
+	case *GateApplyStmt:
+		return n.Line
+	case *ActorDeclStmt:
+		return n.Line
+	case *MacroDeclStmt:
+		return n.Line
+	case *ComptimeStmt:
+		return n.Line
+	case *KernelDeclStmt:
+		return n.Line
+	case *CoroutineDecl:
+		return n.Line
+	case *TensorStmt:
+		return n.Line
+	case *CircuitDecl:
+		return n.Line
+	case *SelectStmt:
+		return n.Line
+	case *QubitAssignStmt:
+		return n.Line
+	case *TraitDeclStmt:
+		return n.Line
+	case *ImplDeclStmt:
+		return n.Line
+	case *LinearTypeDecl:
+		return n.Line
+	case *PackedStructDecl:
+		return n.Line
+	case *StmtList:
+		return n.Line
+	case *BarrierStmt:
+		return n.Line
+	case *BreakStmt:
+		return n.Line
+	case *ContinueStmt:
+		return n.Line
 	// Expression nodes
-	case *StringLiteral: return n.Line
-	case *IntLiteral: return n.Line
-	case *Float64Literal: return n.Line
-	case *BigIntLiteral: return n.Line
-	case *BigFloatLiteral: return n.Line
-	case *Identifier: return n.Line
-	case *BoolLiteral: return n.Line
-	case *ArrayLiteral: return n.Line
-	case *MapLiteral: return n.Line
-	case *IndexExpr: return n.Line
-	case *SliceExpr: return n.Line
-	case *BinaryExpr: return n.Line
-	case *CallExpr: return n.Line
-	case *DotExpr: return n.Line
-	case *MatrixIndexExpr: return n.Line
-	case *UnaryExpr: return n.Line
-	case *LambdaExpr: return n.Line
-	case *FuncRefExpr: return n.Line
-	case *OptionSomeExpr: return n.Line
-	case *OptionNoneExpr: return n.Line
-	case *ResultOkExpr: return n.Line
-	case *ResultErrExpr: return n.Line
-	case *MatchExpr: return n.Line
-	case *EnumVariantExpr: return n.Line
-	case *RawAccessExpr: return n.Line
-	case *BorrowExpr: return n.Line
-	case *MoveExpr: return n.Line
-	case *PropagateExpr: return n.Line
-	case *AddressOf: return n.Line
-	case *Dereference: return n.Line
-	case *AllocExpr: return n.Line
-	case *FreeExpr: return n.Line
-	case *MatrixDecl: return n.Line
-	case *MeasureExpr: return n.Line
-	case *SpawnExpr: return n.Line
-	case *ReceiveStmt: return n.Line
-	case *SendExpr: return n.Line
-	case *CImportBlock: return n.Line
-	case *SIMDBuiltinExpr: return n.Line
-	case *MacroExpandExpr: return n.Line
-	case *QuoteExpr: return n.Line
-	case *UnquoteExpr: return n.Line
-	case *ComptimeExpr: return n.Line
-	case *ReflectTypeExpr: return n.Line
-	case *DeriveExpr: return n.Line
-	case *TagExpr: return n.Line
-	case *TensorOpExpr: return n.Line
-	case *TensorReturnStmt: return n.Line
-	case *TensorIndexExpr: return n.Line
-	case *TensorShapeOfExpr: return n.Line
-	case *QPUOpExpr: return n.Line
-	case *CircuitReturnStmt: return n.Line
-	case *QubitIndexExpr: return n.Line
-	case *GlobalIdExpr: return n.Line
-	case *AsyncExpr: return n.Line
-	case *AwaitExpr: return n.Line
-	case *YieldExpr: return n.Line
-	case *ChSendExpr: return n.Line
-	case *ChRecvExpr: return n.Line
-	case *ChDeclExpr: return n.Line
-	case *GreenSpawnExpr: return n.Line
-	case *AwaitAllExpr: return n.Line
+	case *StringLiteral:
+		return n.Line
+	case *IntLiteral:
+		return n.Line
+	case *Float64Literal:
+		return n.Line
+	case *BigIntLiteral:
+		return n.Line
+	case *BigFloatLiteral:
+		return n.Line
+	case *Identifier:
+		return n.Line
+	case *BoolLiteral:
+		return n.Line
+	case *ArrayLiteral:
+		return n.Line
+	case *MapLiteral:
+		return n.Line
+	case *IndexExpr:
+		return n.Line
+	case *SliceExpr:
+		return n.Line
+	case *BinaryExpr:
+		return n.Line
+	case *CallExpr:
+		return n.Line
+	case *DotExpr:
+		return n.Line
+	case *MatrixIndexExpr:
+		return n.Line
+	case *UnaryExpr:
+		return n.Line
+	case *LambdaExpr:
+		return n.Line
+	case *FuncRefExpr:
+		return n.Line
+	case *OptionSomeExpr:
+		return n.Line
+	case *OptionNoneExpr:
+		return n.Line
+	case *ResultOkExpr:
+		return n.Line
+	case *ResultErrExpr:
+		return n.Line
+	case *MatchExpr:
+		return n.Line
+	case *EnumVariantExpr:
+		return n.Line
+	case *RawAccessExpr:
+		return n.Line
+	case *BorrowExpr:
+		return n.Line
+	case *MoveExpr:
+		return n.Line
+	case *PropagateExpr:
+		return n.Line
+	case *AddressOf:
+		return n.Line
+	case *Dereference:
+		return n.Line
+	case *AllocExpr:
+		return n.Line
+	case *FreeExpr:
+		return n.Line
+	case *MatrixDecl:
+		return n.Line
+	case *MeasureExpr:
+		return n.Line
+	case *SpawnExpr:
+		return n.Line
+	case *ReceiveStmt:
+		return n.Line
+	case *SendExpr:
+		return n.Line
+	case *CImportBlock:
+		return n.Line
+	case *SIMDBuiltinExpr:
+		return n.Line
+	case *MacroExpandExpr:
+		return n.Line
+	case *QuoteExpr:
+		return n.Line
+	case *UnquoteExpr:
+		return n.Line
+	case *ComptimeExpr:
+		return n.Line
+	case *ReflectTypeExpr:
+		return n.Line
+	case *DeriveExpr:
+		return n.Line
+	case *TagExpr:
+		return n.Line
+	case *TensorOpExpr:
+		return n.Line
+	case *TensorReturnStmt:
+		return n.Line
+	case *TensorIndexExpr:
+		return n.Line
+	case *TensorShapeOfExpr:
+		return n.Line
+	case *QPUOpExpr:
+		return n.Line
+	case *CircuitReturnStmt:
+		return n.Line
+	case *QubitIndexExpr:
+		return n.Line
+	case *GlobalIdExpr:
+		return n.Line
+	case *AsyncExpr:
+		return n.Line
+	case *AwaitExpr:
+		return n.Line
+	case *YieldExpr:
+		return n.Line
+	case *ChSendExpr:
+		return n.Line
+	case *ChRecvExpr:
+		return n.Line
+	case *ChDeclExpr:
+		return n.Line
+	case *GreenSpawnExpr:
+		return n.Line
+	case *AwaitAllExpr:
+		return n.Line
 	}
 	return 0
 }
