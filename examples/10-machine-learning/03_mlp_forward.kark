@@ -1,0 +1,120 @@
+// ============================================================
+// 10-machine-learning/03 — ML forward pass on std.numerics
+// ============================================================
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: 10 Machine Learning
+//
+// A small two-layer neural-network forward pass built ENTIRELY on the
+// canonical `std.numerics` module (stdlib/numerics/numerics.kark). The
+// module computes every transcendental by pure Newton/Taylor arithmetic
+// (numerics_newton_sqrt, numerics_exp_taylor) so there is no float
+// sqrt/exp/pow builtin anywhere and output is byte-identical on both
+// engines by construction.
+//
+// Layer 1: y = relu(W1 x + b1)   (weights flat row-major, 2->3)
+// Layer 2: z = softmax(Y W2 + b2) (3->2), then argmax -> predicted class.
+// Loss:    numerics_mse(y_hat, one_hot(target)).
+//
+// Run: karkain run examples/10-machine-learning/03_mlp_forward.kark
+
+import std.numerics
+
+func numerics_mod_predict(x, n) {
+    // Layer 1: 2 inputs -> 3 hidden, relu.
+    // W1 is 2x3 flat row-major: rows = input dim, cols = hidden dim.
+    let w1 = numerics_mat_zeros(2, 3)
+    w1[0] = 0.5
+    w1[1] = -0.2
+    w1[2] = 0.1
+    w1[3] = -0.4
+    w1[4] = 0.3
+    w1[5] = 0.6
+    let b1 = numerics_vec_alloc(3)
+    b1[0] = 0.0
+    b1[1] = 0.1
+    b1[2] = -0.1
+    let h = numerics_vec_alloc(3)
+    let j = 0
+    while (j < 3) {
+        let acc = b1[j]
+        let i = 0
+        while (i < 2) {
+            acc = acc + x[i] * w1[i * 3 + j]
+            i = i + 1
+        }
+        h[j] = numerics_relu(acc)
+        j = j + 1
+    }
+
+    // Layer 2: 3 hidden -> 2 logits, then softmax.
+    let w2 = numerics_mat_zeros(3, 2)
+    w2[0] = 1.0
+    w2[1] = -1.0
+    w2[2] = 0.5
+    w2[3] = -0.5
+    w2[4] = -0.2
+    w2[5] = 0.8
+    let b2 = numerics_vec_alloc(2)
+    b2[0] = 0.05
+    b2[1] = -0.05
+    let logit = numerics_vec_alloc(2)
+    let k = 0
+    while (k < 2) {
+        let acc2 = b2[k]
+        let m = 0
+        while (m < 3) {
+            acc2 = acc2 + h[m] * w2[m * 2 + k]
+            m = m + 1
+        }
+        logit[k] = acc2
+        k = k + 1
+    }
+    let probs = numerics_softmax(logit, 8)
+
+    // Predicted class = argmax(probs).
+    let best = 0
+    let p = 1
+    while (p < 2) {
+        if (probs[p] > probs[best]) {
+            best = p
+        }
+        p = p + 1
+    }
+    return best
+}
+
+func main() {
+    // Two synthetic inputs; target classes are [1, 0].
+    let xs = numerics_mat_zeros(2, 2)
+    xs[0] = vento_LABEL_not_used()
+    xs[1] = 0.9
+    xs[2] = 0.1
+    xs[3] = -0.8
+
+    let pred0 = numerics_mod_predict([1.0, 0.0], 2)
+    let pred1 = numerics_mod_predict([0.9, -0.8], 2)
+
+    // Mean squared error against one-hot labels [0,1] and [1,0].
+    let target0 = numerics_vec_alloc(2)
+    target0[0] = 0.0
+    target0[1] = 1.0
+    let target1 = numerics_vec_alloc(2)
+    target1[0] = 1.0
+    target1[1] = 0.0
+    let p0vec = numerics_vec_alloc(2)
+    p0vec[0] = 0.0
+    p0vec[1] = 1.0
+    let p1vec = numerics_vec_alloc(2)
+    p1vec[0] = 1.0
+    p1vec[1] = 0.0
+    let mse0 = numerics_mse(p0vec, target0)
+    let mse1 = numerics_mse(p1vec, target1)
+
+    print(pred0)
+    print(pred1)
+    print(mse0)
+    print(mse1)
+    print(numerics_exp_taylor(0.0, 8))
+    print(numerics_newton_sqrt(9.0, 12))
+}

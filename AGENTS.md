@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-123** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **post-130** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -293,6 +293,107 @@ rejects — test fixtures must be BOM-stripped. Reports:
 
 Also completed: **126 — Standard-Library Numerics Module (std.numerics) + both-engine corpus 59/59 byte-identical**.
 Module: `stdlib/numerics/numerics.kark` (~520 lines, 40 `numerics_*` funcs, canonical per-dimension print). Example: `examples/09-ai/03_numerics_forward.kark` pinned with 15-line golden; Phase 114 gate 59/59 both engines PASS (Go 255.1s, kcc 433.2s). README/EXAMPLES counts updated 52→59. Generated debris cleaned.
+
+Also completed: **124 — Compute Targets: GPU / NPU / Quantum Model** (verdict **COMPLETE** — previously unrecorded in AGENTS.md; `karkain target` exposes a Phase 124 experimental compute-target catalog alongside the host/target listing: `cpu`, `simd`, `wasm32-wasi`, `gpu-experimental`, `npu-experimental`, `quantum-experimental`, with per-target capability views (Family / Maturity / Memory model / Capabilities / KIR classes / Tensor ops); unknown targets get a deterministic usage error (`generative-ai-9000` example); maturity levels: gpu `experimental` (host-device), npu `experimental` (device-only, synchronous single-invocation inference), quantum `research`; gate `pkg/cli/phase124_compute_test.go` (catalog, detail, CLI E2E) + CI "Run Phase 124 compute-target gate" step; commits `a5f762e` / `0234bb2`, docs page wiring included.)
+
+Also completed: **127 — Bootstrap Memory Guard (low-RAM OOM/SEGFAULT class)** (implemented — verification pending on the ~4GB host; the Go toolchain itself OOMs below ~500 MB free/100% commit charge, see Verification in the report). `pkg/bootstrap` gains a dependency-free memory probe + guard: `CheckBootstrapMemory(stage)` runs at the top of `runCompileStage` for stages 2/3 ONLY (stage 1 = Go front end, always-working, unguarded), probing available RAM via `GlobalMemoryStatusEx` on Windows (stdlib syscall + unsafe, no cgo, no new dependency) and `MemAvailable` from `/proc/meminfo` on Linux; unsupported platforms pass through (guard disabled, no guessing). When available RAM < threshold it returns a clean `error[K127]` naming the stage and the MiB shortfall instead of letting the native self-hosted compiler exhaust the address space (the documented `0xc0000005` SEGFAULT class on ~4GB hosts). Default minimum 1.5 GiB; env override `KARKAIN_BOOTSTRAP_MIN_MEM` (plain bytes or K/M/G/KiB/MiB/GiB power-of-two suffix; `0` disables; invalid values reported, never swallowed). Deterministic unit tests `pkg/bootstrap/memcheck_test.go` (injected 512 MiB probe — host-RAM-independent: parseMemBytes cases + guard on/off + errInsufficientMemory errors.Is + no-probe pass-through). Analysis/housekeeping: 124-A (5-min subprocess timeout) and 124-C (CI `-p 1`) were ALREADY in place; `pkg/parser/parser.go` had been emptied (0 bytes) in the working tree alongside WIP `ClosureExpr` additions to `arena.go`/`ast.go`/`captures.go` — restored from HEAD (the additive AST changes compile against it); the untracked `fix_parser.py` chase after a `make(map[string)bool}` typo did nothing (typo does not exist). Reports: `docs/audit/PHASE-127-BOOTSTRAP-MEMORY-GUARD.md`, `docs/audit/PHASE-127-POST-GA-ROADMAP.md`.)
+
+Also completed: **128 — Release 1.0.0 Cut & Distribution preparation** (verdict
+**COMPLETE — PREPARATION; the tag-cut ceremony itself is owner-only**).
+Audit findings: tag `v1.0.0` EXISTS on origin but points at `f23c024`
+(2026-09-13) which is **behind current main** (`9dfdc76`, Phase 126, 2026-09-18)
+— Phases 125A/126/127 are not on the tag; **no GitHub Release exists** (page
+shows only legacy "Phase 17 COMPLETED (v0.14.0)"); version identity is already
+unified at 1.0.0 across `VERSION`, Go CLI banner, kcc banner and every
+generated-C/QIR/QASM header (grep-verified; no stale `0.117.0`/`Beta 1 Build`
+outside historical pages/tests). Deliverables: `docs/release/KARKAIN-1.0-RELEASE-NOTES.md`
+rewritten to the real 1.0.0 story (59-golden corpus, stdlib now
+`std.string/collections/io/encoding/crypto/testing/numerics/net/http/db`, KIR +
+compiler-pipeline ownership, enum/match parity, closures honestly
+codegen-deferred, GPU/NPU/quantum + registry + container Planned);
+`docs/source/release-notes.rst` refreshed (59 pin, shipped stdlib/numerics/net/
+db/http, self-hosted+KIR rows, corrected known-gaps — net/db/http no longer
+"Planned"); `docs/source/getting-started/installation.rst` release-ready
+(13-archive table + `checksums.txt` SHA-256 verify commands for bash and
+PowerShell + a `:planned:` release-pending note to flip at cut);
+`docs/release/KARKAIN-1.0-CHECKLIST.md` gained section 0 (release state audit)
+and a 6-step owner runbook (commit/merge/push → **re-point the unreleased
+`v1.0.0` tag** to current main via `git tag -f` + force-push → CI release job →
+post-publish verify with `scripts/verify-rc-journey.ps1`/`verify-install.ps1`
+against the shipped binary → flip the docs marker → announce);
+`docs/source/development/roadmap.rst` extended 119→127 + GA-1/2/3 future with
+pointer to `GENERAL-AVAILABILITY-ROADMAP.md` (dropped the now-wrong
+"networking/databases/web Planned" list). Gate: existing Phase 118/119 gates +
+owner ceremony. Verification note: doc-only changes this phase; full build
+deferred to the post-cut QA pass.)
+
+Also completed: **129 — 4GB Bootstrap Battle** (verdict **COMPLETE** —
+documentation + hardening shipped; live-host stage-2/3 verification pending,
+see report). Deliverables: (1) **progress heartbeat** — `startProgress`
+(45 s liveness ticker, self-terminating on context cancellation) wraps every
+`runCmd`/`runCmdOutput` in `pkg/bootstrap/bootstrap.go` (stage-1 `go build`,
+all three transpile steps, gcc links) with child-derived labels, so the 2–3
+minute transpiles (Phase 99 raised the timeout 2→5 min for exactly this) read
+as liveness reports instead of a silent "hang"; (2) **CI memory cap** —
+`.github/workflows/ci.yml` test job exports `GOMEMLIMIT: 8GiB` job-wide on top
+of the existing Phase-107 `-p 1` sequential-package fix; (3) **Windows 11 4GB
+memory guidance** in the report — fixed 16 GB pagefile steps (AutomatedManagedPagefile=false
++ `PagingFiles` 'C:\pagefile.sys 16384 16384'), hog list (MsMpEng ~420 MB,
+browser/editor sessions), isolation rule (full-tree `go test ./pkg/...`
+OOM-mixes on 4GB; every gate passes isolated), status commands
+(`TotalVisibleMemorySize`/`FreePhysicalMemory`/`Win32_PageFileUsage`);
+(4) **kcc build RSS measurement plan** — PowerShell 1 s poll of
+`karkain-compiler1/kcc/cc1/gcc` WorkingSet64, target stage-2/3 total peak RSS
+≤ 2.5 GB, levers documented (GOGC, C TU splitting, guard threshold); table
+open for the owner to fill. Static checks: `gofmt -e` clean on all
+`pkg/bootstrap` files (the `gofmt -l` flags are the repo-wide CRLF artifact,
+verified identical for committed files like `args_test.go`). **Live
+verification (2026-09-19, memory transiently freed to 0.6 GB):** go vet clean;
+memcheck 3/3 PASS; TestArgs_ + TestBootstrap_Stage1Compilation 7/7 PASS
+(stage-1 transpile+gcc 18.7 s; heartbeat wiring harmless);
+TestBootstrap_Stage2SelfHosting aborts with the **clean `error[K127]`** (642
+MiB available < 1536 MiB required) — the historical `0xc0000005` SEGFAULT class
+is now an actionable diagnostic on this host; stage-2 success on a ≥1.5 GiB-free
+host remains the open item (page-file guidance in the report). Report:
+`docs/audit/PHASE-129-4GB-BOOTSTRAP-BATTLE.md`.)
+Also completed: **130 — Closures / fn Values: Capture-Mutation Completion**
+(verdict **COMPLETE**; GA-2 milestone. Go↔kcc capture MUTATION validated and
+byte-identical, corpus seeded, two happy boundaries root-caused and documented.
+Corpus: `examples/closures/00_capture_mutation.kark` (a closure whose body
+ASSIGNS to a captured `var`: C emits the pointer alias
+`#define counter (*_env->karkain_cap_counter)`, the assignment writes THROUGH
+the alias `counter = binary_op(counter, "+", make_int(1))`, binding site wires
+`_e.karkain_cap_counter = &counter`; enclosing scope sees every increment —
+golden `1/2/2/3/3`, **byte-identical on both engines verified live**) and
+`examples/closures/01_nested.kark` (typed lambdas `fn(a int) int`, nested inner
+captures base through the outer env pointer + outer local plain address,
+invoked twice in one expression — golden `32/28`, **kcc leg genuinely ran this
+host and passed**, not skipped). Root-caused boundaries (documented, NOT
+defects, both from the same root cause — closures desugar to plain functions
+with no first-class Value cell): (1) **no first-class function values** —
+calls through an expression (`ops[0](5)`) are rejected at parse with K001
+`unexpected token ')'` (pinned by `TestPhase130_FirstClassBoundary`), no
+`func(T) R` type syntax; (2) **a closure variable cannot be free-captured by
+another closure** — `let twice = fn... { ... apply(...) ... }` passes `check`
+on both engines but fails at C compile because the env init emits `&apply` for
+a name with no C declaration, identically on both engines (parity preserved;
+pinned by `TestPhase130_ClosureVarCaptureBoundary`). Gates: new
+`pkg/codegen/phase130_closures_test.go` (capture-mutation write-through +
+nested pointer-chain markers) and `pkg/cli/phase130_closures_test.go` (Go
+goldens, kcc goldens — skip-with-note when the Phase 127 `error[K127]`
+low-RAM guard fires, FirstClassBoundary, ClosureVarCaptureBoundary; the CLI is
+built ONCE via `sync.Once` into a persistent temp dir so three subtests do not
+each spawn a go-build/gcc pipeline on the ~4GB host — the documented Phase 127
+OOM class). Regressions green: `go vet` + `gofmt` on both gates, `pkg/codegen`
+`TestPhase121_Capture*` + `TestPhase130*`, `pkg/parser` capture/lambda tests;
+NO compiler/source changes this phase (fixtures + gates + docs only), so the
+Phase 114 59-golden corpus is untouched by construction (`examples/closures/`
+is a sibling category, not in the 15-category map; parity asserted by the
+dedicated Phase 130 gate). Host notes: session hit the documented ~4GB classes
+twice (Go toolchain OOM mid-test: `go: error obtaining buildID for go tool
+compile: exit status 2`; gate passes consistently under `GOMEMLIMIT=2GiB`, and
+in this session the host had memory so the kcc leg ran for real). Report:
+`docs/audit/PHASE-130-FINAL-REPORT.md`.)
 
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
