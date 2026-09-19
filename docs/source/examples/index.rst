@@ -118,8 +118,9 @@ corpus:
 
 ``scripts/verify-examples.ps1`` classifies every example by its declared
 status (``Runnable`` / ``Experimental`` / ``Planned``) and runs the runnable
-ones through the real CLI — 58 examples pass; 2 are deliberately skipped (the
-test-mode runner and the one Planned category).
+ones through the real CLI — the runnable count grows with each phase gate
+(e.g. Phase 130 added the ``closures`` fixtures), while the test-mode runner
+and the one Planned category are deliberately skipped.
 
 Validation corpus
 -----------------

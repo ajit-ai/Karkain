@@ -1,0 +1,23 @@
+// Status: Runnable
+// Engine: go (kcc parity deferred to Phase 130)
+// Category: Closures
+//
+// Nested closures: an outer lambda captures a free variable and its body also
+// defines a nested lambda that captures through the outer environment (pointer
+// copy) plus an outer local (plain address). Both are invoked afterwards.
+//
+// Boundary (Phase 130, documented): a closure VARIABLE (let f = fn...) desugars
+// to a generated function with no runtime Value cell, so another closure cannot
+// free-capture it (`let g = fn... { ... f(...) ... }` fails at C compile on both
+// engines). Only plain variables are capturable.
+
+func main() {
+    let base = 10
+    let outer = fn(a int) int {
+        let m = 3
+        let inner = fn(b int) int { return base + m + b }
+        return inner(a) + inner(1)
+    }
+    println(outer(5))
+    println(outer(1))
+}

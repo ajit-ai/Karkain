@@ -8,10 +8,10 @@ root. This page summarizes the current state for documentation purposes.
    :local:
    :depth: 1
 
-Completed phases (50–119)
+Completed phases (50–127)
 -------------------------
 
-Phases 50–119 are complete and shipped as **Karkain 1.0.0 (Stable)**. A
+Phases 50–127 are complete and shipped as **Karkain 1.0.0 (Stable)**. A
 concise summary:
 
 * **50–106** — language core, semantic model (borrow checker, escape
@@ -46,6 +46,20 @@ concise summary:
 * **119** — language QA and public repository finalization: **Karkain
   1.0.0 (Stable)** label, v1.0.0 identity, superseded-material cleanup,
   QA battery, release documentation.
+* **120** — GA envelope + KIR v1 text emitter (compiler-owned IR, `karkain kir`).
+* **121** — compiler independence foundation (KIR structural self-verification).
+* **122** — compiler pipeline ownership (flat project assembly inside kcc,
+  marker-gated stdlib discovery).
+* **123** — language core completion: enum/match byte-identical parity on both
+  engines with checker validation.
+* **124** — compute-target catalog (``cpu``/``simd``/``wasm32-wasi``/
+  ``gpu-experimental``/``npu-experimental``/``quantum-experimental``).
+* **125A** — standard-library networking/database/web slice + Windows Winsock
+  link contract (``std.net``, ``std.http``, ``std.db``).
+* **126** — standard-library numerics module (``std.numerics``, 40 funcs),
+  corpus 59/59 byte-identical.
+* **127** — bootstrap memory guard (``error[K127]`` on low-RAM hosts replaces
+  the SEGFAULT class).
 
 Key cross-cutting milestones
 ----------------------------
@@ -70,8 +84,8 @@ What ships in 1.0.0 today
 -------------------------
 
 * Importable standard library modules (``std.string``, ``std.collections``,
-  ``std.io``, ``std.encoding``, ``std.crypto``, ``std.testing``) on both
-  engines.
+  ``std.io``, ``std.encoding``, ``std.crypto``, ``std.testing``,
+  ``std.numerics``, ``std.net``, ``std.http``, ``std.db``) on both engines.
 * CLI surface: ``check``, ``build``, ``run``, ``test`` (``--filter``),
   ``transpile``, ``fmt``, ``lint``, ``debug``, ``prof``, ``target``,
   ``pkg``, ``workspace``, ``clean``, ``explain``, ``bench``, ``lsp``.
@@ -87,17 +101,23 @@ What ships in 1.0.0 today
 Future
 ------
 
-Beyond 1.0.0:
+Beyond 1.0.0, the milestone-based plan for the next General Availability is:
 
-* **Advanced package registry** — centralized, authenticated module
-  fetching (current resolver is local + lockfile only).
-* **kcc parity boundaries** — concurrency, profiling, tracing, SIMD, WASM
-  and native-linking on the self-hosted engine.
-* **Planned language surfaces** — networking, databases, web, GPU/NPU and
-  quantum kernels ``from .kark``, and the advanced package registry.
+* **GA-1 — Ship & Harden (128–129):** release-cut runbook (Phase 128) and the
+  4 GB bootstrap battle (Phase 129 — memory guidance, CI caps, progress
+  watchdog, kcc build RSS reduction).
+* **GA-2 — Language & Tooling Completeness (130–135):** closures/``fn`` codegen
+  parity, stdlib v3 + API freeze, incremental compilation v2, local package
+  registry, LSP v2, concurrency + profiling + SIMD kcc parity.
+* **GA-3 — Platform Expansion → 1.1.0 (136–140):** GPU/NPU kernel surface,
+  cross-compilation + WASM GC, debugger integration, compiler performance &
+  memory, 1.1.0 release with an LTS ``1.0.x`` branch.
 
-The full road-map with versioned phase descriptions lives in
-``ROADMAP.md`` at the repository root — that file is authoritative.
+The full milestone document with per-phase gates lives at
+``docs/audit/GENERAL-AVAILABILITY-ROADMAP.md``; the versioned phase
+descriptions remain in ``ROADMAP.md`` at the repository root. Current status
+is a **Karkain 1.0.0 (Stable)** label with the public release cut pending the
+Phase 128 owner runbook.
 
 .. seealso::
 

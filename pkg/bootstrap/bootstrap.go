@@ -59,6 +59,51 @@ func fileHash(path string) (string, int64, error) {
 const reproducibleEpoch = "1072915200" // 2004-01-01T00:00:00Z
 
 func runCmd(dir, name string, args ...string) error {
+	return runCmdLabel(dir, "run "+filepath.Base(name), name, args...)
+}
+
+func runCmdOutput(dir, name string, args ...string) ([]byte, error) {
+	return runCmdOutputLabel(dir, "run "+filepath.Base(name), name, args...)
+}
+
+// progressTick is the heartbeat interval for long-running child commands. The
+// bootstrap transpile/compile steps routinely take 2-3 minutes on constrained
+// hosts (Phase 99 raised the subprocess timeout 2min->5min for exactly this),
+// so the parent prints a liveness line every interval instead of sitting silent.
+const progressTick = 45 * time.Second
+
+// startProgress prints a heartbeat line every progressTick while a child
+// command is alive, so a multi-minute step reads as "still working" instead of
+// "hung". The returned stop function stops the heartbeat and waits for the
+// goroutine to exit; callers must defer it. It is self-terminating on context
+// cancellation (the runCmd timeout), so it can never outlive the command it
+// monitors.
+func startProgress(ctx context.Context, label string) func() {
+	done := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		t := time.NewTicker(progressTick)
+		defer t.Stop()
+		start := time.Now()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-t.C:
+				fmt.Printf("[%s] still running after %.0fs\n", label, time.Since(start).Seconds())
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-stopped
+	}
+}
+
+func runCmdLabel(dir, label, name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -66,16 +111,20 @@ func runCmd(dir, name string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	setSourceDateEpoch(cmd)
+	stop := startProgress(ctx, label)
+	defer stop()
 	return cmd.Run()
 }
 
-func runCmdOutput(dir, name string, args ...string) ([]byte, error) {
+func runCmdOutputLabel(dir, label, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	setSourceDateEpoch(cmd)
 	forceGoEngine(cmd)
+	stop := startProgress(ctx, label)
+	defer stop()
 	return cmd.CombinedOutput()
 }
 
@@ -213,6 +262,13 @@ func RunStage3(projectRoot string, stage2Binary string) (*StageResult, error) {
 // It invokes the given compiler binary to transpile main.kark, then compiles with gcc.
 func runCompileStage(projectRoot string, stage int, outputName, compilerBinary string) (*StageResult, error) {
 	start := time.Now()
+
+	// Phase 127: guard the native self-hosted stages against the documented
+	// low-RAM OOM/SEGFAULT class. A clean, actionable error is far better than
+	// an exhausted-address-space crash from the child compiler.
+	if err := CheckBootstrapMemory(stage); err != nil {
+		return nil, err
+	}
 
 	bd := binDir(projectRoot)
 	if err := os.MkdirAll(bd, 0755); err != nil {

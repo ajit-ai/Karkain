@@ -103,6 +103,13 @@ Authoritative list of the 15-category example corpus. Jargon:
 |----------|---------------|
 | 11 Quantum | parser/lexer do not wire circuit/qubit/qpu; infrastructure only |
 
+## Sibling categories (outside the 15-category pin)
+
+| Category | Status |
+|----------|--------|
+| `closures/` | capture mutation + nested closures, golden byte-identical both engines (Phase 130, pinned by `pkg/cli/phase130_closures_test.go`) |
+| `profiling/`, `stdlib_v2/`, `module_system/`, `language_foundation/`, `wasm/`, `self-hosting/` | dedicated phase gates (110 / 109 / 103 / 102 / 108+123 / 120) |
+
 ## Verification
 
 ```powershell

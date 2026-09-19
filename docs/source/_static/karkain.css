@@ -1,14 +1,19 @@
-/* Karkain official documentation — small CSS additions for the status
- * vocabulary. The Alabaster theme provides the base styles. */
+/* Karkain official documentation: Karkain-owned presentation rules.
+ *
+ * The Read-the-Docs Sphinx theme (``sphinx_rtd_theme``) supplies the
+ * structural layout: primary sidebar, top bar, search and version block.
+ * This Karkain-owned stylesheet adds Karkain's own identity on top - the
+ * official status vocabulary (maturity chips used throughout the docs), a
+ * deliberate accent colorcars, and readable code/tables/admonitions.
+ * Nothing here copies branding from any adjacent project; Karkain keeps its
+ * own name, vocabulary and colors.
+ */
 
-.karkain-status {
-    font-weight: 600;
-    padding: 0 0.35em;
-    border-radius: 3px;
-    font-size: 0.85em;
-    white-space: nowrap;
-}
-
+/* -- Official status vocabulary ---------------------------------------------
+ * Rendered by the ``:status-*:`` roles defined in ``conf.py``. The
+ * vocabulary is the single source of truth for capability-maturity claims in
+ * the official documentation. Theme-neutral: applies under any HTML theme.
+ */
 .karkain-status-stable { color: #1a7f37; background: #dafbe1; }
 .karkain-status-implemented { color: #0a3069; background: #ddf4ff; }
 .karkain-status-production-candidate { color: #1a5fb4; background: #d6e8ff; }
@@ -17,70 +22,25 @@
 .karkain-status-planned { color: #57606a; background: #eaeef2; }
 .karkain-status-not-implemented { color: #8b1a1a; background: #ffd7d7; }
 
-/* ---------------------------------------------------------------------------
- * Phase 125 — navigation & documentation layout polish.
- *
- * The Alabaster theme supplies the base layout. These additions keep the
- * reading column aligned, keep long code and wide tables inside the content
- * area, and give the sidebar a deliberate active-page / parent-section
- * highlight without JavaScript (Sphinx marks the current branch with
- * `li.current`, `ul.current` and `a.current`).
- * ------------------------------------------------------------------------- */
+/* -- Read-then-code typography --------------------------------------------- */
+.rst-content code { font-size: 0.9em; }
+.rst-content pre { font-size: 0.875em; line-height: 1.5; }
+.rst-content pre,
+.rst-content code { white-space: pre; overflow-x: auto; }
 
-/* Reading column: never destroy the page width when a wide table or code
- * sample overflows; scroll that content inside the content area instead.
- * Pages whose content fits are untouched (no scrollbar appears). */
-div.body {
-    overflow-x: auto;
-}
+/* Wide tables and long URLs scroll inside the content column instead of
+ * breaking the RTD layout. */
+.rst-content table.docutils { width: 100%; }
+.rst-content table.docutils td,
+.rst-content table.docutils th { padding: 0.5em 0.75em; }
+.rst-content dl dt code { font-size: 0.9em; }
 
-/* Code blocks align with the surrounding content; long lines scroll
- * horizontally inside the code block instead of breaking the layout. */
-div.body pre {
-    padding: 10px 0;
-    margin: 15px 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    white-space: pre;
-}
+/* -- Karkain accent for links and active navigation ------------------------ */
+.rst-content a { color: #10467f; }
+.rst-content a:visited { color: #6a4a9a; }
+.wy-menu-vertical li.current > a { border-left: 3px solid #10467f; }
 
-div.body pre code {
-    white-space: pre;
-}
-
-/* Code inside lists / admonitions / blockquotes stays aligned with the
- * text it annotates (the theme already insets those by 30px). */
-dl pre, blockquote pre, li pre {
-    margin-left: 0;
-    padding-left: 30px;
-}
-
-/* Sidebar navigation: emphasize the current page and its parent section. */
-div.sphinxsidebar a.current,
-div.sphinxsidebar li.current > a:not(.current) {
-    color: #0f172a;
-    font-weight: 600;
-    border-bottom: none;
-}
-
-/* The exact page being read (leaf). */
-div.sphinxsidebar a.current {
-    border-left: 3px solid #0969da;
-    padding-left: 8px;
-}
-
-/* The parent section path in the sidebar when reading a child page. */
-div.sphinxsidebar li.toctree-l1.current > a:not(.current) {
-    color: #0969da;
-}
-
-/* Related Topics (Previous / Next chapter) — quiet, matches navigation. */
-div.relations {
-    border-top: 1px solid #d0d7de;
-    padding-top: 10px;
-    margin-top: 10px;
-}
-
-div.relations li {
-    font-size: 0.92em;
+/* -- Reading measure on very wide windows ---------------------------------- */
+@media (min-width: 1400px) {
+    .wy-nav-content { max-width: 1100px; }
 }
