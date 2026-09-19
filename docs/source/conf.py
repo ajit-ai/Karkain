@@ -70,9 +70,12 @@ linkcheck_ignore = [
 ]
 
 # -- Options for HTML output -------------------------------------------------
-
-# Alabaster ships with Sphinx: no network downloads, reproducible builds.
-html_theme = "alabaster"
+#
+# Professional Read-the-Docs presentation, same visual family as the
+# reference documentation used across adjacent Karkain projects. The theme
+# is a pinned, locally installed package (see ``docs/requirements.txt``):
+# docs build is fully offline, no third-party CDN assets at build time.
+html_theme = "sphinx_rtd_theme"
 
 html_static_path = ["_static"]
 html_css_files = ["karkain.css"]
@@ -81,15 +84,21 @@ html_title = "Karkain"
 html_short_title = "Karkain"
 
 html_theme_options = {
-    "description": "Karkain Programming Language — Official Documentation",
-    "show_powered_by": True,
-    "sidebar_collapse": True,
-    "nosidebar": False,
+    "collapse_navigation": False,
+    "sticky_navigation": True,
+    "navigation_depth": 4,
+    "titles_only": False,
+    "includehidden": True,
+    "logo_only": False,
+    "display_version": True,
 }
 
-html_sidebars = {
-    "**": ["about.html", "navigation.html", "relations.html", "searchbox.html"],
-}
+# The Read-the-Docs theme owns the primary sidebar navigation, which is
+# driven by the documentation toctrees (``index.rst`` and the ``*_index.rst``
+# files under each top-level section). We deliberately do not force an
+# Alabaster-style list of sidebar blocks here; RTD renders its own
+# professional nav, search, and version block from the toctree and the
+# ``html_title`` above.
 
 # -- Extensions --------------------------------------------------------------
 

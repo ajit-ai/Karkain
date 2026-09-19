@@ -1,4 +1,9 @@
-# Documentation build dependencies (official Karkain docs, Phase 113).
-# Kept intentionally minimal: Sphinx + the bundled Alabaster theme only.
-# No third-party themes, no API/autodoc of the compiler itself.
+# Documentation build dependencies (official Karkain docs, Phase 113; theme
+# upgrade Phase 126). Sphinx + the pinned Read-the-Docs theme
+# (``sphinx-rtd-theme``). The theme is a locally installed package and the
+# docs build is fully offline and reproducible: no network downloads, no
+# third-party CDN assets at build time. Karkain retains its own title, status
+# vocabulary and CSS identity; nothing is copied from adjacent projects'
+# branding.
 sphinx>=7.2
+sphinx-rtd-theme>=2.0  # Read-the-Docs theme (pinned, offline)

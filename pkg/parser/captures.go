@@ -42,6 +42,40 @@ func ComputeCaptures(params []string, body []Node) []string {
 	return result
 }
 
+// CaptureInfo holds capture information including mutability.
+type CaptureInfo struct {
+	Name  string // Captured variable name
+	ByRef bool   // True if captured by reference (var), false = by-value (let)
+}
+
+// ComputeCapturesWithMutability returns capture information including
+// whether each capture is by-reference (var) or by-value (let).
+// It requires a scope map that maps variable names to their mutability.
+func ComputeCapturesWithMutability(params []string, body []Node, scope map[string]bool) []CaptureInfo {
+	cs := &captureSet{seen: make(map[string]bool)}
+	for _, st := range body {
+		walkCaptures(st, cs)
+	}
+	for _, p := range params {
+		cs.remove(p)
+	}
+	// Locally declared names are not captures.
+	for _, st := range body {
+		markLocals(st, cs)
+	}
+	result := []CaptureInfo{}
+	for _, name := range cs.order {
+		if cs.seen[name] {
+			byRef := false
+			if mut, ok := scope[name]; ok {
+				byRef = mut // true for var, false for let
+			}
+			result = append(result, CaptureInfo{Name: name, ByRef: byRef})
+		}
+	}
+	return result
+}
+
 func markLocals(n Node, cs *captureSet) {
 	switch node := n.(type) {
 	case *VarDeclStmt:
@@ -102,14 +136,14 @@ func walkCaptures(n Node, cs *captureSet) {
 		for _, cap := range ComputeCaptures(node.Params, node.Body) {
 			cs.add(cap)
 		}
+	case *ClosureExpr:
+		for _, cap := range node.Captures {
+			cs.add(cap)
+		}
 	case *VarDeclStmt:
 		walkCaptures(node.Name, cs)
 		if node.Value != nil {
 			if fdl, ok := node.Value.(*FuncDecl); ok {
-				// Phase 121: nested let-bound lambda. Its captures must be
-				// available at the binding site inside this body, so they
-				// propagate here; names re-declared in this body are removed
-				// again by markLocals.
 				for _, c := range fdl.Captures {
 					cs.add(c)
 				}
@@ -120,4 +154,3 @@ func walkCaptures(n Node, cs *captureSet) {
 		cs.remove(node.Name)
 	}
 }
-

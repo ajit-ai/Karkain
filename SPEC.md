@@ -219,8 +219,23 @@ desugars to a named function value: captured variables are passed through a
 per-closure environment struct (mutable pointer-sharing semantics) and the
 call routes as `f(args)`. Lambda syntax accepts an optional return type before
 the body opener (`fn(a, b) int { ... }`). Multiple let-bound lambdas in one
-body are emitted as sibling definitions. Codegen is byte-identical on both
-engines (pinned by `examples/01-fundamentals/15_closures.kark`).
+body are emitted as sibling definitions. Nested lambdas capture through the
+outer env (pointer copy of outer captures, plain address of outer locals).
+
+Capture mutation (Phase 130): a closure body may ASSIGN to a captured `var`;
+the assignment writes through the env pointer alias and the enclosing scope
+observes the mutation immediately after the call returns — byte-identical on
+both engines (pinned by `examples/closures/00_capture_mutation.kark`, golden
+`1/2/2/3/3`; nested in `examples/closures/01_nested.kark`, golden `32/28`),
+alongside `examples/01-fundamentals/15_closures.kark`.
+
+Documented boundaries (Phase 130, both engines, NOT defects — closures desugar
+to plain functions with no first-class Value cell). First-class function
+values are not yet supported: a call through an expression (`ops[0](5)`) is a
+parse error (K001), no `func(T) R` type syntax, and a closure VARIABLE cannot
+be free-captured by another closure (`let g = fn... { ... f(...) }` passes
+check but fails at C compile — identically on both engines). Free-variable
+capture of plain variables works.
 
 ---
 
@@ -570,7 +585,7 @@ gated by `pkg/cli/phase102_foundation_test.go`.
 | Multi-error reporting | Y | ALL recoverable parse + resolve diagnostics in one invocation, exit 3, on both engine paths (Phase 105) |
 | Incremental build | Y | `karkain build --incremental` dependency-aware content cache; `karkain clean` purges (Phase 105) |
 | `float64()` / `bool()` / `string()` casts | N | not accepted by either engine |
-| Closures / `fn` codegen | Y | `let f = fn(...)` lambdas incl. captures, siblings, optional return type; byte-identical on both engines (Phase 116; pinned `examples/01-fundamentals/15_closures.kark`) |
+| Closures / `fn` codegen | Y | `let f = fn(...)` lambdas incl. captures, siblings, nested, optional return type, capture MUTATION (Phase 130); byte-identical on both engines (pinned `examples/01-fundamentals/15_closures.kark` + `examples/closures/`) — first-class fn values / higher-order calls documented post-130 |
 | `const` declarations | N | not part of the engine surface |
 | User `import` | N | deferred; sibling/module assembly only |
 | Visibility rules | N | deferred to module system v2 (Phase 103) |

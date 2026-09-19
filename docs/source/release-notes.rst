@@ -34,24 +34,39 @@ v1.0.0 — Stable Build (current)
    * - Error codes
      - Numeric codes (K001-K008, K100, K101-K113) documented by
        ``karkain explain`` and ``explain --list``
-   * - Standard library
-     - Public modules hardened: ``std.string``, ``std.collections``,
-       ``std.io``, ``std.encoding``, ``std.crypto``, ``std.testing`` with new
-       edge-case parity tests (empty/invalid/duplicate inputs)
+* - Standard library
+      - Public modules hardened: ``std.string``, ``std.collections``,
+        ``std.io``, ``std.encoding``, ``std.crypto``, ``std.testing`` with new
+        edge-case parity tests (empty/invalid/duplicate inputs), plus
+        ``std.numerics`` (40 funcs, Phase 126) and ``std.net`` / ``std.http`` /
+        ``std.db`` (Phase 125A) with the Winsock link contract enforced on
+        every generated-C linker
    * - Example corpus
-     - Phase 114/116 corpus (49 pinned goldens) verified under the new
-       semantic gating — no golden changed
+      - Phase 114/116 corpus (**59 pinned goldens**) verified under the new
+        semantic gating and byte-identical on both engines (Go + kcc)
+   * - Self-hosted compiler
+      - kcc owns the default check/build/run/test path; KIR v1 structural
+        verification runs on the default check (Phase 121); flat project
+        assembly is owned inside the compiler (Phase 122); stage-2 == stage-3
+        bitwise bootstrap identity
+   * - Bootstrap memory guard
+      - ``error[K127]`` clean abort (stages 2/3) on low-RAM hosts replaces the
+        documented SEGFAULT class (Phase 127)
+   * - Compute targets
+      - Phase 124 experimental catalog: ``cpu``, ``simd``, ``wasm32-wasi``,
+        ``gpu-experimental``, ``npu-experimental``, ``quantum-experimental``
    * - Toolchain
-     - Exit-code contract verified end-to-end; ``debug`` and ``prof`` opt-in
-       diagnostics verified in the Beta gate; fresh-checkout script
-       ``scripts/beta-fresh-checkout.ps1``
+      - Exit-code contract verified end-to-end; ``debug`` and ``prof`` opt-in
+        diagnostics verified in the Beta gate; fresh-checkout script
+        ``scripts/beta-fresh-checkout.ps1``
    * - Developer readiness
-     - Beta documentation (``status/beta.rst``), Beta readiness scorecard,
-       Phase 117 CI gate, version identity ``v1.0.0 (Stable Build)``
+      - Beta documentation (``status/beta.rst``), Beta readiness scorecard,
+        Phase 117 CI gate, version identity ``v1.0.0 (Stable Build)``
    * - Known gaps (honest)
-     - Networking, databases, web, quantum, GPU/NPU kernel language surface,
-       advanced package registry — Planned / Not Yet Implemented; concurrency,
-       profiling, debug tracing, WASM and SIMD remain Go-engine only
+      - Closures/``fn`` codegen remains broken on both engines (documented);
+        GPU/NPU/quantum kernel language surface and a public package registry
+        are Planned; concurrency, profiling, debug tracing, WASM and SIMD
+        remain Go-engine only; Docker image is Planned
 
 Entry requirements for every release note entry
 

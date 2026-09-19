@@ -65,6 +65,12 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      # Phase 129 (4GB bootstrap harden): cap the Go runtime heap across all
+      # steps so the combined-suite flake class (OOM stalls/SEGFAULTs of the
+      # kcc-build mode on small hosts) is bounded on CI too. 8GiB is well above
+      # normal flows; it only prevents unbounded growth.
+      GOMEMLIMIT: 8GiB
     steps:
       - uses: actions/checkout@v4
 

@@ -1,12 +1,25 @@
 # Karkain 1.0.0 — Release Checklist
 
 **Version target:** 1.0.0 (Stable)
-**Owner decision:** no tag / release cut yet — this checklist governs the
-final preparation phase (Phase 119). Cutting `v1.0.0` and publishing binaries
-is an owner-only decision on the existing CI release pipeline.
+**Owner decision:** cutting `v1.0.0` and publishing binaries is an owner-only
+action on the existing CI release pipeline. This checklist governs the final
+preparation phase (Phase 119) and the release-cut runbook (Phase 128).
 
 Where a reference doc already exists, this checklist links to it instead of
 duplicating content.
+
+## 0. Release state (Phase 128 audit — 2026-09-19)
+
+- [x] Tag `v1.0.0` **exists on origin** but points at `f23c024`
+      (2026-09-13), which is **behind current `main`** (`9dfdc76`,
+      Phase 126 merged 2026-09-18). Phases 125A/126/127 are **not** on the tag.
+- [x] **No GitHub Release exists** for v1.0.0 — GitHub Releases page shows only
+      the legacy "Phase 17 COMPLETED (v0.14.0)" (Latest). The tag is
+      effectively unreleased, so re-pointing it is safe and correct.
+- [x] Version identity is already unified at 1.0.0 (`VERSION`, Go CLI banner,
+      kcc banner, all generated-C/QIR/QASM headers) — verified by grep in
+      Phase 128; no stale `0.117.0`/`Beta 1 Build` strings outside historical
+      pages/tests.
 
 ## 1. Repository hygiene
 
@@ -49,12 +62,13 @@ duplicating content.
 
 ## 4. Examples & documentation
 
-- [x] Example corpus: 49 golden `.kark` files wired into the phase-114
-      both-engine gate + phase-116 test-mode files; no coverage gaps for
-      implemented stable capabilities (fundamentals, algorithms, systems,
-      data, AI/ML, scientific, finance, security, dev-tools).
-- [x] Planned categories (04-networking, 06-database, 07-web, 11-quantum) are
-      honest Planned README-only pages (no fabricated APIs).
+- [x] Example corpus: **59** golden `.kark` files wired into the phase-114
+      both-engine gate (Go + kcc) + phase-116 test-mode files; pinned
+      byte-identical (see Phase 126 record). Categories include networking
+      (`stdlib/net`), database (`stdlib/db`) and web (`stdlib/http`) real
+      surfaces (Phase 125A).
+- [x] Planned categories (11-quantum) are honest Planned README-only pages
+      (no fabricated APIs).
 - [x] Sphinx doc tree builds `-W` (see QA battery).
 
 ## 5. QA (master gate)
@@ -62,13 +76,48 @@ duplicating content.
 - [ ] Full QA battery run and green — `scripts/qa/run-full-qa.ps1`; evidence
       recorded in `docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md`.
 
-## 6. Owner-only release steps (after this phase)
+## 6. Owner-only release runbook (Phase 128)
 
-1. Cut tag `v1.0.0` on the existing CI release pipeline (`.github/workflows/ci.yml`).
-2. Publish binaries/artifacts; update `docs/source/getting-started/installation.rst`
-   binaries from "Planned" to the real ones.
-3. Push `develop` and `main`.
-4. Announce the release.
+Sequential, after Phase 127/128 changes are committed and green.
+
+1. **Commit & merge** — commit Phase 127 (bootstrap memory guard) and Phase 128
+   (release prep) to `develop`; merge `develop` into `main`; push `develop`
+   and `main`. Record the new `main` head commit `NEWMAIN`.
+2. **Re-point the unreleased tag** — `v1.0.0` was never released, so move it to
+   the current `main` head so the release includes Phases 110–127:
+   ```powershell
+   git tag -f v1.0.0 NEWMAIN
+   git push origin v1.0.0 --force
+   ```
+   This re-triggers the tag-based CI pipeline (`.github/workflows/ci.yml`).
+3. **Release build** — the CI `build` job produces the 13-platform archive
+   matrix; `release` job (tag-only, `softprops/action-gh-release`) creates the
+   GitHub Release with archives + generated `checksums.txt` (SHA-256) + release
+   notes.
+4. **Post-publish verification** (on a clean Windows 11 machine):
+   - Download `karkain-v1.0.0-windows-amd64.zip`; verify against
+     `checksums.txt` (`Get-FileHash`), then `Expand-Archive` into
+     `$env:LOCALAPPDATA\Karkain` and add to `PATH`.
+   - `karkain --version` reports `Karkain Compiler v1.0.0 (windows/amd64,
+     Stable Build)`.
+   - Run the reproduction of the external-developer journey against the
+     **downloaded binary**:
+     ```powershell
+     $env:RELEASE_BIN = "$env:LOCALAPPDATA\Karkain\...\karkain.exe"
+     powershell -ExecutionPolicy Bypass -File scripts\verify-rc-journey.ps1
+     ```
+   - Run the install/verify smoke test:
+     ```powershell
+     powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+     powershell -ExecutionPolicy Bypass -File scripts\verify-install.ps1
+     ```
+5. **Flip the docs marker** — in
+   `docs/source/getting-started/installation.rst`, remove the
+   `:planned:`Release cut pending`` note now that the release is live; commit
+   to `develop`, merge to `main`, push.
+6. **Announce** — post the release link with install/verify instructions and
+   the honest scope summary (see `KARKAIN-1.0-RELEASE-NOTES.md`).
 
 See `docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md` for the readiness
-verdict and complete evidence.
+verdict and complete evidence; `docs/audit/GENERAL-AVAILABILITY-ROADMAP.md`
+for the post-1.0 GA milestones (GA-2/GA-3).
