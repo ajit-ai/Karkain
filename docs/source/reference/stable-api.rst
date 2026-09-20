@@ -101,7 +101,7 @@ Full CLI reference: :doc:`/tools/cli`.
 Stable stdlib modules
 =====================
 
-.. list-table:: Stable stdlib (Phase 131 API Freeze)
+.. list-table:: Stable stdlib (Phase 132 API Freeze)
    :widths: 26 74
    :header-rows: 1
 

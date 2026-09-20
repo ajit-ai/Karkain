@@ -11,7 +11,7 @@ Implemented and importable modules
 ----------------------------------
 
 :implemented:`Implemented` — these modules are importable, tested, and
-byte-identical on both engines (Phase 131 API Freeze):
+byte-identical on both engines (Phase 132 API Freeze):
 
 .. list-table::
    :widths: 20 50 30

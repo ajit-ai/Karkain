@@ -106,10 +106,12 @@ Beyond 1.0.0, the milestone-based plan for the next General Availability is:
 * **GA-1 — Ship & Harden (128–129):** release-cut runbook (Phase 128) and the
   4 GB bootstrap battle (Phase 129 — memory guidance, CI caps, progress
   watchdog, kcc build RSS reduction).
-* **GA-2 — Language & Tooling Completeness (130–135):** closures/``fn`` codegen
-  parity, stdlib v3 + API freeze, incremental compilation v2, local package
-  registry, LSP v2, concurrency + profiling + SIMD kcc parity.
-* **GA-3 — Platform Expansion → 1.1.0 (136–140):** GPU/NPU kernel surface,
+* **GA-2 — Language & Tooling Completeness (130–137):** closures/``fn``
+  capture-mutation (130), reproducible self-host gate (131), stdlib freeze +
+  SemVer policy (132, shipped), first-class ``fn`` values (133, next),
+  incremental compilation v2 (134), local package registry (135), LSP v2
+  (136), concurrency + profiling + SIMD kcc parity (137).
+* **GA-3 — Platform Expansion → 1.1.0 (138–142):** GPU/NPU kernel surface,
   cross-compilation + WASM GC, debugger integration, compiler performance &
   memory, 1.1.0 release with an LTS ``1.0.x`` branch.
 
