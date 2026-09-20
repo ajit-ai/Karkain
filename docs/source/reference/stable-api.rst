@@ -101,24 +101,32 @@ Full CLI reference: :doc:`/tools/cli`.
 Stable stdlib modules
 =====================
 
-.. list-table:: Beta stdlib
+.. list-table:: Stable stdlib (Phase 131 API Freeze)
    :widths: 26 74
    :header-rows: 1
 
    * - Module
      - Surface
    * - ``std.string``
-     - String operations on UTF-8 strings.
+     - String operations on UTF-8 strings (27 functions).
    * - ``std.collections``
-     - Collection helpers (list/map utilities).
+     - Collection helpers (list/map utilities, 24 functions).
    * - ``std.io``
-     - Input/output helpers (file read/write, line reading).
+     - Input/output helpers (file read/write, line reading, 11 functions).
    * - ``std.encoding``
-     - Hex and Base64 encode/decode (RFC 4648 verified).
+     - Hex and Base64 encode/decode (RFC 4648 verified, 7 functions).
    * - ``std.crypto``
-     - ``sha256_hex`` / ``sha512_hex`` (NIST FIPS 180 test vectors).
+     - ``sha256_hex`` / ``sha512_hex`` (NIST FIPS 180 test vectors, 2 functions).
    * - ``std.testing``
-     - ``assert`` / ``assert_eq`` / ``assert_ne`` for ``*_test.kark``.
+     - ``assert`` / ``assert_eq`` / ``assert_ne`` for ``*_test.kark`` (9 functions).
+   * - ``std.numerics``
+     - Numerical/ML foundation (vector/matrix/tensor ops, 40 functions).
+   * - ``std.net``
+     - TCP networking (Address/Endpoint/Connection/Listener, 10 functions).
+   * - ``std.http``
+     - HTTP/1.1 client/server building blocks (Request/Response, 20 functions).
+   * - ``std.db``
+     - Backend-neutral database layer (SQL subset, persistence, 20 functions).
 
 Full stdlib reference: :doc:`/stdlib/index`.
 

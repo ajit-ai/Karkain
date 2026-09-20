@@ -13,6 +13,7 @@ packages, or the compiler infrastructure.
    architecture
    roadmap
    feature-freeze
+   semver-policy
    release
    reporting-bugs
    developer-preview

@@ -42,7 +42,7 @@ v1.0.0 — Stable Build (current)
        ``std.db`` (Phase 125A) with the Winsock link contract enforced on
        every generated-C linker
    * - Example corpus
-     - Phase 114/116 corpus (**59 pinned goldens**) verified under the new
+     - Phase 114/116 corpus (**60 pinned goldens**) verified under the new
         semantic gating and byte-identical on both engines (Go + kcc)
    * - Self-hosted compiler
      - kcc owns the default check/build/run/test path; KIR v1 structural

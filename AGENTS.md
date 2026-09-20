@@ -395,6 +395,24 @@ compile: exit status 2`; gate passes consistently under `GOMEMLIMIT=2GiB`, and
 in this session the host had memory so the kcc leg ran for real). Report:
 `docs/audit/PHASE-130-FINAL-REPORT.md`.)
 
+Also completed: **131 — Reproducible Self-Host Gate** (verdict **COMPLETE**;
+3/3 PASS 38.5s: stage-1 byte-reproducible across CWDs SHA `0c01de43f796b153`,
+intentional-tamper divergence detected `0c01de43…` vs `0f677bd7…`, K127 guard
+fires honestly; two vacuity defects root-caused and fixed — `binPath`+
+`exeName` double-suffix stat and untranspilable `data[1]` tamper + missing
+sibling staging. Gate `pkg/bootstrap/phase131_repro_test.go`.)
+Also completed: **132 — Standard Library Freeze + GA API Freeze** (verdict
+**COMPLETE**; GA-2 first step. Renumbered from the draft "131" strand by owner
+decision — shipped 131 is the repro gate above. All 10 stdlib modules frozen
+with docs pages + `stable-api.rst` entries; parity rewritten from a wordy
+default-engine smoke check to 9 golden cases asserted byte-exact on Go AND kcc
+(kcc leg ran live, 46.7s, no skip); SemVer policy + deprecation contract gated
+precisely (`@deprecated` attribute honestly stays Planned, not claimed);
+`semver-policy.rst` toctree-wired; Sphinx `-W` clean-room green; Phase 114
+corpus 59→60 pinned (`03_mlp_forward` dead undefined call removed, golden
+`0/0/0/0/1/3` both engines). Gate `pkg/cli/phase132_stdlib_freeze_test.go`
+6/6 PASS 92.7s. Report: `docs/audit/PHASE-132-STDLIB-FREEZE-FINAL-REPORT.md`.)
+
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
 six new examples, unconditional net-runtime emission on BOTH engines, and the
