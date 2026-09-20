@@ -55,6 +55,18 @@ Any change allowed by this policy must still:
 4. Not introduce new ``*.exe``, ``*.c`` / ``*.c23`` or
    ``docs/build`` pollution.
 
+Deprecation during freeze
+=========================
+
+During feature freeze, deprecation of stable APIs is handled as follows:
+
+* Document the deprecation in the relevant module documentation
+* Add deprecation warnings where feasible (future ``@deprecated`` attribute)
+* Maintain deprecated APIs for the current release
+* Schedule removal for the next MAJOR version
+
+See :doc:`semver-policy` for the full deprecation process and versioning rules.
+
 How long does the freeze last?
 ==============================
 

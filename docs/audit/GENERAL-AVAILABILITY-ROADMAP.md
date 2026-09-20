@@ -58,8 +58,8 @@ has two legs:
 | Milestone | Name | Phases | Goal |
 |-----------|------|--------|------|
 | **GA-1** | Ship & Harden | 128–129 | Public 1.0.0 release usable on Windows 11/4 GB |
-| **GA-2** | Language & Tooling Completeness | 130–135 | No unstable language boundary; both engines byte-identical |
-| **GA-3** | Platform Expansion → 1.1.0 | 136–140 | Accelerators, networking/web/db, performance, next release |
+| **GA-2** | Language & Tooling Completeness | 130–137 | No unstable language boundary; both engines byte-identical |
+| **GA-3** | Platform Expansion → 1.1.0 | 138–142 | Accelerators, networking/web/db, performance, next release |
 
 Phases are numbered continuously from 128 (127 = bootstrap memory guard, done).
 
@@ -140,7 +140,13 @@ capture surface that was actually still open:
 **Remaining for a future phase**: first-class function values (item 1 above) —
 the entry point for higher-order programming.
 
-### Phase 131 — Standard Library v3 + GA API Freeze
+### Phase 131 — Reproducible Self-Host Gate — SHIPPED (owner decision)
+
+Shipped 131 is the deterministic bootstrap gate (`pkg/bootstrap/
+phase131_repro_test.go`: stage-1 byte-reproducibility, tamper-divergence,
+K127 guard). The stdlib freeze below was renumbered 131→132 accordingly.
+
+### Phase 132 — Standard Library Freeze + GA API Freeze
 **Scope**: every `std.*` module that ships in 1.0 ships *stable*.
 
 | Deliverable | Detail |
@@ -152,8 +158,18 @@ the entry point for higher-order programming.
 
 **Gate**: stdlib both-engine byte-identical matrix extends to all released
 modules; a public API snapshot doc (`stable-api.rst`) regenerated.
+**Status: COMPLETE** — report `docs/audit/PHASE-132-STDLIB-FREEZE-FINAL-REPORT.md`
+(6/6 gate PASS, kcc leg live, Sphinx `-W` clean).
 
-### Phase 132 — Incremental Compilation v2
+### Phase 133 — First-Class `fn` Values (owner priority)
+
+Karkain-owned design only: Value-cell function values over the existing
+desugar-to-plain-functions + env-pointer model (Phase 130 root cause), by-ref
+capture consistent with capture-mutation; `func(T) R` type syntax; K-family
+diagnostics; byte-identical both engines with negatives pinned. Both engines
+lex/parse every new shape from day one (parity-by-construction).
+
+### Phase 134 — Incremental Compilation v2
 **Scope**: upgrade Phase 105's whole-assembly cache to per-module units.
 
 | Deliverable | Detail |
@@ -166,7 +182,7 @@ modules; a public API snapshot doc (`stable-api.rst`) regenerated.
 **Gate**: `pkg/compiler/incremental_test.go` extended; byte-identical output vs
 clean build; `karkain clean` purge still correct.
 
-### Phase 133 — Package Registry MVP (local, honest)
+### Phase 135 — Package Registry MVP (local, honest)
 **Scope**: a *local* registry that works today, without pretending to host a
 public service.
 
@@ -179,7 +195,7 @@ public service.
 **Gate**: `pkg/pm/registry_test.go` + `pkg/cli/package_cli_test.go` E2E:
 publish → install → build → run on a clean path.
 
-### Phase 134 — LSP v2 (Semantic IDE Experience)
+### Phase 136 — LSP v2 (Semantic IDE Experience)
 **Scope**: from diagnostics-only (Phase 83) to a real editing experience.
 
 | Deliverable | Detail |
@@ -193,7 +209,7 @@ publish → install → build → run on a clean path.
 **Gate**: `pkg/lsp/lsp_test.go` extended with semantic-token round-trips and
 hover assertions; extension smoke test green.
 
-### Phase 135 — Concurrency + Profiling + SIMD kcc Parity
+### Phase 137 — Concurrency + Profiling + SIMD kcc Parity
 **Scope**: collapse the "Go-engine only" Experimental flags.
 
 | Deliverable | Detail |
@@ -214,7 +230,7 @@ re-run on kcc.
 
 ## 6. Milestone GA-3 — Platform Expansion & 1.1.0 (Phases 136–140)
 
-### Phase 136 — Accelerator Kernel Surface v1 (GPU/NPU)
+### Phase 138 — Accelerator Kernel Surface v1 (GPU/NPU)
 | Deliverable | Detail |
 |---|---|
 | WGSL emission | `pkg/backend/gpu` emits real WGSL compute kernels (not comment stubs) |
@@ -225,7 +241,7 @@ re-run on kcc.
 **Gate**: `pkg/cli/phase136_gpu_test.go` — WGSL text deterministic; SPIR-V/ANGLE
 optional on CI (never a hard dep).
 
-### Phase 137 — Cross-Compilation Expansion + WASM GC
+### Phase 139 — Cross-Compilation Expansion + WASM GC
 | Deliverable | Detail |
 |---|---|
 | New triples | `aarch64-windows`, `riscv64-linux`, `x86-64-macos` search/error paths |
@@ -235,7 +251,7 @@ optional on CI (never a hard dep).
 **Gate**: `pkg/target/triple_test.go` extended; `phase111`/`phase108` gates
 re-run; new `phase137_*` gate.
 
-### Phase 138 — Debugger Integration
+### Phase 140 — Debugger Integration
 | Deliverable | Detail |
 |---|---|
 | DWARF consumption | `dwarf_parse.go` readers wired to a live `lldb`/`gdb` protocol walk |
@@ -245,7 +261,7 @@ re-run; new `phase137_*` gate.
 **Gate**: `pkg/codegen/dwarf_test.go` extended; a `lldb`-source backtrace matched
 against `karkain_dbg` trace.
 
-### Phase 139 — Performance & Memory (compiler itself)
+### Phase 141 — Performance & Memory (compiler itself)
 | Deliverable | Detail |
 |---|---|
 | SSA optimizer → codegen | Phase 93/94 passes actually drive generated C (today they are an internal IR, not the emitter) |
@@ -254,7 +270,7 @@ against `karkain_dbg` trace.
 
 **Gate**: `pkg/ir/ssa` bench suite improvements + `TestBootstrap` green on 4 GB.
 
-### Phase 140 — 1.1.0 Release
+### Phase 142 — 1.1.0 Release
 | Deliverable | Detail |
 |---|---|
 | Version bump + changelog | SemVer path established by Phase 131 policy |
@@ -269,18 +285,20 @@ against `karkain_dbg` trace.
 
 ```
 GA-1:     128 ──▶ 129
-                ────▶ 130 ──▶ 131 ──▶ (none hard)
-GA-2:     130 ──▶ 132   (independent)
-          130 ──▶ 133   (independent)
-          131 ──▶ 134   (uses stable-api snapshot)
-          135 needs 130 (parity machinery touchpoints) + 129 (memory)
-GA-3:     136 .. 137 .. 138 (sequential only at the packaging level)
-          139 needs 129 (memory) and benefits from 135 (parity)
-          140 needs everything
+                ────▶ 130 ──▶ 131 (repro gate, shipped) ──▶ 132 (freeze, shipped)
+GA-2:     132 ──▶ 133   (fn values; needs frozen stdlib surface to test against)
+          132 ──▶ 134   (independent infra)
+          132 ──▶ 135   (independent infra)
+          132 ──▶ 136   (uses stable-api snapshot)
+          137 needs 130 + 133 (parity machinery + closed fn surface) + 129 (memory)
+GA-3:     138 .. 139 .. 140 (sequential only at the packaging level)
+          141 needs 129 (memory) and benefits from 137 (parity)
+          142 needs everything
 ```
 
-Parallelizable tracks after GA-2 opens: **language** (132–134), **parity** (135),
-**platform** (136–139). Single-maintainer means one active track + CI for the rest.
+Parallelizable tracks after GA-2 opens: **language** (133), **infra** (134–136),
+**parity** (137), **platform** (138–141). Single-maintainer means one active
+track + CI for the rest.
 
 ---
 
@@ -291,9 +309,10 @@ Parallelizable tracks after GA-2 opens: **language** (132–134), **parity** (13
 | 128 | Release ceremony blocked by owner availability | No code risk; keep `verify-rc-journey` as the single checklist |
 | 129 | Cannot fit self-build in 4 GB no matter what | Fall back honestly: clean K127 abort + documented ≥8 GB recomndation is GA-acceptable if the *user* path is downloadable binaries |
 | 130 | Closure semantics deep-water (capture/purity) | Constrain to lexical closure of the documented surface; no capture analysis promises beyond by-ref/let |
-| 135 | kcc parity reopens compiler-risk classes | Run `TestBootstrap_BitwiseIdentity` per change; keep kcc the default engine |
-| 136/137 | No accelerator hardware / cross-linkers to validate | Compile-only + deterministic-error gates; CI acts as the hardware oracle |
-| 139 | SSA→codegen is a large architectural change | Keep it as a *probe-lowering* first slice; measured at bench, never a rewrite |
+| 133 | First-class fn values reopen closure semantics | Constrain to the Phase 130 desugar model (env-pointer + plain functions); no ownership promises beyond by-ref/let |
+| 137 | kcc parity reopens compiler-risk classes | Run `TestBootstrap_BitwiseIdentity` per change; keep kcc the default engine |
+| 138/139 | No accelerator hardware / cross-linkers to validate | Compile-only + deterministic-error gates; CI acts as the hardware oracle |
+| 141 | SSA→codegen is a large architectural change | Keep it as a *probe-lowering* first slice; measured at bench, never a rewrite |
 
 ---
 

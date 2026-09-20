@@ -11,7 +11,7 @@ Implemented and importable modules
 ----------------------------------
 
 :implemented:`Implemented` — these modules are importable, tested, and
-byte-identical on both engines:
+byte-identical on both engines (Phase 131 API Freeze):
 
 .. list-table::
    :widths: 20 50 30
@@ -38,6 +38,18 @@ byte-identical on both engines:
    * - :doc:`std.testing <testing>`
      - Assertion and check helpers
      - 9
+   * - ``std.numerics``
+     - Numerical/ML foundation (vector/matrix/tensor ops)
+     - 40
+   * - ``std.net``
+     - TCP networking (Address/Endpoint/Connection/Listener)
+     - 10
+   * - ``std.http``
+     - HTTP/1.1 client/server building blocks
+     - 20
+   * - ``std.db``
+     - Backend-neutral database layer (SQL subset)
+     - 20
 
 ``stdlib/`` also contains ``std.core``, ``std.math``, ``std.system``,
 ``std.gpu`` and ``std.async``, but these are **not importable**: they use
@@ -74,6 +86,10 @@ Invariants shared by every implemented module
    encoding
    crypto
    testing
+   numerics
+   net
+   http
+   db
    core
    math
    not-implemented

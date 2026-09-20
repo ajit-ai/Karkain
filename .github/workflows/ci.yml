@@ -126,6 +126,9 @@ jobs:
       - name: Run Phase 124 compute-target gate
         run: go test ./pkg/cli/ -run 'TestPhase124' -count=1
 
+      - name: Run Phase 132 stdlib-freeze gate
+        run: go test ./pkg/cli/ -run 'TestPhase132' -count=1
+
       - name: Run conformance tests
         run: |
           echo "Karkain-native conformance corpus:"
