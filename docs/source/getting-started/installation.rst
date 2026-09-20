@@ -24,6 +24,9 @@ install/verify scripts also build from source; see
 
 .. _release-status:
 
+Release status
+--------------
+
 .. note::
 
    :planned:`Release cut pending` — once the owner publishes the v1.0.0

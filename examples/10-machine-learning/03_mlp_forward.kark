@@ -86,12 +86,6 @@ func numerics_mod_predict(x, n) {
 
 func main() {
     // Two synthetic inputs; target classes are [1, 0].
-    let xs = numerics_mat_zeros(2, 2)
-    xs[0] = vento_LABEL_not_used()
-    xs[1] = 0.9
-    xs[2] = 0.1
-    xs[3] = -0.8
-
     let pred0 = numerics_mod_predict([1.0, 0.0], 2)
     let pred1 = numerics_mod_predict([0.9, -0.8], 2)
 

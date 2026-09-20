@@ -8,6 +8,7 @@ what the language can do today.
 |----------------------------------|----------|--------|----------------------------------|
 | `01_linear_regression.kark`      | Runnable | both   | OLS closed form, plain floats    |
 | `02_gradient_descent.kark`       | Runnable | both   | minimize convex loss directly    |
+| `03_mlp_forward.kark`            | Runnable | both   | 2-layer forward pass, std.numerics |
 
 ## Honest status
 
