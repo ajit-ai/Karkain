@@ -231,7 +231,7 @@ func TestPhase114_CorpusCoverage(t *testing.T) {
 			t.Errorf("pinned test file missing on disk: %s (%v)", rel, err)
 		}
 	}
-	if len(phase114Examples) != 59 {
-		t.Errorf("expected 59 pinned examples, got %d", len(phase114Examples))
+	if len(phase114Examples) != 60 {
+		t.Errorf("expected 60 pinned examples, got %d", len(phase114Examples))
 	}
 }
