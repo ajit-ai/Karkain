@@ -90,7 +90,8 @@ html_theme_options = {
     "titles_only": False,
     "includehidden": True,
     "logo_only": False,
-    "display_version": True,
+    # NOTE: no "display_version" — sphinx-rtd-theme 3.x (Sphinx 9) rejects it
+    # as an unsupported theme option, which fails the -W docs build on CI.
 }
 
 # The Read-the-Docs theme owns the primary sidebar navigation, which is

@@ -82,6 +82,7 @@ Authoritative list of the 15-category example corpus. Jargon:
 | 09-ai/02_linear_classifier.kark | Runnable | both | perceptron updates | gcc | 5 1 -1 2 -3 |
 | 10-machine-learning/01_linear_regression.kark | Runnable | both | OLS closed form | gcc | 0.9 1.3 6.7 |
 | 10-machine-learning/02_gradient_descent.kark | Runnable | both | loss minimization | gcc | 3 7 |
+| 10-machine-learning/03_mlp_forward.kark | Runnable | both | 2-layer forward pass on std.numerics | gcc | 0 0 0 0 1 3 |
 | 12-scientific-computing/01_sqrt_newton.kark | Runnable | both | Newton sqrt | gcc | 1.41421 3 2 0.5 |
 | 12-scientific-computing/02_numerical_integration.kark | Runnable | both | trapezoid rule | gcc | 0.34375 0.333374 0.333333 |
 | 12-scientific-computing/03_statistics.kark | Runnable | both | mean/variance/stddev | gcc | 5 4 2 |

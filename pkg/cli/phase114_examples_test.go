@@ -74,6 +74,7 @@ var phase114Examples = map[string]struct {
 	"09-ai/03_numerics_forward.kark":         {"0.3\n0.23\n2.71828\n0.5\n0.761594\n0\n3\n1.41421\n10\n5\n25\n1\n0.0466667\n0.2\n0.23\n", ""},
 	"10-machine-learning/01_linear_regression.kark": {"0.9\n1.3\n6.7\n", ""},
 	"10-machine-learning/02_gradient_descent.kark":  {"3\n7\n", ""},
+	"10-machine-learning/03_mlp_forward.kark":      {"0\n0\n0\n0\n1\n3\n", ""},
 	"12-scientific-computing/01_sqrt_newton.kark":   {"1.41421\n3\n2\n0.5\n", ""},
 	"12-scientific-computing/02_numerical_integration.kark": {"0.34375\n0.333374\n0.333333\n", ""},
 	"12-scientific-computing/03_statistics.kark":            {"5\n4\n2\n", ""},
