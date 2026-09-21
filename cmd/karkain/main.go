@@ -85,6 +85,8 @@ PACKAGE MANAGEMENT (detailed):
   karkain pkg search <query>             Search package registry
   karkain pkg info <pkg>                 Show package details
   karkain pkg publish                    Publish to registry
+  karkain pkg publish --registry <dir>   Publish to a local registry (no login)
+  karkain pkg registry init <dir>        Create a local registry (local-only)
   karkain pkg login                      Authenticate with registry
   karkain pkg logout                     Clear auth token
   karkain pkg whoami                     Show current user
@@ -135,6 +137,55 @@ Examples:
   karkain tree`)
 }
 
+// takeRegistryFlag extracts `--registry <dir>` from args, returning the flag
+// value ("" when absent) and the remaining args. It is the single CLI surface
+// for selecting the Phase-135 local registry; KARKAIN_REGISTRY (directory) is
+// the fallback inside pkg/pm.
+func takeRegistryFlag(args []string) (string, []string) {
+	flag := ""
+	kept := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--registry" {
+			if i+1 < len(args) {
+				flag = args[i+1]
+				i++
+			}
+			continue
+		}
+		kept = append(kept, args[i])
+	}
+	return flag, kept
+}
+
+// handleRegistryCommand dispatches `karkain pkg registry <subcommand>`.
+// Phase 135 is local-only: init creates a directory registry; publish stores
+// into one. There is no network registry yet.
+func handleRegistryCommand(cwd string, args []string) int {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		fmt.Println("Usage: karkain pkg registry <command> [options]")
+		fmt.Println("  karkain pkg registry init <dir>              Create a local registry")
+		fmt.Println("  karkain pkg publish --registry <dir>         Publish the current project locally")
+		return cli.ExitSuccess
+	}
+	switch args[0] {
+	case "init":
+		if len(args) < 2 || strings.HasPrefix(args[1], "-") {
+			fmt.Fprintln(os.Stderr, "Error: registry directory required\n  Usage: karkain pkg registry init <dir>")
+			return cli.ExitUsage
+		}
+		if err := kpkg.InitLocalRegistry(args[1]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return cli.ExitPackage
+		}
+		abs, _ := filepath.Abs(args[1])
+		fmt.Printf("Local registry initialized at %s\n", abs)
+		return cli.ExitSuccess
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unknown registry command %q\n  Usage: karkain pkg registry init <dir>\n", args[0])
+		return cli.ExitUsage
+	}
+}
+
 // handlePackageCommand dispatches all 'karkain pkg' subcommands and returns the
 // process exit code to use. Operational failures classify as ExitPackage(5),
 // CLI usage errors within the package namespace as ExitUsage(2).
@@ -155,6 +206,10 @@ func handlePackageCommand(args []string) int {
 	rest := args[1:]
 
 	switch subCmd {
+
+	// --- LOCAL REGISTRY (Phase 135: local-only, no network registry) ---
+	case "registry":
+		return handleRegistryCommand(cwd, rest)
 
 	// --- PROJECT INIT ---
 	case "init":
@@ -199,6 +254,8 @@ func handlePackageCommand(args []string) int {
 
 	// --- ADD DEPENDENCY ---
 	case "add":
+		regFlag, restArgs := takeRegistryFlag(rest)
+		rest = restArgs
 		if len(rest) < 1 {
 			fmt.Fprintln(os.Stderr, "Error: package name required\n  Usage: karkain pkg add <pkg> [version]")
 			return cli.ExitUsage
@@ -224,6 +281,12 @@ func handlePackageCommand(args []string) int {
 					version = rest[i]
 				}
 			}
+		}
+		// --registry <dir> pins a local directory registry as the dependency
+		// source (recorded in the manifest so later fetch/update need no flag).
+		if regFlag != "" {
+			source = "registry"
+			url = regFlag
 		}
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
@@ -263,6 +326,7 @@ func handlePackageCommand(args []string) int {
 
 	// --- FETCH ---
 	case "fetch":
+		regFlag, _ := takeRegistryFlag(rest)
 		projectDir, _ := kpkg.FindProjectRoot(cwd)
 		if projectDir == "" {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
@@ -275,7 +339,7 @@ func handlePackageCommand(args []string) int {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", rerr)
 			return cli.ExitPackage
 		}
-		if _, ferr := kpkg.FetchLocked(projectDir); ferr != nil {
+		if _, ferr := kpkg.FetchLockedWithRegistry(projectDir, regFlag); ferr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", ferr)
 			return cli.ExitPackage
 		}
@@ -291,6 +355,8 @@ func handlePackageCommand(args []string) int {
 
 	// --- UPDATE ---
 	case "update":
+		regFlag, restArgs := takeRegistryFlag(rest)
+		rest = restArgs
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
@@ -308,7 +374,7 @@ func handlePackageCommand(args []string) int {
 				return cli.ExitPackage
 			}
 			fmt.Printf("Re-fetching %s@%s...\n", rest[0], dep.Version)
-			if fErr := kpkg.FetchModule(projectDir, dep); fErr != nil {
+			if fErr := kpkg.FetchModuleWithRegistry(projectDir, dep, regFlag); fErr != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", fErr)
 				return cli.ExitPackage
 			}
@@ -515,19 +581,36 @@ func handlePackageCommand(args []string) int {
 
 	// --- PUBLISH ---
 	case "publish":
+		regFlag, _ := takeRegistryFlag(rest)
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
 			return cli.ExitPackage
 		}
-		token, tErr := kpkg.LoadToken()
-		if tErr != nil {
-			fmt.Fprintln(os.Stderr, "Error: not logged in. Run 'karkain pkg login' first")
-			return cli.ExitPackage
-		}
 		manifest, pErr := kpkg.ParseManifest(filepath.Join(projectDir, kpkg.ManifestFile))
 		if pErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", pErr)
+			return cli.ExitPackage
+		}
+		// Local publish (Phase 135): --registry <dir> (or KARKAIN_REGISTRY
+		// naming a directory) stores into a directory registry with no login.
+		// Without a local registry the pre-135 remote flow applies.
+		if regFlag != "" || kpkg.IsLocalRegistryDir(strings.TrimSpace(os.Getenv("KARKAIN_REGISTRY"))) {
+			regDir := regFlag
+			if regDir == "" {
+				regDir = strings.TrimSpace(os.Getenv("KARKAIN_REGISTRY"))
+			}
+			fmt.Printf("Publishing %s@%s to local registry...\n", manifest.Name, manifest.Version)
+			if err := kpkg.PublishLocal(regDir, projectDir, manifest); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				return cli.ExitPackage
+			}
+			fmt.Printf("Published %s@%s\n", manifest.Name, manifest.Version)
+			break
+		}
+		token, tErr := kpkg.LoadToken()
+		if tErr != nil {
+			fmt.Fprintln(os.Stderr, "Error: not logged in. Run 'karkain pkg login' first")
 			return cli.ExitPackage
 		}
 		fmt.Printf("Publishing %s@%s...\n", manifest.Name, manifest.Version)

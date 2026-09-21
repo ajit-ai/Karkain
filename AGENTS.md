@@ -471,6 +471,26 @@ in 79ms beating the ≤100ms target, body-only leaf edit → golden with exactly
 `go vet`, `pkg/compiler` suite, Phase 105 E2E on the same split-flow code.
 Report: `docs/audit/PHASE-134-INCREMENTAL-V2-FINAL-REPORT.md`.)
 
+Also completed: **135 — Local Registry MVP** (verdict **COMPLETE
+(local-only)**; GA-2 infra track, no network/daemon/database. Directory
+registry `registry.json` + `packages/<name>/<version>/{manifest,source/,
+sha256}` + `index/<name>` JSON; `ValidatePackageName` rejects
+empty/separators/traversal/absolute/non-`[A-Za-z0-9._-]` with the path kept
+under root; semver via existing `ParseVersion`/`LatestSatisfying`; immutable
+versions (duplicate refused, contents intact); `FetchLocal` digest-verified;
+single selector `--registry <dir>` > dep URL > `KARKAIN_REGISTRY` (empty is an
+actionable error, http honestly refused local-only; explicit http refs keep
+the pre-135 remote flow byte-identical). CLI: `pkg registry init <dir>`,
+`--registry` on `add` (recorded in manifest)/`fetch`/`update`/`publish`
+(local, no login); `import <dep>` resolves cached registry dirs through
+existing `DependencySources` assembly. Gates: `pkg/pm/local_registry_test.go`
+9/9 + `pkg/cli/phase135_local_registry_test.go` 2/2 (E2E publishes
+`superhello@0.1.0`, consumer `run` prints `Hello karkain` through the real
+binary+pipeline; negatives missing/duplicate/traversal/mismatch; temp-dir
+isolation, child-only env). Regressions green: `go build ./...`,
+`go vet ./...`, `pkg/pm` full, Phase 134 gate 5/5, package CLI E2E, Sphinx
+`-W`. Report: `docs/audit/PHASE-135-LOCAL-REGISTRY-FINAL-REPORT.md`.)
+
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
 six new examples, unconditional net-runtime emission on BOTH engines, and the
