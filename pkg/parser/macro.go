@@ -134,6 +134,21 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Col:      n.Col,
 			EndCol:   n.EndCol,
 		}
+	case *IndirectCallExpr:
+		// Phase 133: rebuild through expansion so macros inside the
+		// computed callee or arguments still expand (the default branch
+		// would pass the node through unexpanded).
+		newArgs := []Node{}
+		for _, arg := range n.Args {
+			newArgs = append(newArgs, me.expandNode(arg))
+		}
+		return &IndirectCallExpr{
+			Target: me.expandNode(n.Target),
+			Args:   newArgs,
+			Line:   n.Line,
+			Col:    n.Col,
+			EndCol: n.EndCol,
+		}
 	case *ArrayLiteral:
 		newElements := []Node{}
 		for _, elem := range n.Elements {

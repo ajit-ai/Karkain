@@ -189,6 +189,12 @@ func (u *unusedScanner) scanExpr(e parser.Node) {
 		for _, a := range n.Args {
 			u.scanExpr(a)
 		}
+	case *parser.IndirectCallExpr:
+		// Phase 133: the computed callee is read, like the arguments.
+		u.scanExpr(n.Target)
+		for _, a := range n.Args {
+			u.scanExpr(a)
+		}
 	case *parser.BinaryExpr:
 		if n.Operator == "=" {
 			// The bare variable name as assignment target is a write, not a

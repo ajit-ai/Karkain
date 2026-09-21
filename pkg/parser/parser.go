@@ -228,14 +228,20 @@ func (p *Parser) parseFunc() *FuncDecl {
 			fn.Params = append(fn.Params, paramName)
 			p.nextToken() // consume param name
 
-			// Phase 46: Parse optional type annotation (e.g., `a int`, `b string`)
-			if p.curToken.Type == lexer.TokenIdent {
-				typeName := p.curToken.Literal(p.src)
-				fn.ParamTypes = append(fn.ParamTypes, typeName)
-				p.nextToken() // consume type name
-			} else {
-				fn.ParamTypes = append(fn.ParamTypes, "")
-			}
+		// Phase 46: Parse optional type annotation (e.g., `a int`, `b string`)
+		if p.curToken.Type == lexer.TokenIdent {
+			typeName := p.curToken.Literal(p.src)
+			fn.ParamTypes = append(fn.ParamTypes, typeName)
+			p.nextToken() // consume type name
+		} else if p.curToken.Type == lexer.TokenFn {
+			// Phase 133: `fn` is a keyword token, not an identifier, so it
+			// needs its own branch or the annotation is silently dropped
+			// (the old behavior for `g fn` params).
+			fn.ParamTypes = append(fn.ParamTypes, "fn")
+			p.nextToken() // consume 'fn' type
+		} else {
+			fn.ParamTypes = append(fn.ParamTypes, "")
+		}
 
 			if p.curToken.Type == lexer.TokenComma {
 				p.nextToken() // consume ','
@@ -252,8 +258,8 @@ func (p *Parser) parseFunc() *FuncDecl {
 	// is properly aligned. Without this skip, the return type was treated as
 	// the body opener and the closing brace was left dangling, which swallowed
 	// every following top-level statement into the still-open body.
-	if p.curToken.Type == lexer.TokenIdent {
-		p.nextToken() // consume the return type
+	if p.curToken.Type == lexer.TokenIdent || p.curToken.Type == lexer.TokenFn {
+		p.nextToken() // consume the return type (incl. Phase 133 `fn`)
 	}
 	p.nextToken() // consume '{'
 
@@ -318,6 +324,11 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 	} else if p.curToken.Type == lexer.TokenIdent {
 		typeName = p.curToken.Literal(p.src)
 		p.nextToken() // consume type name
+	} else if p.curToken.Type == lexer.TokenFn {
+		// Phase 133: `fn` is a keyword token; without this branch a
+		// `let g fn = ...` annotation is silently dropped.
+		typeName = "fn"
+		p.nextToken() // consume 'fn' type
 	} else if p.curToken.Type == lexer.TokenBool {
 		typeName = p.curToken.Literal(p.src)
 		p.nextToken() // consume bool type
@@ -667,14 +678,17 @@ func (p *Parser) parseLambda() *LambdaExpr {
 	for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
 		if p.curToken.Type == lexer.TokenIdent {
 			paramName := p.curToken.Literal(p.src)
-			params = append(params, paramName)
-			p.nextToken() // consume param name
-			if p.curToken.Type == lexer.TokenIdent {
-				paramTypes = append(paramTypes, p.curToken.Literal(p.src))
-				p.nextToken() // consume type
-			} else {
-				paramTypes = append(paramTypes, "")
-			}
+		params = append(params, paramName)
+		p.nextToken() // consume param name
+		if p.curToken.Type == lexer.TokenIdent {
+			paramTypes = append(paramTypes, p.curToken.Literal(p.src))
+			p.nextToken() // consume type
+		} else if p.curToken.Type == lexer.TokenFn {
+			paramTypes = append(paramTypes, "fn")
+			p.nextToken() // consume 'fn' type (Phase 133)
+		} else {
+			paramTypes = append(paramTypes, "")
+		}
 		} else {
 			p.nextToken()
 		}
@@ -689,8 +703,8 @@ func (p *Parser) parseLambda() *LambdaExpr {
 	// semantics yet, but must be consumed so the brace that opens the body is
 	// properly aligned — otherwise the return type is treated as the body
 	// opener and the lambda body swallows whatever follows.
-	if p.curToken.Type == lexer.TokenIdent {
-		p.nextToken() // consume the return type
+	if p.curToken.Type == lexer.TokenIdent || p.curToken.Type == lexer.TokenFn {
+		p.nextToken() // consume the return type (incl. Phase 133 `fn`)
 	}
 	p.nextToken() // consume '{'
 	body := p.parseBlock()
@@ -925,6 +939,27 @@ func (p *Parser) parseIdentStatement() Node {
 			p.nextToken() // consume ']'
 			target = &IndexExpr{Left: target, Index: first, Line: line}
 		}
+		// Phase 133: postfix call in statement position — `ops[0](5);`.
+		// Identifier callees never reach here (handled above with static
+		// dispatch); only computed targets lower to IndirectCallExpr.
+		// Chains (`get_fn()(1);`) loop, mirroring expression position.
+		for p.curToken.Type == lexer.TokenLParen {
+			callLine := int(p.curToken.Line)
+			p.nextToken() // consume '('
+			args := []Node{}
+			for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+				start := p.curToken.Start
+				args = append(args, p.parseExpr())
+				if p.curToken.Type == lexer.TokenComma {
+					p.nextToken()
+				}
+				p.advanceIfStalled(start, "indirect call arguments")
+			}
+			p.nextToken() // consume ')'
+			ind := p.arena.AllocIndirectCallExpr(target, args)
+			ind.Line = callLine
+			target = ind
+		}
 		if p.curToken.Type == lexer.TokenAssign {
 			p.nextToken() // consume '='
 			val := p.parseExpr()
@@ -1093,11 +1128,36 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 				}
 				p.nextToken() // consume ']'
 				left = &SliceExpr{Target: left, Start: first, End: end}
-			} else {
-				// Array/map index: [index]
-				p.nextToken() // consume ']'
-				left = p.arena.AllocIndexExpr(left, first)
+		} else {
+			// Array/map index: [index]
+			p.nextToken() // consume ']'
+			left = p.arena.AllocIndexExpr(left, first)
+		}
+	}
+
+		// Phase 133: Postfix call `target(args)` where target is any
+		// non-identifier expression (index results, parenthesized
+		// expressions, ...). Identifier callees never reach here: the
+		// ident/dot/keyword paths above consume their own '(' and return a
+		// CallExpr early, so static dispatch is fully preserved. Only
+		// computed callees lower to IndirectCallExpr (runtime dispatch
+		// through a TYPE_FUNC Value cell). Chains (`get_fn()(1)`) loop.
+		for p.curToken.Type == lexer.TokenLParen {
+			callLine := int(p.curToken.Line)
+			p.nextToken() // consume '('
+			args := []Node{}
+			for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+				start := p.curToken.Start
+				args = append(args, p.parseExpr())
+				if p.curToken.Type == lexer.TokenComma {
+					p.nextToken()
+				}
+				p.advanceIfStalled(start, "indirect call arguments")
 			}
+			p.nextToken() // consume ')'
+			ind := p.arena.AllocIndirectCallExpr(left, args)
+			ind.Line = callLine
+			left = ind
 		}
 
 		// Phase 19: Handle @derive(Trait) and @tag(name, value) as postfix operators

@@ -392,9 +392,25 @@ func collectLocals(tab, list) {
 // Pass 2: function bodies
 // ============================================================
 
-func checkFuncDecl(tab, node) {
+func checkFuncDecl(tab, node, inherit) {
+    // Phase 133 UAF fix: `saved` aliases the caller's locals array, and
+    // appendArray may REALLOCATE on append — so the caller's buffer must
+    // never be appended to while `saved` is live. Always reset to a fresh
+    // array first; with inherit == 1 the outer names are COPIED in (reads
+    // only), which is use-after-free safe. Skipping the reset (the first
+    // attempt) restored a dangling buffer and segfaulted.
+    // Nested functions and let-bound lambdas inherit the enclosing scope
+    // (mirrors the Go resolver) so captures resolve instead of K101/K102.
+    // Only top-level declarations skip the copy (their lets must not leak).
     let saved = ckLocals(tab)
     tab[4] = []
+    if (inherit == 1) {
+        let si = 0
+        while (si < len(saved)) {
+            ckLocalAdd(tab, saved[si])
+            si = si + 1
+        }
+    }
     let params = funcParams(node)
     let i = 0
     while (i < len(params)) {
@@ -403,11 +419,13 @@ func checkFuncDecl(tab, node) {
     }
     collectLocals(tab, funcBody(node))
     checkStmts(tab, funcBody(node), 0)
+    // Phase 133: reject returns of closures capturing locals (K114).
+    ckCheckEscapeUnit(tab, funcBody(node))
     tab[4] = saved
 }
 
 func checkKernelDecl(tab, node) {
-    checkFuncDecl(tab, node)
+checkFuncDecl(tab, node, 0)
 }
 
 func checkStmts(tab, list, loop) {
@@ -426,7 +444,7 @@ func checkStmt(tab, s, loop) {
     let nt = getNodeType(s)
 
     if (nt == "FuncDecl") {
-        checkFuncDecl(tab, s)
+        checkFuncDecl(tab, s, 1)
         return
     }
     if (nt == "KernelDecl") {
@@ -608,13 +626,30 @@ func checkExpr(tab, e, loop) {
         return
     }
 
-    if (nt == "Binary") {
+    // Phase 133: a computed callee has no static name to resolve — arity is
+    // enforced at runtime by the dispatch wrapper. Resolve the callee
+    // expression and the arguments for undefined names.
+    if (nt == "IndirectCall") {
+        checkExpr(tab, indirectTarget(e), loop)
+        let iargs = indirectArgs(e)
+        let i = 0
+        while (i < len(iargs)) {
+            checkExpr(tab, iargs[i], loop)
+            i = i + 1
+        }
+        return
+    }
+
+    // Phase 133: these arms were dead ("Binary"/"Unary" never equal the
+    // getNodeType spellings "BinaryExpr"/"UnaryExpr"), so binary operands
+    // were never name-checked — diverging from the Go resolver. Fixed.
+    if (nt == "BinaryExpr") {
         checkExpr(tab, binaryLeft(e), loop)
         checkExpr(tab, binaryRight(e), loop)
         return
     }
 
-    if (nt == "Unary") {
+    if (nt == "UnaryExpr") {
         checkExpr(tab, unaryOperand(e), loop)
         return
     }
@@ -681,9 +716,10 @@ func checkExpr(tab, e, loop) {
     }
 
     // Phase 121: a let-bound lambda arrives as a FuncDecl value; bind its
-    // params and check its body exactly like a top-level function.
+    // params and check its body with the enclosing scope inherited
+    // (Phase 133: captures must resolve like the Go resolver allows).
     if (nt == "FuncDecl") {
-        checkFuncDecl(tab, e)
+        checkFuncDecl(tab, e, 1)
         return
     }
 
@@ -731,7 +767,12 @@ func checkExpr(tab, e, loop) {
         let i = 0
         while (i < len(fields)) {
             let f = fields[i]
-            if (getNodeType(f) == "Binary" && binaryOp(f) == "=") {
+            // Phase 133: the tag test must read "BinaryExpr" (getNodeType
+            // spelling). The old "Binary" never matched, so fields fell
+            // into the else below and — once checkExpr learned BinaryExpr
+            // — their key identifiers were misread as value reads (K102
+            // on every struct field). Values only, like the Go resolver.
+            if (getNodeType(f) == "BinaryExpr" && binaryOp(f) == "=") {
                 checkExpr(tab, binaryRight(f), loop)
             } else {
                 checkExpr(tab, f, loop)
@@ -757,6 +798,8 @@ func checkExpr(tab, e, loop) {
         }
         collectLocals(tab, lambdaBody(e))
         checkStmts(tab, lambdaBody(e), loop)
+        // Phase 133: a bare lambda body is its own escape unit.
+        ckCheckEscapeUnit(tab, lambdaBody(e))
         tab[4] = outer
         return
     }
@@ -834,6 +877,232 @@ func checkCall(tab, e, loop) {
 }
 
 // ============================================================
+// Phase 133: escaping-capture rejection (mirrors the Go resolver's
+// checkEscapeReturns). Captures are by-ref into the defining frame, so
+// returning a closure that captures function-local state would dangle.
+// Such returns are rejected with K114 (exit 3 on check/build/run);
+// non-capturing closures (NULL env) still return fine. Calls have unknown
+// provenance and are allowed (documented dynamic gap, same as Go).
+// ============================================================
+
+func ckTaintedHas(tainted, name) {
+    let i = 0
+    while (i < len(tainted)) {
+        if (tainted[i] == name) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func ckTaintedAdd(tainted, name) {
+    if (ckTaintedHas(tainted, name) == 0) { tainted = appendArray(tainted, name) }
+    return tainted
+}
+
+// ckValueCaptures reports whether a value transitively closes over
+// function-local state (1) or not (0).
+func ckValueCaptures(e, tainted) {
+    if (len(e) < 1) { return 0 }
+    let nt = getNodeType(e)
+    if (nt == "FuncDecl") {
+        if (len(funcCaptures(e)) > 0) { return 1 }
+        return 0
+    }
+    if (nt == "Lambda") {
+        let caps = computeCaptures(lambdaParams(e), lambdaBody(e))
+        if (len(caps) > 0) { return 1 }
+        return 0
+    }
+    if (nt == "Ident") { return ckTaintedHas(tainted, identName(e)) }
+    if (nt == "ArrayLiteral") {
+        let elems = arrayElements(e)
+        let i = 0
+        while (i < len(elems)) {
+            if (ckValueCaptures(elems[i], tainted) == 1) { return 1 }
+            i = i + 1
+        }
+        return 0
+    }
+    if (nt == "MapLiteral") {
+        let ks = mapKeys(e)
+        let i = 0
+        while (i < len(ks)) {
+            if (ckValueCaptures(ks[i], tainted) == 1) { return 1 }
+            i = i + 1
+        }
+        let vs = mapValues(e)
+        let j = 0
+        while (j < len(vs)) {
+            if (ckValueCaptures(vs[j], tainted) == 1) { return 1 }
+            j = j + 1
+        }
+        return 0
+    }
+    if (nt == "StructLiteral") {
+        let fields = structLitFields(e)
+        let i = 0
+        while (i < len(fields)) {
+            let f = fields[i]
+            if (getNodeType(f) == "BinaryExpr") {
+                if (ckValueCaptures(binaryRight(f), tainted) == 1) { return 1 }
+            } else {
+                if (ckValueCaptures(f, tainted) == 1) { return 1 }
+            }
+            i = i + 1
+        }
+        return 0
+    }
+    if (nt == "Index") {
+        if (ckValueCaptures(indexLeft(e), tainted) == 1) { return 1 }
+        return ckValueCaptures(indexExpr(e), tainted)
+    }
+    if (nt == "Slice") {
+        return ckValueCaptures(sliceLeft(e), tainted)
+    }
+    if (nt == "Member") {
+        return ckValueCaptures(dotLeft(e), tainted)
+    }
+    // NOTE: getNodeType spells these "BinaryExpr"/"UnaryExpr" (not
+    // "Binary"/"Unary" — the latter would be a dead branch (this file's
+    // StructLiteral arm and checkExpr's arms had exactly that defect;
+    // both fixed in Phase 133).
+    if (nt == "BinaryExpr") {
+        if (ckValueCaptures(binaryLeft(e), tainted) == 1) { return 1 }
+        return ckValueCaptures(binaryRight(e), tainted)
+    }
+    if (nt == "UnaryExpr") {
+        return ckValueCaptures(unaryOperand(e), tainted)
+    }
+    if (nt == "Match") {
+        if (ckValueCaptures(matchValue(e), tainted) == 1) { return 1 }
+        let arms = matchArms(e)
+        let i = 0
+        while (i < len(arms)) {
+            if (ckValueCaptures(armBody(arms[i]), tainted) == 1) { return 1 }
+            i = i + 1
+        }
+        return 0
+    }
+    return 0
+}
+
+// ckCollectTainted marks let/var/const names whose values close over
+// function-local state. Blocks share the unit; nested function bodies are
+// separate units (checked via checkFuncDecl / the Lambda branch).
+func ckCollectTainted(stmts, tainted) {
+    let i = 0
+    while (i < len(stmts)) {
+        let s = stmts[i]
+        if (len(s) < 1) { i = i + 1 }
+        else {
+            let nt = getNodeType(s)
+            if (nt == "VarDecl") {
+                if (ckValueCaptures(varDeclValue(s), tainted) == 1) {
+                    tainted = ckTaintedAdd(tainted, varDeclName(s))
+                }
+            } else if (nt == "LetDecl") {
+                if (ckValueCaptures(letDeclValue(s), tainted) == 1) {
+                    tainted = ckTaintedAdd(tainted, letDeclName(s))
+                }
+            } else if (nt == "ConstDecl") {
+                if (ckValueCaptures(constDeclValue(s), tainted) == 1) {
+                    tainted = ckTaintedAdd(tainted, constDeclName(s))
+                }
+            } else if (nt == "Block") {
+                tainted = ckCollectTainted(blockStmts(s), tainted)
+            } else if (nt == "If") {
+                tainted = ckCollectTainted(ifThen(s), tainted)
+                tainted = ckCollectTainted(ifElse(s), tainted)
+            } else if (nt == "While") {
+                tainted = ckCollectTainted(whileBody(s), tainted)
+            } else if (nt == "For") {
+                tainted = ckCollectTainted(forBody(s), tainted)
+            } else if (nt == "ForIn") {
+                tainted = ckCollectTainted(forInBody(s), tainted)
+            } else if (nt == "ExprStmt") {
+                // A match in statement position may declare lets inside
+                // arm blocks; collect those (expression arms declare nothing).
+                let me = exprStmtExpr(s)
+                if (getNodeType(me) == "Match") {
+                    let arms = matchArms(me)
+                    let a = 0
+                    while (a < len(arms)) {
+                        let ab = armBody(arms[a])
+                        if (getNodeType(ab) == "Block") {
+                            tainted = ckCollectTainted(blockStmts(ab), tainted)
+                        }
+                        a = a + 1
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+    return tainted
+}
+
+// ckCheckEscapeUnit checks one function-like body: fixpoint-taint every
+// local binding, then reject returns of tainted values.
+func ckCheckEscapeUnit(tab, stmts) {
+    let tainted = []
+    let k = 0
+    while (k < 8) {
+        let n0 = len(tainted)
+        tainted = ckCollectTainted(stmts, tainted)
+        if (len(tainted) == n0) { break }
+        k = k + 1
+    }
+    ckCheckReturns(tab, stmts, tainted)
+}
+
+// ckCheckReturns rejects `return` of tainted values and descends into
+// blocks (same frame). Nested named functions are skipped (own units via
+// checkFuncDecl); bare lambdas are hooked at checkExpr's Lambda branch.
+func ckCheckReturns(tab, stmts, tainted) {
+    let i = 0
+    while (i < len(stmts)) {
+        let s = stmts[i]
+        if (len(s) < 1) { i = i + 1 }
+        else {
+            let nt = getNodeType(s)
+            if (nt == "Return") {
+                if (ckValueCaptures(retVal(s), tainted) == 1) {
+                    ckAddError(tab, "K114", retLine(s), "cannot return closure capturing function-local state (captures are by-ref into the dying frame)")
+                }
+            } else if (nt == "Block") {
+                ckCheckReturns(tab, blockStmts(s), tainted)
+            } else if (nt == "If") {
+                ckCheckReturns(tab, ifThen(s), tainted)
+                ckCheckReturns(tab, ifElse(s), tainted)
+            } else if (nt == "While") {
+                ckCheckReturns(tab, whileBody(s), tainted)
+            } else if (nt == "For") {
+                ckCheckReturns(tab, forBody(s), tainted)
+            } else if (nt == "ForIn") {
+                ckCheckReturns(tab, forInBody(s), tainted)
+            } else if (nt == "ExprStmt") {
+                // A match in statement position may return directly from
+                // an arm block; check those (bare-expression arms hold no
+                // returns by grammar).
+                let me = exprStmtExpr(s)
+                if (getNodeType(me) == "Match") {
+                    let arms = matchArms(me)
+                    let a = 0
+                    while (a < len(arms)) {
+                        let ab = armBody(arms[a])
+                        if (getNodeType(ab) == "Block") {
+                            ckCheckReturns(tab, blockStmts(ab), tainted)
+                        }
+                        a = a + 1
+                    }
+                }
+            }
+            i = i + 1
+        }
+    }
+}
+
+// ============================================================
 // Entry point
 // ============================================================
 
@@ -847,7 +1116,7 @@ func typeCheckProgram(ast) {
     while (i < len(stmts)) {
         let s = stmts[i]
         let nt = getNodeType(s)
-        if (nt == "FuncDecl") { checkFuncDecl(tab, s) }
+        if (nt == "FuncDecl") { checkFuncDecl(tab, s, 0) }
         if (nt == "KernelDecl") { checkKernelDecl(tab, s) }
         i = i + 1
     }

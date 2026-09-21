@@ -1,0 +1,28 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: Closures
+//
+// First-class fn values (Phase 133): a factory returns a non-capturing
+// closure (null env, sound to escape). Loop-built closures each keep
+// their own heap env, so per-iteration captures stay distinct on both
+// engines (shared-static envs would print 21/21/21).
+
+func mkadder() fn {
+    return fn(x int) int { return x + 100 }
+}
+
+func main() {
+    let a = mkadder()
+    print(a(1))
+    print(a(2))
+    let fns = []
+    let i = 0
+    while (i < 3) {
+        let k = i * 10
+        fns = appendArray(fns, fn(x int) int { return x + k })
+        i = i + 1
+    }
+    print(fns[0](1))
+    print(fns[1](1))
+    print(fns[2](1))
+}

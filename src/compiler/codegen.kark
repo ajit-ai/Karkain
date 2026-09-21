@@ -24,7 +24,38 @@ func createCodegenState(target) {
     state = appendArray(state, [])       // 13: currently-emitting closure caps
     state = appendArray(state, [])       // 14: emitted closure-env registry
     state = appendArray(state, [])       // 15: enum declaration nodes (Phase 123)
+    state = appendArray(state, [])       // 16: bound local names (Phase 133 indirect dispatch)
     return state
+}
+
+// Phase 133: bound-local registry (mirrors the Go engine's localNames
+// prescan). A bare-identifier call that reaches the raw fallback with a
+// local callee dispatches indirectly: no working program can call a local
+// today (locals are Values), so this only converts C-compile failures
+// into file:line runtime errors.
+func codegenLocalNames(state) { return state[16] }
+
+func codegenLocalNameHas(state, name) {
+    let names = codegenLocalNames(state)
+    let i = 0
+    while (i < len(names)) {
+        if (names[i] == name) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+func registerLocalName(state, name) {
+    if (codegenLocalNameHas(state, name) == 1) { return }
+    state[16] = appendArray(codegenLocalNames(state), name)
+}
+
+// lambdaSynthName derives a bare lambda's top-level name from its
+// parse-order sequence stamp (Phase 133). Both the def-emitting prescan
+// and expression emission read the stamp, so they agree without mutating
+// shared nodes.
+func lambdaSynthName(e) {
+    return "_lambda_" + str(lambdaSeq(e))
 }
 
 func codegenTarget(state) { return state[0] }
@@ -116,7 +147,7 @@ func emitC11Preamble(state) {
 // the Value model used by the Go bootstrap backend so that generated programs
 // are dynamic, self-contained, and compile with `gcc -std=c2x -lm -lgmp`.
 func emitC11ValueRuntime(state) {
-    emitLine(state, "typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL, TYPE_OPTION, TYPE_RESULT } ValueType;")
+    emitLine(state, "typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL, TYPE_OPTION, TYPE_RESULT, TYPE_FUNC } ValueType;")
     emitLine(state, "typedef struct Value Value;")
     emitLine(state, "typedef struct { int tag; Value* inner; } OptionVal;")
     emitLine(state, "typedef struct { int tag; Value* okVal; Value* errVal; } ResultVal;")
@@ -132,7 +163,10 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "    int mlen;")
     emitLine(state, "    OptionVal optVal;")
     emitLine(state, "    ResultVal resVal;")
+    emitLine(state, "    void* funcCode;")
+    emitLine(state, "    void* funcEnv;")
     emitLine(state, "} Value;")
+    emitLine(state, "typedef Value (*karkain_fn_t)(void* env, int argc, Value* argv, const char* file, long long line);")
     emitNewline(state)
     emitLine(state, "static Value make_int(long long v) { Value r; r.type=TYPE_INT; r.intVal=v; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static Value make_float(double v) { Value r; r.type=TYPE_FLOAT64; r.floatVal=v; r.intVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
@@ -140,6 +174,7 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value make_string(const char* s) { Value r; r.type=TYPE_STRING; r.intVal=0; r.floatVal=0; r.strVal=strdup(s?s:\"\"); r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static Value make_array(void) { Value r; r.type=TYPE_ARRAY; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static Value make_map(void) { Value r; r.type=TYPE_MAP; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
+    emitLine(state, "static Value make_fn(void* code, void* env) { Value r; r.type=TYPE_FUNC; r.funcCode=code; r.funcEnv=env; return r; }")
     emitLine(state, "static Value mk_nil(void) { Value r; r.type=TYPE_INT; r.intVal=0; r.floatVal=0; r.strVal=0; r.items=0; r.length=0; r.keys=0; r.values=0; r.mlen=0; return r; }")
     emitLine(state, "static void array_push(Value* a, Value e) { Value* c=(Value*)malloc(sizeof(Value)); *c=e; a->length++; a->items=(Value**)realloc(a->items,sizeof(Value*)*a->length); a->items[a->length-1]=c; }")
     emitLine(state, "static Value make_alloc_array(Value n) { long long count=(n.type==TYPE_INT)?n.intVal:0; if(count<0){ count=0; } Value v=make_array(); long long i; for(i=0;i<count;i++){ array_push(&v,make_int(0)); } return v; }")
@@ -147,7 +182,7 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value map_get(Value m, Value k);")
     emitLine(state, "static Value array_get(Value a, Value i) { if(a.type==TYPE_MAP) return map_get(a,i); if(a.type==TYPE_STRING&&i.type==TYPE_INT){ int si=(int)i.intVal; int sl=strlen(a.strVal?a.strVal:\"\"); if(si<0||si>=sl) return make_int(0); char c[2]={a.strVal[si],0}; return make_string(c); } if(a.type!=TYPE_ARRAY) return make_int(0); int idx=(int)i.intVal; if(idx<0||idx>=a.length) return make_int(0); return *a.items[idx]; }")
     emitLine(state, "static void array_set(Value* a, Value i, Value v) { if(!a||a->type!=TYPE_ARRAY) return; int idx=(int)i.intVal; if(idx<0||idx>=a->length) return; *(a->items[idx])=v; }")
-    emitLine(state, "static int is_truthy(Value v) { if(v.type==TYPE_BOOL||v.type==TYPE_INT) return v.intVal!=0; if(v.type==TYPE_FLOAT64) return v.floatVal!=0.0; if(v.type==TYPE_STRING) return v.strVal&&v.strVal[0]!=0; if(v.type==TYPE_ARRAY) return v.length>0; return 0; }")
+    emitLine(state, "static int is_truthy(Value v) { if(v.type==TYPE_BOOL||v.type==TYPE_INT) return v.intVal!=0; if(v.type==TYPE_FLOAT64) return v.floatVal!=0.0; if(v.type==TYPE_STRING) return v.strVal&&v.strVal[0]!=0; if(v.type==TYPE_ARRAY) return v.length>0; if(v.type==TYPE_FUNC) return 1; return 0; }")
     emitLine(state, "static Value karkain_len(Value v) { if(v.type==TYPE_ARRAY) return make_int(v.length); if(v.type==TYPE_MAP) return make_int(v.mlen); if(v.type==TYPE_STRING) return make_int(strlen(v.strVal?v.strVal:\"\")); return make_int(0); }")
     emitLine(state, "static Value map_get(Value m, Value k) { if(m.type!=TYPE_MAP) return make_int(0); const char* key=k.strVal?k.strVal:\"\"; int i; for(i=0;i<m.mlen;i++){ if(strcmp(m.keys[i],key)==0) return *m.values[i]; } return make_int(0); }")
     emitLine(state, "static void map_set(Value* m, Value k, Value v) { if(m->type!=TYPE_MAP) return; const char* key=k.strVal?k.strVal:\"\"; int i; for(i=0;i<m->mlen;i++){ if(strcmp(m->keys[i],key)==0){ *(m->values[i])=v; return; } } m->mlen++; m->keys=(char**)realloc(m->keys,sizeof(char*)*m->mlen); m->values=(Value**)realloc(m->values,sizeof(Value*)*m->mlen); m->keys[m->mlen-1]=strdup(key); Value* c=(Value*)malloc(sizeof(Value)); *c=v; m->values[m->mlen-1]=c; }")
@@ -195,7 +230,9 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "void karkain_set_line(long long n) { karkain_current_line = n; if (karkain_frame_depth > 0) karkain_frames[karkain_frame_depth - 1].line = n; }")
     emitLine(state, "void karkain_frame_enter(const char* func, const char* file) { if (karkain_frame_depth < KARKAIN_MAX_FRAMES) { karkain_frames[karkain_frame_depth].func = func; karkain_frames[karkain_frame_depth].file = file; karkain_frames[karkain_frame_depth].line = karkain_current_line; karkain_frame_depth++; } }")
     emitLine(state, "void karkain_frame_leave(void) { if (karkain_frame_depth > 0) karkain_frame_depth--; }")
+    emitLine(state, "static Value karkain_call_fn(Value f, int argc, Value* argv, const char* file, long long line);")
     emitLine(state, "void karkain_runtime_error(const char* kind, const char* file, long long line) { karkain_set_line(line); if (file != NULL && file[0] != '\\0' && line > 0) { fprintf(stderr, \"runtime error: %s at %s:%lld\\n\", kind, file, line); } else if (file != NULL && file[0] != '\\0') { fprintf(stderr, \"runtime error: %s at %s\\n\", kind, file); } else if (line > 0) { fprintf(stderr, \"runtime error: %s at line %lld\\n\", kind, line); } else { fprintf(stderr, \"runtime error: %s\\n\", kind); } if (karkain_frame_depth > 0) { fprintf(stderr, \"  stack:\\n\"); int i; for (i = karkain_frame_depth - 1; i >= 0; i--) { fprintf(stderr, \"    %s (%s:%lld)\\n\", karkain_frames[i].func, karkain_frames[i].file, karkain_frames[i].line); } } fflush(stderr); exit(1); }")
+    emitLine(state, "static Value karkain_call_fn(Value f, int argc, Value* argv, const char* file, long long line) { if(f.type!=TYPE_FUNC) karkain_runtime_error(\"called non-function value\", file, line); if(f.funcCode==0) karkain_runtime_error(\"called empty function value\", file, line); return ((karkain_fn_t)f.funcCode)(f.funcEnv, argc, argv, file, line); }")
     emitLine(state, "static Value karkain_checked_div(Value l, Value r, const char* file, long long line) { if(l.type==TYPE_FLOAT64||r.type==TYPE_FLOAT64){ double b=r.type==TYPE_FLOAT64?r.floatVal:(double)r.intVal; if(b==0.0) karkain_runtime_error(\"division by zero\", file, line); } else if((l.type==TYPE_INT||l.type==TYPE_BOOL)&&(r.type==TYPE_INT||r.type==TYPE_BOOL)){ if(r.intVal==0) karkain_runtime_error(\"integer division by zero\", file, line); } return binary_op(l, \"/\", r); }")
     emitLine(state, "static Value karkain_checked_mod(Value l, Value r, const char* file, long long line) { if(l.type==TYPE_FLOAT64||r.type==TYPE_FLOAT64){ double b=r.type==TYPE_FLOAT64?r.floatVal:(double)r.intVal; if(b==0.0) karkain_runtime_error(\"modulo by zero\", file, line); } else if((l.type==TYPE_INT||l.type==TYPE_BOOL)&&(r.type==TYPE_INT||r.type==TYPE_BOOL)){ if(r.intVal==0) karkain_runtime_error(\"integer modulo by zero\", file, line); } return binary_op(l, \"%\", r); }")
     emitLine(state, "static Value karkain_checked_get(Value a, Value i, const char* file, long long line) { if(a.type==TYPE_STRING&&i.type==TYPE_INT){ int si=(int)i.intVal; int sl=strlen(a.strVal?a.strVal:\"\"); if(si<0||si>=sl) karkain_runtime_error(\"string index out of range\", file, line); } if(a.type==TYPE_ARRAY&&i.type==TYPE_INT){ int idx=(int)i.intVal; if(idx<0||idx>=a.length) karkain_runtime_error(\"array index out of range\", file, line); } return array_get(a, i); }")
@@ -208,11 +245,11 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "static Value karkain_checked_sub(Value a, Value b) { if((a.type==TYPE_INT||a.type==TYPE_BOOL)&&(b.type==TYPE_INT||b.type==TYPE_BOOL)){ long long r; if(__builtin_sub_overflow(a.intVal,b.intVal,&r)) return option_none(); return option_some(make_int(r)); } return option_some(binary_op(a, \"-\", b)); }")
     emitLine(state, "static Value karkain_checked_mul(Value a, Value b) { if((a.type==TYPE_INT||a.type==TYPE_BOOL)&&(b.type==TYPE_INT||b.type==TYPE_BOOL)){ long long r; if(__builtin_mul_overflow(a.intVal,b.intVal,&r)) return option_none(); return option_some(make_int(r)); } return option_some(binary_op(a, \"*\", b)); }")
     emitLine(state, "static Value karkain_str(Value v) { char buf[64]; if(v.type==TYPE_INT){ snprintf(buf,64,\"%lld\",v.intVal); return make_string(buf); } if(v.type==TYPE_FLOAT64){ snprintf(buf,64,\"%g\",v.floatVal); return make_string(buf); } if(v.type==TYPE_BOOL){ return make_string(v.intVal?\"true\":\"false\"); } if(v.type==TYPE_STRING){ return make_string(v.strVal?v.strVal:\"\"); } return make_string(\"?\"); }")
-    emitLine(state, "static void print_value(Value v) { if(v.type==TYPE_INT) printf(\"%lld\", v.intVal); else if(v.type==TYPE_FLOAT64) printf(\"%g\", v.floatVal); else if(v.type==TYPE_BOOL) printf(\"%s\", v.intVal?\"true\":\"false\"); else if(v.type==TYPE_STRING) printf(\"%s\", v.strVal?v.strVal:\"\"); else if(v.type==TYPE_ARRAY){ printf(\"[\"); int i; for(i=0;i<v.length;i++){ if(i) printf(\", \"); print_value(*v.items[i]); } printf(\"]\"); } else if(v.type==TYPE_OPTION){ if(v.optVal.tag==0) printf(\"None\\n\"); else { printf(\"Some(\"); print_value(*v.optVal.inner); printf(\")\\n\"); } } else if(v.type==TYPE_RESULT){ if(v.resVal.tag==0){ printf(\"Ok(\"); print_value(*v.resVal.okVal); printf(\")\\n\"); } else if(v.resVal.tag==1){ printf(\"Err(\"); print_value(*v.resVal.errVal); printf(\")\\n\"); } } else printf(\"?\"); }")
+    emitLine(state, "static void print_value(Value v) { if(v.type==TYPE_INT) printf(\"%lld\", v.intVal); else if(v.type==TYPE_FLOAT64) printf(\"%g\", v.floatVal); else if(v.type==TYPE_BOOL) printf(\"%s\", v.intVal?\"true\":\"false\"); else if(v.type==TYPE_STRING) printf(\"%s\", v.strVal?v.strVal:\"\"); else if(v.type==TYPE_FUNC) printf(\"<fn>\"); else if(v.type==TYPE_ARRAY){ printf(\"[\"); int i; for(i=0;i<v.length;i++){ if(i) printf(\", \"); print_value(*v.items[i]); } printf(\"]\"); } else if(v.type==TYPE_OPTION){ if(v.optVal.tag==0) printf(\"None\\n\"); else { printf(\"Some(\"); print_value(*v.optVal.inner); printf(\")\\n\"); } } else if(v.type==TYPE_RESULT){ if(v.resVal.tag==0){ printf(\"Ok(\"); print_value(*v.resVal.okVal); printf(\")\\n\"); } else if(v.resVal.tag==1){ printf(\"Err(\"); print_value(*v.resVal.errVal); printf(\")\\n\"); } } else printf(\"?\"); }")
     emitLine(state, "static Value _karkain_array(int n, ...) { va_list ap; va_start(ap,n); Value a=make_array(); int i; for(i=0;i<n;i++){ Value e=va_arg(ap,Value); array_push(&a,e); } va_end(ap); return a; }")
     emitLine(state, "static Value _karkain_get_args(void) { Value _args=make_array(); int _i; for(_i=0;_i<_karkain_gargc;_i++){ array_push(&_args, make_string(_karkain_gargv[_i])); } return _args; }")
     emitLine(state, "static Value karkain_listFiles(Value dir) { Value arr=make_array(); const char* dname=dir.type==TYPE_STRING?(dir.strVal?dir.strVal:\"\"):\"\"; DIR* d=opendir(dname); if(!d) return arr; struct dirent* e; while((e=readdir(d))!=NULL){ if(e->d_name[0]=='.') continue; array_push(&arr, make_string(e->d_name)); } closedir(d); return arr; }")
-    emitLine(state, "static Value values_equal(Value a, Value b) { if(a.type!=b.type) return make_int(0); if(a.type==TYPE_INT||a.type==TYPE_BOOL) return make_int(a.intVal==b.intVal); if(a.type==TYPE_FLOAT64){ double d=a.floatVal-b.floatVal; return make_int(d>-1e-9&&d<1e-9); } if(a.type==TYPE_STRING) return make_int(strcmp(a.strVal?a.strVal:\"\",b.strVal?b.strVal:\"\")==0); if(a.type==TYPE_ARRAY){ if(a.length!=b.length) return make_int(0); int i; for(i=0;i<a.length;i++){ if(is_truthy(values_equal(*a.items[i],*b.items[i]))==0) return make_int(0); } return make_int(1); } return make_int(0); }")
+    emitLine(state, "static Value values_equal(Value a, Value b) { if(a.type!=b.type) return make_int(0); if(a.type==TYPE_INT||a.type==TYPE_BOOL) return make_int(a.intVal==b.intVal); if(a.type==TYPE_FLOAT64){ double d=a.floatVal-b.floatVal; return make_int(d>-1e-9&&d<1e-9); } if(a.type==TYPE_STRING) return make_int(strcmp(a.strVal?a.strVal:\"\",b.strVal?b.strVal:\"\")==0); if(a.type==TYPE_FUNC) return make_int(a.funcCode==b.funcCode&&a.funcEnv==b.funcEnv); if(a.type==TYPE_ARRAY){ if(a.length!=b.length) return make_int(0); int i; for(i=0;i<a.length;i++){ if(is_truthy(values_equal(*a.items[i],*b.items[i]))==0) return make_int(0); } return make_int(1); } return make_int(0); }")
     emitLine(state, "static Value karkain_substr(Value str, Value start, Value length) { if(str.type!=TYPE_STRING||start.type!=TYPE_INT||length.type!=TYPE_INT) return make_string(\"\"); int s=(int)start.intVal; int l=(int)length.intVal; int slen=(int)strlen(str.strVal?str.strVal:\"\"); if(s<0) s=0; if(s>=slen) return make_string(\"\"); if(s+l>slen) l=slen-s; if(l<0) l=0; char* buf=(char*)malloc(l+1); memcpy(buf,str.strVal+s,(size_t)l); buf[l]=0; Value r=make_string(buf); free(buf); return r; }")
     emitLine(state, "static void karkain_assert_report(const char* kind, const char* expr, const char* loc) { fprintf(stderr, \"%s: %s\", kind, expr); if(loc!=NULL&&loc[0]!='\\0') fprintf(stderr, \"  [%s]\", loc); fprintf(stderr, \"\\n\"); fflush(stderr); }")
     emitLine(state, "static void karkain_assert(Value cond, const char* expr, const char* loc) { if(!is_truthy(cond)) { karkain_assert_report(\"assertion failed\", expr, loc); exit(1); } }")
@@ -544,6 +581,19 @@ func emitC11Expr(state, node) {
             // Phase 121: let-bound lambda call — closures take the env holder
             // as their first argument; zero-capture lambdas call the bare
             // top-level symbol.
+            // Phase 133: calls dispatch through the binding's Value cell
+            // EXCEPT self-reference inside the lambda's own body (no cell
+            // variable exists there; the single binding env is correct for
+            // it). Cell dispatch keeps every invocation's captures correct
+            // under rebinding (notably recursion: sibling calls after a
+            // recursive call return would otherwise read the innermost
+            // holder). A captured name resolves through the env exactly
+            // like the Ident branch (no C variable exists for it here).
+            if (fname != codegenCurrentFunc(state)) {
+                emit(state, "karkain_call_fn(")
+                emitIndirectTarget(state, fname)
+                emitIndirectTail(state, args, callLine(node))
+            } else {
             let ccaps = codegenLocalFuncCapsFor(state, fname)
             let au = 0
             emit(state, "karkain_user_" + fname + "(")
@@ -563,6 +613,7 @@ func emitC11Expr(state, node) {
                 }
             }
             emit(state, ")")
+            }
         } else if (hasUserFunc(state, fname)) {
             emit(state, "karkain_user_" + fname + "(")
             let au = 0
@@ -834,6 +885,17 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "net_last_error") {
             emit(state, "karkain_net_last_error()")
+        } else if (codegenLocalNameHas(state, fname) == 1) {
+            // Phase 133: a bare call through a LOCAL name dispatches
+            // indirectly — the local may hold a function cell (factories,
+            // aliases, parameters). Non-function locals surface as
+            // file:line runtime errors instead of C-compile failures;
+            // non-local unknown names keep the raw fallback below.
+            // A captured name resolves through the env exactly like the
+            // Ident branch (no C variable exists for it in this def).
+            emit(state, "karkain_call_fn(")
+            emitIndirectTarget(state, fname)
+            emitIndirectTail(state, args, callLine(node))
         } else {
             emit(state, fname + "(")
             let i = 0
@@ -843,6 +905,40 @@ func emitC11Expr(state, node) {
                 i = i + 1
             }
             emit(state, ")")
+        }
+    }
+
+    // Phase 133: call through a computed callee (index/paren results).
+    // The target evaluates to a TYPE_FUNC cell exactly once.
+    if (nt == "IndirectCall") {
+        emit(state, "karkain_call_fn(")
+        emitC11Expr(state, indirectTarget(node))
+        emitIndirectTail(state, indirectArgs(node), indirectLine(node))
+    }
+
+    // Phase 133: a bare lambda (array element, argument, return value)
+    // evaluates to a first-class function cell, exactly like a let-binding
+    // without the name. The definition was synthesized top-level by the
+    // prescan under lambdaSynthName; here only the per-evaluation heap
+    // env (statement expression keeps the temp scoped) plus the cell.
+    if (nt == "Lambda") {
+        let nm = lambdaSynthName(node)
+        let lcaps = computeCaptures(lambdaParams(node), lambdaBody(node))
+        if (len(lcaps) == 0) {
+            emit(state, "make_fn(karkain_fncall_" + nm + ", 0)")
+        } else {
+            emit(state, "({ ClosureEnv_" + nm + "* _e = (ClosureEnv_" + nm + "*)malloc(sizeof(ClosureEnv_" + nm + ")); ")
+            let i = 0
+            while (i < len(lcaps)) {
+                let c = lcaps[i]
+                if (capInList(codegenCurrentCaps(state), c) == 1) {
+                    emit(state, "_e->" + c + " = &(*_env->" + c + "); ")
+                } else {
+                    emit(state, "_e->" + c + " = &" + c + "; ")
+                }
+                i = i + 1
+            }
+            emit(state, "make_fn(karkain_fncall_" + nm + ", _e); })")
         }
     }
 
@@ -1355,6 +1451,147 @@ func capInList(caps, name) {
     return 0
 }
 
+// collectPhase133Prescan walks the whole unit once for two jobs: register
+// every bound local name (indirect dispatch), and synthesize top-level
+// definitions for bare lambdas found in expression positions (arrays,
+// arguments, returns) so their defs emit with the closure defs.
+func collectPhase133Prescan(state, stmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        collectPhase133Stmt(state, stmts[i])
+        i = i + 1
+    }
+}
+
+func collectPhase133Stmt(state, s) {
+    if (len(s) < 1) { return }
+    let nt = getNodeType(s)
+    if (nt == "VarDecl") {
+        registerLocalName(state, varDeclName(s))
+        collectPhase133Expr(state, varDeclValue(s))
+    } else if (nt == "LetDecl") {
+        registerLocalName(state, letDeclName(s))
+        collectPhase133Expr(state, letDeclValue(s))
+    } else if (nt == "ConstDecl") {
+        registerLocalName(state, constDeclName(s))
+        collectPhase133Expr(state, constDeclValue(s))
+    } else if (nt == "FuncDecl") {
+        let params = funcParams(s)
+        let p = 0
+        while (p < len(params)) {
+            registerLocalName(state, params[p])
+            p = p + 1
+        }
+        collectPhase133Prescan(state, funcBody(s))
+    } else if (nt == "Block") {
+        collectPhase133Prescan(state, blockStmts(s))
+    } else if (nt == "If") {
+        collectPhase133Prescan(state, ifThen(s))
+        collectPhase133Prescan(state, ifElse(s))
+    } else if (nt == "While") {
+        collectPhase133Prescan(state, whileBody(s))
+    } else if (nt == "For") {
+        collectPhase133Prescan(state, forBody(s))
+    } else if (nt == "ForIn") {
+        collectPhase133Prescan(state, forInBody(s))
+    } else if (nt == "Return") {
+        collectPhase133Expr(state, retVal(s))
+    } else if (nt == "Print") {
+        collectPhase133Expr(state, printExpr(s))
+    } else if (nt == "ExprStmt") {
+        collectPhase133Expr(state, exprStmtExpr(s))
+    }
+}
+
+func collectPhase133Expr(state, e) {
+    if (len(e) < 1) { return }
+    let nt = getNodeType(e)
+    if (nt == "Lambda") {
+        // Synthesize a top-level definition (idempotent: registerLocalFunc
+        // skips names already registered, and the name derives from the
+        // parse-order stamp, so repeated visits agree).
+        let nm = lambdaSynthName(e)
+        let caps = computeCaptures(lambdaParams(e), lambdaBody(e))
+        let fd = setFuncCaptures(makeFuncDecl(nm, lambdaParams(e), lambdaBody(e), lambdaLine(e), 0), caps)
+        registerLocalFunc(state, nm, caps, fd)
+        collectPhase133Prescan(state, lambdaBody(e))
+    } else if (nt == "FuncDecl") {
+        collectPhase133Prescan(state, funcBody(e))
+    } else if (nt == "ArrayLiteral") {
+        let elems = arrayElements(e)
+        let i = 0
+        while (i < len(elems)) {
+            collectPhase133Expr(state, elems[i])
+            i = i + 1
+        }
+    } else if (nt == "MapLiteral") {
+        let ks = mapKeys(e)
+        let i = 0
+        while (i < len(ks)) {
+            collectPhase133Expr(state, ks[i])
+            i = i + 1
+        }
+        let vs = mapValues(e)
+        let j = 0
+        while (j < len(vs)) {
+            collectPhase133Expr(state, vs[j])
+            j = j + 1
+        }
+    } else if (nt == "StructLiteral") {
+        let fields = structLitFields(e)
+        let i = 0
+        while (i < len(fields)) {
+            let f = fields[i]
+            if (getNodeType(f) == "BinaryExpr") {
+                collectPhase133Expr(state, binaryRight(f))
+            } else {
+                collectPhase133Expr(state, f)
+            }
+            i = i + 1
+        }
+    } else if (nt == "BinaryExpr") {
+        collectPhase133Expr(state, binaryLeft(e))
+        collectPhase133Expr(state, binaryRight(e))
+    } else if (nt == "UnaryExpr") {
+        collectPhase133Expr(state, unaryOperand(e))
+    } else if (nt == "Index") {
+        collectPhase133Expr(state, indexLeft(e))
+        collectPhase133Expr(state, indexExpr(e))
+    } else if (nt == "Slice") {
+        collectPhase133Expr(state, sliceLeft(e))
+    } else if (nt == "Member") {
+        collectPhase133Expr(state, dotLeft(e))
+    } else if (nt == "Call") {
+        let args = callArgs(e)
+        let i = 0
+        while (i < len(args)) {
+            collectPhase133Expr(state, args[i])
+            i = i + 1
+        }
+    } else if (nt == "IndirectCall") {
+        collectPhase133Expr(state, indirectTarget(e))
+        let args = indirectArgs(e)
+        let i = 0
+        while (i < len(args)) {
+            collectPhase133Expr(state, args[i])
+            i = i + 1
+        }
+    } else if (nt == "Match") {
+        collectPhase133Expr(state, matchValue(e))
+        let arms = matchArms(e)
+        let i = 0
+        while (i < len(arms)) {
+            let ab = armBody(arms[i])
+            if (getNodeType(ab) == "Block") {
+                collectPhase133Prescan(state, blockStmts(ab))
+            } else {
+                collectPhase133Expr(state, ab)
+            }
+            i = i + 1
+        }
+    }
+}
+
 // collectLocalFuncsC11 walks statements (recursively through blocks and
 // function bodies) registering every let-bound lambda FuncDecl value.
 func collectLocalFuncsC11(state, stmts) {
@@ -1397,6 +1634,10 @@ func generateC11(ast, sourceName) {
         i = i + 1
     }
     emitNewline(state)
+    // Phase 133: register every bound local name (indirect dispatch) and
+    // synthesize top-level definitions for bare lambdas, before any
+    // forward declaration or body is emitted.
+    collectPhase133Prescan(state, stmts)
     i = 0
     while (i < len(stmts)) {
         if (getNodeType(stmts[i]) == "FuncDecl") {
@@ -1510,6 +1751,15 @@ func emitLocalFuncDecls(state, stmts) {
 func emitClosureDefs(state) {
     let names = codegenLocalFuncs(state)
     let nodes = codegenLocalFuncNodes(state)
+    // Phase 133: wrapper prototypes first. Nested lambdas register after
+    // their parents, so a def referencing an inner wrapper would otherwise
+    // precede it (use before declaration). The uniform karkain_fn_t
+    // signature needs no per-lambda type info.
+    let p = 0
+    while (p < len(names)) {
+        emitLine(state, "static Value karkain_fncall_" + names[p] + "(void*, int, Value*, const char*, long long);")
+        p = p + 1
+    }
     let i = 0
     while (i < len(names)) {
         emitC11ClosureDef(state, nodes[i])
@@ -1551,6 +1801,8 @@ func emitC11ClosureDef(state, node) {
     state[2] = codegenIndent(state) - 1
     emitLine(state, "}")
     emitNewline(state)
+    emitClosureWrapper(state, node)
+    emitNewline(state)
     state[8] = ""
     setCodegenCurrentCaps(state, savedCaps)
 }
@@ -1575,20 +1827,89 @@ func markEmittedClosureEnv(state, name) {
 func emitClosureBinding(state, node) {
     let fnName = funcName(node)
     let caps = funcCaptures(node)
-    if (len(caps) == 0) { return }
-emitLine(state, "{ static ClosureEnv_" + fnName + " _e;")
+    // Phase 133: every let-bound lambda also declares a first-class
+    // function Value cell so the binding flows into arrays, params and
+    // returns (static direct calls are untouched). Zero-capture cells
+    // carry a null env.
+    if (len(caps) == 0) {
+        emitLine(state, "Value " + fnName + " = make_fn(karkain_fncall_" + fnName + ", 0);")
+        return
+    }
+    // Heap env per binding execution (not a shared static) so escaping
+    // cells keep their own captures. The global holder still points at
+    // the latest instance for static direct calls.
+    emitLine(state, "ClosureEnv_" + fnName + "* _e_" + fnName + " = (ClosureEnv_" + fnName + "*)malloc(sizeof(ClosureEnv_" + fnName + "));")
     let i = 0
     while (i < len(caps)) {
         let c = caps[i]
         if (capInList(codegenCurrentCaps(state), c) == 1) {
-            emitLine(state, "_e." + c + " = &(*_env->" + c + ");")
+            emitLine(state, "_e_" + fnName + "->" + c + " = &(*_env->" + c + ");")
         } else {
-            emitLine(state, "_e." + c + " = &" + c + ";")
+            emitLine(state, "_e_" + fnName + "->" + c + " = &" + c + ";")
         }
         i = i + 1
     }
-    emitLine(state, "_genv_" + fnName + " = &_e;")
-    emitLine(state, "}")
+    emitLine(state, "_genv_" + fnName + " = _e_" + fnName + ";")
+    emitLine(state, "Value " + fnName + " = make_fn(karkain_fncall_" + fnName + ", _e_" + fnName + ");")
+}
+
+// Phase 133: indirect-call target for a bare name: a captured name has
+// no C variable in this def and resolves through the env (mirrors the
+// Ident branch); otherwise the cell variable is in scope.
+func emitIndirectTarget(state, fname) {
+    if (capInList(codegenCurrentCaps(state), fname) == 1) {
+        emit(state, "(*_env->" + fname + ")")
+    } else {
+        emit(state, fname)
+    }
+}
+
+// Phase 133: indirect-call argument vector tail: `, argc, argv, file,
+// line)`. Zero-arg calls pass NULL instead of an empty compound literal.
+func emitIndirectTail(state, args, line) {
+    emit(state, ", " + str(len(args)) + ", ")
+    if (len(args) == 0) {
+        emit(state, "NULL")
+    } else {
+        emit(state, "(Value[]){")
+        let i = 0
+        while (i < len(args)) {
+            if (i > 0) { emit(state, ", ") }
+            emitC11Expr(state, args[i])
+            i = i + 1
+        }
+        emit(state, "}")
+    }
+    emit(state, ", \"" + codegenSourceName(state) + "\", " + line + ")")
+}
+
+// Phase 133: canonical indirect-call wrapper in the karkain_fn_t ABI.
+// Knows its closure's exact static C type, so computed calls dispatch
+// without casts; arity is enforced with the file:line contract.
+func emitClosureWrapper(state, node) {
+    let fnName = funcName(node)
+    let params = funcParams(node)
+    let caps = funcCaptures(node)
+    let argc = len(params)
+    emit(state, "static Value karkain_fncall_" + fnName + "(void* env, int argc, Value* argv, const char* file, long long line) { ")
+    emit(state, "if (argc != " + str(argc) + ") { karkain_runtime_error(\"wrong number of arguments for function '" + fnName + "'\", file, line); } ")
+    emit(state, "return " + emitC11FuncSymbol(fnName) + "(")
+    if (len(caps) > 0) {
+        emit(state, "(ClosureEnv_" + fnName + "*)env")
+        let i = 0
+        while (i < argc) {
+            emit(state, ", argv[" + str(i) + "]")
+            i = i + 1
+        }
+    } else {
+        let i = 0
+        while (i < argc) {
+            if (i > 0) { emit(state, ", ") }
+            emit(state, "argv[" + str(i) + "]")
+            i = i + 1
+        }
+    }
+    emitLine(state, "); }")
 }
 
 // Forward declaration so functions can call each other regardless of

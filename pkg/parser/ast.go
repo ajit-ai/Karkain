@@ -155,6 +155,18 @@ type CallExpr struct {
 	EndCol   int // Phase 83: 0-based byte column just past the callee
 }
 
+// Phase 133: IndirectCallExpr represents a call through a computed callee —
+// `ops[0](5)`, `get_fn()(1)`, `(expr)(args)`. Identifier callees keep using
+// CallExpr (zero regression to static dispatch); only non-identifier targets
+// lower here. The target evaluates to a TYPE_FUNC Value cell at runtime.
+type IndirectCallExpr struct {
+	Target Node
+	Args   []Node
+	Line   int
+	Col    int
+	EndCol int
+}
+
 // Phase 41: Hybrid Memory Model — safe references + @raw for hardware
 
 // RefType represents a reference type: &T (immutable) or &mut T (mutable)
@@ -993,6 +1005,8 @@ func GetLine(node Node) int {
 	case *BinaryExpr:
 		return n.Line
 	case *CallExpr:
+		return n.Line
+	case *IndirectCallExpr:
 		return n.Line
 	case *DotExpr:
 		return n.Line

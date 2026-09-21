@@ -1,0 +1,20 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: Closures
+//
+// First-class fn values (Phase 133): closures flow through `fn`-typed
+// parameters and aliases and are invoked through the Value cell. Direct
+// calls keep static dispatch; `g(v)` and `h(v)` dispatch indirectly with
+// identical results on both engines.
+
+func apply_twice(g fn, v int) int {
+    return g(v) + g(v)
+}
+
+func main() {
+    let inc = fn(x int) int { return x + 1 }
+    print(inc(10))
+    print(apply_twice(inc, 10))
+    let h fn = inc
+    print(h(5))
+}

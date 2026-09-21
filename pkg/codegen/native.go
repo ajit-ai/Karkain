@@ -298,6 +298,18 @@ func (g *NativeGenerator) genNativeExpr(node parser.Node) string {
 			return fmt.Sprintf("%s(%s)", funcName, strings.Join(args, ", "))
 		}
 		return fmt.Sprintf("%s(%s)", n.Function, strings.Join(args, ", "))
+	case *parser.IndirectCallExpr:
+		// Phase 133: dispatch through the cell (same shape as the main C
+		// path; a missing helper fails loudly at C compile, never silent).
+		target := g.genNativeExpr(n.Target)
+		args := []string{}
+		for _, arg := range n.Args {
+			args = append(args, g.genNativeExpr(arg))
+		}
+		if len(args) == 0 {
+			return fmt.Sprintf("karkain_call_fn(%s, 0, NULL, \"\", %d)", target, n.Line)
+		}
+		return fmt.Sprintf("karkain_call_fn(%s, %d, (Value[]){%s}, \"\", %d)", target, len(args), strings.Join(args, ", "), n.Line)
 	case *parser.IndexExpr:
 		return fmt.Sprintf("%s[%s]", g.genNativeExpr(n.Left), g.genNativeExpr(n.Index))
 	case *parser.DotExpr:

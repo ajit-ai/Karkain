@@ -242,6 +242,256 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 			r.callerFile[fn.Name] = declFile[fn.Name]
 			r.fnConsts[fn.Name] = r.localConsts(fn)
 			r.walkCalls(fn.Body, r.localNames(fn), fn.Name, sm)
+			// Phase 133: reject returns of closures capturing locals.
+			r.checkEscapeReturns(fn)
+		}
+	}
+}
+
+// Phase 133: escaping-capture rejection. Closure captures are by-ref into
+// the defining frame, so returning a closure that captures function-local
+// state would dangle (the P4 factory printed garbage instead of failing).
+// A `return` whose value transitively closes over function locals is
+// rejected here with a resolve-stage diagnostic (error[K002], exit 3 on
+// check/build/run); non-capturing closures (NULL env) still return fine.
+// Call results have unknown provenance and are allowed (documented dynamic
+// gap, consistent with the conservative checker).
+func (r *Resolver) checkEscapeReturns(fn *parser.FuncDecl) {
+	r.checkEscapeUnit(fn.Body)
+}
+
+// checkEscapeUnit checks one function-like body: fixpoint-taint every local
+// binding whose value closes over function-local state, then reject returns
+// of tainted values. Nested function-likes form their own units (a nested
+// return belongs to its own frame); blocks share the unit.
+func (r *Resolver) checkEscapeUnit(body []parser.Node) {
+	tainted := map[string]bool{}
+	for i := 0; i < 8; i++ {
+		n0 := len(tainted)
+		r.collectTainted(body, tainted)
+		if len(tainted) == n0 {
+			break
+		}
+	}
+	r.checkReturns(body, tainted)
+}
+
+// collectTainted marks let/var/const names whose values transitively close
+// over function-local state. It descends into blocks but not into nested
+// function bodies (those are separate units, visited from checkReturns).
+func (r *Resolver) collectTainted(stmts []parser.Node, tainted map[string]bool) {
+	for _, s := range stmts {
+		switch n := s.(type) {
+		case *parser.VarDeclStmt:
+			if n.Name != "" && r.valueCaptures(n.Value, tainted) {
+				tainted[n.Name] = true
+			}
+		case *parser.BlockStmt:
+			r.collectTainted(n.Statements, tainted)
+		case *parser.IfStmt:
+			r.collectTainted(n.Consequence, tainted)
+			r.collectTainted(n.Alternative, tainted)
+		case *parser.WhileStmt:
+			r.collectTainted(n.Body, tainted)
+		case *parser.ForStmt:
+			r.collectTainted(n.Body, tainted)
+		case *parser.ForInStmt:
+			r.collectTainted(n.Body, tainted)
+		case *parser.MatchExpr:
+			// Phase 133: collection only — arm bodies may declare lets.
+			// Return checking inside arms happens in the checkReturns
+			// pass, never here (this runs once per fixpoint iteration;
+			// emitting errors here would duplicate them).
+			r.collectTaintedExpr(n.Value, tainted)
+			for _, arm := range n.Arms {
+				r.collectTainted([]parser.Node{arm.Body}, tainted)
+			}
+		}
+	}
+}
+
+// collectTaintedExpr visits lambdas nested inside an expression as their
+// own units (their returns belong to their own frames).
+func (r *Resolver) collectTaintedExpr(e parser.Node, tainted map[string]bool) {
+	if e == nil {
+		return
+	}
+	switch n := e.(type) {
+	case *parser.LambdaExpr:
+		r.checkEscapeUnit(n.Body)
+	case *parser.FuncDecl:
+		r.checkEscapeUnit(n.Body)
+	case *parser.ArrayLiteral:
+		for _, el := range n.Elements {
+			r.collectTaintedExpr(el, tainted)
+		}
+	case *parser.MapLiteral:
+		for _, k := range n.Keys {
+			r.collectTaintedExpr(k, tainted)
+		}
+		for _, v := range n.Values {
+			r.collectTaintedExpr(v, tainted)
+		}
+	case *parser.StructLiteral:
+		for _, f := range n.Fields {
+			r.collectTaintedExpr(f, tainted)
+		}
+	case *parser.BinaryExpr:
+		r.collectTaintedExpr(n.Left, tainted)
+		r.collectTaintedExpr(n.Right, tainted)
+	case *parser.UnaryExpr:
+		r.collectTaintedExpr(n.Operand, tainted)
+	case *parser.IndexExpr:
+		r.collectTaintedExpr(n.Left, tainted)
+		r.collectTaintedExpr(n.Index, tainted)
+	case *parser.CallExpr:
+		for _, a := range n.Args {
+			r.collectTaintedExpr(a, tainted)
+		}
+	case *parser.IndirectCallExpr:
+		r.collectTaintedExpr(n.Target, tainted)
+		for _, a := range n.Args {
+			r.collectTaintedExpr(a, tainted)
+		}
+	case *parser.MatchExpr:
+		r.collectTaintedExpr(n.Value, tainted)
+		for _, arm := range n.Arms {
+			r.collectTaintedExpr(arm.Body, tainted)
+		}
+	case *parser.SliceExpr:
+		r.collectTaintedExpr(n.Target, tainted)
+		if n.Start != nil {
+			r.collectTaintedExpr(n.Start, tainted)
+		}
+		if n.End != nil {
+			r.collectTaintedExpr(n.End, tainted)
+		}
+	case *parser.DotExpr:
+		r.collectTaintedExpr(n.Left, tainted)
+	case *parser.PropagateExpr:
+		r.collectTaintedExpr(n.Operand, tainted)
+	case *parser.BorrowExpr:
+		r.collectTaintedExpr(n.Operand, tainted)
+	case *parser.MoveExpr:
+		r.collectTaintedExpr(n.Operand, tainted)
+	case *parser.AddressOf:
+		r.collectTaintedExpr(n.Operand, tainted)
+	case *parser.Dereference:
+		r.collectTaintedExpr(n.Operand, tainted)
+	case *parser.RawAccessExpr:
+		r.collectTaintedExpr(n.Address, tainted)
+		if n.Value != nil {
+			r.collectTaintedExpr(n.Value, tainted)
+		}
+	case *parser.EnumVariantExpr:
+		if n.Value != nil {
+			r.collectTaintedExpr(n.Value, tainted)
+		}
+	}
+}
+
+// valueCaptures reports whether an expression value transitively closes over
+// function-local state: lambda/func literals with captures, tainted locals,
+// or containers of those. Calls have unknown provenance (allowed).
+func (r *Resolver) valueCaptures(e parser.Node, tainted map[string]bool) bool {
+	if e == nil {
+		return false
+	}
+	switch n := e.(type) {
+	case *parser.FuncDecl:
+		return len(n.Captures) > 0
+	case *parser.LambdaExpr:
+		return len(n.Captures) > 0
+	case *parser.Identifier:
+		return tainted[n.Name]
+	case *parser.ArrayLiteral:
+		for _, el := range n.Elements {
+			if r.valueCaptures(el, tainted) {
+				return true
+			}
+		}
+	case *parser.MapLiteral:
+		for _, k := range n.Keys {
+			if r.valueCaptures(k, tainted) {
+				return true
+			}
+		}
+		for _, v := range n.Values {
+			if r.valueCaptures(v, tainted) {
+				return true
+			}
+		}
+	case *parser.StructLiteral:
+		for _, f := range n.Fields {
+			if r.valueCaptures(f, tainted) {
+				return true
+			}
+		}
+	case *parser.IndexExpr:
+		return r.valueCaptures(n.Left, tainted) || r.valueCaptures(n.Index, tainted)
+	case *parser.SliceExpr:
+		return r.valueCaptures(n.Target, tainted)
+	case *parser.DotExpr:
+		return r.valueCaptures(n.Left, tainted)
+	case *parser.BinaryExpr:
+		return r.valueCaptures(n.Left, tainted) || r.valueCaptures(n.Right, tainted)
+	case *parser.UnaryExpr:
+		return r.valueCaptures(n.Operand, tainted)
+	case *parser.MatchExpr:
+		if r.valueCaptures(n.Value, tainted) {
+			return true
+		}
+		for _, arm := range n.Arms {
+			if r.valueCaptures(arm.Body, tainted) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// checkReturns rejects `return` of tainted values and descends into blocks
+// (same frame) and nested function-likes (own units).
+func (r *Resolver) checkReturns(stmts []parser.Node, tainted map[string]bool) {
+	for _, s := range stmts {
+		switch n := s.(type) {
+		case *parser.ReturnStmt:
+			if n.Value != nil && r.valueCaptures(n.Value, tainted) {
+				r.errors = append(r.errors, ResolveError{
+					Line: n.Line,
+					Msg:  "cannot return closure capturing function-local state (captures are by-ref into the dying frame)",
+				})
+			}
+			r.collectTaintedExpr(n.Value, tainted)
+		case *parser.VarDeclStmt:
+			r.collectTaintedExpr(n.Value, tainted)
+		case *parser.FuncDecl:
+			r.checkEscapeUnit(n.Body)
+		case *parser.LambdaExpr:
+			// Phase 133: a bare lambda statement is its own unit.
+			r.checkEscapeUnit(n.Body)
+		case *parser.BlockStmt:
+			r.checkReturns(n.Statements, tainted)
+		case *parser.IfStmt:
+			r.checkReturns(n.Consequence, tainted)
+			r.checkReturns(n.Alternative, tainted)
+		case *parser.WhileStmt:
+			r.checkReturns(n.Body, tainted)
+		case *parser.ForStmt:
+			r.checkReturns(n.Body, tainted)
+		case *parser.ForInStmt:
+			r.checkReturns(n.Body, tainted)
+		case *parser.MatchExpr:
+			// Phase 133: arm bodies are statement positions — a `return`
+			// directly inside an arm must be checked. checkReturns on a
+			// bare-expression arm is a safe no-op (no case matches).
+			for _, arm := range n.Arms {
+				r.checkReturns([]parser.Node{arm.Body}, tainted)
+			}
+		case *parser.ExprStmt:
+			r.collectTaintedExpr(n.Expression, tainted)
+		case *parser.PrintStmt:
+			r.collectTaintedExpr(n.Value, tainted)
 		}
 	}
 }
@@ -410,6 +660,14 @@ func (r *Resolver) checkExpr(e parser.Node, locals map[string]bool, callerName s
 		r.checkUndefinedName(n, locals, sm)
 	case *parser.CallExpr:
 		r.checkCallExpr(n, locals, callerName, sm)
+	case *parser.IndirectCallExpr:
+		// Phase 133: a computed callee has no static name to resolve —
+		// arity is enforced at runtime by the dispatch wrapper. Resolve
+		// the callee expression and the arguments for undefined names.
+		r.checkExpr(n.Target, locals, callerName, sm)
+		for _, a := range n.Args {
+			r.checkExpr(a, locals, callerName, sm)
+		}
 	case *parser.BinaryExpr:
 		// Struct-literal fields arrive as BinaryExpr "=" nodes (field key Left,
 		// value Right); those are handled by the StructLiteral case, never here.

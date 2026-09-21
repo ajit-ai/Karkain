@@ -290,6 +290,17 @@ func analyzeExpr(node, table, warnings) {
     let nt = getNodeType(node)
 
     if (nt == "Call") { analyzeCall(node, table, warnings) }
+    // Phase 133: analyze the computed callee and arguments (no static name
+    // to resolve; arity is runtime-enforced by the dispatch wrapper).
+    if (nt == "IndirectCall") {
+        analyzeExpr(indirectTarget(node), table, warnings)
+        let iargs = indirectArgs(node)
+        let i = 0
+        while (i < len(iargs)) {
+            analyzeExpr(iargs[i], table, warnings)
+            i = i + 1
+        }
+    }
     if (nt == "BinaryExpr") { analyzeBinaryExpr(node, table, warnings) }
     if (nt == "UnaryExpr") { analyzeUnaryExpr(node, table, warnings) }
     if (nt == "Ident") { analyzeIdent(node, table, warnings) }

@@ -19,7 +19,13 @@ func createParserState(tokens, source) {
     state = appendArray(state, source)
     state = appendArray(state, 0)    // noStructAtBrace (Phase 81: unparenthesized if condition)
     state = appendArray(state, [])   // enumNames (Phase 123: enum variant patterns/construction)
+    state = appendArray(state, 0)    // lambdaSeq (Phase 133: bare-lambda sequence numbers)
     return state
+}
+
+func psNextLambdaSeq(state) {
+    state[8] = state[8] + 1
+    return state[8]
 }
 
 func psNoStructAtBrace(state) { return state[6] }
@@ -228,6 +234,21 @@ func walkCapturesExpr(s, node) {
         }
         return s
     }
+    // Phase 133: a computed callee may itself close over variables (a cell
+    // held in an array or passed as a parameter); an identifier target is a
+    // used name exactly like a static callee.
+    if (nt == "IndirectCall") {
+        let tgt = indirectTarget(node)
+        if (getNodeType(tgt) == "Ident") { s = capsAdd(s, identName(tgt)) }
+        s = walkCapturesExpr(s, tgt)
+        let iargs = indirectArgs(node)
+        let i = 0
+        while (i < len(iargs)) {
+            s = walkCapturesExpr(s, iargs[i])
+            i = i + 1
+        }
+        return s
+    }
     if (nt == "Index") {
         s = walkCapturesExpr(s, indexLeft(node))
         return walkCapturesExpr(s, indexExpr(node))
@@ -428,6 +449,10 @@ func psIsTypeToken(state) {
     if (k == TK_STRING()) { return 1 }
     if (k == TK_BOOL()) { return 1 }
     if (k == TK_IDENT()) { return 1 }
+    // Phase 133: `fn` is a keyword token, not an identifier — without this
+    // branch a `g fn` / `let g fn` annotation (or `fn` return type) silently
+    // misparses instead of skipping cleanly as a type.
+    if (k == TK_FN()) { return 1 }
     return 0
 }
 
@@ -913,7 +938,7 @@ func parseLambda(state) {
         body = parseBlock(state)
         if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
     }
-    return makeLambda(params, body, line)
+    return makeLambda(params, body, line, psNextLambdaSeq(state))
 }
 
 // ============================================================
@@ -1212,6 +1237,26 @@ func parseBinary(state, left, minPrec) {
                 if (psCurKind(state) == TK_RBRACKET()) { psAdvance(state) }
                 left = makeIndex(left, idx, psLine(state))
             }
+        }
+
+        // Phase 133: postfix call `target(args)` where target is any
+        // non-identifier expression (index results, parenthesized
+        // expressions, ...). Identifier callees never reach here: the
+        // ident/dot/keyword paths consume their own '(' and return a Call
+        // early, so static dispatch is fully preserved. Only computed
+        // callees lower to IndirectCall (runtime dispatch through a
+        // TYPE_FUNC Value cell). Chains (`get_fn()(1)`) loop.
+        while (psCurKind(state) == TK_LPAREN()) {
+            psAdvance(state) // consume '('
+            let callLine = psLine(state)
+            let args = []
+            while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
+                let arg = parseExpr(state)
+                if (arg != []) { args = appendArray(args, arg) }
+                if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+            }
+            if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+            left = makeIndirectCall(left, args, callLine)
         }
 
         // Postfix: .field

@@ -54,6 +54,12 @@ func (g *Generator) scanNodeForConcurrency(node parser.Node) {
 		for _, a := range n.Args {
 			g.scanNodeForConcurrency(a)
 		}
+	case *parser.IndirectCallExpr:
+		// Phase 133: concurrency builtins may hide in callee/args.
+		g.scanNodeForConcurrency(n.Target)
+		for _, a := range n.Args {
+			g.scanNodeForConcurrency(a)
+		}
 	case *parser.FuncDecl:
 		for _, s := range n.Body {
 			g.scanNodeForConcurrency(s)
@@ -214,6 +220,12 @@ func (g *Generator) collectConcDecls(node parser.Node) {
 	case *parser.StructLiteral:
 		for _, f := range n.Fields {
 			g.collectConcDecls(f)
+		}
+	case *parser.IndirectCallExpr:
+		// Phase 133: actor declarations may hide in callee/args.
+		g.collectConcDecls(n.Target)
+		for _, a := range n.Args {
+			g.collectConcDecls(a)
 		}
 	case *parser.CallExpr:
 		if n.Function == "actor" && len(n.Args) > 0 {
