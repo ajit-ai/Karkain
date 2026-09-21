@@ -159,16 +159,39 @@ func RegistryRef(flagVal string) (string, error) {
 	return RequireLocalRegistry(ref)
 }
 
+// AnchorRegistryRef resolves one registry reference against a project
+// directory. Absolute paths stay absolute; http(s) URLs and empty references
+// pass through untouched; relative paths resolve against projectDir (never
+// the process working directory). This is the single anchoring rule shared by
+// fetch, update and publish.
+func AnchorRegistryRef(projectDir, ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
+		return ref
+	}
+	if filepath.IsAbs(ref) {
+		return filepath.Clean(ref)
+	}
+	base := strings.TrimSpace(projectDir)
+	if base == "" {
+		return ref
+	}
+	return filepath.Join(base, ref)
+}
+
 // RegistryRefForDep returns the effective registry for a dependency: its
 // explicit URL when set, else the flag/env reference. An http(s) URL keeps
 // the pre-135 remote-client behavior (explicit user choice, existing tests);
 // otherwise the reference must be a local registry directory.
-func RegistryRefForDep(flagVal string, dep Dependency) (RegistryKind, string, error) {
+//
+// Relative references resolve against projectDir (the importing project),
+// never the process working directory, matching local-dependency convention.
+func RegistryRefForDep(projectDir, flagVal string, dep Dependency) (RegistryKind, string, error) {
 	if strings.TrimSpace(dep.URL) != "" {
 		if u := strings.TrimSpace(dep.URL); strings.HasPrefix(u, "http://") || strings.HasPrefix(u, "https://") {
 			return RegistryRemote, strings.TrimSuffix(u, "/"), nil
 		}
-		target, err := RequireLocalRegistry(dep.URL)
+		target, err := RequireLocalRegistry(AnchorRegistryRef(projectDir, dep.URL))
 		return RegistryLocal, target, err
 	}
 	ref := strings.TrimSpace(flagVal)
@@ -182,7 +205,7 @@ func RegistryRefForDep(flagVal string, dep Dependency) (RegistryKind, string, er
 	if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
 		return RegistryRemote, strings.TrimSuffix(ref, "/"), nil
 	}
-	target, err := RequireLocalRegistry(ref)
+	target, err := RequireLocalRegistry(AnchorRegistryRef(projectDir, ref))
 	return RegistryLocal, target, err
 }
 
@@ -289,8 +312,10 @@ var publishSkipNames = map[string]bool{
 }
 
 // copySourceTree copies src into dst (created), sorted for determinism,
-// skipping cache/VCS metadata. dst must not exist.
-func copySourceTree(src, dst string) error {
+// skipping cache/VCS metadata. dst must not exist. Exclusions are
+// project-relative paths (exact or subtree) skipped in addition, e.g. a
+// registry living inside the published project.
+func copySourceTree(src, dst string, exclude ...string) error {
 	var files []string
 	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -304,7 +329,7 @@ func copySourceTree(src, dst string) error {
 			return nil
 		}
 		base := filepath.Base(rel)
-		if publishSkipNames[rel] || publishSkipNames[base] {
+		if publishSkipNames[rel] || publishSkipNames[base] || excluded(rel, exclude) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -346,6 +371,41 @@ func copySourceTree(src, dst string) error {
 	return nil
 }
 
+// excluded reports whether the project-relative path rel is exactly an
+// exclusion or lies under one. Comparison is path-element based, so
+// "reg" never matches "registry-other".
+func excluded(rel string, exclude []string) bool {
+	for _, ex := range exclude {
+		if ex == "" {
+			continue
+		}
+		if rel == ex || strings.HasPrefix(rel, ex+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// publishExclusions returns the project-relative exclusions for a publish:
+// when the target registry lives inside the project, that exact subtree is
+// skipped so a publish never embeds its own registry (including previously
+// published versions). When the registry IS the project root, only the
+// registry-owned top-level entries are skipped. An outside registry excludes
+// nothing.
+func publishExclusions(projectAbs, regAbs string) []string {
+	rel, err := filepath.Rel(projectAbs, regAbs)
+	if err != nil {
+		return nil
+	}
+	if rel == "." {
+		return []string{LocalRegistryMarker, "packages", "index"}
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil
+	}
+	return []string{rel}
+}
+
 // digestSourceTree hashes the stored tree deterministically:
 // sorted forward-slash relative paths + sizes + bytes.
 func digestSourceTree(dir string) (string, error) {
@@ -385,7 +445,7 @@ func digestSourceTree(dir string) (string, error) {
 // copy + source tree + digest, and records the version in the index.
 // Republishing an existing name@version is refused (immutable).
 func PublishLocal(regDir, projectDir string, manifest *Manifest) error {
-	reg, err := RequireLocalRegistry(regDir)
+	reg, err := RequireLocalRegistry(AnchorRegistryRef(projectDir, regDir))
 	if err != nil {
 		return err
 	}
@@ -411,7 +471,8 @@ func PublishLocal(regDir, projectDir string, manifest *Manifest) error {
 	}
 	defer os.RemoveAll(stage)
 	stagedSrc := filepath.Join(stage, "source")
-	if err := copySourceTree(projectDir, stagedSrc); err != nil {
+	projAbs, _ := filepath.Abs(projectDir)
+	if err := copySourceTree(projectDir, stagedSrc, publishExclusions(projAbs, reg)...); err != nil {
 		return &PkgError{Code: ErrRegistry, Package: manifest.Name, Message: fmt.Sprintf("cannot stage package sources: %v", err)}
 	}
 	manifestBytes, err := os.ReadFile(filepath.Join(projectDir, ManifestFile))

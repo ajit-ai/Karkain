@@ -428,7 +428,7 @@ func FetchModuleWithRegistry(projectDir string, dep Dependency, registryFlag str
 		if dep.Name == "" {
 			return fmt.Errorf("registry dependency requires a name")
 		}
-		kind, target, rerr := RegistryRefForDep(registryFlag, dep)
+		kind, target, rerr := RegistryRefForDep(projectDir, registryFlag, dep)
 		if rerr != nil {
 			return rerr
 		}

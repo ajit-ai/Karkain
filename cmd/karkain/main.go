@@ -140,21 +140,23 @@ Examples:
 // takeRegistryFlag extracts `--registry <dir>` from args, returning the flag
 // value ("" when absent) and the remaining args. It is the single CLI surface
 // for selecting the Phase-135 local registry; KARKAIN_REGISTRY (directory) is
-// the fallback inside pkg/pm.
-func takeRegistryFlag(args []string) (string, []string) {
+// the fallback inside pkg/pm. A bare `--registry` with no usable value is a
+// usage error, never a silent "no registry supplied".
+func takeRegistryFlag(args []string) (string, []string, error) {
 	flag := ""
 	kept := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--registry" {
-			if i+1 < len(args) {
-				flag = args[i+1]
-				i++
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return "", nil, fmt.Errorf("Error: --registry requires a directory argument\n  Usage: --registry <dir>")
 			}
+			flag = args[i+1]
+			i++
 			continue
 		}
 		kept = append(kept, args[i])
 	}
-	return flag, kept
+	return flag, kept, nil
 }
 
 // handleRegistryCommand dispatches `karkain pkg registry <subcommand>`.
@@ -254,7 +256,11 @@ func handlePackageCommand(args []string) int {
 
 	// --- ADD DEPENDENCY ---
 	case "add":
-		regFlag, restArgs := takeRegistryFlag(rest)
+		regFlag, restArgs, regErr := takeRegistryFlag(rest)
+		if regErr != nil {
+			fmt.Fprintln(os.Stderr, regErr.Error())
+			return cli.ExitUsage
+		}
 		rest = restArgs
 		if len(rest) < 1 {
 			fmt.Fprintln(os.Stderr, "Error: package name required\n  Usage: karkain pkg add <pkg> [version]")
@@ -264,17 +270,21 @@ func handlePackageCommand(args []string) int {
 		version := "*"
 		source := "registry"
 		url := ""
+		sourceGiven := false
+		urlGiven := false
 		for i := 1; i < len(rest); i++ {
 			switch rest[i] {
 			case "--source":
 				if i+1 < len(rest) {
 					i++
 					source = rest[i]
+					sourceGiven = true
 				}
 			case "--url":
 				if i+1 < len(rest) {
 					i++
 					url = rest[i]
+					urlGiven = true
 				}
 			default:
 				if !strings.HasPrefix(rest[i], "-") {
@@ -284,7 +294,13 @@ func handlePackageCommand(args []string) int {
 		}
 		// --registry <dir> pins a local directory registry as the dependency
 		// source (recorded in the manifest so later fetch/update need no flag).
+		// It conflicts with an explicit --source/--url: combining them is a
+		// usage error, never last-option-wins.
 		if regFlag != "" {
+			if sourceGiven || urlGiven {
+				fmt.Fprintln(os.Stderr, "Error: --registry cannot be combined with --source or --url (the registry directory is the source)\n  Usage: karkain pkg add <pkg> [version] --registry <dir>")
+				return cli.ExitUsage
+			}
 			source = "registry"
 			url = regFlag
 		}
@@ -326,7 +342,11 @@ func handlePackageCommand(args []string) int {
 
 	// --- FETCH ---
 	case "fetch":
-		regFlag, _ := takeRegistryFlag(rest)
+		regFlag, _, regErr := takeRegistryFlag(rest)
+		if regErr != nil {
+			fmt.Fprintln(os.Stderr, regErr.Error())
+			return cli.ExitUsage
+		}
 		projectDir, _ := kpkg.FindProjectRoot(cwd)
 		if projectDir == "" {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
@@ -355,7 +375,11 @@ func handlePackageCommand(args []string) int {
 
 	// --- UPDATE ---
 	case "update":
-		regFlag, restArgs := takeRegistryFlag(rest)
+		regFlag, restArgs, regErr := takeRegistryFlag(rest)
+		if regErr != nil {
+			fmt.Fprintln(os.Stderr, regErr.Error())
+			return cli.ExitUsage
+		}
 		rest = restArgs
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
@@ -581,7 +605,11 @@ func handlePackageCommand(args []string) int {
 
 	// --- PUBLISH ---
 	case "publish":
-		regFlag, _ := takeRegistryFlag(rest)
+		regFlag, _, regErr := takeRegistryFlag(rest)
+		if regErr != nil {
+			fmt.Fprintln(os.Stderr, regErr.Error())
+			return cli.ExitUsage
+		}
 		projectDir, err := kpkg.FindProjectRoot(cwd)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: not in a Karkain project")
@@ -1559,19 +1587,19 @@ func main() {
 			fmt.Printf("Error: cannot access '%s': %v\n", targetFile, statErr)
 			os.Exit(cli.ExitUsage)
 		}
-// KIR text extraction is a compiler-owned component on the self-hosted
-	// engine only (Phase 120). No Go-engine fallback: the flagrouting stays
-	// honest rather than faking a KIR that no component produced.
-	// Phase 121: --verify runs the self-hosted structural verifier instead of
-	// dumping the text; both paths stay compiler-owned.
-	if kirVerify {
-		result := cli.KCCKirVerifyCommand(nil, targetFile, verbose)
-		if result.Message != "" {
-			fmt.Println(result.Message)
+		// KIR text extraction is a compiler-owned component on the self-hosted
+		// engine only (Phase 120). No Go-engine fallback: the flagrouting stays
+		// honest rather than faking a KIR that no component produced.
+		// Phase 121: --verify runs the self-hosted structural verifier instead of
+		// dumping the text; both paths stay compiler-owned.
+		if kirVerify {
+			result := cli.KCCKirVerifyCommand(nil, targetFile, verbose)
+			if result.Message != "" {
+				fmt.Println(result.Message)
+			}
+			os.Exit(result.ExitCode)
 		}
-		os.Exit(result.ExitCode)
-	}
-	result := cli.KCCKirCommand(nil, targetFile, verbose)
+		result := cli.KCCKirCommand(nil, targetFile, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}
