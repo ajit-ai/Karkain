@@ -373,6 +373,14 @@ func ResolveModule(projectDir, importPath string) (string, error) {
 // as valid in the cache. On success it writes a checksum record for the
 // fetched package.
 func FetchModule(projectDir string, dep Dependency) error {
+	return FetchModuleWithRegistry(projectDir, dep, "")
+}
+
+// FetchModuleWithRegistry is FetchModule with an explicit registry reference
+// (`--registry <dir>` or equivalent). Registry dependencies resolve against a
+// local directory registry when the reference names one; an http(s) reference
+// keeps the pre-135 remote-client behavior.
+func FetchModuleWithRegistry(projectDir string, dep Dependency, registryFlag string) error {
 	// Resolve a git revision up front so the cache identity is source+rev aware.
 	rev := ""
 	if dep.Source == "git" {
@@ -420,8 +428,24 @@ func FetchModule(projectDir string, dep Dependency) error {
 		if dep.Name == "" {
 			return fmt.Errorf("registry dependency requires a name")
 		}
-		// Resolve the version constraint to an exact published version, then
-		// download from the registry into the temp dir.
+		kind, target, rerr := RegistryRefForDep(projectDir, registryFlag, dep)
+		if rerr != nil {
+			return rerr
+		}
+		if kind == RegistryLocal {
+			// Local directory registry: resolve the constraint against the
+			// index, verify the stored digest, and extract into the temp dir.
+			resolved, err := ResolveLocalVersion(target, dep.Name, dep.Version)
+			if err != nil {
+				return err
+			}
+			if err := FetchLocal(target, dep.Name, resolved, tmpDir); err != nil {
+				return err
+			}
+			break
+		}
+		// Remote registry reference (explicit http(s) choice, pre-135 flow,
+		// unchanged: resolve + download through the environment client).
 		c := NewRegistryClient()
 		resolved, err := c.ResolveVersion(dep.Name, dep.Version)
 		if err != nil {

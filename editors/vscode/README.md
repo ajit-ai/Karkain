@@ -13,12 +13,15 @@ and wired to the actual compiler CLI — nothing is faked:
 - `karkain compile` and `karkain run` in an integrated terminal.
 
 Language intelligence (completion, hover, goto-definition, semantic tokens) is
-provided by the Karkain LSP and will be wired to this extension as it matures.
+provided by the Karkain LSP (`karkain lsp` over stdio), started automatically
+on activation through `vscode-languageclient`.
 
 ## Requirements
 
 - The `karkain` executable (or configure `karkain.compilerPath`).
-- The LSP is not yet served by this extension (see `karkain lsp`).
+- `npm install` in this directory (fetches `vscode-languageclient` for the
+  language client; without it the shell-out commands still work and
+  activation logs one warning).
 
 ## Install from source
 
@@ -47,7 +50,6 @@ code --install-extension karkain-0.1.0.vsix
 
 ## Limitations
 
-- No semantic intelligence yet (LSP wiring is planned).
 - Diagnostics are reported via the notification channel, not the Problems
   panel, until the LSP integration lands.
 - Compiler must be installed on the same machine as VS Code.

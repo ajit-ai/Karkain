@@ -163,3 +163,36 @@ func TestVSCodeExtension_ExecutionUnitsExist(t *testing.T) {
 		t.Errorf("language-configuration.json missing auto-closing/folding config")
 	}
 }
+
+// TestVSCodeExtension_LanguageClientWiring (Phase 136, Slice E) validates
+// the language-client bootstrap: extension.js must start a client speaking
+// to `karkain lsp` for karkain documents, and package.json must declare the
+// vscode-languageclient dependency the bootstrap requires.
+func TestVSCodeExtension_LanguageClientWiring(t *testing.T) {
+	dir := vscodeExtensionDir(t)
+
+	ext := readT(t, filepath.Join(dir, "extension.js"))
+	for _, want := range []string{
+		"LanguageClient",
+		"vscode-languageclient",
+		"karkain-lsp",
+		"'lsp'",
+		"karkain",
+		"documentSelector",
+	} {
+		if !strings.Contains(ext, want) {
+			t.Errorf("extension.js missing language-client wiring %q", want)
+		}
+	}
+
+	raw := readT(t, filepath.Join(dir, "package.json"))
+	var m struct {
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("package.json invalid: %v", err)
+	}
+	if _, ok := m.Dependencies["vscode-languageclient"]; !ok {
+		t.Error("package.json must declare vscode-languageclient")
+	}
+}

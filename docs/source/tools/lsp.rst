@@ -44,6 +44,9 @@ The server advertises and implements:
      - Hover information
    * - ``textDocument/definition``
      - Go-to-definition
+   * - ``textDocument/semanticTokens/full``
+     - Lexer-driven semantic highlighting (keywords, strings, numbers,
+       comments, operators, variables)
    * - ``textDocument/documentSymbol``
      - Document outline / symbols
    * - ``textDocument/formatting``
@@ -68,10 +71,12 @@ the self-hosted runner does not expose yet.
 Client integration
 ------------------
 
-The LSP capability is what powers the bundled **VS Code extension**
-(``extension.js`` commands check/compile/run/format). Configure the
+The LSP capability is what powers the bundled **VS Code extension**:
+``extension.js`` keeps its check/compile/run/format commands and additionally
+starts a language client against ``karkain lsp`` for hover, go-to-definition,
+completion and semantic highlighting. Configure the
 extension to launch ``karkain lsp`` with stdio and the server reports
-version ``karkain-lsp 0.18.0`` on ``initialize``.
+version ``karkain-lsp 1.0.0`` on ``initialize``.
 
 .. code-block:: console
 

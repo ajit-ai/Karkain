@@ -1,13 +1,34 @@
-// Karkain Language Support — toolchain-wiring foundation.
+// Karkain Language Support — toolchain wiring + language client.
 //
-// This extension shells out to the `karkain` CLI for check / compile / run /
-// format operations. It is a foundation: command wiring and syntax awareness
-// are real, and behavior is kept deterministic and honest ("karkain not
-// installed" is reported instead of faked). Language intelligence (autocomplete,
-// semantic highlighting, goto-definition) is provided by the language server
-// and will be wired here as it matures.
-
+// Shell-out commands (check / compile / run / format) stay as-is. Language
+// intelligence (semantic highlighting, hover, go-to-definition,
+// autocompletion) is served by `karkain lsp` over stdio and wired here
+// through a vscode-languageclient LanguageClient started on activation.
+// If the client library is not installed (`npm install` in this directory),
+// the shell-out commands keep working and activation logs one warning.
 const vscode = require('vscode');
+
+let karkainClient = null;
+
+function startLanguageClient(context) {
+  let lc;
+  try {
+    lc = require('vscode-languageclient/node');
+  } catch (_e) {
+    console.warn('Karkain: vscode-languageclient not installed; language intelligence disabled (shell commands still work).');
+    return;
+  }
+  const serverOptions = {
+    command: compilerPath(),
+    args: ['lsp'],
+    options: {},
+  };
+  const clientOptions = {
+    documentSelector: [{ scheme: 'file', language: 'karkain' }],
+  };
+  karkainClient = new lc.LanguageClient('karkain-lsp', 'Karkain Language Server', serverOptions, clientOptions);
+  context.subscriptions.push(karkainClient.start());
+}
 
 // Diagnostic schema v1 mirrors `karkain check --format=json`:
 // [{ "file","line","column","severity","code","message" }]
@@ -74,6 +95,7 @@ function parseDiagnostics(out) {
 }
 
 function activate(context) {
+  startLanguageClient(context);
   context.subscriptions.push(
     vscode.commands.registerCommand('karkain.check', async () => {
       const doc = activeKarkainDocument();
@@ -127,6 +149,10 @@ function activate(context) {
   });
 }
 
-function deactivate() {}
+function deactivate() {
+  if (karkainClient) {
+    return karkainClient.stop();
+  }
+}
 
 module.exports = { activate, deactivate };

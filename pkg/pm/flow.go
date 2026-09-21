@@ -96,6 +96,12 @@ func ReadLocked(projectDir string) (*LockFile, error) {
 // verifying integrity when a checksum is available. It is safe against
 // partial writes (writes to a temp dir then atomically renames).
 func registeredFetch(projectDir string, entry LockEntry) error {
+	return registeredFetchWithRegistry(projectDir, entry, "")
+}
+
+// registeredFetchWithRegistry is registeredFetch with an explicit registry
+// reference (`--registry <dir>` or equivalent) for registry-source entries.
+func registeredFetchWithRegistry(projectDir string, entry LockEntry, registryFlag string) error {
 	dep := Dependency{Name: entry.Name, Version: entry.Version, Source: entry.Source, URL: entry.URL}
 	// Cache-first: if the package is already present and valid at the locked
 	// identity, skip the network entirely (P2.8).
@@ -108,7 +114,7 @@ func registeredFetch(projectDir string, entry LockEntry) error {
 	if entry.Source == string(SourceGit) {
 		if entry.Rev == "" {
 			// No pinned rev recorded; resolve normally.
-			if err := FetchModule(projectDir, dep); err != nil {
+			if err := FetchModuleWithRegistry(projectDir, dep, registryFlag); err != nil {
 				return fmt.Errorf("failed to fetch %s@%s: %w", entry.Name, entry.Version, err)
 			}
 			return nil
@@ -120,7 +126,7 @@ func registeredFetch(projectDir string, entry LockEntry) error {
 		return nil
 	}
 
-	if err := FetchModule(projectDir, dep); err != nil {
+	if err := FetchModuleWithRegistry(projectDir, dep, registryFlag); err != nil {
 		return fmt.Errorf("failed to fetch %s@%s: %w", entry.Name, entry.Version, err)
 	}
 	return nil
@@ -194,6 +200,12 @@ func writeChecksumAndPromote(projectDir, tmpDir, cacheDir string) error {
 // It implements the `fetch` (not `update`) semantics: obtain the already
 // resolved versions without re-resolving.
 func FetchLocked(projectDir string) (*LockFile, error) {
+	return FetchLockedWithRegistry(projectDir, "")
+}
+
+// FetchLockedWithRegistry is FetchLocked with an explicit registry reference
+// (`--registry <dir>` or equivalent) for registry-source entries.
+func FetchLockedWithRegistry(projectDir, registryFlag string) (*LockFile, error) {
 	lf, err := ReadLocked(projectDir)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read lockfile: %w", err)
@@ -202,7 +214,7 @@ func FetchLocked(projectDir string) (*LockFile, error) {
 		return nil, fmt.Errorf("no %s found; run 'karkain update' first to resolve dependencies", LockFileName)
 	}
 	for _, entry := range lf.Packages {
-		if err := registeredFetch(projectDir, entry); err != nil {
+		if err := registeredFetchWithRegistry(projectDir, entry, registryFlag); err != nil {
 			return lf, err
 		}
 	}

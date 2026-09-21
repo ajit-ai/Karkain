@@ -58,7 +58,9 @@ Full command set
    * - ``pkg info <pkg>``
      - Show package details
    * - ``pkg publish``
-     - Publish the current project to the registry
+     - Publish the current project (``--registry <dir>`` for local)
+   * - ``pkg registry init <dir>``
+     - Create a local package registry (local-only)
    * - ``pkg login``
      - Authenticate with the registry
    * - ``pkg logout``
@@ -94,11 +96,30 @@ verification, all stored under the project's ``.karkain/cache/``.
 Registry
 ========
 
-The **package registry is NOT available**. ``pkg search``, ``pkg info``,
-``pkg publish``, ``pkg login`` and related commands return an explicit
-"not available" error rather than faking results — there is no silent
-behavior. The command surface exists and is wired; the backend simply
-is not deployed yet.
+Phase 135 is local-only. No network registry exists yet: the registry is a
+directory on the local filesystem, selected by ``--registry <dir>`` (flag
+wins) or the ``KARKAIN_REGISTRY`` environment variable.
+
+.. code-block:: console
+
+    $ karkain pkg registry init ./my-registry   # create packages/ + index/
+    $ karkain pkg publish --registry ./my-registry
+    $ karkain add hello 1.0.0 --registry ./my-registry
+    $ karkain fetch                             # resolve, verify, cache
+    $ karkain run src/main.kark                 # build against the dep, run
+
+Layout: ``packages/<name>/<version>/`` holds the manifest copy, the
+published source tree and a digest; ``index/<name>`` lists the published
+versions and the latest. Versions must be semver; resolution accepts an
+exact version, ``*``/empty (latest) or an existing semver constraint.
+Published versions are immutable — republishing ``name@version`` fails and
+leaves the stored contents untouched. Names are validated (letters,
+digits, ``-``, ``_``, ``.``); traversal and absolute paths are rejected.
+Fetching verifies the stored digest and aborts on mismatch.
+
+Limitations: registry dependencies resolve at their declared version and
+are not transitively expanded; ``pkg search``/``pkg info`` against a
+remote backend remain unserved (no silent results).
 
 Lockfile
 ========

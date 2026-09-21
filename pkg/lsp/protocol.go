@@ -18,16 +18,16 @@ type JSONRPCRequest struct {
 
 // JSONRPCResponse is a JSON-RPC 2.0 response
 type JSONRPCResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id"`
-	Result  interface{} `json:"result,omitempty"`
+	JSONRPC string        `json:"jsonrpc"`
+	ID      interface{}   `json:"id"`
+	Result  interface{}   `json:"result,omitempty"`
 	Error   *JSONRPCError `json:"error,omitempty"`
 }
 
 // JSONRPCError is a JSON-RPC 2.0 error object
 type JSONRPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
 }
 
@@ -73,20 +73,21 @@ type ServerInfo struct {
 
 // ServerCapabilities declares what the server can do
 type ServerCapabilities struct {
-	TextDocumentSync           *TextDocumentSyncOptions  `json:"textDocumentSync,omitempty"`
-	CompletionProvider         *CompletionOptions        `json:"completionProvider,omitempty"`
-	HoverProvider              bool                      `json:"hoverProvider,omitempty"`
-	DefinitionProvider         bool                      `json:"definitionProvider,omitempty"`
-	DocumentSymbolProvider     bool                      `json:"documentSymbolProvider,omitempty"`
-	FormattingProvider         bool                      `json:"formattingProvider,omitempty"`
-	DiagnosticProvider         interface{}               `json:"diagnosticProvider,omitempty"`
+	TextDocumentSync       *TextDocumentSyncOptions `json:"textDocumentSync,omitempty"`
+	CompletionProvider     *CompletionOptions       `json:"completionProvider,omitempty"`
+	SemanticTokensProvider *SemanticTokensOptions   `json:"semanticTokensProvider,omitempty"`
+	HoverProvider          bool                     `json:"hoverProvider,omitempty"`
+	DefinitionProvider     bool                     `json:"definitionProvider,omitempty"`
+	DocumentSymbolProvider bool                     `json:"documentSymbolProvider,omitempty"`
+	FormattingProvider     bool                     `json:"formattingProvider,omitempty"`
+	DiagnosticProvider     interface{}              `json:"diagnosticProvider,omitempty"`
 }
 
 // TextDocumentSyncOptions
 type TextDocumentSyncOptions struct {
-	OpenClose bool                   `json:"openClose,omitempty"`
-	Change    int                    `json:"change,omitempty"`
-	Save      *SaveOptions           `json:"save,omitempty"`
+	OpenClose bool         `json:"openClose,omitempty"`
+	Change    int          `json:"change,omitempty"`
+	Save      *SaveOptions `json:"save,omitempty"`
 }
 
 // SaveOptions
@@ -106,11 +107,11 @@ type ClientCapabilities struct {
 
 // TextDocumentClientCapabilities (minimal)
 type TextDocumentClientCapabilities struct {
-	Completion   interface{} `json:"completion,omitempty"`
-	Hover        interface{} `json:"hover,omitempty"`
-	Definition   interface{} `json:"definition,omitempty"`
-	Symbol       interface{} `json:"symbol,omitempty"`
-	Diagnostics  interface{} `json:"diagnostic,omitempty"`
+	Completion  interface{} `json:"completion,omitempty"`
+	Hover       interface{} `json:"hover,omitempty"`
+	Definition  interface{} `json:"definition,omitempty"`
+	Symbol      interface{} `json:"symbol,omitempty"`
+	Diagnostics interface{} `json:"diagnostic,omitempty"`
 }
 
 // ------------------------------------------------------------
@@ -143,7 +144,7 @@ type DidOpenTextDocumentParams struct {
 
 // DidChangeTextDocumentParams
 type DidChangeTextDocumentParams struct {
-	TextDocument   VersionedTextDocumentIdentifier `json:"textDocument"`
+	TextDocument   VersionedTextDocumentIdentifier  `json:"textDocument"`
 	ContentChanges []TextDocumentContentChangeEvent `json:"contentChanges"`
 }
 
@@ -250,6 +251,7 @@ const (
 	CompletionKindColor         = 16
 	CompletionKindFile          = 17
 	CompletionKindReference     = 18
+	CompletionKindEnumMember    = 20
 	CompletionKindStruct        = 22
 	CompletionKindEvent         = 23
 	CompletionKindOperator      = 24
@@ -258,14 +260,14 @@ const (
 
 // CompletionItem
 type CompletionItem struct {
-	Label               string          `json:"label"`
-	Kind                int             `json:"kind,omitempty"`
-	Detail              string          `json:"detail,omitempty"`
-	Documentation       string          `json:"documentation,omitempty"`
-	InsertText          string          `json:"insertText,omitempty"`
-	InsertTextFormat    int             `json:"insertTextFormat,omitempty"`
-	TextEdit            *TextEdit       `json:"textEdit,omitempty"`
-	AdditionalTextEdits []TextEdit      `json:"additionalTextEdits,omitempty"`
+	Label               string     `json:"label"`
+	Kind                int        `json:"kind,omitempty"`
+	Detail              string     `json:"detail,omitempty"`
+	Documentation       string     `json:"documentation,omitempty"`
+	InsertText          string     `json:"insertText,omitempty"`
+	InsertTextFormat    int        `json:"insertTextFormat,omitempty"`
+	TextEdit            *TextEdit  `json:"textEdit,omitempty"`
+	AdditionalTextEdits []TextEdit `json:"additionalTextEdits,omitempty"`
 }
 
 // TextEdit
@@ -276,7 +278,7 @@ type TextEdit struct {
 
 // CompletionList
 type CompletionList struct {
-	IsIncomplete bool           `json:"isIncomplete"`
+	IsIncomplete bool             `json:"isIncomplete"`
 	Items        []CompletionItem `json:"items"`
 }
 
@@ -372,19 +374,48 @@ const (
 
 // DocumentSymbol
 type DocumentSymbol struct {
-	Name           string            `json:"name"`
-	Kind           int               `json:"kind"`
-	Range          Range             `json:"range"`
-	SelectionRange Range             `json:"selectionRange"`
-	Children       []DocumentSymbol  `json:"children,omitempty"`
-	Detail         string            `json:"detail,omitempty"`
+	Name           string           `json:"name"`
+	Kind           int              `json:"kind"`
+	Range          Range            `json:"range"`
+	SelectionRange Range            `json:"selectionRange"`
+	Children       []DocumentSymbol `json:"children,omitempty"`
+	Detail         string           `json:"detail,omitempty"`
 }
 
 // ------------------------------------------------------------
 // LSP Method Names
 // ------------------------------------------------------------
+// LSP 3.17 — Semantic Tokens (Phase 136)
+// Delta-encoded classification driven by the Karkain lexer.
+// ------------------------------------------------------------
+
+// SemanticTokensParams requests the full token stream of a document.
+type SemanticTokensParams struct {
+	TextDocument TextDocumentIdentifier `json:"textDocument"`
+}
+
+// SemanticTokensResult carries the delta-encoded token data:
+// repeating (deltaLine, deltaStart, length, tokenType, tokenModifiers).
+type SemanticTokensResult struct {
+	Data []uint32 `json:"data"`
+}
+
+// SemanticTokensLegend advertises the token type/modifier vocabulary. Index
+// positions are the contract: the encoder must use these exact indices.
+type SemanticTokensLegend struct {
+	TokenTypes     []string `json:"tokenTypes"`
+	TokenModifiers []string `json:"tokenModifiers"`
+}
+
+// SemanticTokensOptions declares full-document support with the legend.
+type SemanticTokensOptions struct {
+	Legend SemanticTokensLegend `json:"legend"`
+	Full   bool                 `json:"full,omitempty"`
+}
+
+// ------------------------------------------------------------
 const (
-	MethodInitialize                = "initialize"
+	MethodInitialize               = "initialize"
 	MethodInitialized              = "initialized"
 	MethodShutdown                 = "shutdown"
 	MethodExit                     = "exit"
@@ -397,5 +428,6 @@ const (
 	MethodTextDocumentDefinition   = "textDocument/definition"
 	MethodTextDocumentDocumentSym  = "textDocument/documentSymbol"
 	MethodTextDocumentFormatting   = "textDocument/formatting"
+	MethodTextDocumentSemanticFull = "textDocument/semanticTokens/full"
 	MethodTextDocumentPublishDiag  = "textDocument/publishDiagnostics"
 )

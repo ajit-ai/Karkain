@@ -36,6 +36,9 @@ type Server struct {
 	// Symbol index (rebuilt on parse)
 	symbolIndex map[string][]SymbolEntry
 
+	// Scope models for hover/definition (rebuilt on parse, Phase 136)
+	models map[string]*ScopeModel
+
 	// Diagnostics cache
 	diagnostics map[string][]Diagnostic
 
@@ -68,6 +71,7 @@ func NewServer(reader io.Reader, writer io.Writer, closer io.Closer) *Server {
 		closer:      closer,
 		documents:   make(map[string]*DocumentState),
 		symbolIndex: make(map[string][]SymbolEntry),
+		models:      make(map[string]*ScopeModel),
 		diagnostics: make(map[string][]Diagnostic),
 	}
 	s.handler = NewHandler(s)
@@ -298,6 +302,7 @@ func (s *Server) CloseDocument(uri string) {
 	defer s.mu.Unlock()
 	delete(s.documents, uri)
 	delete(s.symbolIndex, uri)
+	delete(s.models, uri)
 	delete(s.diagnostics, uri)
 }
 
