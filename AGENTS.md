@@ -451,6 +451,26 @@ probes, `go vet`, `go build`. `func(T) R`, capture snapshots, WASM
 indirect calls stay Planned. Report: `docs/audit/
 PHASE-133-FIRSTCLASS-FN-FINAL-REPORT.md`.)
 
+Also completed: **134 — Incremental Compilation v2** (verdict **COMPLETE**;
+GA-2 infra track. Phase 105's whole-assembly cache upgraded to per-module
+translation units: shared runtime TU (`karkain_runtime.h/.c`, internal
+linkage + 9 extern shared globals, best-effort PCH) + one TU per source
+module by top-level function ownership (duplicates already K107, exact
+attribution) + content-keyed cached objects, linked together; manifest v2
+(`RuntimeKey` = compiler key + flags + header text, self-invalidating;
+`RuntimeObj`, per-module `Objects`); atomic multi-artifact `StoreArtifacts`;
+monolith factored into reusable `prescanTables`/`emitSharedDecls`/
+`emitFuncBodies(only)` with zero monolith behavior change; `buildSplitFlow`
+falls back to v1 for non-gcc toolchains, concurrency/profiling programs and
+native-link (exactly 137's work list). Gate `pkg/cli/
+phase134_incremental_v2_test.go` 5/5 (naming/keying/store/round-trip +
+emission structure via column-zero def lines + E2E: phase105 golden
+`41/42/Hello karkain`, manifest v2 + runtime.o + 3 objects, no-op `3 reused`
+in 79ms beating the ≤100ms target, body-only leaf edit → golden with exactly
+`1 compiled`, `Clear` → full rebuild). Regressions green: `go build`,
+`go vet`, `pkg/compiler` suite, Phase 105 E2E on the same split-flow code.
+Report: `docs/audit/PHASE-134-INCREMENTAL-V2-FINAL-REPORT.md`.)
+
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
 six new examples, unconditional net-runtime emission on BOTH engines, and the
