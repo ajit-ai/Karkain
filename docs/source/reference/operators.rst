@@ -108,11 +108,13 @@ Index operator
 Member access operator
 ======================
 
-``..`` accesses a field of a struct or record:
+``.`` accesses a field of a struct or record, or qualifies a call
+against an imported module:
 
 .. code-block:: karkain
 
-   point..x
+    point.x
+    math.twice(21)
 
 Precedence table
 ================

@@ -1,8 +1,12 @@
 Compiler Internals
 ==================
 
-The Karkain compiler is implemented as two cooperating engines that share
-the same front end but differ in how they produce code.
+The Karkain compiler is implemented as two cooperating engines that
+implement the same pipeline (lex → parse → semantic analysis → code
+generation) independently — the Go front end in Go, kcc in Karkain
+itself — against one language specification (``SPEC.md``; the reference
+compiler wins on conflict until converged). They differ in how they
+produce code, and agree on what compiled programs print.
 
 .. list-table::
    :header-rows: 1
@@ -33,11 +37,15 @@ external ``.c`` files are needed for standard builds.
 SSA optimization
 ----------------
 
-The Go front end lowers typed HIR into a **typed SSA IR** and runs a
-multi-pass optimizer (Mem2Reg, constant folding with algebraic
-simplification, CSE, DCE, LICM, SROA) to fixpoint before emitting C.
-The SSA pipeline lives in ``pkg/ir/ssa`` and is detailed in
-:doc:`ssa`.
+The Go front end lowers each function to **typed SSA IR** and runs
+constant folding plus dead-code elimination with verification before
+emitting C (``emitFunctionViaIR`` in ``pkg/codegen/emit_ir.go``). Any
+lowering/verification failure falls back to legacy emission, and
+closure-bearing functions always use the legacy path. The full
+multi-pass optimizer (Mem2Reg, CSE, LICM, SROA to fixpoint) lives in
+``pkg/ir/ssa`` and is proven by its own unit/bench gates, but does not
+yet drive emission — wiring it in is tracked work (independence
+roadmap S-5). Details in :doc:`ssa`.
 
 Self-hosting bootstrap
 ----------------------

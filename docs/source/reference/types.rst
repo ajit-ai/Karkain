@@ -34,7 +34,25 @@ Built-in types
      - Associative map (string keys only)
    * - ``struct``
      - Tagged map instances
-     - User-defined record types
+     - User-defined record types (C-layout records are tracked work, S-0;
+       today field storage is map-based — see :doc:`/language/memory-model`)
+   * - ``enum``
+     - Tagged variant (payload recorded, matched on tag)
+     - Algebraic data type; patterns are ``EnumName.Variant`` (no payload
+       binding)
+   * - ``Option`` / ``Result``
+     - Tagged wrappers (``Some``/``None``, ``Ok``/``Err``)
+     - Presence and fallible results; ``match`` must be exhaustive (no
+       ``null``, no exceptions)
+   * - ``*T`` / ``&T`` / ``&mut T``
+     - Raw C pointer / borrow / mutable borrow
+     - Unsafe and ownership-checked access (borrow checker, escape analysis)
+   * - ``bigint`` / ``bigfloat``
+     - GMP-backed arbitrary precision
+     - Linked with ``-lgmp``; arbitrary-size integers and floats
+   * - ``matrix``
+     - Continuous row-major 2D array (AVX2-optimized)
+     - ``matrix Name[rows, cols] of float64``
 
 Type inference
 ==============
