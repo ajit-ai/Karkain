@@ -33,6 +33,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       - name: Install documentation dependencies
         run: python -m pip install -r docs/requirements.txt
@@ -40,10 +41,56 @@ jobs:
       - name: Build documentation
         run: python -m sphinx -b html docs/source docs/build/html -W --keep-going
 
+      - name: Verify required documentation tree exists
+        run: |
+          for f in \
+            docs/build/html/index.html \
+            docs/build/html/getting-started/index.html \
+            docs/build/html/getting-started/installation.html \
+            docs/build/html/language/index.html \
+            docs/build/html/stdlib/index.html \
+            docs/build/html/tools/index.html \
+            docs/build/html/targets/index.html \
+            docs/build/html/targets/compute-targets.html \
+            docs/build/html/compiler/index.html \
+            docs/build/html/status/index.html \
+            docs/build/html/status/scope.html \
+            docs/build/html/reference/index.html \
+            docs/build/html/reference/stable-api.html \
+            docs/build/html/development/index.html \
+            docs/build/html/release-notes.html \
+          ; do
+            if [ ! -f "$f" ]; then
+              echo "Missing required doc page: $f"
+              exit 1
+            fi
+          done
+          echo "Documentation tree OK"
+
       - name: Upload documentation artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/build/html
+
+  linkcheck:
+    # Informational: never gates the deploy (external hosts flake), but a
+    # red linkcheck is a docs bug to fix — the Sphinx linkcheck gate must
+    # stay green per the project QA battery.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install documentation dependencies
+        run: python -m pip install -r docs/requirements.txt
+
+      - name: Check external links
+        run: python -m sphinx -b linkcheck docs/source docs/build/linkcheck -W --keep-going
 
   deploy:
     needs: build

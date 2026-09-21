@@ -262,7 +262,10 @@ jobs:
           cd artifacts
           for f in *; do
             sha256sum "$f"
-          done | tee ../checksums.txt
+          done | tee checksums.txt
+          # checksums.txt stays inside artifacts/ so it is uploaded and
+          # published alongside the archives (installation.rst tells users
+          # to verify against exactly this file).
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -283,7 +286,6 @@ jobs:
             - OpenBSD (amd64)
 
             ### Checksums (SHA-256)
-            ```
-            $(cat checksums.txt)
-            ```
+            Verify every archive against the attached `checksums.txt` before
+            running it (see the installation guide for the exact commands).
           generate_release_notes: true
