@@ -43,6 +43,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"karkain/pkg/codegen"
@@ -52,7 +53,7 @@ import (
 
 // ManifestVersion is the persisted-cache schema version. Bump when the record
 // layout or fingerprint semantics change.
-const ManifestVersion = 1
+const ManifestVersion = 2
 
 // CacheDirName is the cache directory created next to a project root by
 // `karkain build --incremental` and removed by `karkain clean`.
@@ -73,19 +74,23 @@ type ModuleRecord struct {
 	ContentHash   string            `json:"content_hash"`
 	InterfaceHash string            `json:"interface_hash"`
 	DepInterfaces map[string]string `json:"dep_interfaces,omitempty"` // direct deps: file → interface hash snapshot
+	Object        string            `json:"object,omitempty"`         // Phase 134: cached .o file name in the cache dir
 	Status        ModuleStatus      `json:"-"`
 }
 
 // Manifest is the persisted incremental cache.
 type Manifest struct {
-	Version      int             `json:"version"`
-	CompilerKey  string          `json:"compiler_key"`
-	ProjectHash  string          `json:"project_hash"`
-	GeneratedC   string          `json:"generated_c"`
-	Executable   string          `json:"executable"`
-	Modules      []*ModuleRecord `json:"modules"`
-	FirstBuiltAt string          `json:"first_built_at"` // informational only
-	UpdatedAt    string          `json:"updated_at"`     // informational only
+	Version      int               `json:"version"`
+	CompilerKey  string            `json:"compiler_key"`
+	RuntimeKey   string            `json:"runtime_key,omitempty"` // Phase 134: runtime TU + flags identity
+	ProjectHash  string            `json:"project_hash"`
+	GeneratedC   string            `json:"generated_c"`
+	Executable   string            `json:"executable"`
+	RuntimeObj   string            `json:"runtime_obj,omitempty"` // Phase 134: cached runtime.o file name
+	Objects      map[string]string `json:"objects,omitempty"`     // Phase 134: module path → cached .o file name
+	Modules      []*ModuleRecord   `json:"modules"`
+	FirstBuiltAt string            `json:"first_built_at"` // informational only
+	UpdatedAt    string            `json:"updated_at"`     // informational only
 }
 
 // Cache is a content-addressed artifact store rooted at a directory.
@@ -131,14 +136,26 @@ func (c *Cache) ReadArtifact(name string) ([]byte, error) {
 
 // Store persists the manifest and its two artifacts atomically.
 func (c *Cache) Store(m *Manifest, cSrc, exe []byte) error {
+	return c.StoreArtifacts(m, map[string][]byte{m.GeneratedC: cSrc, m.Executable: exe})
+}
+
+// StoreArtifacts persists the manifest and a set of named artifacts
+// atomically: every file lands via temp+rename, and the manifest (which
+// references them) is written last, so a failed build never leaves a
+// manifest pointing at partial outputs.
+func (c *Cache) StoreArtifacts(m *Manifest, files map[string][]byte) error {
 	if err := os.MkdirAll(c.dir, 0o755); err != nil {
 		return err
 	}
-	if err := atomicWrite(filepath.Join(c.dir, m.GeneratedC), cSrc); err != nil {
-		return err
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
 	}
-	if err := atomicWrite(filepath.Join(c.dir, m.Executable), exe); err != nil {
-		return err
+	sort.Strings(names)
+	for _, name := range names {
+		if err := atomicWrite(filepath.Join(c.dir, name), files[name]); err != nil {
+			return err
+		}
 	}
 	return atomicWrite(filepath.Join(c.dir, ManifestName), mustJSON(m))
 }
@@ -402,5 +419,41 @@ func projectHash(files []string, content map[string]string) string {
 	for _, f := range files {
 		fmt.Fprintf(h, "%s\x00%s\x00", f, content[f])
 	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// Phase 134: object file naming for per-module translation units.
+// Sanitized module base plus 8 hex chars of content hash: deterministic,
+// filesystem-safe, and content-keyed so identical sources share objects.
+func ObjectNameFor(path, contentHash string) string {
+	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	var sb strings.Builder
+	for _, r := range base {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			sb.WriteRune(r)
+		} else {
+			sb.WriteByte('_')
+		}
+	}
+	name := sb.String()
+	if name == "" {
+		name = "module"
+	}
+	short := contentHash
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return name + "_" + short + ".o"
+}
+
+// RuntimeKey computes the phase-134 runtime identity: the compiler key plus
+// every flag input that affects runtime codegen (profiling, concurrency,
+// AVX lane requirements) plus the header text itself. Deriving it from the
+// emitted header (rather than a manual version) makes preamble-emission
+// changes self-invalidating: new text can never reuse an old runtime.o.
+func RuntimeKey(compilerKey, headerText string, profiling, usesConcurrency, simdAVX bool) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00prof=%t\x00conc=%t\x00avx=%t\x00", compilerKey, profiling, usesConcurrency, simdAVX)
+	h.Write([]byte(headerText))
 	return hex.EncodeToString(h.Sum(nil))
 }

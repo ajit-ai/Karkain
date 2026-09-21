@@ -314,17 +314,117 @@ func (g *Generator) profID(name string) int {
 	return -1
 }
 
-func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
-	var sb strings.Builder
+// Phase 134: emitFuncBodies writes function definitions for a subset of the
+// program: every FuncDecl when only is nil (monolith path), otherwise only
+// the named functions (one module TU). Nested lambda definitions flush with
+// their enclosing function via the lambdaBuf protocol, so each TU is
+// self-contained for the functions it owns.
+func (g *Generator) emitFuncBodies(sb *strings.Builder, prog *parser.Program, only map[string]bool) {
+	for _, stmt := range prog.Statements {
+		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			if only != nil && !only[fn.Name] {
+				continue
+			}
+			// Phase 53: SSA IR pipeline — lower, optimize, verify, emit.
+			// Falls back to legacy emission on any lowering/verification failure.
+			// Phase 121: closure-bearing functions always use the legacy path so
+			// the deferred closure definitions in lambdaBuf flush correctly.
+			if !g.cfg.DisableSSA && !g.bodyTouchesClosures(fn.Body) {
+				if out, ok2 := g.emitFunctionViaIR(prog, fn); ok2 {
+					sb.WriteString(out)
+					continue
+				}
+			}
+			sb.WriteString(g.genFuncDecl(fn))
+		}
+	}
+}
 
+// Phase 134: emitSharedDecls writes every declaration shared by all
+// translation units: enum/struct types, closure env typedefs + holders,
+// and forward declarations for all user functions and let-bound lambdas.
+// Types and prototypes duplicate harmlessly across TUs (identical text);
+// the maps they populate (enumDecls, localFuncs, closureVars/headers)
+// are idempotent, so calling per module TU is safe.
+func (g *Generator) emitSharedDecls(sb *strings.Builder, prog *parser.Program) {
+	// Phase 45: Generate enum type declarations before functions
+	for _, stmt := range prog.Statements {
+		if enum, ok := stmt.(*parser.EnumDecl); ok {
+			g.enumDecls[enum.Name] = enum
+			sb.WriteString(g.genEnumDecl(enum))
+		}
+	}
+
+	// Phase 50: Generate struct type declarations before functions
+	for _, stmt := range prog.Statements {
+		if st, ok := stmt.(*parser.StructDeclStmt); ok {
+			sb.WriteString(g.genStructDecl(st))
+		}
+	}
+
+	// Phase 121: let-bound lambda (closure) forward declarations. Env typedefs
+	// and holders are emitted up-front so prototypes below can reference them,
+	// keeping closures callable from any top-level function regardless of
+	// definition order.
+	for _, stmt := range prog.Statements {
+		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			for _, lf := range collectLocalFuncs(fn.Body) {
+				g.localFuncs[lf.Name] = true
+				if len(lf.Captures) > 0 && !g.closureHeaders[lf.Name] {
+					g.closureVars[lf.Name] = true
+					g.closureHeaders[lf.Name] = true
+					envT := "ClosureEnv_" + sanitizeC(lf.Name)
+					holder := "_genv_" + sanitizeC(lf.Name)
+					var fields strings.Builder
+					for _, cap := range lf.Captures {
+						fmt.Fprintf(&fields, "\tValue* %s;\n", envCapField(cap))
+					}
+					fmt.Fprintf(sb, "typedef struct {\n%s} %s;\nstatic %s* %s;\n\n", fields.String(), envT, envT, holder)
+				}
+			}
+		}
+	}
+
+	// Phase 40: Generate forward declarations for all functions
+	// This enables cross-file references when multiple .kark files are concatenated
+	for _, stmt := range prog.Statements {
+		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			params := []string{}
+			for _, p := range fn.Params {
+				params = append(params, "Value "+p)
+			}
+			retType := "Value"
+			if fn.Name == "main" {
+				retType = "int"
+				params = []string{"int _karkain_argc", "char** _karkain_argv"}
+			}
+			fmt.Fprintf(sb, "%s %s(%s);\n", retType, userFuncC(fn.Name), strings.Join(params, ", "))
+			// Phase 121: prototypes for the let-bound lambdas in this body so a
+			// call from any earlier function is well-formed.
+			for _, lf := range collectLocalFuncs(fn.Body) {
+				envParams := []string{}
+				for _, p := range lf.Params {
+					envParams = append(envParams, "Value "+p)
+				}
+				if len(lf.Captures) > 0 {
+					envParams = append([]string{"ClosureEnv_" + sanitizeC(lf.Name) + "* _env"}, envParams...)
+				}
+				fmt.Fprintf(sb, "Value %s(%s);\n", userFuncC(lf.Name), strings.Join(envParams, ", "))
+			}
+		}
+	}
+	sb.WriteByte('\n')
+}
+
+// Phase 134: prescanTables runs every whole-program pre-scan that populates
+// generator tables without emitting text: http detection, user-function and
+// bound-name registries, concurrency detection, and the profiling id table.
+// Factoring it out lets per-module emission share one consistent view.
+func (g *Generator) prescanTables(prog *parser.Program) {
 	// Pre-scan: detect http.get calls to conditionally include HTTP runtime
 	g.needsHTTP = false
-	g.sourceFile = strings.Replace(sourceFile, "\\", "/", -1)
 	for _, stmt := range prog.Statements {
 		g.scanNodeForHTTP(stmt)
-	}
-	if g.needsHTTP {
-		sb.WriteString("#define KARKAIN_USE_HTTP\n")
 	}
 	// Pre-scan: collect user-declared function names for deterministic symbol
 	// mangling and user-functions-first builtin shadowing.
@@ -348,6 +448,16 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	}
 	// Phase 110: build the function id table (source order) when profiling.
 	g.initProfiling(prog)
+}
+
+func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
+	var sb strings.Builder
+
+	g.sourceFile = strings.Replace(sourceFile, "\\", "/", -1)
+	g.prescanTables(prog)
+	if g.needsHTTP {
+		sb.WriteString("#define KARKAIN_USE_HTTP\n")
+	}
 
 	// Phase 112: debug execution trace. Emits the trace runtime when
 	// Config.Trace is set. The flag must precede the frame runtime below so
@@ -386,73 +496,8 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		}
 	}
 
-	// Phase 45: Generate enum type declarations before functions
-	for _, stmt := range prog.Statements {
-		if enum, ok := stmt.(*parser.EnumDecl); ok {
-			g.enumDecls[enum.Name] = enum
-			sb.WriteString(g.genEnumDecl(enum))
-		}
-	}
+	g.emitSharedDecls(&sb, prog)
 
-	// Phase 50: Generate struct type declarations before functions
-	for _, stmt := range prog.Statements {
-		if st, ok := stmt.(*parser.StructDeclStmt); ok {
-			sb.WriteString(g.genStructDecl(st))
-		}
-	}
-
-	// Phase 121: let-bound lambda (closure) forward declarations. Env typedefs
-	// and holders are emitted up-front so prototypes below can reference them,
-	// keeping closures callable from any top-level function regardless of
-	// definition order.
-	for _, stmt := range prog.Statements {
-		if fn, ok := stmt.(*parser.FuncDecl); ok {
-			for _, lf := range collectLocalFuncs(fn.Body) {
-				g.localFuncs[lf.Name] = true
-				if len(lf.Captures) > 0 && !g.closureHeaders[lf.Name] {
-					g.closureVars[lf.Name] = true
-					g.closureHeaders[lf.Name] = true
-					envT := "ClosureEnv_" + sanitizeC(lf.Name)
-					holder := "_genv_" + sanitizeC(lf.Name)
-					var fields strings.Builder
-					for _, cap := range lf.Captures {
-						fmt.Fprintf(&fields, "\tValue* %s;\n", envCapField(cap))
-					}
-					fmt.Fprintf(&sb, "typedef struct {\n%s} %s;\nstatic %s* %s;\n\n", fields.String(), envT, envT, holder)
-				}
-			}
-		}
-	}
-
-	// Phase 40: Generate forward declarations for all functions
-	// This enables cross-file references when multiple .kark files are concatenated
-	for _, stmt := range prog.Statements {
-		if fn, ok := stmt.(*parser.FuncDecl); ok {
-			params := []string{}
-			for _, p := range fn.Params {
-				params = append(params, "Value "+p)
-			}
-			retType := "Value"
-			if fn.Name == "main" {
-				retType = "int"
-				params = []string{"int _karkain_argc", "char** _karkain_argv"}
-			}
-			fmt.Fprintf(&sb, "%s %s(%s);\n", retType, userFuncC(fn.Name), strings.Join(params, ", "))
-			// Phase 121: prototypes for the let-bound lambdas in this body so a
-			// call from any earlier function is well-formed.
-			for _, lf := range collectLocalFuncs(fn.Body) {
-				envParams := []string{}
-				for _, p := range lf.Params {
-					envParams = append(envParams, "Value "+p)
-				}
-				if len(lf.Captures) > 0 {
-					envParams = append([]string{"ClosureEnv_" + sanitizeC(lf.Name) + "* _env"}, envParams...)
-				}
-				fmt.Fprintf(&sb, "Value %s(%s);\n", userFuncC(lf.Name), strings.Join(envParams, ", "))
-			}
-		}
-	}
-	sb.WriteByte('\n')
 
 	// Phase 107: per-program concurrency wrappers + Value glue. Emitted after
 	// the forward declarations so the wrappers can call user functions whose
@@ -472,21 +517,7 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	}
 
 	// Generate all function declarations
-	for _, stmt := range prog.Statements {
-		if fn, ok := stmt.(*parser.FuncDecl); ok {
-			// Phase 53: SSA IR pipeline — lower, optimize, verify, emit.
-			// Falls back to legacy emission on any lowering/verification failure.
-			// Phase 121: closure-bearing functions always use the legacy path so
-			// the deferred closure definitions in lambdaBuf flush correctly.
-			if !g.cfg.DisableSSA && !g.bodyTouchesClosures(fn.Body) {
-				if out, ok2 := g.emitFunctionViaIR(prog, fn); ok2 {
-					sb.WriteString(out)
-					continue
-				}
-			}
-			sb.WriteString(g.genFuncDecl(fn))
-		}
-	}
+	g.emitFuncBodies(&sb, prog, nil)
 
 	// Phase 18: Generate GPU kernel declarations and host launchers
 	for _, stmt := range prog.Statements {
