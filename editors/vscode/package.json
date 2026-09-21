@@ -14,6 +14,9 @@
     "Linters"
   ],
   "main": "./extension.js",
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
   "activationEvents": [
     "onLanguage:karkain",
     "onCommand:karkain.check",

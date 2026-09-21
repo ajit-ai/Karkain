@@ -3,6 +3,7 @@ package lsp
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"karkain/pkg/cli"
@@ -49,6 +50,10 @@ func (h *Handler) HandleInitialize(params json.RawMessage) (interface{}, *JSONRP
 			CompletionProvider: &CompletionOptions{
 				TriggerCharacters: []string{".", ":"},
 			},
+			SemanticTokensProvider: &SemanticTokensOptions{
+				Legend: SemanticLegend(),
+				Full:   true,
+			},
 			HoverProvider:          true,
 			DefinitionProvider:     true,
 			DocumentSymbolProvider: true,
@@ -56,7 +61,7 @@ func (h *Handler) HandleInitialize(params json.RawMessage) (interface{}, *JSONRP
 		},
 		ServerInfo: ServerInfo{
 			Name:    "karkain-lsp",
-			Version: "0.18.0",
+			Version: "1.0.0",
 		},
 	}
 	return result, nil
@@ -75,6 +80,8 @@ func (h *Handler) HandleRequest(method string, params json.RawMessage) (interfac
 		return h.handleDocumentSymbol(params)
 	case MethodTextDocumentFormatting:
 		return h.handleFormatting(params)
+	case MethodTextDocumentSemanticFull:
+		return h.handleSemanticTokensFull(params)
 	default:
 		return nil, &JSONRPCError{Code: ErrMethodNotFound, Message: "method not found: " + method}
 	}
@@ -319,27 +326,90 @@ func (h *Handler) handleCompletion(params json.RawMessage) (interface{}, *JSONRP
 		return nil, &JSONRPCError{Code: ErrInvalidParams, Message: "invalid params"}
 	}
 
-	doc := h.server.GetDocument(p.TextDocument.URI)
-	if doc == nil {
-		return CompletionList{IsIncomplete: false, Items: h.allCompletions(nil)}, nil
+	var text string
+	if doc := h.server.GetDocument(p.TextDocument.URI); doc != nil {
+		text = doc.Text
+	}
+	prefix := h.getPrefixAt(text, p.Position)
+
+	// Member position (`qual.`): only member/module names complete here —
+	// keywords and builtins never do.
+	if dot := strings.LastIndex(prefix, "."); dot >= 0 {
+		ctx := h.definitionContext(p.TextDocument.URI, text)
+		return CompletionList{IsIncomplete: false, Items: memberCompletionItems(ctx, prefix[:dot], prefix[dot+1:])}, nil
 	}
 
-	prefix := h.getPrefixAt(doc.Text, p.Position)
+	// User-declared names shadow same-named static entries.
+	shadowed := map[string]bool{}
+	var scoped []CompletionItem
+	if model := h.scopeModelOf(p.TextDocument.URI); model != nil {
+		lower := strings.ToLower(prefix)
+		for _, b := range visibleBindings(model, p.Position.Line, p.Position.Character) {
+			if prefix != "" && !strings.HasPrefix(strings.ToLower(b.Name), lower) {
+				continue
+			}
+			shadowed[b.Name] = true
+			scoped = append(scoped, CompletionItem{
+				Label: b.Name, Kind: completionKindFor(b.Kind),
+				Detail: b.Detail, InsertText: b.Name,
+			})
+		}
+	}
 	items := h.allCompletions(&prefix)
+	var out []CompletionItem
+	for _, it := range items {
+		if !shadowed[it.Label] {
+			out = append(out, it)
+		}
+	}
+	out = append(out, scoped...)
+	if out == nil {
+		out = []CompletionItem{}
+	}
+	return CompletionList{IsIncomplete: false, Items: out}, nil
+}
 
-	// Also add document symbols
-	h.server.mu.Lock()
-	for _, sym := range h.server.symbolIndex[p.TextDocument.URI] {
-		items = append(items, CompletionItem{
-			Label:    sym.Name,
-			Kind:     sym.Kind,
-			Detail:   sym.Detail,
-			InsertText: sym.Name,
+// completionKindFor maps a binding kind onto a completion item kind.
+func completionKindFor(k BindingKind) int {
+	switch k {
+	case BindFunc, BindKernel, BindMacro, BindTensor, BindCoroutine:
+		return CompletionKindFunction
+	case BindVar, BindParam, BindQReg:
+		return CompletionKindVariable
+	case BindStruct:
+		return CompletionKindStruct
+	case BindEnum:
+		return CompletionKindEnum
+	case BindTrait:
+		return CompletionKindInterface
+	case BindActor, BindCircuit:
+		return CompletionKindClass
+	case BindField:
+		return CompletionKindField
+	case BindVariant:
+		return CompletionKindEnumMember
+	case BindMethod:
+		return CompletionKindMethod
+	default:
+		return CompletionKindVariable
+	}
+}
+
+// memberCompletionItems completes after `qual.`: struct fields, enum
+// variants, then module members — all filtered by the member prefix.
+func memberCompletionItems(ctx *DocContext, qual, memPrefix string) []CompletionItem {
+	lower := strings.ToLower(memPrefix)
+	out := []CompletionItem{}
+	for _, b := range ModuleMembers(ctx, qual) {
+		if memPrefix != "" && !strings.HasPrefix(strings.ToLower(b.Name), lower) {
+			continue
+		}
+		out = append(out, CompletionItem{
+			Label: b.Name, Kind: completionKindFor(b.Kind),
+			Detail: b.Detail, InsertText: b.Name,
 		})
 	}
-	h.server.mu.Unlock()
-
-	return CompletionList{IsIncomplete: false, Items: items}, nil
+	return out
 }
 
 func (h *Handler) allCompletions(prefix *string) []CompletionItem {
@@ -391,47 +461,47 @@ func (h *Handler) getPrefixAt(text string, pos Position) string {
 // ------------------------------------------------------------
 
 var hoverDocs = map[string]string{
-	"func":      "```karkain\nfunc name(param: Type) -> ReturnType { ... }\n```\nDeclare a named function with parameters and return type.",
-	"let":       "```karkain\nlet name = value\n```\nCreate an immutable value binding.",
-	"var":       "```karkain\nvar name = value\n```\nDeclare a mutable variable.",
-	"return":    "```karkain\nreturn value\n```\nReturn a value from the current function.",
-	"if":        "```karkain\nif condition { ... } else { ... }\n```\nConditional branching.",
-	"while":     "```karkain\nwhile condition { body }\n```\nLoop while a condition is true.",
-	"for":       "```karkain\nfor (init; condition; post) { body }\n```\nC-style for loop.",
-	"kernel":    "```karkain\nkernel name(param: Type) { global_id(0); ... }\n```\nGPU compute kernel function.",
-	"circuit":   "```karkain\ncircuit name(q: Qubit[N]) -> Bit[N] { qpu.h(q[0]); ... }\n```\nQuantum circuit declaration.",
-	"tensor":    "```karkain\ntensor name(x: Tensor<f32, [B, D]>) -> Tensor<f32, [B, D]> { ... }\n```\nTensor computation block with autograd.",
-	"actor":     "```karkain\nactor Name { handler msg_type(param: Type) { ... } }\n```\nActor declaration with message handlers.",
-	"struct":    "```karkain\ntype Name {\n  field: Type\n}\n```\nStruct type declaration.",
-	"trait":     "```karkain\ntrait Name {\n  fn method(self, arg: Type) -> ReturnType\n}\n```\nTrait (interface) declaration.",
-	"impl":      "```karkain\nimpl TraitName for TypeName { ... }\n```\nImplement a trait for a concrete type.",
-	"spawn":     "```karkain\nlet ref = spawn ActorName()\n```\nSpawn a new actor instance.",
-	"send":      "```karkain\nactor_ref ! message\n```\nSend an asynchronous message to an actor.",
-	"receive":   "```karkain\nreceive from actor_ref { ... }\n```\nReceive a message from an actor.",
-	"import":    "```karkain\nimport {\n  #include <stdio.h>\n}\n```\nImport C code for native interop.",
-	"alloc":     "```karkain\nlet ptr = alloc Type[count]\n```\nAllocate heap memory for an array.",
-	"free":      "```karkain\nfree ptr\n```\nFree previously allocated memory.",
-	"qreg":      "```karkain\nqreg q = 2\n```\nAllocate a quantum register with N qubits.",
-	"gate":      "```karkain\ngate H(q[0])\ngate CNOT(q[0], q[1])\n```\nApply a quantum gate to qubits.",
-	"measure":   "```karkain\nlet result = measure q[0]\n```\nMeasure a qubit, collapsing superposition.",
-	"matrix":    "```karkain\nmatrix M = 3 x 4 of float64\n```\nAllocate a 2D matrix.",
-	"async":     "```karkain\nasync {\n  let result = await future\n}\n```\nAsynchronous computation block.",
-	"await":     "```karkain\nlet value = await async_future\n```\nWait for an asynchronous result.",
-	"yield":     "```karkain\nyield value\n```\nYield a value from a coroutine/generator.",
-	"co":        "```karkain\nco generator() {\n  yield 1\n  yield 2\n}\n```\nDeclare a coroutine (generator or async function).",
-	"gospawn":   "```karkain\ngospawn heavy_computation(args)\n```\nSpawn a lightweight green thread.",
-	"select":    "```karkain\nselect {\n  case v = <-ch1: handle(v)\n  case ch2 <- val: sent()\n  default: idle()\n}\n```\nMultiplex over multiple channel operations.",
-	"chan":      "```karkain\nlet ch = chan<int>(10)\n```\nCreate a typed channel with optional buffer size.",
+	"func":          "```karkain\nfunc name(param: Type) -> ReturnType { ... }\n```\nDeclare a named function with parameters and return type.",
+	"let":           "```karkain\nlet name = value\n```\nCreate an immutable value binding.",
+	"var":           "```karkain\nvar name = value\n```\nDeclare a mutable variable.",
+	"return":        "```karkain\nreturn value\n```\nReturn a value from the current function.",
+	"if":            "```karkain\nif condition { ... } else { ... }\n```\nConditional branching.",
+	"while":         "```karkain\nwhile condition { body }\n```\nLoop while a condition is true.",
+	"for":           "```karkain\nfor (init; condition; post) { body }\n```\nC-style for loop.",
+	"kernel":        "```karkain\nkernel name(param: Type) { global_id(0); ... }\n```\nGPU compute kernel function.",
+	"circuit":       "```karkain\ncircuit name(q: Qubit[N]) -> Bit[N] { qpu.h(q[0]); ... }\n```\nQuantum circuit declaration.",
+	"tensor":        "```karkain\ntensor name(x: Tensor<f32, [B, D]>) -> Tensor<f32, [B, D]> { ... }\n```\nTensor computation block with autograd.",
+	"actor":         "```karkain\nactor Name { handler msg_type(param: Type) { ... } }\n```\nActor declaration with message handlers.",
+	"struct":        "```karkain\ntype Name {\n  field: Type\n}\n```\nStruct type declaration.",
+	"trait":         "```karkain\ntrait Name {\n  fn method(self, arg: Type) -> ReturnType\n}\n```\nTrait (interface) declaration.",
+	"impl":          "```karkain\nimpl TraitName for TypeName { ... }\n```\nImplement a trait for a concrete type.",
+	"spawn":         "```karkain\nlet ref = spawn ActorName()\n```\nSpawn a new actor instance.",
+	"send":          "```karkain\nactor_ref ! message\n```\nSend an asynchronous message to an actor.",
+	"receive":       "```karkain\nreceive from actor_ref { ... }\n```\nReceive a message from an actor.",
+	"import":        "```karkain\nimport {\n  #include <stdio.h>\n}\n```\nImport C code for native interop.",
+	"alloc":         "```karkain\nlet ptr = alloc Type[count]\n```\nAllocate heap memory for an array.",
+	"free":          "```karkain\nfree ptr\n```\nFree previously allocated memory.",
+	"qreg":          "```karkain\nqreg q = 2\n```\nAllocate a quantum register with N qubits.",
+	"gate":          "```karkain\ngate H(q[0])\ngate CNOT(q[0], q[1])\n```\nApply a quantum gate to qubits.",
+	"measure":       "```karkain\nlet result = measure q[0]\n```\nMeasure a qubit, collapsing superposition.",
+	"matrix":        "```karkain\nmatrix M = 3 x 4 of float64\n```\nAllocate a 2D matrix.",
+	"async":         "```karkain\nasync {\n  let result = await future\n}\n```\nAsynchronous computation block.",
+	"await":         "```karkain\nlet value = await async_future\n```\nWait for an asynchronous result.",
+	"yield":         "```karkain\nyield value\n```\nYield a value from a coroutine/generator.",
+	"co":            "```karkain\nco generator() {\n  yield 1\n  yield 2\n}\n```\nDeclare a coroutine (generator or async function).",
+	"gospawn":       "```karkain\ngospawn heavy_computation(args)\n```\nSpawn a lightweight green thread.",
+	"select":        "```karkain\nselect {\n  case v = <-ch1: handle(v)\n  case ch2 <- val: sent()\n  default: idle()\n}\n```\nMultiplex over multiple channel operations.",
+	"chan":          "```karkain\nlet ch = chan<int>(10)\n```\nCreate a typed channel with optional buffer size.",
 	"ops.matmul":    "```karkain\nops.matmul(A, B)\n```\nMatrix multiplication of two tensors.",
 	"ops.relu":      "```karkain\nops.relu(tensor)\n```\nRectified Linear Unit: max(0, x).",
 	"ops.softmax":   "```karkain\nops.softmax(tensor)\n```\nSoftmax normalization across a dimension.",
 	"ops.conv2d":    "```karkain\nops.conv2d(input, kernel)\n```\n2D convolution operation.",
 	"ops.transpose": "```karkain\nops.transpose(tensor)\n```\nTranspose a tensor.",
 	"ops.gradient":  "```karkain\nops.gradient(tensor)\n```\nCompute autograd gradient.",
-	"qpu.h":     "```karkain\nqpu.h(q[0])\n```\nHadamard gate — creates superposition.",
-	"qpu.x":     "```karkain\nqpu.x(q[0])\n```\nPauli-X gate — quantum NOT.",
-	"qpu.cx":    "```karkain\nqpu.cx(q[0], q[1])\n```\nControlled-NOT — entangling gate.",
-	"qpu.measure":"```karkain\nqpu.measure(q[0])\n```\nMeasure qubit in computational basis.",
+	"qpu.h":         "```karkain\nqpu.h(q[0])\n```\nHadamard gate — creates superposition.",
+	"qpu.x":         "```karkain\nqpu.x(q[0])\n```\nPauli-X gate — quantum NOT.",
+	"qpu.cx":        "```karkain\nqpu.cx(q[0], q[1])\n```\nControlled-NOT — entangling gate.",
+	"qpu.measure":   "```karkain\nqpu.measure(q[0])\n```\nMeasure qubit in computational basis.",
 }
 
 func (h *Handler) handleHover(params json.RawMessage) (interface{}, *JSONRPCError) {
@@ -458,21 +528,10 @@ func (h *Handler) handleHover(params json.RawMessage) (interface{}, *JSONRPCErro
 		}, nil
 	}
 
-	// Check symbol index
-	h.server.mu.Lock()
-	syms := h.server.symbolIndex[p.TextDocument.URI]
-	h.server.mu.Unlock()
-
-	for _, sym := range syms {
-		if sym.Name == word {
-			detail := sym.Detail
-			if detail == "" {
-				detail = fmt.Sprintf("Symbol: %s", sym.Name)
-			}
-			return HoverResult{
-				Contents: MarkupContent{Kind: MarkupMarkdown, Value: "```karkain\n" + detail + "\n```"},
-				Range:    sym.Range,
-			}, nil
+	// Resolve against the scope model: locals, params, declarations, members.
+	if model := h.scopeModelOf(p.TextDocument.URI); model != nil {
+		if b := ResolveAt(model, doc.Text, p.TextDocument.URI, p.Position.Line, p.Position.Character); b != nil {
+			return hoverForBinding(b), nil
 		}
 	}
 
@@ -487,6 +546,58 @@ func (h *Handler) handleHover(params json.RawMessage) (interface{}, *JSONRPCErro
 	}
 
 	return nil, nil
+}
+
+// hoverKindCaption names the binding kind for hover display.
+func hoverKindCaption(k BindingKind) string {
+	switch k {
+	case BindFunc:
+		return "Function"
+	case BindVar:
+		return "Variable"
+	case BindParam:
+		return "Parameter"
+	case BindStruct:
+		return "Struct"
+	case BindField:
+		return "Field"
+	case BindEnum:
+		return "Enum"
+	case BindVariant:
+		return "Enum variant"
+	case BindKernel:
+		return "Kernel"
+	case BindActor:
+		return "Actor"
+	case BindMethod:
+		return "Handler"
+	case BindTrait:
+		return "Trait"
+	case BindMacro:
+		return "Macro"
+	case BindCircuit:
+		return "Circuit"
+	case BindTensor:
+		return "Tensor"
+	case BindCoroutine:
+		return "Coroutine"
+	case BindQReg:
+		return "Qubit register"
+	default:
+		return "Declaration"
+	}
+}
+
+// hoverForBinding renders a resolved binding with its true declaration span.
+func hoverForBinding(b *Binding) HoverResult {
+	value := "```karkain\n" + b.Detail + "\n```\n" + hoverKindCaption(b.Kind)
+	return HoverResult{
+		Contents: MarkupContent{Kind: MarkupMarkdown, Value: value},
+		Range: Range{
+			Start: Position{Line: b.Line, Character: b.Col},
+			End:   Position{Line: b.Line, Character: b.EndCol},
+		},
+	}
 }
 
 func (h *Handler) getWordAt(text string, pos Position) string {
@@ -564,34 +675,14 @@ func (h *Handler) handleDefinition(params json.RawMessage) (interface{}, *JSONRP
 		return nil, nil
 	}
 
-	// Search all document symbols for the definition
-	h.server.mu.Lock()
-	defer h.server.mu.Unlock()
-
-	// Check current document first
-	if syms, ok := h.server.symbolIndex[p.TextDocument.URI]; ok {
-		for _, sym := range syms {
-			if sym.Name == word {
-				return Location{
-					URI:   p.TextDocument.URI,
-					Range: sym.Range,
-				}, nil
-			}
-		}
+	// Resolve against the scope model: the innermost visible binding wins,
+	// so shadowed names jump to the shadowing declaration. Dotted names
+	// fall back to cross-module files in deterministic order. Keywords and
+	// unknown names yield null.
+	ctx := h.definitionContext(p.TextDocument.URI, doc.Text)
+	if loc := ResolveDefinition(ctx, p.Position.Line, p.Position.Character); loc != nil {
+		return *loc, nil
 	}
-
-	// Search all other documents
-	for uri, syms := range h.server.symbolIndex {
-		for _, sym := range syms {
-			if sym.Name == word {
-				return Location{
-					URI:   uri,
-					Range: sym.Range,
-				}, nil
-			}
-		}
-	}
-
 	return nil, nil
 }
 
@@ -643,6 +734,30 @@ func (h *Handler) handleDocumentSymbol(params json.RawMessage) (interface{}, *JS
 }
 
 // ------------------------------------------------------------
+// Semantic Tokens (Phase 136, Slice A)
+// ------------------------------------------------------------
+
+// handleSemanticTokensFull classifies the current document text through the
+// lexer-driven encoder. It never fails on input content: even lexically
+// broken text yields a well-formed (possibly sparse) stream.
+func (h *Handler) handleSemanticTokensFull(params json.RawMessage) (interface{}, *JSONRPCError) {
+	var p SemanticTokensParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, &JSONRPCError{Code: ErrInvalidParams, Message: "invalid params"}
+	}
+
+	text := ""
+	if doc := h.server.GetDocument(p.TextDocument.URI); doc != nil {
+		text = doc.Text
+	}
+	data := EncodeSemanticTokens(text)
+	if data == nil {
+		data = []uint32{}
+	}
+	return SemanticTokensResult{Data: data}, nil
+}
+
+// ------------------------------------------------------------
 // Symbol Index Builder
 // ------------------------------------------------------------
 
@@ -656,24 +771,90 @@ func (h *Server) parseAndIndex(uri, text string) {
 
 func (s *Server) parseAndIndexWith(uri, text string, prog *parser.Program) {
 	h := s.handler
-	symbols := h.extractSymbols(uri, prog)
+	symbols := h.extractSymbols(uri, text, prog)
+	model := BuildScopeModel(prog, text)
 
 	s.mu.Lock()
 	s.symbolIndex[uri] = symbols
+	s.models[uri] = model
 	s.mu.Unlock()
 }
 
-func (h *Handler) buildSymbolIndex(uri string, prog *parser.Program) {
-	symbols := h.extractSymbols(uri, prog)
+// scopeModelOf returns the cached scope model for a document, or nil.
+func (h *Handler) scopeModelOf(uri string) *ScopeModel {
 	h.server.mu.Lock()
-	h.server.symbolIndex[uri] = symbols
-	h.server.mu.Unlock()
+	defer h.server.mu.Unlock()
+	return h.server.models[uri]
 }
 
-func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry {
+// definitionContext assembles the cross-module resolution context for a
+// document: its cached model and imports plus every other open document
+// (sorted by URI for determinism).
+func (h *Handler) definitionContext(uri, text string) *DocContext {
+	var model *ScopeModel
+	var imports []string
+	if m := h.scopeModelOf(uri); m != nil {
+		model = m
+		imports = m.Imports
+	}
+	h.server.mu.Lock()
+	uris := make([]string, 0, len(h.server.models))
+	for u := range h.server.models {
+		if u != uri {
+			uris = append(uris, u)
+		}
+	}
+	sort.Strings(uris)
+	open := make([]OpenDoc, 0, len(uris))
+	for _, u := range uris {
+		d := OpenDoc{URI: u, Model: h.server.models[u]}
+		if doc2 := h.server.documents[u]; doc2 != nil {
+			d.Text = doc2.Text
+		}
+		open = append(open, d)
+	}
+	h.server.mu.Unlock()
+	return &DocContext{URI: uri, Text: text, Model: model, Imports: imports, OpenDocs: open}
+}
+
+// declRange builds the true name range of a declaration headed by keyword
+// (e.g. `type Point`): the 0-based line from the node's 1-based Line and
+// the name column located after the keyword. Phase 136: replaces the old
+// line-0 placeholder ranges so definition jumps and hover ranges land on
+// the declared name.
+func declRange(lines []string, line1 int, keyword, name string) Range {
+	line0 := line1 - 1
+	if line0 < 0 {
+		line0 = 0
+	}
+	lb := ""
+	if line0 < len(lines) {
+		lb = lines[line0]
+	}
+	bc := colAfterKeyword(lb, keyword, name)
+	if bc < 0 {
+		bc = 0
+	}
+	c, e := nameSpan(lines, line0, bc, bc+len(name))
+	return Range{Start: Position{Line: line0, Character: c}, End: Position{Line: line0, Character: e}}
+}
+
+// nativeRange builds the name range of a declaration carrying its own
+// Phase-83 name span (0-based byte columns).
+func nativeRange(lines []string, line1, col, endCol int) Range {
+	line0 := line1 - 1
+	if line0 < 0 {
+		line0 = 0
+	}
+	c, e := nameSpan(lines, line0, col, endCol)
+	return Range{Start: Position{Line: line0, Character: c}, End: Position{Line: line0, Character: e}}
+}
+
+func (h *Handler) extractSymbols(uri, text string, prog *parser.Program) []SymbolEntry {
 	if prog == nil {
 		return nil
 	}
+	lines := strings.Split(text, "\n")
 
 	var symbols []SymbolEntry
 
@@ -683,7 +864,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindFunction,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  nativeRange(lines, n.Line, n.Col, n.EndCol),
 				Detail: formatFuncDecl(n),
 				URI:    uri,
 			})
@@ -691,15 +872,16 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindClass,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  declRange(lines, n.Line, "actor", n.Name),
 				Detail: fmt.Sprintf("actor %s", n.Name),
 				URI:    uri,
 			})
 			for _, handler := range n.Handlers {
+				hl, hc := findVariantPos(lines, n.Line-1, handler.MessageType)
 				symbols = append(symbols, SymbolEntry{
 					Name:   handler.MessageType,
 					Kind:   SymbolKindMethod,
-					Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(handler.MessageType)}},
+					Range:  nativeRange(lines, hl+1, hc, hc+len(handler.MessageType)),
 					Detail: fmt.Sprintf("handler %s(%s: %s)", handler.MessageType, handler.ParamName, handler.ParamType),
 					Parent: n.Name,
 					URI:    uri,
@@ -709,7 +891,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindFunction,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  declRange(lines, n.Line, "kernel", n.Name),
 				Detail: formatKernelDecl(n),
 				URI:    uri,
 			})
@@ -717,16 +899,40 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindStruct,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  declRange(lines, n.Line, "type", n.Name),
 				Detail: formatStructDecl(n),
 				URI:    uri,
 			})
 			for _, field := range n.Fields {
+				fl, fc := findVariantPos(lines, n.Line-1, field.Name)
 				symbols = append(symbols, SymbolEntry{
 					Name:   field.Name,
 					Kind:   SymbolKindField,
-					Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(field.Name)}},
+					Range:  nativeRange(lines, fl+1, fc, fc+len(field.Name)),
 					Detail: fmt.Sprintf("%s: %s", field.Name, field.Type),
+					Parent: n.Name,
+					URI:    uri,
+				})
+			}
+		case *parser.EnumDecl:
+			symbols = append(symbols, SymbolEntry{
+				Name:   n.Name,
+				Kind:   SymbolKindEnum,
+				Range:  declRange(lines, n.Line, "enum", n.Name),
+				Detail: fmt.Sprintf("enum %s", n.Name),
+				URI:    uri,
+			})
+			for _, variant := range n.Variants {
+				vl, vc := findVariantPos(lines, n.Line-1, variant.Name)
+				detail := fmt.Sprintf("%s.%s", n.Name, variant.Name)
+				if variant.Payload != "" {
+					detail += "(" + variant.Payload + ")"
+				}
+				symbols = append(symbols, SymbolEntry{
+					Name:   variant.Name,
+					Kind:   SymbolKindEnumMember,
+					Range:  nativeRange(lines, vl+1, vc, vc+len(variant.Name)),
+					Detail: detail,
 					Parent: n.Name,
 					URI:    uri,
 				})
@@ -735,7 +941,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindInterface,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  declRange(lines, n.Line, "trait", n.Name),
 				Detail: fmt.Sprintf("trait %s", n.Name),
 				URI:    uri,
 			})
@@ -743,7 +949,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   fmt.Sprintf("%s for %s", n.TraitName, n.ForType),
 				Kind:   SymbolKindClass,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.TraitName)}},
+				Range:  declRange(lines, n.Line, "impl", n.TraitName),
 				Detail: fmt.Sprintf("impl %s for %s", n.TraitName, n.ForType),
 				URI:    uri,
 			})
@@ -751,7 +957,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindEvent,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  declRange(lines, n.Line, "macro", n.Name),
 				Detail: fmt.Sprintf("macro %s", n.Name),
 				URI:    uri,
 			})
@@ -759,7 +965,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindClass,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  declRange(lines, n.Line, "circuit", n.Name),
 				Detail: formatCircuitDecl(n),
 				URI:    uri,
 			})
@@ -767,7 +973,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindFunction,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  declRange(lines, n.Line, "tensor", n.Name),
 				Detail: fmt.Sprintf("tensor %s", n.Name),
 				URI:    uri,
 			})
@@ -775,7 +981,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindFunction,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  declRange(lines, n.Line, "co", n.Name),
 				Detail: formatCoroutineDecl(n),
 				URI:    uri,
 			})
@@ -783,7 +989,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindVariable,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  nativeRange(lines, n.Line, n.Col, n.EndCol),
 				Detail: fmt.Sprintf("var %s", n.Name),
 				URI:    uri,
 			})
@@ -791,7 +997,7 @@ func (h *Handler) extractSymbols(uri string, prog *parser.Program) []SymbolEntry
 			symbols = append(symbols, SymbolEntry{
 				Name:   n.Name,
 				Kind:   SymbolKindVariable,
-				Range:  Range{Start: Position{Line: 0, Character: 0}, End: Position{Line: 0, Character: len(n.Name)}},
+				Range:  declRange(lines, n.Line, "qreg", n.Name),
 				Detail: fmt.Sprintf("qreg %s", n.Name),
 				URI:    uri,
 			})
@@ -860,7 +1066,7 @@ type DocumentFormattingParams struct {
 		URI string `json:"uri"`
 	} `json:"textDocument"`
 	Options struct {
-		TabSize    int  `json:"tabSize"`
+		TabSize      int  `json:"tabSize"`
 		InsertSpaces bool `json:"insertSpaces"`
 	} `json:"options"`
 }
