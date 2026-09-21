@@ -129,6 +129,9 @@ jobs:
       - name: Run Phase 132 stdlib-freeze gate
         run: go test ./pkg/cli/ -run 'TestPhase132' -count=1
 
+      - name: Run Phase 133 first-class-fn gate
+        run: go test ./pkg/cli/ -run 'TestPhase133|TestPhase130' -count=1
+
       - name: Run conformance tests
         run: |
           echo "Karkain-native conformance corpus:"
