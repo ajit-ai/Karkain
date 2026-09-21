@@ -429,6 +429,27 @@ precisely (`@deprecated` attribute honestly stays Planned, not claimed);
 corpus 59→60 pinned (`03_mlp_forward` dead undefined call removed, golden
 `0/0/0/0/1/3` both engines). Gate `pkg/cli/phase132_stdlib_freeze_test.go`
 6/6 PASS 92.7s. Report: `docs/audit/PHASE-132-STDLIB-FREEZE-FINAL-REPORT.md`.)
+Also completed: **133 — First-Class `fn` Values** (verdict **COMPLETE**;
+GA-2 owner-priority track. Closures flow (params, arrays, returns) and invoke
+through values, byte-identical on both engines. New `IndirectCallExpr` (Go) /
+node 96 `IndirectCall` (kcc); `TYPE_FUNC` cells `{canonical wrapper, heap
+env}` + `karkain_call_fn` dispatch (non-function/arity → file:line runtime
+errors); per-binding heap envs + cell dispatch for direct calls (except
+self-reference) so rebinding/recursion stay correct (countdown golden `300`);
+captures stay by-ref, and returning a capturing closure is rejected at check
+(Go `error[K002]` / kcc `error[K114]`, exit 3). Corpus `examples/closures/
+02_higher_order` (`11/22/6`), `03_array_call` (`15/10/20`), `04_factory`
+(`101/102/21/21/21`), `05_recursion` (`300`). Root-caused along the way:
+kcc node-id 39 collision, checker UAF segfault (alias-then-realloc-then-
+restore), dead `"Binary"`/`"Unary"` tag strings (incl. a struct-field K102
+cascade), wrapper use-before-def, prescan misses. Gates: new `pkg/cli/
+phase133_closures_test.go` 6/6 (Go+kcc goldens live, check-clean, escape
+rejection, pure factory, runtime negatives); Phase 130 boundaries retired to
+promotion guards; K114 in `explain`; KIR pin 6910→7416. Full regression
+green: every `pkg/...` suite, all CLI phase gates, conformance 59/59,
+probes, `go vet`, `go build`. `func(T) R`, capture snapshots, WASM
+indirect calls stay Planned. Report: `docs/audit/
+PHASE-133-FIRSTCLASS-FN-FINAL-REPORT.md`.)
 
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,

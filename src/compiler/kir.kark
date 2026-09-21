@@ -214,6 +214,17 @@ func kirExpr(node) {
         }
         return s + ")"
     }
+    // Phase 133: computed callee renders with its target expression first.
+    if (t == "IndirectCall") {
+        let s = "(indirect-call " + kirExpr(indirectTarget(node))
+        let args = indirectArgs(node)
+        let i = 0
+        while (i < len(args)) {
+            s = s + " " + kirExpr(args[i])
+            i = i + 1
+        }
+        return s + ")"
+    }
     if (t == "Index") {
         return "(index " + kirExpr(indexLeft(node)) + " " + kirExpr(indexExpr(node)) + ")"
     }

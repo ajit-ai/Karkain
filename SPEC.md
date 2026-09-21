@@ -229,13 +229,32 @@ both engines (pinned by `examples/closures/00_capture_mutation.kark`, golden
 `1/2/2/3/3`; nested in `examples/closures/01_nested.kark`, golden `32/28`),
 alongside `examples/01-fundamentals/15_closures.kark`.
 
-Documented boundaries (Phase 130, both engines, NOT defects — closures desugar
-to plain functions with no first-class Value cell). First-class function
-values are not yet supported: a call through an expression (`ops[0](5)`) is a
-parse error (K001), no `func(T) R` type syntax, and a closure VARIABLE cannot
-be free-captured by another closure (`let g = fn... { ... f(...) }` passes
-check but fails at C compile — identically on both engines). Free-variable
-capture of plain variables works.
+First-class function values (Phase 133, both engines byte-identical):
+closures are `TYPE_FUNC` Value cells `{canonical wrapper, heap env}`.
+A call through any computed callee (`ops[0](5)`, `get_fn()(1)`) dispatches
+through the cell; a call through a local name holding a cell dispatches too
+(the `fn` annotation is accepted but not required). Calling a non-function
+value or passing the wrong arity is a file:line runtime error (exit 1).
+Captures stay by-ref with per-binding heap envs, so rebinding and recursion
+observe the current frame (pinned by `examples/closures/04_factory.kark`
+and `05_recursion.kark`, goldens `101/102/21/21/21` and `300`).
+Higher-order parameters (`func apply_twice(g fn, v int)`), aliases
+(`let h fn = inc`), and pure factories (`func mk() fn`) all run identically
+on both engines (`02_higher_order.kark` golden `11/22/6`).
+
+Documented boundaries (both engines, NOT defects). Returning a closure that
+captures function-local state is rejected at check (Go `error[K002]` / kcc
+`error[K114]`, exit 3): captures are by-ref into the dying frame, so the
+value would dangle — only non-capturing closures may return. A closure VARIABLE free-captured by another closure resolves through the
+env (pointer to the binding's cell), so reassignment IS observed through
+the capturing closure (verified: reassigning `apply` flows into `twice`).
+No `func(T) R` type syntax (bare `fn` suffices; arity is enforced at
+runtime). Loop-body bindings share one C slot across iterations, so
+closures created in a loop observe the last iteration's values after the
+loop. `func(T) R` signatures, capture snapshots, and WASM indirect calls
+(`error[K108]`) remain Planned. Do not run probes from a directory
+littered with other `.kark` files: sibling-join assembles them into one
+unit (pre-existing CLI behavior, not a language rule).
 
 ---
 

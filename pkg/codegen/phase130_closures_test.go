@@ -45,8 +45,15 @@ func main() {
 		"counter = binary_op(counter, \"+\", make_int(1));",
 		"#undef counter",
 		// Binding site: env field holds the enclosing variable's address.
-		"{ static ClosureEnv_bump _e; _e.karkain_cap_counter = &counter; _genv_bump = &_e; }",
-		"karkain_user_bump(_genv_bump)",
+		// Phase 133: the env is heap-allocated per binding (not a shared
+		// static) so escaping cells keep their own captures; the binding
+		// additionally declares the first-class Value cell.
+		"_e_bump->karkain_cap_counter = &counter; _genv_bump = _e_bump;",
+		"Value bump = make_fn(karkain_fncall_bump, _e_bump);",
+		// Phase 133: direct calls dispatch through the binding's cell
+		// (recursion-safe); the static holder form below is kept only
+		// for self-reference inside the lambda's own body.
+		"karkain_call_fn(bump, 0, NULL",
 	} {
 		if !strings.Contains(generated, marker) {
 			t.Errorf("generated C missing %q", marker)
@@ -80,8 +87,10 @@ func main() {
 		"#define log (*_env->karkain_cap_log)",
 		"log = binary_op(log, \"+\", make_int(1));",
 		// inner binding inside outer: log is an outer CAPTURE (pointer copy).
-		"{ static ClosureEnv_inner _e; _e.karkain_cap_log = _env->karkain_cap_log; _genv_inner = &_e; }",
-		"karkain_user_inner(_genv_inner)",
+		// Phase 133: heap env + first-class cell (see above).
+		"_e_inner->karkain_cap_log = _env->karkain_cap_log; _genv_inner = _e_inner;",
+		"Value inner = make_fn(karkain_fncall_inner, _e_inner);",
+		"karkain_call_fn(inner, 0, NULL",
 	} {
 		if !strings.Contains(generated, marker) {
 			t.Errorf("generated C missing %q", marker)

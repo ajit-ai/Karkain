@@ -207,6 +207,8 @@ func (me *MacroExpander) ExpandNode(node parser.Node) (parser.Node, error) {
 		return me.expandBinaryExpr(n)
 	case *parser.CallExpr:
 		return me.expandCallExpr(n)
+	case *parser.IndirectCallExpr:
+		return me.expandIndirectCallExpr(n)
 	default:
 		return node, nil
 	}
@@ -625,6 +627,13 @@ func SubstituteTemplate(node parser.Node, vars map[string]parser.Node, expander 
 			args[i] = SubstituteTemplate(arg, vars, expander)
 		}
 return &parser.CallExpr{Function: n.Function, Module: n.Module, Args: args, IsCFunc: n.IsCFunc}
+	case *parser.IndirectCallExpr:
+		// Phase 133: substitute inside computed callees and arguments.
+		iargs := make([]parser.Node, len(n.Args))
+		for i, arg := range n.Args {
+			iargs[i] = SubstituteTemplate(arg, vars, expander)
+		}
+		return &parser.IndirectCallExpr{Target: SubstituteTemplate(n.Target, vars, expander), Args: iargs, Line: n.Line, Col: n.Col, EndCol: n.EndCol}
 	case *parser.VarDeclStmt:
 		return &parser.VarDeclStmt{
 			Name:  n.Name,
@@ -931,6 +940,23 @@ func (me *MacroExpander) expandCallExpr(n *parser.CallExpr) (parser.Node, error)
 		args[i] = expanded
 	}
 	return &parser.CallExpr{Function: n.Function, Module: n.Module, Args: args, IsCFunc: n.IsCFunc}, nil
+}
+
+// Phase 133: expand computed callees and arguments of indirect calls.
+func (me *MacroExpander) expandIndirectCallExpr(n *parser.IndirectCallExpr) (parser.Node, error) {
+	target, err := me.ExpandNode(n.Target)
+	if err != nil {
+		return nil, err
+	}
+	args := make([]parser.Node, len(n.Args))
+	for i, arg := range n.Args {
+		expanded, err := me.ExpandNode(arg)
+		if err != nil {
+			return nil, err
+		}
+		args[i] = expanded
+	}
+	return &parser.IndirectCallExpr{Target: target, Args: args, Line: n.Line, Col: n.Col, EndCol: n.EndCol}, nil
 }
 
 func (me *MacroExpander) expandFuncDecl(n *parser.FuncDecl) (parser.Node, error) {

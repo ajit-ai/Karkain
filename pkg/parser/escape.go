@@ -99,6 +99,12 @@ func scanExprForEscapes(expr Node, escaping map[string]bool) {
 		for _, arg := range e.Args {
 			collectIdentifiers(arg, escaping)
 		}
+	case *IndirectCallExpr:
+		// Phase 133: the callee value escapes through the call.
+		collectIdentifiers(e.Target, escaping)
+		for _, arg := range e.Args {
+			collectIdentifiers(arg, escaping)
+		}
 	case *LambdaExpr:
 		for _, bodyStmt := range e.Body {
 			scanStmtForEscapes(bodyStmt, escaping)
@@ -141,6 +147,12 @@ func collectIdentifiers(expr Node, ids map[string]bool) {
 	case *UnaryExpr:
 		collectIdentifiers(e.Operand, ids)
 	case *CallExpr:
+		for _, arg := range e.Args {
+			collectIdentifiers(arg, ids)
+		}
+	case *IndirectCallExpr:
+		// Phase 133: identifiers flow through computed callees too.
+		collectIdentifiers(e.Target, ids)
 		for _, arg := range e.Args {
 			collectIdentifiers(arg, ids)
 		}

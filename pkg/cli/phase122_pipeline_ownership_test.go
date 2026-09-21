@@ -64,18 +64,21 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 	t.Run("KIRContinuity", func(t *testing.T) {
 		// Phase 121's whole-tree KIR invariant must survive the pipeline
 		// change: the assembled compiler tree (sibling join) still emits and
-		// verifies exactly 6910 KIR lines. NOTE: the count grew from the
+		// verifies exactly 7416 KIR lines. NOTE: the count grew from the
 		// Phase 122 baseline 6399 to 6645 (Phase 123's enum-ADT commit
-		// extended the compiler sources) and then to 6910 (Phase 125A's
-		// socket runtime + net builtins extended codegen/sema/checker); the
-		// pin is refreshed to the validated current value.
+		// extended the compiler sources), then to 6910 (Phase 125A's
+		// socket runtime + net builtins extended codegen/sema/checker),
+		// and now to 7416 (Phase 133's first-class fn surface extended
+		// ast/parser/checker/sema/codegen/kir, including the escape
+		// checker and wrapper prototypes); the pin is refreshed to
+		// the validated current value.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 6910 {
-			t.Errorf("whole-tree kir text = %d lines, want 6910:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 7416 {
+			t.Errorf("whole-tree kir text = %d lines, want 7416:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

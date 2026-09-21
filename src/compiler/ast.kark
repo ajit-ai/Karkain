@@ -36,7 +36,7 @@ func NODE_ASSIGN()        { return 35 }
 func NODE_ARRAY_LIT()     { return 36 }
 func NODE_MAP_LIT()       { return 37 }
 func NODE_LAMBDA()        { return 38 }
-func NODE_IMPORT()        { return 40 }
+func NODE_IMPORT()         { return 40 }
 func NODE_CIMPORT()       { return 41 }
 func NODE_BREAK()         { return 42 }
 func NODE_CONTINUE()      { return 43 }
@@ -79,6 +79,7 @@ func NODE_ATOMIC_OP()     { return 91 }
 func NODE_LINEAR_TYPE()   { return 92 }
 func NODE_PACKED_STRUCT() { return 93 }
 func NODE_ENUM_VARIANT_EXPR() { return 95 }
+func NODE_INDIRECTCALL() { return 96 }
 
 // ============================================================
 // Node constructors — create AST nodes as arrays
@@ -170,6 +171,12 @@ func funcCaptures(n) {
     if (len(n) > 8) { return n[8] }
     return []
 }
+
+// Phase 133 note: no parameter-type slot is needed on FuncDecl. Indirect
+// dispatch keys off bound NAMES (localNames, mirroring the Go engine), not
+// annotations, so `g fn` params only need to SKIP cleanly as a type token
+// (psIsTypeToken) — the annotation itself is documentary.
+
 
 // ============================================================
 // VarDecl node: [NODE_VAR_DECL, name, value, typeName, line]
@@ -428,6 +435,24 @@ func callLine(n)  { return n[3] }
 func callCol(n)   { return n[4] }
 
 // ============================================================
+// IndirectCall: [NODE_INDIRECTCALL, target, args, line]
+// Phase 133: call through a computed callee (index/paren results).
+// The target evaluates to a TYPE_FUNC Value cell at runtime.
+// ============================================================
+
+func makeIndirectCall(target, args, line) {
+    let n = makeNode(NODE_INDIRECTCALL())
+    n = appendArray(n, target)
+    n = appendArray(n, args)
+    n = appendArray(n, line)
+    return n
+}
+
+func indirectTarget(n) { return n[1] }
+func indirectArgs(n)   { return n[2] }
+func indirectLine(n)   { return n[3] }
+
+// ============================================================
 // Index: [NODE_INDEX, left, index, line]
 // ============================================================
 
@@ -645,20 +670,30 @@ func makeContinue(line) {
 func continueLine(n) { return n[1] }
 
 // ============================================================
-// Lambda: [NODE_LAMBDA, params, body, line]
+// Lambda: [NODE_LAMBDA, params, body, line, seq]
+// Phase 133: seq is a parse-order sequence number stamped at construction
+// (read-only thereafter). Both the def-emitting prescan and expression
+// emission derive the synthetic top-level name from it, so they agree
+// without mutating shared nodes (appendArray may relocate).
 // ============================================================
 
-func makeLambda(params, body, line) {
+func makeLambda(params, body, line, seq) {
     let n = makeNode(NODE_LAMBDA())
     n = appendArray(n, params)
     n = appendArray(n, body)
     n = appendArray(n, line)
+    n = appendArray(n, seq)
     return n
 }
 
 func lambdaParams(n)  { return n[1] }
 func lambdaBody(n)    { return n[2] }
 func lambdaLine(n)    { return n[3] }
+
+func lambdaSeq(n) {
+    if (len(n) > 4) { return n[4] }
+    return 0
+}
 
 // ============================================================
 // Kernel: [NODE_KERNEL, name, params, body, line]
@@ -788,6 +823,7 @@ func getNodeType(node) {
     if (t == NODE_BINARY()) { return "BinaryExpr" }
     if (t == NODE_UNARY()) { return "UnaryExpr" }
     if (t == NODE_CALL()) { return "Call" }
+    if (t == NODE_INDIRECTCALL()) { return "IndirectCall" }
     if (t == NODE_INDEX()) { return "Index" }
     if (t == NODE_DOT()) { return "Member" }
     if (t == NODE_ASSIGN()) { return "Assign" }

@@ -1,0 +1,23 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: Closures
+//
+// First-class fn values (Phase 133): direct calls dispatch through the
+// binding's Value cell (except self-reference), so every invocation reads
+// its own capture env under rebinding. A recursive countdown calling
+// through its cell after the recursive call returns observes the current
+// frame's env — static-holder dispatch would read the innermost one.
+// Golden 300 on both engines.
+
+func countdown(n int) int {
+    let get = fn() int { return n }
+    if (n <= 0) {
+        return get()
+    }
+    let sub = countdown(n - 1)
+    return get() * 100 + sub
+}
+
+func main() {
+    print(countdown(2))
+}

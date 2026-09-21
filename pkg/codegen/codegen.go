@@ -59,6 +59,7 @@ type Generator struct {
 	lambdaCount      int                         // Phase 48: unique lambda naming
 	lambdaBuf        strings.Builder             // Phase 48: lambda function definitions to inject
 	closureVars      map[string]bool             // Phase 54: let-bound lambdas with captures
+	localNames       map[string]bool             // Phase 133: all bound names (let/var/const + params) — locals holding fn cells dispatch indirectly
 	closureHeaders   map[string]bool             // Phase 121: closure env typedef+holder already emitted up-front
 	localFuncs       map[string]bool             // Phase 121: let-bound lambda names (call routing)
 	lastClosureInit  string                      // Phase 54: env-instance init emitted at binding site
@@ -94,6 +95,7 @@ func envCapField(cap string) string { return "karkain_cap_" + sanitizeC(cap) }
 func New(cfg Config) *Generator {
 	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl),
 		closureVars: make(map[string]bool), closureHeaders: make(map[string]bool),
+		localNames:  make(map[string]bool),
 		localFuncs: make(map[string]bool), userFuncs: make(map[string]bool),
 		simdVars: make(map[string]string), concFns: make(map[string]*parser.FuncDecl),
 		concSpawned: make(map[string]bool), concHandlers: make(map[string]bool),
@@ -152,6 +154,61 @@ func touchesClosuresNode(n parser.Node, localFuncs map[string]bool) bool {
 				return true
 			}
 		}
+	case *parser.IndirectCallExpr:
+		// Phase 133: computed calls always imply fn values, which only
+		// closures produce — take the legacy path unconditionally (same
+		// rule as closure-bearing functions; avoids SSA-env questions
+		// around cell variables entirely).
+		return true
+	case *parser.LambdaExpr, *parser.ClosureExpr:
+		// Phase 133: a lambda literal anywhere (array element, return
+		// value, call argument, match arm) means fn values flow here.
+		// Previously only identifier-called let-lambdas routed to the
+		// legacy path; anything else risked the SSA pipeline lowering
+		// the literal to a dummy node.
+		return true
+	case *parser.MatchExpr:
+		// Phase 133: descend into match arms — an indirect call (or any
+		// closure touch) inside an arm must route to legacy too.
+		if touchesClosuresNode(node.Value, localFuncs) {
+			return true
+		}
+		for _, arm := range node.Arms {
+			if touchesClosuresNode(arm.Body, localFuncs) {
+				return true
+			}
+		}
+	case *parser.ArrayLiteral:
+		for _, e := range node.Elements {
+			if touchesClosuresNode(e, localFuncs) {
+				return true
+			}
+		}
+	case *parser.MapLiteral:
+		for _, k := range node.Keys {
+			if touchesClosuresNode(k, localFuncs) {
+				return true
+			}
+		}
+		for _, v := range node.Values {
+			if touchesClosuresNode(v, localFuncs) {
+				return true
+			}
+		}
+	case *parser.IndexExpr:
+		return touchesClosuresNode(node.Left, localFuncs) ||
+			touchesClosuresNode(node.Index, localFuncs)
+	case *parser.SliceExpr:
+		return touchesClosuresNode(node.Target, localFuncs) ||
+			touchesClosuresNode(node.Start, localFuncs) ||
+			touchesClosuresNode(node.End, localFuncs)
+	case *parser.DotExpr:
+		return touchesClosuresNode(node.Left, localFuncs)
+	case *parser.UnaryExpr:
+		return touchesClosuresNode(node.Operand, localFuncs)
+	case *parser.BinaryExpr:
+		return touchesClosuresNode(node.Left, localFuncs) ||
+			touchesClosuresNode(node.Right, localFuncs)
 	case *parser.BlockStmt:
 		for _, s := range node.Statements {
 			if touchesClosuresNode(s, localFuncs) {
@@ -278,6 +335,11 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 			g.concFns[fn.Name] = fn
 		}
 	}
+	// Phase 133: record every bound name program-wide (see collectLocalNames).
+	// The SSA emission path bypasses genFuncDecl/genLet, so this recording
+	// must not depend on which path emits a function — otherwise indirect
+	// calls lower to raw C on SSA and fail at link time.
+	g.collectLocalNames(prog)
 	// Phase 107: concurrency pre-scan — detect spawn/channel/actor usage and
 	// record the spawn targets + actor handler names for the wrapper prepass.
 	for _, stmt := range prog.Statements {
@@ -819,7 +881,7 @@ typedef struct {
 #define HAS_AVX2 0
 #endif
 
-typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL, TYPE_BIGINT, TYPE_BIGFLOAT, TYPE_OPTION, TYPE_RESULT } ValueType;
+typedef enum { TYPE_INT, TYPE_FLOAT64, TYPE_STRING, TYPE_ARRAY, TYPE_MAP, TYPE_BOOL, TYPE_BIGINT, TYPE_BIGFLOAT, TYPE_OPTION, TYPE_RESULT, TYPE_FUNC } ValueType;
 
 typedef struct Value {
     ValueType type;
@@ -847,8 +909,16 @@ typedef struct Value {
             struct Value* okVal;
             struct Value* errVal;
         } resVal;
+        struct {
+            void* code;        // Phase 133: canonical karkain_fn_t wrapper
+            void* env;         // Phase 133: capture env (heap instance, may be NULL)
+        } funcVal;
     };
 } Value;
+// Phase 133: canonical indirect-call ABI. Every let-bound lambda gets one
+// wrapper with this exact signature, so a TYPE_FUNC cell can be invoked
+// without knowing the closure's static C type at the call site.
+typedef Value (*karkain_fn_t)(void* env, int argc, Value* argv, const char* file, long long line);
 
 // Phase 45: Built-in Result tagged union
 typedef enum { Result_Tag_default, Result_Tag_Ok, Result_Tag_Err } Result_Tag;
@@ -882,6 +952,11 @@ static inline ValueClass value_class(Value v) {
         case TYPE_OPTION:
         case TYPE_RESULT:
             return VAL_HEAP;
+        case TYPE_FUNC:
+            // Phase 133: the cell payload (code+env pointers) lives inline
+            // in the union; the env itself is heap-owned separately and is
+            // never freed with the cell (arena model).
+            return VAL_IMMEDIATE;
     }
     return VAL_IMMEDIATE;
 }
@@ -954,6 +1029,15 @@ Value make_float(double v) {
     Value val;
     val.type = TYPE_FLOAT64;
     val.floatVal = v;
+    return val;
+}
+
+// Phase 133: build a first-class function value cell.
+Value make_fn(void* code, void* env) {
+    Value val;
+    val.type = TYPE_FUNC;
+    val.funcVal.code = code;
+    val.funcVal.env = env;
     return val;
 }
 
@@ -1049,6 +1133,7 @@ int values_equal(Value a, Value b) {
         return (diff > -1e-9 && diff < 1e-9);
     }
     if (a.type == TYPE_STRING) return strcmp(a.strVal, b.strVal) == 0;
+    if (a.type == TYPE_FUNC) return a.funcVal.code == b.funcVal.code && a.funcVal.env == b.funcVal.env;
     if (a.type == TYPE_ARRAY) {
         if (a.arrVal.length != b.arrVal.length) return 0;
         for (int i = 0; i < a.arrVal.length; i++) {
@@ -1620,6 +1705,8 @@ void print_value(Value v) {
     } else if (v.type == TYPE_RESULT) {
         if (v.resVal.tag == 0) { printf("Ok("); print_value(*v.resVal.okVal); printf(")\n"); }
         else { printf("Err("); print_value(*v.resVal.errVal); printf(")\n"); }
+    } else if (v.type == TYPE_FUNC) {
+        printf("<fn>\n");
     }
     fflush(stdout);
 }
@@ -1829,6 +1916,14 @@ void karkain_runtime_error(const char* kind, const char* file, long long line) {
     exit(1);
 }
 
+// Phase 133: indirect call through a TYPE_FUNC cell. Non-function values
+// and the file:line contract follow the Phase 100 runtime error model.
+Value karkain_call_fn(Value f, int argc, Value* argv, const char* file, long long line) {
+    if (f.type != TYPE_FUNC) karkain_runtime_error("called non-function value", file, line);
+    if (f.funcVal.code == NULL) karkain_runtime_error("called empty function value", file, line);
+    return ((karkain_fn_t)f.funcVal.code)(f.funcVal.env, argc, argv, file, line);
+}
+
 Value karkain_checked_div(Value l, Value r, const char* file, long long line) {
     if (l.type == TYPE_FLOAT64 || r.type == TYPE_FLOAT64) {
         double b = (r.type == TYPE_FLOAT64) ? r.floatVal : (double)r.intVal;
@@ -1885,6 +1980,7 @@ int is_truthy(Value v) {
     if (v.type == TYPE_BIGFLOAT) return mpf_cmp_d(v.bigFloatVal, 0.0) != 0;
     if (v.type == TYPE_OPTION) return v.optVal.tag != 0;
     if (v.type == TYPE_RESULT) return v.resVal.tag == 0;
+    if (v.type == TYPE_FUNC) return 1;
     return 0;
 }
 
@@ -2403,6 +2499,12 @@ func (g *Generator) scanNodeForHTTP(node parser.Node) {
 		for _, a := range n.Args {
 			g.scanNodeForHTTP(a)
 		}
+	case *parser.IndirectCallExpr:
+		// Phase 133: an http.get could hide behind a computed callee.
+		g.scanNodeForHTTP(n.Target)
+		for _, a := range n.Args {
+			g.scanNodeForHTTP(a)
+		}
 	case *parser.FuncDecl:
 		for _, s := range n.Body {
 			g.scanNodeForHTTP(s)
@@ -2479,6 +2581,166 @@ func (g *Generator) scanNodeForHTTP(node parser.Node) {
 			g.scanNodeForHTTP(v)
 		}
 	}
+}
+
+// Phase 133: closureEnvInits builds the capture-env field assignments for
+// one env instance (heap temp `tmp`, e.g. `_e_f`). Shared by let-bound
+// bindings and bare-lambda statement expressions so both capture
+// identically, including captures-through-captures inside closures.
+func (g *Generator) closureEnvInits(fn *parser.FuncDecl, tmp string, capByEnv bool) string {
+	var inits strings.Builder
+	for _, cap := range fn.Captures {
+		envCap := false
+		for _, ec := range g.enclosingCaps {
+			if ec == cap {
+				envCap = true
+				break
+			}
+		}
+		if capByEnv && envCap {
+			fmt.Fprintf(&inits, "%s->%s = _env->%s; ", tmp, envCapField(cap), envCapField(cap))
+		} else {
+			fmt.Fprintf(&inits, "%s->%s = &%s; ", tmp, envCapField(cap), cap)
+		}
+	}
+	return inits.String()
+}
+
+// Phase 133: collectLocalNames records every bound name program-wide
+// (function parameters and let/var/const aliases, including nested bodies
+// and bare-lambda bodies). A bare-identifier call that reaches the raw
+// fallback with a local callee dispatches indirectly: no working program
+// can call a local today (locals are Values; raw C rejects the call), so
+// redirecting those to karkain_call_fn only converts C-compile failures
+// into file:line runtime errors — provable by the full regression suite.
+// See the GenerateAndCompile prescan comment for why this cannot live
+// only in genFuncDecl/genLet (the SSA path bypasses both).
+func (g *Generator) collectLocalNames(prog *parser.Program) {
+	var walkExpr func(e parser.Node)
+	var walkStmts func(stmts []parser.Node)
+	recordParams := func(fn *parser.FuncDecl) {
+		for _, p := range fn.Params {
+			g.localNames[p] = true
+		}
+	}
+	walkExpr = func(e parser.Node) {
+		if e == nil {
+			return
+		}
+		switch n := e.(type) {
+		case *parser.LambdaExpr:
+			walkStmts(n.Body)
+		case *parser.IndirectCallExpr:
+			walkExpr(n.Target)
+			for _, a := range n.Args {
+				walkExpr(a)
+			}
+		case *parser.CallExpr:
+			for _, a := range n.Args {
+				walkExpr(a)
+			}
+		case *parser.BinaryExpr:
+			walkExpr(n.Left)
+			walkExpr(n.Right)
+		case *parser.UnaryExpr:
+			walkExpr(n.Operand)
+		case *parser.IndexExpr:
+			walkExpr(n.Left)
+			walkExpr(n.Index)
+		case *parser.ArrayLiteral:
+			for _, el := range n.Elements {
+				walkExpr(el)
+			}
+		case *parser.MapLiteral:
+			for _, k := range n.Keys {
+				walkExpr(k)
+			}
+			for _, v := range n.Values {
+				walkExpr(v)
+			}
+		}
+	}
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch n := s.(type) {
+			case *parser.VarDeclStmt:
+				g.localNames[n.Name] = true
+				if fn, ok := n.Value.(*parser.FuncDecl); ok {
+					recordParams(fn)
+					walkStmts(fn.Body)
+				} else if lam, ok := n.Value.(*parser.LambdaExpr); ok {
+					walkStmts(lam.Body)
+				} else {
+					walkExpr(n.Value)
+				}
+			case *parser.FuncDecl:
+				recordParams(n)
+				walkStmts(n.Body)
+			case *parser.BlockStmt:
+				walkStmts(n.Statements)
+			case *parser.IfStmt:
+				walkStmts(n.Consequence)
+				walkStmts(n.Alternative)
+			case *parser.WhileStmt:
+				walkStmts(n.Body)
+			case *parser.ForStmt:
+				walkStmts(n.Body)
+			case *parser.ForInStmt:
+				walkStmts(n.Body)
+			case *parser.ExprStmt:
+				walkExpr(n.Expression)
+			case *parser.ReturnStmt:
+				if n.Value != nil {
+					walkExpr(n.Value)
+				}
+			case *parser.PrintStmt:
+				walkExpr(n.Value)
+			}
+		}
+	}
+	walkStmts(prog.Statements)
+}
+
+// Phase 133: genFnWrapper emits the canonical indirect-call wrapper for a
+// let-bound lambda in the karkain_fn_t ABI (void* env, argc, argv,
+// file:line). The wrapper knows its closure's exact static C type, so
+// computed calls dispatch without casts: arity is enforced here with the
+// Phase 100 file:line diagnostic contract, and the env pointer flows to
+// the capturing function's leading parameter (ignored for zero-capture
+// lambdas, whose C symbol takes no env).
+func (g *Generator) genFnWrapper(fn *parser.FuncDecl) string {
+	san := sanitizeC(fn.Name)
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "static Value karkain_fncall_%s(void* env, int argc, Value* argv, const char* file, long long line) {\n", san)
+	fmt.Fprintf(&sb, "\tif (argc != %d) { karkain_runtime_error(\"wrong number of arguments for function '%s'\", file, line); }\n", len(fn.Params), fn.Name)
+	callArgs := []string{}
+	for i := range fn.Params {
+		callArgs = append(callArgs, fmt.Sprintf("argv[%d]", i))
+	}
+	if len(fn.Captures) > 0 {
+		envT := "ClosureEnv_" + san
+		inner := strings.Join(callArgs, ", ")
+		if inner != "" {
+			inner = ", " + inner
+		}
+		fmt.Fprintf(&sb, "\treturn %s((%s*)env%s);\n", userFuncC(fn.Name), envT, inner)
+	} else {
+		fmt.Fprintf(&sb, "\t(void)env;\n")
+		fmt.Fprintf(&sb, "\treturn %s(%s);\n", userFuncC(fn.Name), strings.Join(callArgs, ", "))
+	}
+	sb.WriteString("}\n\n")
+	return sb.String()
+}
+
+// Phase 133: genIndirectCall emits karkain_call_fn dispatch for a computed
+// callee. Non-function values and arity mismatches surface as Phase 100
+// runtime errors with file:line (exit 1) on both engines.
+func (g *Generator) genIndirectCall(target string, args []string, line int) string {
+	if len(args) == 0 {
+		return fmt.Sprintf("karkain_call_fn(%s, 0, NULL, %s, %d)", target, g.sourceBaseC(), line)
+	}
+	return fmt.Sprintf("karkain_call_fn(%s, %d, (Value[]){%s}, %s, %d)",
+		target, len(args), strings.Join(args, ", "), g.sourceBaseC(), line)
 }
 
 func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
@@ -2956,35 +3218,32 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 			if g.enclosingName != "" && g.closureVars[g.enclosingName] {
 				capByEnv = true
 			}
-			g.lambdaBuf.WriteString(g.genFuncDecl(fn))
-			// Phase 121: build the binding-site init here (not in genFuncDecl) so
-			// the access form can depend on the enclosing context. At module
-			// scope the captured names are plain C variables (`&cap`); inside a
-			// capturing closure the enclosing captures are only in scope through
-			// its `#define` macros, so the field name must not be re-lexed —
-			// reach them through the env param directly (`&_env->cap`). Names
-			// that are locals of the enclosing function stay plain `&cap`.
-			if len(fn.Captures) == 0 {
-				return ""
-			}
-			envT := "ClosureEnv_" + sanitizeC(fn.Name)
-			holder := "_genv_" + sanitizeC(fn.Name)
-			var inits strings.Builder
-			for _, cap := range fn.Captures {
-				envCap := false
-				for _, ec := range g.enclosingCaps {
-					if ec == cap {
-						envCap = true
-						break
-					}
-				}
-				if capByEnv && envCap {
-					fmt.Fprintf(&inits, "_e.%s = _env->%s; ", envCapField(cap), envCapField(cap))
-				} else {
-					fmt.Fprintf(&inits, "_e.%s = &%s; ", envCapField(cap), cap)
-				}
-			}
-			return fmt.Sprintf("\t{ static %s _e; %s%s = &_e; }\n", envT, inits.String(), holder)
+		g.lambdaBuf.WriteString(g.genFuncDecl(fn))
+		// Phase 133: emit the canonical indirect-call wrapper next to the
+		// definition (top-level via lambdaBuf, same flush as the def itself).
+		g.lambdaBuf.WriteString(g.genFnWrapper(fn))
+		// Phase 121: build the binding-site init here (not in genFuncDecl) so
+		// the access form can depend on the enclosing context. At module
+		// scope the captured names are plain C variables (`&cap`); inside a
+		// capturing closure the enclosing captures are only in scope through
+		// its `#define` macros, so the field name must not be re-lexed —
+		// reach them through the env param directly (`&_env->cap`). Names
+		// that are locals of the enclosing function stay plain `&cap`.
+		//
+		// Phase 133: the env is heap-allocated per binding execution (not a
+		// shared static) so escaping cells keep their own captures —
+		// factory functions returning closures stay correct across calls.
+		// The global holder is still assigned for static direct calls, and
+		// the binding additionally declares the first-class Value cell.
+		san := sanitizeC(fn.Name)
+		holder := "_genv_" + san
+		if len(fn.Captures) == 0 {
+			return fmt.Sprintf("\tValue %s = make_fn(karkain_fncall_%s, NULL);\n", node.Name, san)
+		}
+		envT := "ClosureEnv_" + san
+		inits := g.closureEnvInits(fn, "_e_"+san, capByEnv)
+		return fmt.Sprintf("\t%s* _e_%s = (%s*)malloc(sizeof(%s)); %s%s = _e_%s; Value %s = make_fn(karkain_fncall_%s, _e_%s);\n",
+			envT, san, envT, envT, inits, holder, san, node.Name, san, san)
 		}
 		// Phase 70/106: `let x [N]f32 = ...` — fixed-lane SIMD vector variable.
 		if node.IsSIMD {
@@ -3255,19 +3514,34 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		return fmt.Sprintf("karkain_slice(%s, %s, %s)", g.genExpr(n.Target), g.genExpr(n.Start), end)
 	case *parser.LambdaExpr:
+		// Phase 133: a bare lambda (array element, argument, return value)
+		// evaluates to a first-class function cell, exactly like a
+		// let-binding without the name. The old emission returned a bare
+		// C function pointer that no call path could invoke (array_push
+		// type error at best, garbage Value reads at worst).
 		g.lambdaCount++
 		name := fmt.Sprintf("_lambda_%d", g.lambdaCount)
-		params := []string{}
-		for _, p := range n.Params {
-			params = append(params, "Value "+p)
+		fn := &parser.FuncDecl{
+			Name:       name,
+			Params:     n.Params,
+			ParamTypes: n.ParamTypes,
+			Body:       n.Body,
+			Captures:   n.Captures,
+			Line:       n.Line,
 		}
-		var body strings.Builder
-		for _, stmt := range n.Body {
-			body.WriteString(g.genStatement(stmt))
+		g.lambdaBuf.WriteString(g.genFuncDecl(fn))
+		g.lambdaBuf.WriteString(g.genFnWrapper(fn))
+		san := sanitizeC(name)
+		if len(n.Captures) == 0 {
+			return fmt.Sprintf("make_fn(karkain_fncall_%s, NULL)", san)
 		}
-		// GCC nested function: define as a static function inside the enclosing scope
-		fmt.Fprintf(&g.lambdaBuf, "Value %s(%s) {\n%s\treturn make_int(0);\n}\n\n", name, strings.Join(params, ", "), body.String())
-		return name
+		// Heap env per evaluation (statement expression keeps the temp
+		// scoped); the cell escapes with its own captures.
+		envT := "ClosureEnv_" + san
+		capByEnv := g.enclosingName != "" && g.closureVars[g.enclosingName]
+		inits := g.closureEnvInits(fn, "_e", capByEnv)
+		return fmt.Sprintf("({ %s* _e = (%s*)malloc(sizeof(%s)); %smake_fn(karkain_fncall_%s, _e); })",
+			envT, envT, envT, inits, san)
 
 	case *parser.BinaryExpr:
 		if n.Operator == "=" {
@@ -3540,7 +3814,16 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		// Phase 54/121: closure variables carry an implicit env argument; all
 		// let-bound lambdas route through the karkain_user_* namespace.
+		// Phase 133: calls dispatch through the binding's Value cell EXCEPT
+		// self-reference inside the lambda's own body (no cell variable
+		// exists there; the single binding env is correct for it). Cell
+		// dispatch keeps every invocation's captures correct under
+		// rebinding (notably recursion: sibling calls after a recursive
+		// call return would otherwise read the innermost holder).
 		if g.closureVars[n.Function] {
+			if n.Function != g.enclosingName {
+				return g.genIndirectCall(n.Function, args, n.Line)
+			}
 			return fmt.Sprintf("%s(_genv_%s%s)", userFuncC(n.Function), sanitizeC(n.Function),
 				func() string {
 					if len(args) > 0 {
@@ -3550,12 +3833,32 @@ func (g *Generator) genExpr(node parser.Node) string {
 				}())
 		}
 		if g.localFuncs[n.Function] {
+			if n.Function != g.enclosingName {
+				return g.genIndirectCall(n.Function, args, n.Line)
+			}
 			return fmt.Sprintf("%s(%s)", userFuncC(n.Function), strings.Join(args, ", "))
 		}
 		if g.userFuncs[n.Function] {
 			return fmt.Sprintf("%s(%s)", userFuncC(n.Function), strings.Join(args, ", "))
 		}
+		// Phase 133: a bare call through a LOCAL name dispatches
+		// indirectly — the local may hold a function cell (factories,
+		// aliases, parameters). Non-function locals surface as file:line
+		// runtime errors instead of C-compile failures; non-local unknown
+		// names keep the legacy raw fallback below (unchanged behavior).
+		if g.localNames[n.Function] {
+			return g.genIndirectCall(n.Function, args, n.Line)
+		}
 		return fmt.Sprintf("%s(%s)", n.Function, strings.Join(args, ", "))
+	case *parser.IndirectCallExpr:
+		// Phase 133: call through a computed callee (index, paren, ...).
+		// The target evaluates to a TYPE_FUNC cell exactly once.
+		target := g.genExpr(n.Target)
+		args := []string{}
+		for _, arg := range n.Args {
+			args = append(args, g.genExpr(arg))
+		}
+		return g.genIndirectCall(target, args, n.Line)
 	case *parser.MatrixIndexExpr:
 		// Generate row-major offset calculation: (row * cols + col)
 		matrixExpr := g.genExpr(n.Matrix)

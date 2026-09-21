@@ -129,6 +129,13 @@ func walkCaptures(n Node, cs *captureSet) {
 		for _, a := range node.Args {
 			walkCaptures(a, cs)
 		}
+	case *IndirectCallExpr:
+		// Phase 133: a computed callee may itself close over variables
+		// (e.g. a closure value held in an array); walk it like an index.
+		walkCaptures(node.Target, cs)
+		for _, a := range node.Args {
+			walkCaptures(a, cs)
+		}
 	case *IndexExpr:
 		walkCaptures(node.Left, cs)
 		walkCaptures(node.Index, cs)

@@ -130,6 +130,10 @@ func TestPhase130_ClosureGoldensKCC(t *testing.T) {
 // rejects `ops[0](5)` at the `(` with a K001 parse error (exit 3) â€” it is NOT
 // codegen'd into broken bytes. This documents the Phase 130 boundary.
 func TestPhase130_FirstClassBoundary(t *testing.T) {
+	// Retired by Phase 133: computed callees parse to IndirectCallExpr and
+	// dispatch through the TYPE_FUNC cell on both engines (was: K001
+	// rejection). Promotion guard — fails if the shape ever regresses.
+	// Canonical goldens live in the Phase 133 gate (03_array_call.kark).
 	karkain := phase130Karkain(t)
 	probe := filepath.Join(t.TempDir(), "probe.kark")
 	src := "func main() {\n\tlet base = 10\n\tlet ops = [fn(x int) int { return x + base }, fn(x int) int { return x * 2 }]\n\tprintln(ops[0](5))\n}\n"
@@ -139,12 +143,11 @@ func TestPhase130_FirstClassBoundary(t *testing.T) {
 	cmd := exec.Command(karkain, "run", probe, "--engine", "go")
 	cmd.Env = append(os.Environ(), "KARKAIN_ENGINE=go")
 	out, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("first-class call should be rejected, but program ran:\n%s", string(out))
+	if err != nil {
+		t.Fatalf("first-class call should run since Phase 133, but failed:\n%s", string(out))
 	}
-	msg := string(out)
-	if !strings.Contains(msg, "unexpected token ')'") {
-		t.Fatalf("expected the first-class boundary parse error, got:\n%s", msg)
+	if got := strings.TrimSpace(string(out)); got != "15" {
+		t.Fatalf("first-class call golden mismatch: want 15, got %q", got)
 	}
 }
 
@@ -156,22 +159,35 @@ func TestPhase130_FirstClassBoundary(t *testing.T) {
 // `_e.karkain_cap_apply = &apply;` with no `apply` declaration â€” so this is a
 // documented parity boundary, not an engine drift).
 func TestPhase130_ClosureVarCaptureBoundary(t *testing.T) {
+	// Retired by Phase 133: cell declarations made `&apply` resolve, so
+	// closure-var capture runs (golden 21) on both engines instead of
+	// failing at C compile. Promotion guard; canonical coverage in Phase 133.
 	karkain := phase130Karkain(t)
 	probe := filepath.Join(t.TempDir(), "probe.kark")
 	src := "func main() {\n\tlet base = 10\n\tlet apply = fn(x int) int { return x + base }\n\tlet twice = fn(n int) int { return apply(apply(n)) }\n\tprintln(twice(1))\n}\n"
 	if err := os.WriteFile(probe, []byte(src), 0644); err != nil {
 		t.Fatalf("writing probe: %v", err)
 	}
-	cmd := exec.Command(karkain, "check", probe, "--engine", "go")
-	cmd.Env = append(os.Environ(), "KARKAIN_ENGINE=go")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("check should accept the program (boundary is at codegen), but failed:\n%s", string(out))
-	}
-	run := exec.Command(karkain, "run", probe, "--engine", "go")
-	run.Env = append(os.Environ(), "KARKAIN_ENGINE=go")
-	if out, err := run.CombinedOutput(); err == nil {
-		t.Fatalf("run should fail at C compile (capture of a closure variable), but succeeded:\n%s", string(out))
-	} else if !strings.Contains(string(out), "C compilation failed") {
-		t.Fatalf("expected the closure-var capture C compile failure, got:\n%s", string(out))
+	for _, engine := range []string{"go", "kcc"} {
+		run := exec.Command(karkain, "run", probe, "--engine", engine)
+		run.Env = append(os.Environ(), "KARKAIN_ENGINE="+engine)
+		out, err := run.CombinedOutput()
+		if err != nil {
+			combined := string(out)
+			if strings.Contains(combined, "error[K127]") {
+				t.Skipf("low-RAM host: kcc self-build guarded (error[K127])")
+			}
+			t.Fatalf("engine=%s: closure-var capture should run since Phase 133, but failed:\n%s", engine, combined)
+		}
+		got := string(out)
+		if idx := strings.Index(got, "[ok]"); idx >= 0 {
+			got = got[idx:]
+			if nl := strings.Index(got, "\n"); nl >= 0 {
+				got = got[nl+1:]
+			}
+		}
+		if strings.TrimSpace(got) != "21" {
+			t.Fatalf("engine=%s: golden mismatch: want 21, got %q", engine, got)
+		}
 	}
 }

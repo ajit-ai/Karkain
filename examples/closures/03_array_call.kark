@@ -1,0 +1,19 @@
+// Status: Runnable
+// Engine: both (Go front end + self-hosted kcc)
+// Category: Closures
+//
+// First-class fn values (Phase 133): closures stored in an array are
+// invoked through index expressions (`ops[0](5)`). Captures stay by-ref
+// and same-frame, so both engines agree byte-identically.
+
+func main() {
+    let base = 10
+    let ops = [fn(x int) int { return x + base }, fn(x int) int { return x * 2 }]
+    print(ops[0](5))
+    print(ops[1](5))
+    let outer = fn(x int) int {
+        let inner = fn(y int) int { return x + y + base }
+        return inner(x)
+    }
+    print(outer(5))
+}

@@ -163,11 +163,17 @@ modules; a public API snapshot doc (`stable-api.rst`) regenerated.
 
 ### Phase 133 — First-Class `fn` Values (owner priority)
 
+**Status: COMPLETE** — report `docs/audit/PHASE-133-FIRSTCLASS-FN-FINAL-REPORT.md`
+(6/6 gate PASS both engines live, full regression green).
+
 Karkain-owned design only: Value-cell function values over the existing
 desugar-to-plain-functions + env-pointer model (Phase 130 root cause), by-ref
-capture consistent with capture-mutation; `func(T) R` type syntax; K-family
-diagnostics; byte-identical both engines with negatives pinned. Both engines
+capture consistent with capture-mutation; K-family diagnostics (K114);
+byte-identical both engines with negatives pinned. Both engines
 lex/parse every new shape from day one (parity-by-construction).
+Shipped adjustments vs plan: `func(T) R` syntax deferred (bare `fn`
+suffices); escaping-capture returns rejected at check (soundness);
+per-binding heap envs + cell dispatch (recursion-correct).
 
 ### Phase 134 — Incremental Compilation v2
 **Scope**: upgrade Phase 105's whole-assembly cache to per-module units.

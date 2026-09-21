@@ -164,7 +164,7 @@ func TestPhase117_SemanticBuildRunGating(t *testing.T) {
 func TestPhase117_ExplainNumericCodes(t *testing.T) {
 	bin := buildPreviewBinary(t)
 	work := t.TempDir()
-	for _, code := range []string{"K001", "K002", "K003", "K100", "K101", "K102", "K103", "K106", "K107", "K108", "K109", "K112", "K113"} {
+	for _, code := range []string{"K001", "K002", "K003", "K100", "K101", "K102", "K103", "K106", "K107", "K108", "K109", "K112", "K113", "K114"} {
 		out, err := runBin(t, bin, work, "explain", code)
 		if err != nil {
 			t.Errorf("explain %s failed: %v\n%s", code, err, out)
@@ -179,7 +179,7 @@ func TestPhase117_ExplainNumericCodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explain --list failed: %v\n%s", err, out)
 	}
-	for _, want := range []string{"K001", "K002", "K100", "K101", "K102", "K112", "K113", "E-K-SYN", "E-PKG-LOCK"} {
+	for _, want := range []string{"K001", "K002", "K100", "K101", "K102", "K112", "K113", "K114", "E-K-SYN", "E-PKG-LOCK"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("explain --list missing %q", want)
 		}

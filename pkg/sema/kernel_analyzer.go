@@ -115,6 +115,13 @@ func (a *KernelAnalyzer) analyzeExpression(expr parser.Node) {
 	switch node := expr.(type) {
 	case *parser.CallExpr:
 		a.analyzeCallExpr(node)
+	case *parser.IndirectCallExpr:
+		// Phase 133: analyze the computed callee and arguments; indirect
+		// calls are not GPU-kernel compatible (rejected downstream).
+		a.analyzeExpression(node.Target)
+		for _, arg := range node.Args {
+			a.analyzeExpression(arg)
+		}
 	case *parser.BinaryExpr:
 		a.analyzeExpression(node.Left)
 		a.analyzeExpression(node.Right)

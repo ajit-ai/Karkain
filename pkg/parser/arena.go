@@ -207,6 +207,14 @@ func (a *Arena) AllocCallExpr(function string, args []Node, isCFunc bool) *CallE
 	return a.Get(id).(*CallExpr)
 }
 
+// Phase 133: indirect calls through a computed callee (see IndirectCallExpr).
+func (a *Arena) AllocIndirectCallExpr(target Node, args []Node) *IndirectCallExpr {
+	id := a.Alloc(func() Node {
+		return &IndirectCallExpr{Target: target, Args: args}
+	})
+	return a.Get(id).(*IndirectCallExpr)
+}
+
 func (a *Arena) AllocIdentifier(name string) *Identifier {
 	id := a.Alloc(func() Node {
 		return &Identifier{Name: name}
@@ -373,6 +381,8 @@ func setNodeLine(node Node, line int) {
 	case *BinaryExpr:
 		n.Line = line
 	case *CallExpr:
+		n.Line = line
+	case *IndirectCallExpr:
 		n.Line = line
 	case *RawAccessExpr:
 		n.Line = line

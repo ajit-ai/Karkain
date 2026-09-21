@@ -123,8 +123,11 @@ func main() {
 		"#define base (*_env->karkain_cap_base)",
 		"#undef base",
 		"Value karkain_user_f(ClosureEnv_f* _env, Value x) {",
-		"{ static ClosureEnv_f _e; _e.karkain_cap_base = &base; _genv_f = &_e; }",
-		"karkain_user_f(_genv_f, make_int(5))",
+		// Phase 133: heap env per binding + first-class cell; direct
+		// calls dispatch through the cell (recursion-safe).
+		"_e_f->karkain_cap_base = &base; _genv_f = _e_f;",
+		"Value f = make_fn(karkain_fncall_f, _e_f);",
+		"karkain_call_fn(f, 1, (Value[]){make_int(5)}",
 	} {
 		if !strings.Contains(generated, marker) {
 			t.Errorf("generated C missing %q", marker)
@@ -147,7 +150,9 @@ func main() {
 	}
 	for _, marker := range []string{
 		"Value karkain_user_add(Value a, Value b);",
-		"karkain_user_add(make_int(1), make_int(2))",
+		// Phase 133: zero-capture direct calls dispatch through the cell.
+		"Value add = make_fn(karkain_fncall_add, NULL);",
+		"karkain_call_fn(add, 2, (Value[]){make_int(1), make_int(2)}",
 	} {
 		if !strings.Contains(generated, marker) {
 			t.Errorf("generated C missing %q", marker)
@@ -178,12 +183,15 @@ func main() {
 		"typedef struct {\n\tValue* karkain_cap_base;\n\tValue* karkain_cap_m;\n} ClosureEnv_inner;",
 		"#define base (*_env->karkain_cap_base)",
 		// inner binding inside outer: base is an outer capture (copy the
-		// pointer), m is an outer local (plain address).
-		"{ static ClosureEnv_inner _e; _e.karkain_cap_base = _env->karkain_cap_base; _e.karkain_cap_m = &m; _genv_inner = &_e; }",
+		// pointer), m is an outer local (plain address). Phase 133: heap
+		// envs + cells; calls dispatch through them.
+		"_e_inner->karkain_cap_base = _env->karkain_cap_base; _e_inner->karkain_cap_m = &m; _genv_inner = _e_inner;",
+		"Value inner = make_fn(karkain_fncall_inner, _e_inner);",
 		// outer binding in main: base is a plain local.
-		"{ static ClosureEnv_outer _e; _e.karkain_cap_base = &base; _genv_outer = &_e; }",
-		"karkain_user_inner(_genv_inner, a)",
-		"karkain_user_outer(_genv_outer, make_int(5))",
+		"_e_outer->karkain_cap_base = &base; _genv_outer = _e_outer;",
+		"Value outer = make_fn(karkain_fncall_outer, _e_outer);",
+		"karkain_call_fn(inner, 1, (Value[]){a}",
+		"karkain_call_fn(outer, 1, (Value[]){make_int(5)}",
 	} {
 		if !strings.Contains(generated, marker) {
 			t.Errorf("generated C missing %q", marker)
@@ -219,9 +227,10 @@ func main() {
 		}
 	}
 	for _, call := range []string{
-		"karkain_user_add(make_int(20), make_int(22))",
-		"karkain_user_inc(make_int(1))",
-		"karkain_user_dbl(make_int(5))",
+		// Phase 133: direct calls dispatch through the binding's cell.
+		"karkain_call_fn(add, 2, (Value[]){make_int(20), make_int(22)}",
+		"karkain_call_fn(inc, 1, (Value[]){make_int(1)}",
+		"karkain_call_fn(dbl, 1, (Value[]){make_int(5)}",
 	} {
 		if !strings.Contains(generated, call) {
 			t.Errorf("generated C missing call %q", call)

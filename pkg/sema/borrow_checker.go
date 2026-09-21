@@ -272,6 +272,12 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 		for _, arg := range n.Args {
 			bc.checkNode(arg)
 		}
+	case *parser.IndirectCallExpr:
+		// Phase 133: borrow-check the computed callee and the arguments.
+		bc.checkNode(n.Target)
+		for _, arg := range n.Args {
+			bc.checkNode(arg)
+		}
 	case *parser.ArrayLiteral:
 		for _, elem := range n.Elements {
 			bc.checkNode(elem)
@@ -588,6 +594,8 @@ func (bc *BorrowChecker) inferMatchType(node parser.Node) string {
 		return "Result"
 	case *parser.CallExpr:
 		// Could be a function returning Option/Result
+	case *parser.IndirectCallExpr:
+		// Phase 133: same — a computed call may return Option/Result.
 	}
 	return ""
 }
