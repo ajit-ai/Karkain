@@ -925,6 +925,14 @@ func (g *gen) scanUnsupported(prog *parser.Program, fnames map[string]bool) erro
 			for _, a := range x.Args {
 				walkExpr(a)
 			}
+		case *parser.IndirectCallExpr:
+			// Phase 133: name the Karkain-level feature, never the Go
+			// AST type name (user-facing diagnostics talk only Karkain).
+			add("first-class function values (indirect calls)")
+			walkExpr(x.Target)
+			for _, a := range x.Args {
+				walkExpr(a)
+			}
 		case *parser.Identifier, *parser.StringLiteral, *parser.IntLiteral, *parser.BoolLiteral:
 			// always supported
 		default:

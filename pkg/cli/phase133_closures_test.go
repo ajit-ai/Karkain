@@ -154,6 +154,33 @@ func TestPhase133_PureFactoryRuns(t *testing.T) {
 	}
 }
 
+// TestPhase133_WasmBoundary pins the documented WASM boundary in Karkain
+// words: indirect calls are rejected with error[K108] naming the language
+// feature, never a Go AST type name.
+func TestPhase133_WasmBoundary(t *testing.T) {
+	karkain := phase130Karkain(t)
+	probe := filepath.Join(t.TempDir(), "indirect.kark")
+	src := "func main() {\n\tlet ops = [1]\n\tprint(ops[0](5))\n}\n"
+	if err := os.WriteFile(probe, []byte(src), 0644); err != nil {
+		t.Fatalf("writing probe: %v", err)
+	}
+	build := exec.Command(karkain, "build", probe, "--target", "wasm32-wasi")
+	out, err := build.CombinedOutput()
+	if err == nil {
+		t.Fatalf("wasm build of indirect call should be rejected, but succeeded:\n%s", string(out))
+	}
+	msg := string(out)
+	if !strings.Contains(msg, "K108") {
+		t.Fatalf("want error[K108], got:\n%s", msg)
+	}
+	if !strings.Contains(msg, "first-class function values (indirect calls)") {
+		t.Fatalf("diagnostic must name the Karkain feature, got:\n%s", msg)
+	}
+	if strings.Contains(msg, "parser.IndirectCallExpr") {
+		t.Fatalf("diagnostic leaks a Go type name, got:\n%s", msg)
+	}
+}
+
 // TestPhase133_RuntimeErrors pins the runtime contract on both engines:
 // calling a non-function value and arity mismatch are file:line runtime
 // errors (exit 1), never C-compile failures.
