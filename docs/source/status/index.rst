@@ -49,6 +49,29 @@ Honesty rules
 * A category placeholder (no examples yet) is labeled
   ``Not Yet Implemented``, not silently omitted.
 
+Scope-to-vocabulary mapping
+---------------------------
+
+The release-candidate matrix (:doc:`scope`) uses operational buckets for
+the 1.0.0 readiness review. Each bucket maps onto exactly one vocabulary
+label above — this mapping is the single rule, so the two pages can never
+drift apart:
+
+* ``Stable Beta Core`` → :stable:`Stable`
+* ``Production Candidate`` → :implemented:`Implemented`, with the
+  single-engine bound stated (e.g. Go-engine only, wasmtime-gated)
+* ``Experimental`` → :experimental:`Experimental`, with the reason stated
+* ``Planned`` → :planned:`Planned` (**no code exists**)
+* ``Known Limitation`` → :implemented:`Implemented` or
+  :experimental:`Experimental` with the constraint stated loudly (never
+  silently wrong)
+* ``Release Candidate Blocker`` → not a maturity level — a defect-tracker
+  entry, removed the moment it is fixed
+
+New documentation pages must use the six labels. The scope matrix keeps
+its operational buckets; this mapping is stated once here and must not be
+redefined anywhere else.
+
 The catalog pages
 -----------------
 

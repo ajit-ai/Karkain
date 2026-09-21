@@ -110,28 +110,25 @@ Enum declarations
 Control flow
 ------------
 
-``if`` — parenthesized condition required:
+``if`` — parenthesized condition is the documented form; a bare condition
+is accepted identically by both engines:
 
 .. code-block:: karkain
 
-   if x > 0 {
-       println("positive")
-   } else {
-       println("non-positive")
-   }
+    if x > 0 {
+        println("positive")
+    } else {
+        println("non-positive")
+    }
 
-``while`` — parentheses are **mandatory**:
+``while`` — parenthesized condition is the documented form; a bare
+condition is accepted identically by both engines (aligned Phase 117):
 
 .. code-block:: karkain
 
-   while (i < 10) {
-       i = i + 1
-   }
-
-.. warning::
-
-   ``while x < 10 {`` is **invalid**. The parser binds the condition
-   incorrectly without parentheses.
+    while (i < 10) {
+        i = i + 1
+    }
 
 ``for`` — C-style three-part loop:
 
@@ -149,15 +146,22 @@ Control flow
        println(item)
    }
 
-``match`` — pattern matching on values:
+``match`` — pattern matching. Each arm is ``pattern => expr`` (the
+``=>`` separator is required; arms are comma-separated, trailing comma
+optional):
 
 .. code-block:: karkain
 
-   match x {
-       case 1 { println("one") }
-       case 2 { println("two") }
-       default { println("other") }
-   }
+    match x {
+        1 => println("one"),
+        2 => println("two"),
+        _ => println("other"),
+    }
+
+Enum patterns match on the variant tag only (``Color.Red``); payload
+destructuring (``Shape.Circle(r)``) is rejected by both parsers.
+Unknown variants and undeclared enum types are checker errors
+(``K113`` / ``K106``).
 
 ``return``, ``break``, ``continue`` — standard control-flow keywords.
 ``break`` and ``continue`` are only valid inside a loop body.
@@ -201,4 +205,4 @@ Member access
 
 ::
 
-   record..field
+    record.field

@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-130** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **post-131** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -394,6 +394,23 @@ twice (Go toolchain OOM mid-test: `go: error obtaining buildID for go tool
 compile: exit status 2`; gate passes consistently under `GOMEMLIMIT=2GiB`, and
 in this session the host had memory so the kcc leg ran for real). Report:
 `docs/audit/PHASE-130-FINAL-REPORT.md`.)
+Also completed: **131 — Standard Library v3 + GA API Freeze** (verdict
+**COMPLETE**; plan-driven per GA-2 milestone in GENERAL-AVAILABILITY-ROADMAP.md.
+API freeze pass on all stdlib modules (10 modules frozen: string, collections, io,
+encoding, crypto, testing, numerics, net, http, db); missing-dep cleanups verified
+(both-engine byte-identical compilation for Phase 109/125A/126 modules); SemVer
+policy documentation created (`docs/source/development/semver-policy.rst` —
+comprehensive versioning and deprecation policy); deprecation mechanism
+documented (policy infrastructure ready for future `@deprecated` attribute);
+stable-api.rst updated (extended with Phase 125A/126 modules); Phase 131 gate
+`pkg/cli/phase131_stdlib_api_freeze_test.go` (5 subtests: API freeze verification,
+both-engine parity, SemVer policy documentation, deprecation mechanism, stable
+API consistency — PASS 34.9s). Documentation additions: 4 new stdlib module docs
+(`docs/source/stdlib/{numerics,net,http,db}.rst`), 1 new SemVer policy doc,
+3 modified docs (stable-api.rst, stdlib/index.rst, feature-freeze.rst). Regressions
+green: Phase 109 stdlib gate (68.8s), go vet clean, go build clean. GA-2 milestone
+progress: API freeze foundation established, enabling future GA-2 phases (132–135).
+Report: `docs/audit/PHASE-131-STDLIB-API-FREEZE-FINAL-EVIDENCE-REPORT.md`.)
 
 Also completed: **131 — Reproducible Self-Host Gate** (verdict **COMPLETE**;
 3/3 PASS 38.5s: stage-1 byte-reproducible across CWDs SHA `0c01de43f796b153`,

@@ -63,12 +63,16 @@ Feature parity matrix
    * - ``std.encoding`` / ``std.crypto`` / ``std.testing``
      - Yes
      - Yes
+   * - ``std.numerics`` / ``std.net`` / ``std.http`` / ``std.db``
+     - Yes
+     - Yes
    * - ``spawn`` / ``receive`` / ``channel`` / ``actor`` / ``send``
      - Yes
-     - Yes
+     - Partial (surface syntax lexes and parses; the C helper emission is
+       Go-engine only — tracked as kcc parity work)
    * - Cross-compilation (``--target <triple>``)
      - Yes
-     - Yes
+     - No (kcc does not implement target switching; use ``--engine go``)
    * - Nested block comments (``/* /* */ */``)
      - Yes
      - No
@@ -82,16 +86,19 @@ Feature parity matrix
      - Yes
      - No
    * - Closures / ``fn`` codegen
-     - No
-     - No
+     - Partial (``let``-bound closures with by-ref capture mutation and
+       nesting; no first-class values)
+     - Partial (same — byte-identical goldens on both engines)
    * - ``float64()`` / ``bool()`` / ``string()`` casts
      - No
      - No
 
 .. note::
 
-   Closures and ``fn`` codegen are **not yet implemented** on either
-   engine.
+   Let-bound closures work on both engines. Only **first-class**
+   function values (``ops[0](5)``, ``func(T) R`` types) and
+   closure-variable capture are open boundaries — identical on both
+   engines, tracked as future work.
 
 Known divergences
 =================
