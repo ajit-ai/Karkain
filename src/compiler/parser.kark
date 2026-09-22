@@ -517,6 +517,15 @@ func kindToOp(kind) {
 
 func parse(tokens, source) {
     let state = createParserState(tokens, source)
+    return parseWithState(state)
+}
+
+// parseWithState parses with a caller-owned state so diagnostics survive.
+// (parse() above keeps its signature for compatibility, but its internal
+// state — and therefore its errors — die with the call. Driver entries in
+// main.kark must use parseWithState and then read hasParserErrors on the
+// state they passed in; otherwise native parse errors never surface.)
+func parseWithState(state) {
     let stmts = []
     let imports = []
 
@@ -967,6 +976,66 @@ func parseFree(state) {
     return makeFree(ptr, line)
 }
 
+// Phase 137: spawn(fn, args...) — mirrors Go parseSpawn exactly
+// (unconditional consumes; a non-identifier target is a recorded error
+// with recovery past the offending token).
+func parseSpawnExpr(state) {
+    let line = psLine(state)
+    psAdvance(state) // consume 'spawn'
+    psAdvance(state) // consume '('
+    let fname = ""
+    if (psCurKind(state) == TK_IDENT()) {
+        fname = psCurLiteral(state)
+        psAdvance(state) // consume function name
+    } else {
+        psAddError(state, "expected function name in spawn(...)")
+        psAdvance(state) // recover past the offending token
+    }
+    let args = []
+    if (psCurKind(state) == TK_COMMA()) {
+        psAdvance(state) // consume ','
+        while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
+            let arg = parseExpr(state)
+            if (arg != []) { args = appendArray(args, arg) }
+            if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+        }
+    }
+    if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    return makeSpawn(fname, args, line)
+}
+
+// Phase 137: receive(ch) — mirrors Go parseReceiveChannel/ChRecvExpr
+// (unconditional consumes).
+func parseChRecv(state) {
+    let line = psLine(state)
+    psAdvance(state) // consume 'receive'
+    psAdvance(state) // consume '('
+    let ch = parseExpr(state)
+    if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    return makeChRecv(ch, line)
+}
+
+// Phase 137: keyword-headed calls (channel(...), actor(...)) lower to
+// plain call nodes with the keyword as callee, exactly like the Go front
+// end. Arity and existence resolve at check time.
+func parseKeywordCall(state, name) {
+    let line = psLine(state)
+    psAdvance(state) // consume keyword
+    if (psCurKind(state) != TK_LPAREN()) {
+        psAddError(state, "expected '(' after '" + name + "'")
+        return []
+    }
+    psAdvance(state) // consume '('
+    let args = []
+    while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
+        let arg = parseExpr(state)
+        if (arg != []) { args = appendArray(args, arg) }
+        if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+    }
+    if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    return makeCall(name, args, line, 0)
+}
+
 // ============================================================
 // Parse print statement
 // ============================================================
@@ -1387,6 +1456,35 @@ func parsePrimary(state) {
     }
     if (kind == TK_FREE()) {
         return parseFree(state)
+    }
+
+    // Phase 137: spawn(fn, args...) in expression position (mirrors Go
+    // parseSpawn: a function name followed by the argument list).
+    if (kind == TK_SPAWN()) {
+        return parseSpawnExpr(state)
+    }
+
+    // Phase 137: receive(ch) in expression position (mirrors Go ChRecvExpr).
+    if (kind == TK_RECEIVE()) {
+        return parseChRecv(state)
+    }
+
+    // Phase 137: channel(...) / actor(...) in expression position lower to
+    // plain calls (mirrors the Go front end); the concurrency builtins
+    // resolve them at check/codegen time.
+    if (kind == TK_CHANNEL()) {
+        return parseKeywordCall(state, "channel")
+    }
+    if (kind == TK_ACTOR()) {
+        return parseKeywordCall(state, "actor")
+    }
+
+    // Phase 137: `send` is operator-only (`ch <- msg`, like the Go front
+    // end which rejects the call form with K001). Reject loudly instead
+    // of dropping the expression.
+    if (kind == TK_SEND()) {
+        psAddError(state, "unexpected token 'send' (send is an operator: channel <- message)")
+        return []
     }
 
     // Match expression

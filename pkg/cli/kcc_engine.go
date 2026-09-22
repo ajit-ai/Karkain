@@ -381,7 +381,9 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 			exe += ".exe"
 		}
 	}
-	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", artifact, "-o", exe, "-lgmp", "-lm", winsockLibFlag())
+	// Phase 137: -std=c2x like the Go reference backend (the embedded
+	// concurrency runtime needs C11 atomics on this link path too).
+	linkCmd := exec.Command("gcc", "-std=c2x", "-x", "c", "-D_POSIX_C_SOURCE=200809L", artifact, "-o", exe, "-lgmp", "-lm", winsockLibFlag())
 	if lout, err := linkCmd.CombinedOutput(); err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}
 	}
@@ -711,7 +713,9 @@ func KCCRunCommand(w io.Writer, file string, cfg codegen.Config, verbose bool) C
 	}
 	c23 := replaceExt(copyPath, ".c23")
 	exe := filepath.Join(sandbox, base+".exe")
-	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", c23, "-o", exe, "-lgmp", "-lm", winsockLibFlag())
+	// Phase 137: -std=c2x like the Go reference backend (the embedded
+	// concurrency runtime needs C11 atomics on this link path too).
+	linkCmd := exec.Command("gcc", "-std=c2x", "-x", "c", "-D_POSIX_C_SOURCE=200809L", c23, "-o", exe, "-lgmp", "-lm", winsockLibFlag())
 	if lout, err := linkCmd.CombinedOutput(); err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}
 	}

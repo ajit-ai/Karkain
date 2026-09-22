@@ -136,6 +136,17 @@ func isBuiltinFunc(name) {
     if (name == "net_write") { return 1 }
     if (name == "net_close") { return 1 }
     if (name == "net_last_error") { return 1 }
+    // Phase 137: concurrency builtins (existence-only, like the Go resolver).
+    if (name == "channel") { return 1 }
+    if (name == "chanSend") { return 1 }
+    if (name == "chanClose") { return 1 }
+    if (name == "join") { return 1 }
+    if (name == "wait_all") { return 1 }
+    if (name == "actor") { return 1 }
+    if (name == "actorSend") { return 1 }
+    if (name == "actorState") { return 1 }
+    if (name == "setActorState") { return 1 }
+    if (name == "actorStop") { return 1 }
     return 0
 }
 

@@ -225,6 +225,21 @@ func kirExpr(node) {
         }
         return s + ")"
     }
+    // Phase 137: spawn and receive render explicitly (previously the
+    // parser dropped them to `_`).
+    if (t == "Spawn") {
+        let s = "(spawn " + spawnFunc(node)
+        let args = spawnArgs(node)
+        let i = 0
+        while (i < len(args)) {
+            s = s + " " + kirExpr(args[i])
+            i = i + 1
+        }
+        return s + ")"
+    }
+    if (t == "Receive") {
+        return "(receive " + kirExpr(chRecvChannel(node)) + ")"
+    }
     if (t == "Index") {
         return "(index " + kirExpr(indexLeft(node)) + " " + kirExpr(indexExpr(node)) + ")"
     }

@@ -25,6 +25,9 @@ func createCodegenState(target) {
     state = appendArray(state, [])       // 14: emitted closure-env registry
     state = appendArray(state, [])       // 15: enum declaration nodes (Phase 123)
     state = appendArray(state, [])       // 16: bound local names (Phase 133 indirect dispatch)
+    state = appendArray(state, 0)        // 17: uses-concurrency flag (Phase 137)
+    state = appendArray(state, [])       // 18: spawn target order (Phase 137)
+    state = appendArray(state, [])       // 19: actor handler order (Phase 137)
     return state
 }
 
@@ -48,6 +51,554 @@ func codegenLocalNameHas(state, name) {
 func registerLocalName(state, name) {
     if (codegenLocalNameHas(state, name) == 1) { return }
     state[16] = appendArray(codegenLocalNames(state), name)
+}
+
+// Phase 137: concurrency prescan state (mirrors Go Generator.usesConcurrency
+// + concSpawnOrder + concHandlerOrder). Slots 17/18/19 postdate the
+// Phase-133 slot 16.
+func concUses(state)         { return state[17] }
+func concSpawnOrder(state)   { return state[18] }
+func concHandlerOrder(state) { return state[19] }
+
+func concMarkUses(state) { state[17] = 1 }
+
+func concAddSpawn(state, name) {
+    if (name == "") { return }
+    let order = concSpawnOrder(state)
+    let i = 0
+    while (i < len(order)) {
+        if (order[i] == name) { return }
+        i = i + 1
+    }
+    state[18] = appendArray(order, name)
+}
+
+func concAddHandler(state, name) {
+    if (name == "") { return }
+    let order = concHandlerOrder(state)
+    let i = 0
+    while (i < len(order)) {
+        if (order[i] == name) { return }
+        i = i + 1
+    }
+    state[19] = appendArray(order, name)
+}
+
+// concIsBuiltin mirrors Go concBuiltin: CallExpr callees lowered to the
+// Value-glue layer instead of user functions.
+func concIsBuiltin(name) {
+    if (name == "channel") { return 1 }
+    if (name == "send") { return 1 }
+    if (name == "chanSend") { return 1 }
+    if (name == "chanClose") { return 1 }
+    if (name == "join") { return 1 }
+    if (name == "wait_all") { return 1 }
+    if (name == "actor") { return 1 }
+    if (name == "actorSend") { return 1 }
+    if (name == "actorState") { return 1 }
+    if (name == "setActorState") { return 1 }
+    if (name == "actorStop") { return 1 }
+    return 0
+}
+
+// collectConcPrescan records program-wide concurrency use: whether any
+// spawn/channel/actor construct occurs (drives runtime embedding), the
+// spawned function names in first-seen order (per-site wrappers) and the
+// actor handler names in first-seen order (dispatcher cases). Traversal
+// mirrors Go scanNodeForConcurrency/collectConcDecls over the statement
+// and expression shapes that can nest concurrency (exotic comptime/
+// tensor/select bodies are out of scope: nesting there misses detection
+// and fails loudly at C compile time, never silently).
+func collectConcPrescan(state, stmts) {
+    state[17] = 0
+    state[18] = []
+    state[19] = []
+    concScanStmts(state, stmts)
+}
+
+// armBodyAsStmts normalizes a match-arm body to a statement list: blocks
+// unwrap, single expressions become one-element lists, empties vanish.
+func armBodyAsStmts(arm) {
+    let body = armBody(arm)
+    if (getNodeType(body) == "Block") { return blockStmts(body) }
+    if (len(body) < 1) { return [] }
+    let out = []
+    out = appendArray(out, body)
+    return out
+}
+
+func concScanStmts(state, list) {
+    let i = 0
+    while (i < len(list)) {
+        concScanStmt(state, list[i])
+        i = i + 1
+    }
+}
+
+func concScanStmt(state, s) {
+    if (len(s) < 1) { return }
+    let t = getNodeType(s)
+    if (t == "FuncDecl") { concScanStmts(state, funcBody(s)) return }
+    if (t == "Block") { concScanStmts(state, blockStmts(s)) return }
+    if (t == "VarDecl") { concScanExpr(state, varDeclValue(s)) return }
+    if (t == "LetDecl") { concScanExpr(state, letDeclValue(s)) return }
+    if (t == "ConstDecl") { concScanExpr(state, constDeclValue(s)) return }
+    if (t == "Return") { concScanExpr(state, retVal(s)) return }
+    if (t == "Print") { concScanExpr(state, printVal(s)) return }
+    if (t == "ExprStmt") { concScanExpr(state, exprStmtExpr(s)) return }
+    if (t == "If") {
+        concScanExpr(state, ifCond(s))
+        concScanStmts(state, ifCons(s))
+        concScanStmts(state, ifAlt(s))
+        return
+    }
+    if (t == "While") {
+        concScanExpr(state, whileCond(s))
+        concScanStmts(state, whileBody(s))
+        return
+    }
+    if (t == "For") {
+        concScanExpr(state, forInit(s))
+        concScanExpr(state, forCond(s))
+        concScanExpr(state, forPost(s))
+        concScanStmts(state, forBody(s))
+        return
+    }
+    if (t == "ForIn") {
+        concScanExpr(state, forInIter(s))
+        concScanStmts(state, forInBody(s))
+        return
+    }
+    if (t == "Match") {
+        concScanExpr(state, matchValue(s))
+        let arms = matchArms(s)
+        let a = 0
+        while (a < len(arms)) {
+            concScanStmts(state, armBodyAsStmts(arms[a]))
+            a = a + 1
+        }
+        return
+    }
+    if (t == "KernelDecl") { concScanStmts(state, kernelBody(s)) return }
+}
+
+func concScanExpr(state, e) {
+    if (len(e) < 1) { return }
+    let t = getNodeType(e)
+    if (t == "Spawn") {
+        concMarkUses(state)
+        concAddSpawn(state, spawnFunc(e))
+        let args = spawnArgs(e)
+        let i = 0
+        while (i < len(args)) {
+            concScanExpr(state, args[i])
+            i = i + 1
+        }
+        return
+    }
+    if (t == "Receive") {
+        concMarkUses(state)
+        concScanExpr(state, chRecvChannel(e))
+        return
+    }
+    if (t == "Call") {
+        let fname = callFunc(e)
+        if (concIsBuiltin(fname) == 1) { concMarkUses(state) }
+        if (fname == "actor") {
+            let args = callArgs(e)
+            if (len(args) > 0 && getNodeType(args[0]) == "StringLiteral") {
+                concAddHandler(state, literalValue(args[0]))
+            }
+        }
+        let cargs = callArgs(e)
+        let i = 0
+        while (i < len(cargs)) {
+            concScanExpr(state, cargs[i])
+            i = i + 1
+        }
+        return
+    }
+    if (t == "IndirectCall") {
+        concScanExpr(state, indirectTarget(e))
+        let args = indirectArgs(e)
+        let i = 0
+        while (i < len(args)) {
+            concScanExpr(state, args[i])
+            i = i + 1
+        }
+        return
+    }
+    if (t == "BinaryExpr") {
+        concScanExpr(state, binaryLeft(e))
+        concScanExpr(state, binaryRight(e))
+        return
+    }
+    if (t == "UnaryExpr") { concScanExpr(state, unaryOperand(e)) return }
+    if (t == "Lambda") { concScanStmts(state, lambdaBody(e)) return }
+    if (t == "Match") {
+        concScanExpr(state, matchValue(e))
+        let arms = matchArms(e)
+        let a = 0
+        while (a < len(arms)) {
+            concScanStmts(state, armBodyAsStmts(arms[a]))
+            a = a + 1
+        }
+        return
+    }
+    if (t == "Index") {
+        concScanExpr(state, indexLeft(e))
+        concScanExpr(state, indexExpr(e))
+        return
+    }
+    if (t == "Slice") {
+        concScanExpr(state, sliceLeft(e))
+        if (sliceStart(e) != []) { concScanExpr(state, sliceStart(e)) }
+        if (sliceEnd(e) != []) { concScanExpr(state, sliceEnd(e)) }
+        return
+    }
+    if (t == "Member") { concScanExpr(state, memberObject(e)) return }
+    if (t == "ArrayLiteral") {
+        let elems = arrayElements(e)
+        let i = 0
+        while (i < len(elems)) {
+            concScanExpr(state, elems[i])
+            i = i + 1
+        }
+        return
+    }
+    if (t == "MapLiteral") {
+        let keys = mapKeys(e)
+        let i = 0
+        while (i < len(keys)) {
+            concScanExpr(state, keys[i])
+            i = i + 1
+        }
+        let vals = mapValues(e)
+        let j = 0
+        while (j < len(vals)) {
+            concScanExpr(state, vals[j])
+            j = j + 1
+        }
+        return
+    }
+    if (t == "StructLiteral") {
+        let fields = structLitFields(e)
+        let i = 0
+        while (i < len(fields)) {
+            concScanExpr(state, fields[i])
+            i = i + 1
+        }
+        return
+    }
+}
+
+// ============================================================
+// Phase 137: concurrency emission (mirrors Go conc_runtime.go)
+// ============================================================
+
+// concSpawnSiteIndex maps a spawned function name to its wrapper index
+// (karkain_run_<idx>), or -1 when absent (graceful mk_nil, like Go).
+func concSpawnSiteIndex(state, target) {
+    let order = concSpawnOrder(state)
+    let i = 0
+    while (i < len(order)) {
+        if (order[i] == target) { return i }
+        i = i + 1
+    }
+    return -1
+}
+
+// concFuncArity returns the parameter count of a top-level user function,
+// or -1 when no such function exists (graceful mk_nil, like Go).
+func concFuncArity(stmts, name) {
+    let i = 0
+    while (i < len(stmts)) {
+        if (getNodeType(stmts[i]) == "FuncDecl" && funcName(stmts[i]) == name) {
+            return len(funcParams(stmts[i]))
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+// emitConcWrappers emits the actor dispatcher switch plus one static
+// task-wrapper per spawn site. It runs after the user forward declarations
+// so every callee symbol is already declared. Mirrors Go concWrapperC.
+func emitConcWrappers(state, stmts) {
+    emitLine(state, "// ============================================================")
+    emitLine(state, "// Phase 137: per-program concurrency wrappers (kcc backend)")
+    emitLine(state, "// ============================================================")
+    emitLine(state, "typedef struct { long bid; Value state; } karkain_actor_box_t;")
+    emitLine(state, "static void karkain_actor_dispatch(karkain_actor_t* karkain_conc_a, void* karkain_conc_m,")
+    emitLine(state, "                                   karkain_sched_t* karkain_conc_s) {")
+    emitLine(state, "    (void)karkain_conc_s;")
+    emitLine(state, "    Value karkain_conc_msg = *((Value*)karkain_conc_m);")
+    emitLine(state, "    free(karkain_conc_m);")
+    emitLine(state, "    karkain_actor_box_t* karkain_conc_b = (karkain_actor_box_t*)karkain_conc_a->udata;")
+    emitLine(state, "    switch (karkain_conc_b->bid) {")
+    let handlers = concHandlerOrder(state)
+    let h = 0
+    while (h < len(handlers)) {
+        emitLine(state, "    case " + str(h) + ": {")
+        emitLine(state, "        Value _ns = " + emitC11FuncSymbol(handlers[h]) + "(karkain_conc_b->state, karkain_conc_msg);")
+        emitLine(state, "        /* adopt the returned state; int 0 (fallthrough) means no change */")
+        emitLine(state, "        if (!(_ns.type == TYPE_INT && _ns.intVal == 0)) karkain_conc_b->state = _ns;")
+        emitLine(state, "        break;")
+        emitLine(state, "    }")
+        h = h + 1
+    }
+    emitLine(state, "    default: break;")
+    emitLine(state, "    }")
+    emitLine(state, "}")
+    emitNewline(state)
+    let order = concSpawnOrder(state)
+    let i = 0
+    while (i < len(order)) {
+        emitLine(state, "static void karkain_run_" + str(i) + "(karkain_task_t* karkain_conc_t, void* karkain_conc_ctx,")
+        emitLine(state, "                         karkain_sched_t* karkain_conc_s) {")
+        emitLine(state, "    (void)karkain_conc_s;")
+        emitLine(state, "    Value* karkain_conc_args = (Value*)karkain_conc_ctx;")
+        let arity = concFuncArity(stmts, order[i])
+        let call = emitC11FuncSymbol(order[i]) + "("
+        let a = 0
+        while (a < arity) {
+            if (a > 0) { call = call + ", " }
+            call = call + "karkain_conc_args[" + str(a) + "]"
+            a = a + 1
+        }
+        emitLine(state, "    Value _r = " + call + ");")
+        emitLine(state, "    (karkain_conc_t->status = ((_r).type == TYPE_INT ? (_r).intVal : 0));")
+        emitLine(state, "}")
+        emitNewline(state)
+        i = i + 1
+    }
+}
+
+// emitConcGlue emits the Value-level glue layer bridging the runtime core
+// and the codegen Value model. Mirrors Go concRuntimeAPIC verbatim.
+func emitConcGlue(state) {
+    emitLine(state, "// ============================================================")
+    emitLine(state, "// Phase 137: Karkain concurrency API glue (Value model bridge)")
+    emitLine(state, "// ============================================================")
+    emitLine(state, "static karkain_sched_t* karkain_conc_sched_handle(void) {")
+    emitLine(state, "    return karkain_conc_init();")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "static Value karkain_conc_mk_handle(void* p) {")
+    emitLine(state, "    Value v; v.type = TYPE_INT; v.intVal = (long long)(intptr_t)p; return v;")
+    emitLine(state, "}")
+    emitLine(state, "static void* karkain_conc_handle_ptr(Value v) {")
+    emitLine(state, "    return (void*)(intptr_t)v.intVal;")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "/* channel(cap): cap < 0 -> unbounded, cap >= 0 -> bounded. channel() (no arg)")
+    emitLine(state, " * is emitted as make_int(-1) by emitConcCall. */")
+    emitLine(state, "static Value karkain_conc_channel(Value cap) {")
+    emitLine(state, "    long n = (cap.type == TYPE_INT && cap.intVal < 0) ? -1 : (long)cap.intVal;")
+    emitLine(state, "    karkain_channel_t* c = karkain_channel_create(karkain_conc_sched_handle(), n);")
+    emitLine(state, "    return karkain_conc_mk_handle(c);")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "/* send(ch, v) / chanSend(ch, v): copies v into a heap box owned by the")
+    emitLine(state, " * channel; receiver unboxes and frees. Returns 1 sent / 0 rejected (closed). */")
+    emitLine(state, "static Value karkain_conc_send(Value ch, Value msg) {")
+    emitLine(state, "    Value* box = (Value*)malloc(sizeof(Value));")
+    emitLine(state, "    if (!box) return make_int(0);")
+    emitLine(state, "    *box = msg;")
+    emitLine(state, "    int r = karkain_channel_send((karkain_channel_t*)karkain_conc_handle_ptr(ch), box);")
+    emitLine(state, "    return make_int(r);")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "/* receive(ch): blocking; returns the message Value, or nil when closed+drained. */")
+    emitLine(state, "static Value karkain_conc_recv(Value ch) {")
+    emitLine(state, "    void* m = karkain_channel_recv((karkain_channel_t*)karkain_conc_handle_ptr(ch));")
+    emitLine(state, "    if (!m) return mk_nil();")
+    emitLine(state, "    Value v = *(Value*)m;")
+    emitLine(state, "    free(m);")
+    emitLine(state, "    return v;")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "/* chanClose(ch): closes a channel; returns 1 on first close, 0 when already. */")
+    emitLine(state, "static Value karkain_conc_close(Value ch) {")
+    emitLine(state, "    int r = karkain_channel_close((karkain_channel_t*)karkain_conc_handle_ptr(ch));")
+    emitLine(state, "    return make_int(r);")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "/* join(t): blocks until the task completes, returns its status (0 ok, <0 failed). */")
+    emitLine(state, "static Value karkain_conc_join(Value t) {")
+    emitLine(state, "    long st = karkain_task_join((karkain_task_t*)karkain_conc_handle_ptr(t));")
+    emitLine(state, "    return make_int(st);")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "static void karkain_conc_wait_all(void) { /* Value-wrapper: usable as expression */")
+    emitLine(state, "    karkain_wait_all(karkain_conc_sched_handle());")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "/* actor(handlerId, state): state is boxed into a heap cell alongside the")
+    emitLine(state, " * handler id; the generated dispatcher switches on the id. Returns the actor. */")
+    emitLine(state, "static Value karkain_conc_actor(long handlerId, Value state) {")
+    emitLine(state, "    karkain_actor_box_t* box = (karkain_actor_box_t*)malloc(sizeof(karkain_actor_box_t));")
+    emitLine(state, "    if (!box) return make_int(0);")
+    emitLine(state, "    box->bid = handlerId;")
+    emitLine(state, "    box->state = state;")
+    emitLine(state, "    karkain_actor_t* a = karkain_actor_create(karkain_conc_sched_handle(),")
+    emitLine(state, "                                              karkain_actor_dispatch, box);")
+    emitLine(state, "    if (!a) { free(box); return make_int(0); }")
+    emitLine(state, "    return karkain_conc_mk_handle(a);")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "/* actorSend(a, msg): box a Value copy; returns 1 accepted / 0 if stopped. */")
+    emitLine(state, "static Value karkain_conc_actor_send(Value a, Value msg) {")
+    emitLine(state, "    Value* box = (Value*)malloc(sizeof(Value));")
+    emitLine(state, "    if (!box) return make_int(0);")
+    emitLine(state, "    *box = msg;")
+    emitLine(state, "    int r = karkain_actor_send((karkain_actor_t*)karkain_conc_handle_ptr(a), box);")
+    emitLine(state, "    return make_int(r);")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "static Value karkain_conc_actor_state(Value a) {")
+    emitLine(state, "    karkain_actor_box_t* b = (karkain_actor_box_t*)karkain_actor_get_state(")
+    emitLine(state, "        (karkain_actor_t*)karkain_conc_handle_ptr(a));")
+    emitLine(state, "    return b ? b->state : mk_nil();")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "static void karkain_conc_actor_set_state(Value a, Value v) {")
+    emitLine(state, "    karkain_actor_box_t* b = (karkain_actor_box_t*)karkain_actor_get_state(")
+    emitLine(state, "        (karkain_actor_t*)karkain_conc_handle_ptr(a));")
+    emitLine(state, "    if (b) b->state = v;")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "static void karkain_conc_actor_stop(Value a) {")
+    emitLine(state, "    karkain_actor_stop((karkain_actor_t*)karkain_conc_handle_ptr(a));")
+    emitLine(state, "}")
+    emitNewline(state)
+}
+
+// emitConcCall lowers one concurrency builtin call. The handler-id
+// resolution for actor(...) reads the prescan handler order (the handler
+// name is a string literal). Mirrors Go genConcCall exactly, including
+// the graceful mk_nil fallbacks.
+func emitConcCall(state, node) {
+    let fname = callFunc(node)
+    let args = callArgs(node)
+    let argc = len(args)
+    if (fname == "channel") {
+        if (argc == 0) {
+            emit(state, "karkain_conc_channel(make_int(-1))")
+        } else {
+            emit(state, "karkain_conc_channel(")
+            emitC11Expr(state, args[0])
+            emit(state, ")")
+        }
+        return
+    }
+    if (fname == "send" || fname == "chanSend") {
+        emit(state, "karkain_conc_send(")
+        if (argc > 0) { emitC11Expr(state, args[0]) }
+        emit(state, ", ")
+        if (argc > 1) { emitC11Expr(state, args[1]) }
+        emit(state, ")")
+        return
+    }
+    if (fname == "chanClose") {
+        emit(state, "karkain_conc_close(")
+        if (argc > 0) { emitC11Expr(state, args[0]) }
+        emit(state, ")")
+        return
+    }
+    if (fname == "join") {
+        emit(state, "karkain_conc_join(")
+        if (argc > 0) { emitC11Expr(state, args[0]) }
+        emit(state, ")")
+        return
+    }
+    if (fname == "wait_all") {
+        emit(state, "(karkain_conc_wait_all(), mk_nil())")
+        return
+    }
+    if (fname == "actor") {
+        let idx = -1
+        if (argc > 0 && getNodeType(args[0]) == "StringLiteral") {
+            let want = literalValue(args[0])
+            let order = concHandlerOrder(state)
+            let i = 0
+            while (i < len(order)) {
+                if (order[i] == want) { idx = i }
+                i = i + 1
+            }
+        }
+        if (idx < 0) {
+            emit(state, "mk_nil() /* unknown actor handler */")
+            return
+        }
+        emit(state, "karkain_conc_actor(" + str(idx) + ", ")
+        if (argc > 1) { emitC11Expr(state, args[1]) }
+        emit(state, ")")
+        return
+    }
+    if (fname == "actorSend") {
+        emit(state, "karkain_conc_actor_send(")
+        if (argc > 0) { emitC11Expr(state, args[0]) }
+        emit(state, ", ")
+        if (argc > 1) { emitC11Expr(state, args[1]) }
+        emit(state, ")")
+        return
+    }
+    if (fname == "actorState") {
+        emit(state, "karkain_conc_actor_state(")
+        if (argc > 0) { emitC11Expr(state, args[0]) }
+        emit(state, ")")
+        return
+    }
+    if (fname == "setActorState") {
+        emit(state, "(karkain_conc_actor_set_state(")
+        if (argc > 0) { emitC11Expr(state, args[0]) }
+        emit(state, ", ")
+        if (argc > 1) { emitC11Expr(state, args[1]) }
+        emit(state, ")")
+        emit(state, ", mk_nil())")
+        return
+    }
+    if (fname == "actorStop") {
+        emit(state, "(karkain_conc_actor_stop(")
+        if (argc > 0) { emitC11Expr(state, args[0]) }
+        emit(state, ")")
+        emit(state, ", mk_nil())")
+        return
+    }
+    emit(state, "mk_nil()")
+}
+
+// emitConcSpawn lowers a SpawnExpr. The wrapper index comes from the
+// prescan spawn order; the argument values ride a heap array the runtime
+// frees. Mirrors Go genConcurrencySpawn, including graceful fallbacks.
+func emitConcSpawn(state, node) {
+    let target = spawnFunc(node)
+    let idx = concSpawnSiteIndex(state, target)
+    if (idx < 0) {
+        emit(state, "mk_nil() /* unknown spawn target */")
+        return
+    }
+    let args = spawnArgs(node)
+    if (len(args) == 0) {
+        emit(state, "karkain_conc_mk_handle(karkain_sched_spawn(karkain_conc_sched_handle(), karkain_run_" + str(idx) + ", NULL))")
+        return
+    }
+    emit(state, "({ Value _conc_sa[" + str(len(args)) + "] = {")
+    let i = 0
+    while (i < len(args)) {
+        if (i > 0) { emit(state, ", ") }
+        emitC11Expr(state, args[i])
+        i = i + 1
+    }
+    emit(state, "}; long _i; Value* _conc_h = (Value*)malloc(" + str(len(args)) + " * sizeof(Value)); for (_i = 0; _i < " + str(len(args)) + "; _i++) _conc_h[_i] = _conc_sa[_i]; karkain_conc_mk_handle(karkain_sched_spawn(karkain_conc_sched_handle(), karkain_run_" + str(idx) + ", _conc_h)); })")
+}
+
+// emitConcRecv lowers receive(ch). Mirrors Go genConcRecv.
+func emitConcRecv(state, node) {
+    emit(state, "karkain_conc_recv(")
+    emitC11Expr(state, chRecvChannel(node))
+    emit(state, ")")
 }
 
 // lambdaSynthName derives a bare lambda's top-level name from its
@@ -623,6 +1174,11 @@ func emitC11Expr(state, node) {
                 au = au + 1
             }
             emit(state, ")")
+        } else if (concUses(state) == 1 && concIsBuiltin(fname) == 1) {
+            // Phase 137: concurrency builtins lower to the Value glue.
+            // Placed after user functions (which shadow builtins, like Go)
+            // and before the generic builtin arms.
+            emitConcCall(state, node)
         } else if (fname == "len") {
             emit(state, "karkain_len(")
             if (argc > 0) { emitC11Expr(state, args[0]) }
@@ -914,6 +1470,15 @@ func emitC11Expr(state, node) {
         emit(state, "karkain_call_fn(")
         emitC11Expr(state, indirectTarget(node))
         emitIndirectTail(state, indirectArgs(node), indirectLine(node))
+    }
+
+    // Phase 137: spawn and channel-receive lowering (mirrors Go
+    // genConcurrencySpawn/genConcRecv, including graceful fallbacks).
+    if (nt == "Spawn") {
+        emitConcSpawn(state, node)
+    }
+    if (nt == "Receive") {
+        emitConcRecv(state, node)
     }
 
     // Phase 133: a bare lambda (array element, argument, return value)
@@ -1618,13 +2183,20 @@ func collectLocalFuncsC11(state, stmts) {
 func generateC11(ast, sourceName) {
     let state = createCodegenState("c11")
     setCodegenSourceName(state, sourceName)
+    let stmts = programStatements(ast)
+    // Phase 137: concurrency prescan (uses-flag, spawn order, handler
+    // order). Runs before any emission; the runtime text, wrappers and
+    // glue below are all gated on it.
+    collectConcPrescan(state, stmts)
     emitC11Preamble(state)
     emitC11ValueRuntime(state)
+    if (concUses(state) == 1) {
+        emitConcRuntime(state)
+    }
 
     // Phase 123: generate enum declarations (C int-tag constants / payload
     // constructors) before functions, mirroring the Go emitters
     // genEnumDecl / generator.enumDecls first pass.
-    let stmts = programStatements(ast)
     let i = 0
     while (i < len(stmts)) {
         if (getNodeType(stmts[i]) == "EnumDecl") {
@@ -1649,6 +2221,13 @@ func generateC11(ast, sourceName) {
         i = i + 1
     }
     emitNewline(state)
+
+    // Phase 137: per-program concurrency wrappers + Value glue, after the
+    // user forward declarations (mirrors Go GenerateAndCompile ordering).
+    if (concUses(state) == 1) {
+        emitConcWrappers(state, stmts)
+        emitConcGlue(state)
+    }
 
     // Phase 121: emit every let-bound lambda as a top-level C function. Their
     // definitions must NOT nest inside the enclosing function's body.
