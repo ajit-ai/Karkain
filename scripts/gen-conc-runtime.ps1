@@ -32,8 +32,13 @@ $digests = @()
 foreach ($f in $files) {
     $p = Join-Path $srcDir $f
     $bytes = [System.IO.File]::ReadAllBytes($p)
+    # LF-normalize before hashing: Windows checkouts carry CRLF while Linux
+    # checkouts carry LF, and the digest must agree on both (the Go gate
+    # normalizes the same way). The embedded emitLine body is already
+    # LF-clean via the '\r?\n' split below, so only the digest needs this.
+    $norm = $bytes | Where-Object { $_ -ne 13 }
     $sha = [System.Security.Cryptography.SHA256]::Create()
-    $hex = ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString("x2") }) -join ""
+    $hex = ($sha.ComputeHash($norm) | ForEach-Object { $_.ToString("x2") }) -join ""
     $digests += "$f=$hex"
 }
 [void]$sb.AppendLine("// runtime-sha256: " + ($digests -join " "))

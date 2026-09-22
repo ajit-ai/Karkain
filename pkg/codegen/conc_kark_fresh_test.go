@@ -8,6 +8,7 @@ package codegen
 // parity is proven by the Go-vs-kcc execution goldens).
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
@@ -53,6 +54,11 @@ func TestConcRuntimeKarkFresh(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read runtime source %s: %v", name, err)
 		}
+		// LF-normalize before hashing (mirrors gen-conc-runtime.ps1):
+		// Windows checkouts carry CRLF, Linux checkouts LF — the digest
+		// must agree on both or CI goes red while local stays green.
+		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+		data = bytes.ReplaceAll(data, []byte("\r"), []byte("\n"))
 		sum := sha256.Sum256(data)
 		if got := hex.EncodeToString(sum[:]); got != want[name] {
 			t.Fatalf("runtime source %s drifted (want regen):\n  recorded %s\n  actual   %s\nrun scripts/gen-conc-runtime.ps1", name, want[name], got)
