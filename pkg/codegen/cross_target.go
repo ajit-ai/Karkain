@@ -59,10 +59,23 @@ func (g *Generator) detectCompilerForTarget(cFile, exeFile string) (string, []st
 		if isHostMachine(tg) {
 			return g.detectHostCompiler(cFile, exeFile)
 		}
+		// Phase 139: aarch64-windows gets an explicit probe (MinGW prefix
+		// or CC override only). The shared clang fallback is x86_64-only
+		// history: host clang virtually never carries Windows-ARM64
+		// headers, so attempting it yields confusing C errors instead of
+		// the deterministic ToolchainError (proven by CI).
+		if tg.Arch == target.ArchAArch64 {
+			return g.detectAarch64WindowsCrossCompiler(tg, cFile, exeFile)
+		}
 		return g.detectWindowsCrossCompiler(tg, cFile, exeFile)
 	case target.OSLinux:
 		if isHostMachine(tg) {
 			return g.detectHostCompiler(cFile, exeFile)
+		}
+		// Phase 139: riscv64 same story — prefixed GNU gcc or CC only, no
+		// clang fallback (no riscv64 sysroot on almost every host).
+		if tg.Arch == target.ArchRiscv64 {
+			return g.detectRiscv64CrossCompiler(tg, cFile, exeFile)
 		}
 		return g.detectLinuxCrossCompiler(tg, cFile, exeFile)
 	case target.OSMacOS:
@@ -98,13 +111,64 @@ func (g *Generator) detectMacOSCrossCompiler(tg target.Target, cFile, exeFile st
 		return cc, []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}, nil
 	}
 	clangTarget := tg.Arch.String() + "-apple-macosx"
-	searched := []string{"clang --target=" + clangTarget}
-	if _, err := exec.LookPath("clang"); err == nil {
-		flags := []string{cFile, "-o", exeFile, "--target=" + clangTarget, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+	// A same-machine macOS host carries the Apple SDK, so host clang can
+	// genuinely build. Anywhere else host clang has no Apple headers: the
+	// historical probe would fail deep inside C compilation with sysroot
+	// noise (CI-proven), so foreign hosts get the deterministic
+	// ToolchainError instead — explicit CC (e.g. osxcross) stays the hatch.
+	if isHostMachine(tg) {
+		if _, err := exec.LookPath("clang"); err == nil {
+			flags := []string{cFile, "-o", exeFile, "--target=" + clangTarget, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+			if g.cfg.Debug {
+				flags = append(flags, "-g")
+			}
+			return "clang", flags, nil
+		}
+		return "", nil, crossToolchainError(tg, "clang --target="+clangTarget)
+	}
+	return "", nil, crossToolchainError(tg,
+		"CC=<macOS-capable clang> (e.g. osxcross or Xcode toolchain)",
+		"clang --target="+clangTarget+" with an Apple SDK")
+}
+
+// detectAarch64WindowsCrossCompiler probes the MinGW-ARM64 cross gcc
+// (aarch64-w64-mingw32-gcc) or an explicit CC override. Deliberately no
+// clang fallback: host clang without mingw headers fails inside C
+// compilation instead of surfacing the deterministic ToolchainError.
+func (g *Generator) detectAarch64WindowsCrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
+	if cc := os.Getenv("CC"); cc != "" {
+		return cc, []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}, nil
+	}
+	prefix := target.MingwTriple(tg)
+	if _, err := exec.LookPath(prefix + "-gcc"); err == nil {
+		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
 		}
-		return "clang", flags, nil
+		return prefix + "-gcc", g.appendAVXFlags(flags), nil
+	}
+	return "", nil, crossToolchainError(tg, prefix+"-gcc")
+}
+
+// detectRiscv64CrossCompiler probes triple-prefixed GNU cross gcc or an
+// explicit CC override. Deliberately no clang fallback (same rationale as
+// the ARM64-Windows probe above: no riscv64 sysroot on real hosts).
+func (g *Generator) detectRiscv64CrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
+	if cc := os.Getenv("CC"); cc != "" {
+		return cc, []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}, nil
+	}
+	arch := tg.Arch.String()
+	names := []string{arch + "-linux-gnu-gcc", arch + "-pc-linux-gnu-gcc", arch + "-unknown-linux-gnu-gcc"}
+	var searched []string
+	for _, n := range names {
+		searched = append(searched, n)
+		if _, err := exec.LookPath(n); err == nil {
+			flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+			if g.cfg.Debug {
+				flags = append(flags, "-g")
+			}
+			return n, g.appendAVXFlags(flags), nil
+		}
 	}
 	return "", nil, crossToolchainError(tg, searched...)
 }
