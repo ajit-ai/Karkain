@@ -453,6 +453,37 @@ func indirectArgs(n)   { return n[2] }
 func indirectLine(n)   { return n[3] }
 
 // ============================================================
+// Spawn: [NODE_SPAWN, funcName, args, line]
+// ChRecv: [NODE_RECEIVE, channel, line]
+// Phase 137: spawn(fn, args...) and receive(ch) expressions — mirrors
+// pkg/parser SpawnExpr{ActorName, Args} and ChRecvExpr{Channel}.
+// channel()/actor() stay CallExpr (as on the Go front end); only spawn
+// and receive own node types.
+// ============================================================
+
+func makeSpawn(funcName, args, line) {
+    let n = makeNode(NODE_SPAWN())
+    n = appendArray(n, funcName)
+    n = appendArray(n, args)
+    n = appendArray(n, line)
+    return n
+}
+
+func spawnFunc(n) { return n[1] }
+func spawnArgs(n) { return n[2] }
+func spawnLine(n) { return n[3] }
+
+func makeChRecv(ch, line) {
+    let n = makeNode(NODE_RECEIVE())
+    n = appendArray(n, ch)
+    n = appendArray(n, line)
+    return n
+}
+
+func chRecvChannel(n) { return n[1] }
+func chRecvLine(n)    { return n[2] }
+
+// ============================================================
 // Index: [NODE_INDEX, left, index, line]
 // ============================================================
 

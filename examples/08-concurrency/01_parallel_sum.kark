@@ -1,12 +1,12 @@
-// Status: Experimental
-// Engine: go (kcc parity for concurrency is a documented post-107 boundary)
+// Status: Stable
+// Engine: both (Phase 137 achieved kcc concurrency parity)
 // Category: 08 Concurrency
 //
 // Work-grid style parallelism: spawn a task per lane, join each result, and
 // accumulate. Deterministic because joins serialize the outcome. The
 // Phase 107 runtime backs spawn/join with a work-stealing scheduler.
 //
-// Run:  karkain run examples/08-concurrency/01_parallel_sum.kark --engine go
+// Run:  karkain run examples/08-concurrency/01_parallel_sum.kark
 
 func square(i) {
     return i * i

@@ -13,7 +13,7 @@ NEVER skip this step. This is a hard rule, not optional.
 ## Roadmap
 
 See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-131** — Phases 50–106 complete, 107 (Concurrency
+Current phase: **post-137** — Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -516,6 +516,37 @@ push, tokens/hover/definition/completion, exit 0) + 3/3 extension tests
 (incl. client wiring); `go build`/`go vet` full tree, Sphinx `-W`, untouched
 compiler suites by construction. Report:
 `docs/audit/PHASE-136-LSP-V2-FINAL-REPORT.md`.)
+Also completed: **137 — Concurrency Parity** (verdict **COMPLETE**; GA-2
+infra track. kcc engine gains full concurrency support with byte-identical
+output to Go engine — closes the post-107 boundary. Parser changes
+(`src/compiler/parser.kark`): `parseSpawnExpr`, `parseChRecv`, `parseKeywordCall`
+for channel/actor, `parseWithState` for diagnostic preservation, send-as-operator
+enforcement. AST changes (`src/compiler/ast.kark`): `NODE_SPAWN`/`NODE_RECEIVE`
+with accessors. Checker changes (`src/compiler/checker.kark`): 10 concurrency
+builtins in `isCheckerBuiltin`, Spawn/Receive cases in `checkExpr`. Codegen
+changes (`src/compiler/codegen.kark`): concurrency prescan
+(`collectConcPrescan`), state slots (`concUses`, `concSpawnOrder`,
+`concHandlerOrder`), runtime emission (`emitConcRuntime` via generated
+`conc_runtime.kark`), wrappers (`emitConcWrappers`), Value glue
+(`emitConcGlue`), builtin lowering (`emitConcCall`), expression lowering
+(`emitConcSpawn`, `emitConcRecv`). KIR changes (`src/compiler/kir.kark`):
+explicit render for spawn/receive (previously dropped to `_`). Sema changes
+(`src/compiler/sema.kark`): 10 concurrency builtins in `isBuiltinFunc`.
+Generated runtime (`src/compiler/conc_runtime.kark`): auto-generated from
+`runtime/concurrency/c/*` by `scripts/gen-conc-runtime.ps1`, SHA-256 freshness
+gate in `pkg/codegen/conc_kark_fresh_test.go`. CLI bridge
+(`pkg/cli/kcc_engine.go`): gcc flag `-std=c99` → `-std=c2x` for C11 atomics.
+Driver changes (`src/compiler/main.kark`): all entries use `parseWithState`,
+compile commands use `-std=c2x`. Gates: `pkg/cli/phase137_concurrency_test.go`
+(6 subtests: Go golden, kcc golden, byte parity, KIR rendering, checker parity,
+negative cases — byte-identical `144\n10\n20\n30\n0\n6\n` output on both
+engines for `examples/concurrency/pipeline/main.kark`), Phase 107 gates remain
+green, freshness gate validates runtime generation. Example headers updated:
+`examples/08-concurrency/01_parallel_sum.kark` and `02_channel_ping.kark`
+changed from Status Experimental/Engine go to Status Stable/Engine both.
+Regressions green: Phase 107, 130, 133, 134, 135, 136 gates, full
+`pkg/codegen`/`pkg/cli` suites, `go vet`, `go build`. Report:
+`docs/audit/PHASE-137-CONCURRENCY-PARITY-FINAL-REPORT.md`.)
 
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,

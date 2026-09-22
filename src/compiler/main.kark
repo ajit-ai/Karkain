@@ -121,7 +121,7 @@ func checkFile(path) {
 
     // Parse (pass source for zero-copy token literal access)
     let state = createParserState(tokens, source)
-    let ast = parse(tokens, source)
+    let ast = parseWithState(state)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -172,7 +172,7 @@ func kirFile(path) {
 
     let tokens = tokenize(source)
     let state = createParserState(tokens, source)
-    let ast = parse(tokens, source)
+    let ast = parseWithState(state)
 
     if (hasParserErrors(state)) {
         printParserErrors(state)
@@ -198,7 +198,7 @@ func verifyFile(path) {
 
     let tokens = tokenize(source)
     let state = createParserState(tokens, source)
-    let ast = parse(tokens, source)
+    let ast = parseWithState(state)
 
     if (hasParserErrors(state)) {
         printParserErrors(state)
@@ -229,7 +229,7 @@ func buildFile(path, target) {
 
     // Parse (pass source for zero-copy token literal access)
     let state = createParserState(tokens, source)
-    let ast = parse(tokens, source)
+    let ast = parseWithState(state)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -258,7 +258,7 @@ func runFile(path) {
 
     // Parse (pass source for zero-copy token literal access)
     let state = createParserState(tokens, source)
-    let ast = parse(tokens, source)
+    let ast = parseWithState(state)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -275,8 +275,9 @@ func runFile(path) {
     writeToFile(f, cCode)
     closeFile(f)
 
-    // Compile with gcc
-    let compileCmd = "gcc -o karkain_temp " + tempPath + " -D_POSIX_C_SOURCE=200809L -Wno-psabi -lm"
+    // Compile with gcc (C2X like the Go reference backend: the embedded
+    // concurrency runtime needs C11 atomics).
+    let compileCmd = "gcc -std=c2x -o karkain_temp " + tempPath + " -D_POSIX_C_SOURCE=200809L -Wno-psabi -lm"
     print("Compiling: " + compileCmd)
     let cc = system(compileCmd)
     if (cc != 0) {
@@ -651,7 +652,7 @@ func runTests(testPath, filter) {
         }
         let tokens = tokenize(source)
         let state = createParserState(tokens, source)
-        let ast = parse(tokens, source)
+        let ast = parseWithState(state)
         if (hasParserErrors(state)) {
             printParserErrors(state)
             fi = fi + 1
@@ -782,7 +783,7 @@ func buildCallList(names) {
 func compileRunDriver(driver) {
     let tokens = tokenize(driver)
     let state = createParserState(tokens, driver)
-    let ast = parse(tokens, driver)
+    let ast = parseWithState(state)
     if (hasParserErrors(state)) {
         printParserErrors(state)
         return 1
@@ -792,7 +793,7 @@ func compileRunDriver(driver) {
     let f = createFile(tempPath)
     writeToFile(f, cCode)
     closeFile(f)
-    let compileCmd = "gcc -std=c99 -x c -D_POSIX_C_SOURCE=200809L -Wno-psabi -o karkain_test " + tempPath + " -lgmp -lm"
+    let compileCmd = "gcc -std=c2x -x c -D_POSIX_C_SOURCE=200809L -Wno-psabi -o karkain_test " + tempPath + " -lgmp -lm"
     let cc = system(compileCmd)
     if (cc != 0) {
         // Phase 125A: the networking preamble emits Winsock references

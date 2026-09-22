@@ -1,5 +1,5 @@
-// Status: Experimental
-// Engine: go (kcc parity for concurrency is a documented post-107 boundary)
+// Status: Stable
+// Engine: both (Phase 137 achieved kcc concurrency parity)
 // Category: 08 Concurrency
 //
 // Channel ping-pong: a producer task streams a bounded sequence, the main
@@ -7,7 +7,7 @@
 // drains remaining messages deterministically after close, so a fixed-count
 // read is the safe pattern.
 //
-// Run:  karkain run examples/08-concurrency/02_channel_ping.kark --engine go
+// Run:  karkain run examples/08-concurrency/02_channel_ping.kark
 
 func producer(ch) {
     let i = 0
