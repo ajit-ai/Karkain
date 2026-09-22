@@ -24,7 +24,7 @@ import (
 // (examples/01-fundamentals … examples/15-developer-tools), each has a
 // README, and no `.kar` files exist anywhere under examples/.
 
-var phase116StatusRe = regexp.MustCompile(`^//\s*Status:\s*(Runnable|Experimental|Planned)\s*$`)
+var phase116StatusRe = regexp.MustCompile(`^//\s*Status:\s*(Runnable|Stable|Experimental|Planned)\s*$`)
 var phase116EngineRe = regexp.MustCompile(`^//\s*Engine:\s*([^\s]+)`)
 var phase116CategoryRe = regexp.MustCompile(`^//\s*Category:\s*(\d{2})`)
 
@@ -75,7 +75,7 @@ func phase116ReadHeader(t *testing.T, path string) (status, engine, category str
 
 // TestPhase116_CorpusMetadata validates every corpus example advertises an
 // honest, consistent Status/Engine/Category and that the pin map in the
-// Phase 114 gate covers exactly the runnable+experimental files.
+// Phase 114 gate covers exactly the runnable+stable+experimental files.
 func TestPhase116_CorpusMetadata(t *testing.T) {
 	examplesRoot := filepath.Join(repoRoot(t), "examples")
 	dirs := phase116CorpusDirs(t)
@@ -138,9 +138,11 @@ func TestPhase116_CorpusMetadata(t *testing.T) {
 				continue
 			}
 
-			switch status {
-			case "Runnable", "Experimental":
-				spec, pinned := phase114Examples[rel]
+		switch status {
+		case "Runnable", "Stable", "Experimental":
+			// Stable is Phase 137's graduated state (both-engine proven):
+			// pinned like Runnable, with no engine restriction.
+			spec, pinned := phase114Examples[rel]
 				if !pinned {
 					t.Errorf("%s: Status %s but not pinned in phase114Examples (corpus/gate drift)", rel, status)
 				} else {

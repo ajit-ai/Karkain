@@ -14,13 +14,13 @@ import (
 
 // Phase 114 gate: the official example corpus.
 //
-// Every Runnable example in the 15-category corpus (examples/01-fundamentals â€¦
+// Every Runnable/Stable example in the 15-category corpus (examples/01-fundamentals â€¦
 // examples/14-security + developer tools) must compile and run to a pinned
 // golden output on BOTH engines (Go front end and the self-hosted kcc engine)
-// with byte-identical stdout. Experimental examples (08-concurrency) are only
-// Go-engine so far (kcc parity is a documented post-107 boundary) and are
-// validated on the Go leg alone. Test-mode files (*_test.kark) are validated
-// through the real karkain test runner instead of a plain run.
+// with byte-identical stdout. Phase 137 closed the last engine gap: the
+// 08-concurrency examples are Stable and run on both legs. Test-mode files
+// (*_test.kark) are validated through the real karkain test runner instead
+// of a plain run.
 
 // phase114Examples pins goldens: rel path under examples/ -> expected stdout.
 // status == "go" means the example is Go-engine only (experimental).
@@ -67,8 +67,8 @@ var phase114Examples = map[string]struct {
 	"06-database/02_db_persist.kark":         {"true\n2\n1\nalpha\n2\nbeta\n", ""},
 	"07-web/01_http_loopback.kark":           {"90\nGET\n/hello\nok\n0\n70\n200\nOK\nhello /hello\n", ""},
 	"07-web/02_http_codec.kark":              {"GET\n/items\ntext/plain\n3\n201\nCreated\nok\n", ""},
-	"08-concurrency/01_parallel_sum.kark":    {"285\n", "go"},
-	"08-concurrency/02_channel_ping.kark":    {"5\n0\n8\n", "go"},
+	"08-concurrency/01_parallel_sum.kark":    {"285\n", ""},
+	"08-concurrency/02_channel_ping.kark":    {"5\n0\n8\n", ""},
 	"09-ai/01_nearest_neighbor.kark":         {"10\n60\n100\n60\n", ""},
 	"09-ai/02_linear_classifier.kark":        {"5\n1\n-1\n2\n-3\n", ""},
 	"09-ai/03_numerics_forward.kark":         {"0.3\n0.23\n2.71828\n0.5\n0.761594\n0\n3\n1.41421\n10\n5\n25\n1\n0.0466667\n0.2\n0.23\n", ""},
