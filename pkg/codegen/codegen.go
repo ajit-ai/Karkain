@@ -76,6 +76,10 @@ type Generator struct {
 	concHandlers     map[string]bool             // Phase 107: actor handler names referenced by actor()
 	concHandlerOrder []string                    // Phase 107: handler order (dispatcher ids)
 
+	// Phase 138: GPU/WGSL codegen state
+	gpuGenerator *GPUGeneratorWGSL // GPU/WGSL shader generator
+	gpuFunctions map[string]string // @target(gpu) function names -> WGSL shaders
+
 	// Phase 110: profiling state. FIDs are assigned in source order and match
 	// the emitted C name table, so reports are deterministic across runs.
 	profiling     bool
@@ -95,11 +99,23 @@ func envCapField(cap string) string { return "karkain_cap_" + sanitizeC(cap) }
 func New(cfg Config) *Generator {
 	return &Generator{cfg: cfg, enumDecls: make(map[string]*parser.EnumDecl),
 		closureVars: make(map[string]bool), closureHeaders: make(map[string]bool),
-		localNames:  make(map[string]bool),
+		localNames: make(map[string]bool),
 		localFuncs: make(map[string]bool), userFuncs: make(map[string]bool),
 		simdVars: make(map[string]string), concFns: make(map[string]*parser.FuncDecl),
 		concSpawned: make(map[string]bool), concHandlers: make(map[string]bool),
-		profFID: make(map[string]int), curProfID: -1}
+		profFID: make(map[string]int), curProfID: -1,
+		gpuGenerator: NewGPUGeneratorWGSL(), gpuFunctions: make(map[string]string)}
+}
+
+// HasGPUFunction returns true if a GPU function with the given name was processed.
+func (g *Generator) HasGPUFunction(name string) bool {
+	_, ok := g.gpuFunctions[name]
+	return ok
+}
+
+// GetGPUFunction returns the WGSL shader for a GPU function, or empty string if not found.
+func (g *Generator) GetGPUFunction(name string) string {
+	return g.gpuFunctions[name]
 }
 
 // collectLocalFuncs recursively finds let-bound lambda definitions (desugared
@@ -498,7 +514,6 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 
 	g.emitSharedDecls(&sb, prog)
 
-
 	// Phase 107: per-program concurrency wrappers + Value glue. Emitted after
 	// the forward declarations so the wrappers can call user functions whose
 	// symbols are already declared.
@@ -514,6 +529,20 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	if g.profiling {
 		sb.WriteString(profNameTableC(g.profNames))
 		sb.WriteString(profRuntimeC())
+	}
+
+	// Phase 138: GPU/WGSL shader generation for @target(gpu) functions.
+	// Generate WGSL shaders before function bodies (compile-only guarantee).
+	for _, stmt := range prog.Statements {
+		if fn, ok := stmt.(*parser.FuncDecl); ok && fn.Target == "gpu" {
+			shader, err := g.gpuGenerator.GenerateFunction(fn)
+			if err != nil {
+				return fmt.Errorf("GPU/WGSL codegen failed for function %s: %w", fn.Name, err)
+			}
+			g.gpuFunctions[fn.Name] = shader
+			// Note: In compile-only mode, we don't write .wgsl files
+			// to avoid file I/O in tests. The shader is stored in memory.
+		}
 	}
 
 	// Generate all function declarations
@@ -3249,32 +3278,32 @@ func (g *Generator) genStatementInner(stmt parser.Node) (result string) {
 			if g.enclosingName != "" && g.closureVars[g.enclosingName] {
 				capByEnv = true
 			}
-		g.lambdaBuf.WriteString(g.genFuncDecl(fn))
-		// Phase 133: emit the canonical indirect-call wrapper next to the
-		// definition (top-level via lambdaBuf, same flush as the def itself).
-		g.lambdaBuf.WriteString(g.genFnWrapper(fn))
-		// Phase 121: build the binding-site init here (not in genFuncDecl) so
-		// the access form can depend on the enclosing context. At module
-		// scope the captured names are plain C variables (`&cap`); inside a
-		// capturing closure the enclosing captures are only in scope through
-		// its `#define` macros, so the field name must not be re-lexed —
-		// reach them through the env param directly (`&_env->cap`). Names
-		// that are locals of the enclosing function stay plain `&cap`.
-		//
-		// Phase 133: the env is heap-allocated per binding execution (not a
-		// shared static) so escaping cells keep their own captures —
-		// factory functions returning closures stay correct across calls.
-		// The global holder is still assigned for static direct calls, and
-		// the binding additionally declares the first-class Value cell.
-		san := sanitizeC(fn.Name)
-		holder := "_genv_" + san
-		if len(fn.Captures) == 0 {
-			return fmt.Sprintf("\tValue %s = make_fn(karkain_fncall_%s, NULL);\n", node.Name, san)
-		}
-		envT := "ClosureEnv_" + san
-		inits := g.closureEnvInits(fn, "_e_"+san, capByEnv)
-		return fmt.Sprintf("\t%s* _e_%s = (%s*)malloc(sizeof(%s)); %s%s = _e_%s; Value %s = make_fn(karkain_fncall_%s, _e_%s);\n",
-			envT, san, envT, envT, inits, holder, san, node.Name, san, san)
+			g.lambdaBuf.WriteString(g.genFuncDecl(fn))
+			// Phase 133: emit the canonical indirect-call wrapper next to the
+			// definition (top-level via lambdaBuf, same flush as the def itself).
+			g.lambdaBuf.WriteString(g.genFnWrapper(fn))
+			// Phase 121: build the binding-site init here (not in genFuncDecl) so
+			// the access form can depend on the enclosing context. At module
+			// scope the captured names are plain C variables (`&cap`); inside a
+			// capturing closure the enclosing captures are only in scope through
+			// its `#define` macros, so the field name must not be re-lexed —
+			// reach them through the env param directly (`&_env->cap`). Names
+			// that are locals of the enclosing function stay plain `&cap`.
+			//
+			// Phase 133: the env is heap-allocated per binding execution (not a
+			// shared static) so escaping cells keep their own captures —
+			// factory functions returning closures stay correct across calls.
+			// The global holder is still assigned for static direct calls, and
+			// the binding additionally declares the first-class Value cell.
+			san := sanitizeC(fn.Name)
+			holder := "_genv_" + san
+			if len(fn.Captures) == 0 {
+				return fmt.Sprintf("\tValue %s = make_fn(karkain_fncall_%s, NULL);\n", node.Name, san)
+			}
+			envT := "ClosureEnv_" + san
+			inits := g.closureEnvInits(fn, "_e_"+san, capByEnv)
+			return fmt.Sprintf("\t%s* _e_%s = (%s*)malloc(sizeof(%s)); %s%s = _e_%s; Value %s = make_fn(karkain_fncall_%s, _e_%s);\n",
+				envT, san, envT, envT, inits, holder, san, node.Name, san, san)
 		}
 		// Phase 70/106: `let x [N]f32 = ...` — fixed-lane SIMD vector variable.
 		if node.IsSIMD {
