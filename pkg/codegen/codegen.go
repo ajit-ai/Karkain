@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"karkain/pkg/parser"
+	"karkain/pkg/sema"
 	"karkain/pkg/target"
 	"os"
 	"os/exec"
@@ -533,8 +534,17 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 
 	// Phase 138: GPU/WGSL shader generation for @target(gpu) functions.
 	// Generate WGSL shaders before function bodies (compile-only guarantee).
+	// Unknown @target(...) names are rejected here (mirroring the sema
+	// NPUAnalyzer message) so a typo can never silently compile as CPU.
 	for _, stmt := range prog.Statements {
-		if fn, ok := stmt.(*parser.FuncDecl); ok && fn.Target == "gpu" {
+		fn, ok := stmt.(*parser.FuncDecl)
+		if !ok || fn.Target == "" {
+			continue
+		}
+		if !sema.ValidTarget(fn.Target) {
+			return fmt.Errorf("@target(%s): unknown execution target; supported targets: cpu, npu, gpu", fn.Target)
+		}
+		if fn.Target == "gpu" {
 			shader, err := g.gpuGenerator.GenerateFunction(fn)
 			if err != nil {
 				return fmt.Errorf("GPU/WGSL codegen failed for function %s: %w", fn.Name, err)

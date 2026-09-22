@@ -112,10 +112,12 @@ func TestPhase98_NPU_AttributeMustPrecedeFunc(t *testing.T) {
 }
 
 func TestPhase98_NPU_ValidTargetTable(t *testing.T) {
-	if !ValidTarget("") || !ValidTarget(TargetCPU) || !ValidTarget(TargetNPU) {
-		t.Errorf("ValidTarget must accept \"\", %q and %q", TargetCPU, TargetNPU)
+	// Phase 138: "gpu" graduated to a valid target (WGSL kernels); the
+	// reject list keeps the never-supported names.
+	if !ValidTarget("") || !ValidTarget(TargetCPU) || !ValidTarget(TargetNPU) || !ValidTarget(TargetGPU) {
+		t.Errorf("ValidTarget must accept %q, %q, %q and %q", "", TargetCPU, TargetNPU, TargetGPU)
 	}
-	for _, name := range []string{"gpu", "tpu", "google", "intel", "foo"} {
+	for _, name := range []string{"tpu", "google", "intel", "foo"} {
 		if ValidTarget(name) {
 			t.Errorf("ValidTarget(%q) = true, want false", name)
 		}
