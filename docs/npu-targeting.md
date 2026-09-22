@@ -20,14 +20,16 @@ func matmul(a int, b int) {
 }
 ```
 
-Supported targets: `cpu` (the default pipeline) and `npu`. A plain `func`
+Supported targets: `cpu` (the default pipeline), `npu`, and — since Phase 138 —
+`gpu` (WGSL compute kernels with a compile-only guarantee; the function still
+compiles and runs as CPU code, exactly like the NPU fallback). A plain `func`
 without the attribute runs the normal CPU path and is entirely unaffected.
 
 An unknown target is a semantic error:
 
 ```
 karkain check prog.kark
-error[K004]: @target(tpu_turbo): unknown execution target; supported targets: cpu, npu
+error[K004]: @target(tpu_turbo): unknown execution target; supported targets: cpu, npu, gpu
 ```
 
 ## Pipeline

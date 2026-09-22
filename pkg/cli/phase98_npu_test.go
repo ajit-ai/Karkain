@@ -150,9 +150,10 @@ func main() {
 }
 
 func TestPhase98_CLI_TargetNamesMatchAnalyzer(t *testing.T) {
-	// The CLI wiring and the analyzer must agree on supported targets.
+	// The CLI wiring and the analyzer must agree on supported targets
+	// (Phase 138 added gpu to the Phase 98 cpu/npu set).
 	for _, name := range sema.TargetNames {
-		if name != sema.TargetCPU && name != sema.TargetNPU {
+		if name != sema.TargetCPU && name != sema.TargetNPU && name != sema.TargetGPU {
 			t.Errorf("unexpected target in registry: %q", name)
 		}
 	}

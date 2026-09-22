@@ -150,6 +150,9 @@ jobs:
       - name: Run Phase 137 concurrency-parity gate
         run: go test ./pkg/cli/ -run 'TestPhase137' -count=1
 
+      - name: Run Phase 138 accelerator-kernel-surface gate
+        run: go test ./pkg/cli/ -run 'TestPhase138' -count=1
+
       - name: Run conformance tests
         run: |
           echo "Karkain-native conformance corpus:"
