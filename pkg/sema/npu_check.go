@@ -9,23 +9,25 @@ import (
 // Execution targets recognized by the @target(...) function attribute.
 //
 // Phase 98 implements `cpu` (the default, pre-existing pipeline) and `npu`
-// (NPU dispatch with an always-available CPU fallback). The architecture leaves
-// room for future targets (gpu, dsp, ipu, dpu, neuromorphic) without changing
+// (NPU dispatch with an always-available CPU fallback). Phase 138 adds `gpu`
+// (GPU/WGSL compute kernels with compile-only guarantee). The architecture leaves
+// room for future targets (dsp, ipu, dpu, neuromorphic) without changing
 // the language syntax: a new target is added by extending TargetNames and the
 // NPU/codegen dispatch layer — never by grammar changes.
 const (
 	TargetCPU = "cpu"
 	TargetNPU = "npu"
+	TargetGPU = "gpu" // Phase 138: GPU/WGSL compute kernels
 )
 
 // TargetNames is the set of supported execution target names.
-var TargetNames = []string{TargetCPU, TargetNPU}
+var TargetNames = []string{TargetCPU, TargetNPU, TargetGPU}
 
 // ValidTarget reports whether name is a supported execution target. The empty
 // string means "no explicit target" (the default CPU pipeline), which is valid.
 func ValidTarget(name string) bool {
 	switch name {
-	case "", TargetCPU, TargetNPU:
+	case "", TargetCPU, TargetNPU, TargetGPU:
 		return true
 	}
 	return false
@@ -76,6 +78,6 @@ func (a *NPUAnalyzer) validate(fn *parser.FuncDecl) {
 	a.errors = append(a.errors, NPUError{
 		Line: fn.Line,
 		Col:  fn.Col,
-		Msg:  fmt.Sprintf("@target(%s): unknown execution target; supported targets: cpu, npu", fn.Target),
+		Msg:  fmt.Sprintf("@target(%s): unknown execution target; supported targets: cpu, npu, gpu", fn.Target),
 	})
 }
