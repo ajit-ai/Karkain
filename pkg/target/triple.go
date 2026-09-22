@@ -20,6 +20,7 @@ const (
 	ArchUnknown Arch = iota
 	ArchX8664        // AMD64 / EM_X86_64
 	ArchAArch64      // ARM64 / EM_AARCH64
+	ArchRiscv64      // RISC-V 64-bit / EM_RISCV (Phase 139: parse + error paths; no backend yet)
 	ArchWasm32       // WebAssembly 32-bit
 )
 
@@ -30,6 +31,7 @@ const (
 	OSUnknown OS = iota
 	OSWindows
 	OSLinux
+	OSMacOS // macOS / Darwin (Phase 139: parse + clang error paths; no linker on foreign hosts)
 	OSWasi
 )
 
@@ -49,6 +51,8 @@ func (a Arch) String() string {
 		return "x86_64"
 	case ArchAArch64:
 		return "aarch64"
+	case ArchRiscv64:
+		return "riscv64"
 	case ArchWasm32:
 		return "wasm32"
 	}
@@ -61,6 +65,8 @@ func (o OS) String() string {
 		return "windows"
 	case OSLinux:
 		return "linux"
+	case OSMacOS:
+		return "macos"
 	case OSWasi:
 		return "wasi"
 	}
@@ -81,7 +87,8 @@ func (e Env) String() string {
 
 // defaultEnv returns the environment/ABI Karkain assumes when a target does
 // not name one explicitly. Karkain's own native pipeline links through
-// MinGW-w64 gcc on Windows and glibc (GNU) gcc on Linux.
+// MinGW-w64 gcc on Windows and glibc (GNU) gcc on Linux. macOS builds go
+// through clang (never GNU/MSVC), so macOS triples carry no default env.
 func defaultEnv(o OS) Env {
 	switch o {
 	case OSWindows, OSLinux:
@@ -156,6 +163,8 @@ func archFromString(s string) Arch {
 		return ArchX8664
 	case "aarch64", "arm64":
 		return ArchAArch64
+	case "riscv64":
+		return ArchRiscv64
 	case "wasm32":
 		return ArchWasm32
 	}
@@ -168,6 +177,10 @@ func osFromString(s string) OS {
 		return OSWindows
 	case "linux":
 		return OSLinux
+	case "macos", "darwin", "macosx":
+		// "darwin" is Go's GOOS name and "macosx" the LLVM vendor-era
+		// spelling; all normalize to the canonical "macos" (Phase 139).
+		return OSMacOS
 	case "wasi":
 		return OSWasi
 	}
@@ -196,9 +209,9 @@ type ParseError struct {
 func (e *ParseError) Error() string {
 	switch e.Kind {
 	case "unknown-arch":
-		return fmt.Sprintf("unsupported architecture '%s' in target '%s' (supported architectures: x86_64, aarch64, wasm32)", e.Value, e.Input)
+		return fmt.Sprintf("unsupported architecture '%s' in target '%s' (supported architectures: x86_64, aarch64, riscv64, wasm32)", e.Value, e.Input)
 	case "unknown-os":
-		return fmt.Sprintf("unsupported operating system '%s' in target '%s' (supported operating systems: windows, linux, wasi)", e.Value, e.Input)
+		return fmt.Sprintf("unsupported operating system '%s' in target '%s' (supported operating systems: windows, linux, macos, wasi)", e.Value, e.Input)
 	case "unknown-env":
 		return fmt.Sprintf("unsupported environment/ABI '%s' in target '%s' (supported environments: gnu, msvc)", e.Value, e.Input)
 	case "unsupported-abi":
@@ -217,6 +230,9 @@ func (e *ParseError) Error() string {
 //	x86_64-windows
 //	x86_64-linux
 //	aarch64-linux
+//	aarch64-windows
+//	riscv64-linux
+//	x86_64-macos
 //	x86_64-pc-windows-msvc
 //	x86_64-unknown-linux-gnu
 //	aarch64-unknown-linux-gnu
@@ -286,9 +302,25 @@ func Parse(s string) (Target, error) {
 		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
 			Value: "the 'msvc' ABI is only valid for Windows targets"}
 	}
+	if t.Env == EnvMSVC && t.OS == OSMacOS {
+		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
+			Value: "the 'msvc' ABI is only valid for Windows targets (macOS builds use clang)"}
+	}
+	if t.Env == EnvGNU && t.OS == OSMacOS {
+		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
+			Value: "the 'gnu' ABI is not valid for macOS targets (macOS builds use clang)"}
+	}
 	if t.Env == EnvGNU && t.OS == OSWasi {
 		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
 			Value: "the 'gnu' ABI is not valid for WASI targets"}
+	}
+	if t.Arch == ArchRiscv64 && t.OS != OSLinux {
+		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
+			Value: "the 'riscv64' architecture is currently only modeled for Linux targets"}
+	}
+	if t.OS == OSMacOS && t.Arch != ArchX8664 && t.Arch != ArchAArch64 {
+		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
+			Value: "the 'macos' OS currently only supports the x86_64 and aarch64 architectures"}
 	}
 	if t.OS == OSWasi && t.Arch != ArchWasm32 {
 		return Target{}, &ParseError{Input: s, Kind: "unknown-os",
@@ -303,5 +335,5 @@ func Parse(s string) (Target, error) {
 
 // SupportedArchs and SupportedOSes are the accepted arch/OS names used in
 // diagnostics.
-func SupportedArchs() string { return "x86_64, aarch64, wasm32" }
-func SupportedOSes() string  { return "windows, linux, wasi" }
+func SupportedArchs() string { return "x86_64, aarch64, riscv64, wasm32" }
+func SupportedOSes() string  { return "windows, linux, macos, wasi" }

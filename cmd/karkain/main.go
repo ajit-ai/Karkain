@@ -41,6 +41,7 @@ bench <path>             Time bench_-prefixed functions (single run each)
   clean [path] [--all]     Remove generated artifacts (sources never touched)
   target                   List supported --target values
   config                   Print effective toolchain configuration
+  wit [--stubs] <file.wit> Parse WIT interfaces (--stubs emits Karkain types)
   lsp                      Start Language Server Protocol server (stdio)
   language-server          Alias for the LSP server command
   ide info                 Print machine-readable IDE/toolchain contract (JSON)
@@ -1475,6 +1476,12 @@ func main() {
 			os.Exit(result.ExitCode)
 		case "target":
 			result := cli.TargetCommand(args[i+1:]...)
+			os.Exit(result.ExitCode)
+		case "wit":
+			result := cli.WitCommand(args[i+1:]...)
+			if result.Message != "" {
+				fmt.Println(result.Message)
+			}
 			os.Exit(result.ExitCode)
 		case "config":
 			result := cli.ConfigCommand()

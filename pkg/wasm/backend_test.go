@@ -305,3 +305,68 @@ func TestForIn(t *testing.T) {
 		t.Fatalf("output mismatch: got %q want %q", out, want)
 	}
 }
+
+func TestStructs(t *testing.T) {
+	// Phase 139: struct values lower to boxed cells; literal order is free
+	// (placement is by declared index) and fields are mutable.
+	src := `type Point struct { x int; y int }
+func main() {
+    let p = Point { y: 20, x: 10 }
+    print(p.x)
+    print(p.y)
+    p.y = 30
+    print(p.x + p.y)
+}
+`
+	bin := compile(t, src, "main.kark")
+	out, err := runWasm(t, bin)
+	if err != nil {
+		t.Fatalf("run: %v (out=%q)", err, out)
+	}
+	want := "10\n20\n40\n"
+	if out != want {
+		t.Fatalf("output mismatch: got %q want %q", out, want)
+	}
+}
+
+func TestStructNegatives(t *testing.T) {
+	cases := []struct {
+		src     string
+		feature string
+	}{
+		{`type Point struct { x int }
+func main() {
+    let p = Blob { x: 1 }
+    print(p.x)
+}`, "unknown struct 'Blob'"},
+		{`type Point struct { x int; y int }
+func main() {
+    let p = Point { x: 1 }
+    print(p.x)
+}`, "struct 'Point' field mismatch"},
+		{`type Point struct { x int }
+func main() {
+    let p = Point { x: 1 }
+    print(p.zzz)
+}`, "unknown field 'zzz'"},
+		{`type A struct { v int; w int }
+type B struct { w int; v int }
+func main() {
+    let a = A { v: 1, w: 2 }
+    print(a.v)
+}`, "ambiguous field 'v'"},
+	}
+	for _, c := range cases {
+		prog, err := parseProgram(c.src, "main.kark")
+		if err != nil {
+			t.Fatalf("parse %s: %v", c.feature, err)
+		}
+		_, err = CompileProgram(prog, "main.kark")
+		if err == nil {
+			t.Fatalf("expected K108 for %s", c.feature)
+		}
+		if !strings.Contains(err.Error(), "error K108") || !strings.Contains(err.Error(), c.feature) {
+			t.Fatalf("bad diagnostic for %s: %v", c.feature, err)
+		}
+	}
+}

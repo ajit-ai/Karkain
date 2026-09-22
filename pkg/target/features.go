@@ -21,7 +21,7 @@ type Features struct {
 func FeaturesOf(t Target) Features {
 	f := Features{Target: t}
 	switch t.Arch {
-	case ArchX8664, ArchAArch64:
+	case ArchX8664, ArchAArch64, ArchRiscv64:
 		f.PointerWidth = 64
 		f.Endianness = "little-endian"
 	case ArchWasm32:
@@ -58,6 +58,14 @@ func FeaturesOf(t Target) Features {
 		}
 		f.LinkerRequirement = fmt.Sprintf("%s-linux-gnu-gcc or clang with --target=%s-unknown-linux-gnu",
 			t.Arch, t.Arch)
+	case OSMacOS:
+		// Phase 139: modeled for search/error paths; linked only via clang
+		// with an explicit --target (no GNU/MSVC toolchain exists for macOS).
+		f.ObjFormat = "Mach-O"
+		f.ExeFormat = "Mach-O"
+		f.RuntimeVariant = "macos"
+		f.ABI = "System V " + t.Arch.String() + " / Apple"
+		f.LinkerRequirement = fmt.Sprintf("clang with --target=%s-apple-macosx", t.Arch)
 	}
 	return f
 }
@@ -82,8 +90,12 @@ func SupportedTargets() []Target {
 	}
 	return []Target{
 		{Arch: ArchX8664, OS: OSWindows, Env: env},
+		{Arch: ArchAArch64, OS: OSWindows, Env: EnvGNU},
 		{Arch: ArchX8664, OS: OSLinux, Env: EnvGNU},
 		{Arch: ArchAArch64, OS: OSLinux, Env: EnvGNU},
+		{Arch: ArchRiscv64, OS: OSLinux, Env: EnvGNU},
+		{Arch: ArchX8664, OS: OSMacOS},
+		{Arch: ArchAArch64, OS: OSMacOS},
 		{Arch: ArchWasm32, OS: OSWasi},
 	}
 }

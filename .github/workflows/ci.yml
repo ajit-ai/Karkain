@@ -153,6 +153,12 @@ jobs:
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1
 
+      - name: Run Phase 139 cross-compilation-expansion gate
+        run: go test ./pkg/cli/ -run 'TestPhase139' -count=1
+
+      - name: Run Phase 139 triple-model unit gate
+        run: go test ./pkg/target/ ./pkg/wit/ -count=1
+
       - name: Run conformance tests
         run: |
           echo "Karkain-native conformance corpus:"
@@ -161,6 +167,26 @@ jobs:
           for f in conformance/*_test.kark; do
             ./karkain fmt --check "$f" || { echo "needs format: $f"; exit 1; }
           done
+
+  toolchain-matrix:
+    # Phase 139: cross-linker presence matrix. Informational ONLY (never red):
+    # it reports which foreign toolchains the runner happens to carry so
+    # "N/A" rows in the docs matrix stay honest. The deterministic-error
+    # gate above is the enforcing test; this job only observes.
+    name: Cross-linker presence matrix
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Report toolchain presence
+        run: |
+          for t in gcc clang x86_64-linux-gnu-gcc aarch64-linux-gnu-gcc riscv64-linux-gnu-gcc x86_64-w64-mingw32-gcc aarch64-w64-mingw32-gcc; do
+            if command -v "$t" >/dev/null 2>&1; then
+              echo "present: $t ($("$t" --version | head -n1))"
+            else
+              echo "absent:  $t"
+            fi
+          done
+          true
 
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})

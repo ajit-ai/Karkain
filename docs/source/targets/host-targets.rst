@@ -21,8 +21,12 @@ The ``Host:`` line of ``karkain target`` is the exact host triple from
       native-link    (Phase 84 object/linker pipeline)
       wasm32-wasi    (WebAssembly WASI module)
       x86_64-windows 64-bit little-endian; objects PE/COFF / executables PE/COFF; ...
+      aarch64-windows 64-bit little-endian; objects PE/COFF / executables PE/COFF; ...
       x86_64-linux    64-bit little-endian; objects ELF / executables ELF; ...
       aarch64-linux   64-bit little-endian; objects ELF / executables ELF; ...
+      riscv64-linux   64-bit little-endian; objects ELF / executables ELF; ...
+      x86_64-macos    64-bit little-endian; objects Mach-O / executables Mach-O; ...
+      aarch64-macos   64-bit little-endian; objects Mach-O / executables Mach-O; ...
       wasm32-wasi     32-bit little-endian; objects WASM / executables WASM; ...
     Default: native
 
@@ -36,13 +40,15 @@ The ``pkg/target`` model
 Host detection lives in the Karkain-owned ``pkg/target`` package,
 alongside the whole target model:
 
-- **Architecture** — ``x86_64``, ``aarch64``, ``wasm32`` (plus
+- **Architecture** — ``x86_64``, ``aarch64``, ``riscv64``, ``wasm32`` (plus
   ``unknown``)
-- **OS** — ``windows``, ``linux``, ``wasi``
+- **OS** — ``windows``, ``linux``, ``macos``, ``wasi``
 - **Environment/ABI** — ``gnu``, ``msvc``, ``musl`` (recognized but not
   buildable)
-- **Canonical short triples** — ``x86_64-windows``, ``x86_64-linux``,
-  ``aarch64-linux``, ``wasm32-wasi`` (see :doc:`target-triples`)
+- **Canonical short triples** — ``x86_64-windows``, ``aarch64-windows``,
+  ``x86_64-linux``, ``aarch64-linux``, ``riscv64-linux``,
+  ``x86_64-macos``, ``aarch64-macos``, ``wasm32-wasi``
+  (see :doc:`target-triples`)
 - **Long-form normalization** — ``x86_64-pc-windows-msvc``,
   ``x86_64-unknown-linux-gnu`` and friends parse and normalize to the
   canonical short form; the vendor component is dropped
