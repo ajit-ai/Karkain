@@ -102,7 +102,7 @@ func TestVSCodeExtension_ManifestContract(t *testing.T) {
 	}
 
 	wantCommands := []string{
-		"karkain.check", "karkain.compile", "karkain.run", "karkain.formatDocument",
+		"karkain.check", "karkain.compile", "karkain.run", "karkain.debug", "karkain.formatDocument",
 	}
 	haveCommands := map[string]bool{}
 	for _, c := range m.Contributes.Commands {
@@ -133,7 +133,7 @@ func TestVSCodeExtension_ExecutionUnitsExist(t *testing.T) {
 		t.Errorf("extension.js suspiciously small (%d bytes)", len(ext))
 	}
 	for _, c := range []string{
-		"karkain.check", "karkain.compile", "karkain.run", "karkain.formatDocument",
+		"karkain.check", "karkain.compile", "karkain.run", "karkain.debug", "karkain.formatDocument",
 	} {
 		if !strings.Contains(ext, "registerCommand('"+c+"'") &&
 			!strings.Contains(ext, `registerCommand("`+c+`"`) {

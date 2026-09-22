@@ -35,6 +35,7 @@ COMPILER COMMANDS:
   test --compile [dir]     Run compile-pass/compile-fail corpus (diagnostics)
 bench <path>             Time bench_-prefixed functions (single run each)
   prof <file.kark>        Compile, run and profile a program (see prof --help)
+  dbg <file.kark>         Live gdb walk with Karkain-level backtrace
   lint <file.kark>        Full front-end analysis (incl. borrow checker)
   explain <code>           Explain a toolchain error code
   fmt <file.kark>          Canonicalize formatting (--check to verify only)
@@ -1266,8 +1267,18 @@ func main() {
 	switch args[0] {
 	case "init", "new", "add", "remove", "rm", "update", "list", "tree", "fetch":
 		os.Exit(handlePackageCommand(args))
-	case "prof":
-		os.Exit(runProfCommand(args[1:]))
+		case "prof":
+			os.Exit(runProfCommand(args[1:]))
+		case "dbg":
+			if len(args) < 2 {
+				fmt.Println("Error: No input .kark file specified (usage: karkain dbg <file.kark>)")
+				os.Exit(cli.ExitUsage)
+			}
+			result := cli.DbgCommand(args[1], false)
+			if result.Message != "" {
+				fmt.Println(result.Message)
+			}
+			os.Exit(result.ExitCode)
 	case "debug":
 		os.Exit(runDebugCommand(args[1:]))
 	}
