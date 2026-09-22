@@ -37,6 +37,59 @@ function compilerPath() {
   return String(c.get('compilerPath') || 'karkain');
 }
 
+function debuggerPath() {
+  const c = vscode.workspace.getConfiguration('karkain');
+  return String(c.get('debuggerPath') || 'gdb');
+}
+
+// runDebug implements the `karkain.debug` command (Phase 140): build the
+// active .kark file with debug symbols (`karkain build -g`), then start a
+// cppdbg/gdb session on the produced binary. The build must succeed first —
+// starting the debugger on a stale or missing binary would debug the wrong
+// program, so any build failure surfaces as an error and never launches.
+async function runDebug() {
+  const doc = activeKarkainDocument();
+  if (!doc) { return; }
+  const { execFile } = require('child_process');
+  const path = require('path');
+  const src = doc.uri.fsPath;
+  const ext = process.platform === 'win32' ? '.exe' : '';
+  const base = path.basename(src, '.kark');
+  const program = path.join(path.dirname(src), base + ext);
+  const build = await new Promise((resolve) => {
+    execFile(compilerPath(), ['build', '-g', src, '-o', program], { encoding: 'utf8' }, (err, stdout, stderr) => {
+      resolve({ err, out: String(stdout || '') + String(stderr || '') });
+    });
+  });
+  if (build.err) {
+    vscode.window.showErrorMessage('Karkain: debug build failed:\n' + build.out);
+    return;
+  }
+  const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+  const launchConfig = {
+    name: 'Karkain: Debug current file (gdb)',
+    type: 'cppdbg',
+    request: 'launch',
+    program,
+    args: [],
+    stopAtEntry: false,
+    cwd: '${workspaceFolder}',
+    MIMode: 'gdb',
+    miDebuggerPath: debuggerPath(),
+    setupCommands: [
+      {
+        description: 'Pretty-print Karkain Value cells',
+        text: '-enable-pretty-printing',
+        ignoreFailures: true,
+      },
+    ],
+  };
+  const ok = await vscode.debug.startDebugging(folder, launchConfig);
+  if (!ok) {
+    vscode.window.showErrorMessage('Karkain: debugger did not start. Is the C/C++ extension (cppdbg) installed and gdb on PATH?');
+  }
+}
+
 function activeKarkainDocument() {
   const doc = vscode.window.activeTextEditor && vscode.window.activeTextEditor.document;
   if (!doc) {
@@ -110,6 +163,10 @@ function activate(context) {
     vscode.commands.registerCommand('karkain.run', () => {
       const doc = activeKarkainDocument();
       if (doc) { runInTerminal('karkain run', ['run', doc.uri.fsPath]); }
+    }),
+
+    vscode.commands.registerCommand('karkain.debug', async () => {
+      await runDebug();
     }),
 
     vscode.languages.registerDocumentFormattingEditProvider('karkain', {

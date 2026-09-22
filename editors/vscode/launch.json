@@ -1,0 +1,40 @@
+{
+  // Karkain debug launch template (Phase 140).
+  //
+  // Copy this file to YOUR workspace as .vscode/launch.json (it is a
+  // template, not workspace state). Build first, then press F5:
+  //   karkain build -g prog.kark -o prog
+  // or run the `Karkain: Debug File (gdb)` command, which builds and
+  // launches in one gesture. Requires the Microsoft C/C++ extension
+  // (cppdbg) and GDB on PATH. lldb works by swapping MIMode/miDebuggerPath.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Karkain: Debug current file (gdb)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/${fileBasenameNoExtension}",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "preLaunchTask": "karkain: build -g current file",
+      "setupCommands": [
+        {
+          "description": "Pretty-print Karkain Value cells",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "Karkain: Attach to process (gdb)",
+      "type": "cppdbg",
+      "request": "attach",
+      "program": "${workspaceFolder}/${fileBasenameNoExtension}",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb"
+    }
+  ]
+}

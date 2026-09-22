@@ -68,8 +68,35 @@ Scope
 =====
 
 This is function-level enter/leave tracing only. There is no source-line
-stepping, breakpoint support, or variable inspection — a full source-level
-debugger is not part of this release.
+stepping, breakpoint support, or variable inspection from ``karkain debug``
+itself — for a live debugger walk, see ``karkain dbg`` below.
+
+Live walk: ``karkain dbg``
+==========================
+
+Phase 140 adds ``karkain dbg``, which builds with debug symbols and walks
+the program under GDB, rendering a Karkain-level backtrace:
+
+.. code-block:: console
+
+    $ karkain dbg prog.kark
+    karkain_dbg trace: prog.kark
+    #0 inner at prog.kark:6
+    #1 outer at prog.kark:17
+    #2 main at prog.kark:28
+
+Frames name Karkain functions (the ``karkain_user_`` namespace demangled)
+with their locations in the debug unit. Frame line numbers are
+assembly-relative when sibling files join the unit (the known assembly
+phenomenon) — the function sequence is the exact call chain.
+
+- Go-engine only (same boundary as tracing above); GDB missing is exit 6
+  with an install hint, never a fake trace.
+- VS Code: the ``Karkain: Debug File (gdb)`` command (``karkain.debug``)
+  builds with ``-g`` and launches a cppdbg/gdb session; ``launch.json``
+  and ``tasks.json`` templates ship under ``editors/vscode`` — copy them
+  to ``.vscode/`` in your workspace.
+- lldb works the same batch shape but is unwired; DAP is Phase 153.
 
 Exit codes
 ==========
