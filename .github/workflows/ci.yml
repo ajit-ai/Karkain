@@ -91,7 +91,10 @@ jobs:
         # execution intermittently stalled the Phase 107 concurrency gates
         # (TestPhase107_CodegenSpawnJoin) under combined-suite load; sequential
         # package runs keep the unit gate deterministic on 2-core runners.
-        run: go test -p 1 ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1 -v
+        # pkg/lsp carries the Phase 136 semantic-IDE suite (30 tests) and
+        # pkg/compiler the Phase 105/134 incremental-cache suites — both ship
+        # with their phases, so they gate here like the other unit packages.
+        run: go test -p 1 ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... ./pkg/lsp/... ./pkg/compiler/... -count=1 -v
 
       - name: Vet
         run: go vet ./...
@@ -131,6 +134,21 @@ jobs:
 
       - name: Run Phase 133 first-class-fn gate
         run: go test ./pkg/cli/ -run 'TestPhase133|TestPhase130' -count=1
+
+      - name: Run Phase 134 incremental-compilation-v2 gate
+        run: go test ./pkg/cli/ -run 'TestPhase134' -count=1
+
+      - name: Run Phase 135 local-registry gate
+        run: go test ./pkg/cli/ -run 'TestPhase135' -count=1
+
+      - name: Run concurrency-runtime freshness gate
+        # The self-hosted concurrency emitter (src/compiler/conc_runtime.kark)
+        # is generated from runtime/concurrency/c/* — this pins the mapping
+        # so a hand-edit or source drift fails fast with the regen command.
+        run: go test ./pkg/codegen/ -run 'TestConcRuntimeKarkFresh' -count=1
+
+      - name: Run Phase 137 concurrency-parity gate
+        run: go test ./pkg/cli/ -run 'TestPhase137' -count=1
 
       - name: Run conformance tests
         run: |
