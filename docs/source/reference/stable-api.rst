@@ -159,9 +159,10 @@ Stable target model
         module; Go-engine, ``wasmtime``-gated, production candidate with
         WASI exit codes/stderr/``getArgs()``).
    * - Conventional triples
-     - ``x86_64-windows``, ``x86_64-linux``, ``aarch64-linux``,
-       ``wasm32-wasi`` — canonical short triples plus long-form
-       normalization.
+     - ``x86_64-windows``, ``aarch64-windows``, ``x86_64-linux``,
+       ``aarch64-linux``, ``riscv64-linux`` (parse + error paths),
+       ``x86_64-macos``, ``aarch64-macos``, ``wasm32-wasi`` —
+       canonical short triples plus long-form normalization.
    * - Host reporting
      - ``karkain target`` prints the host triple, the supported matrix and
        the default.

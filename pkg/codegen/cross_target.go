@@ -65,6 +65,12 @@ func (g *Generator) detectCompilerForTarget(cFile, exeFile string) (string, []st
 			return g.detectHostCompiler(cFile, exeFile)
 		}
 		return g.detectLinuxCrossCompiler(tg, cFile, exeFile)
+	case target.OSMacOS:
+		// Phase 139: macOS has no GNU/MSVC toolchain by design (the target
+		// model rejects those ABIs at parse); the only producer is clang
+		// with an explicit --target. Same-machine macOS hosts use it
+		// directly, foreign hosts probe PATH for it.
+		return g.detectMacOSCrossCompiler(tg, cFile, exeFile)
 	}
 	return "", nil, fmt.Errorf("no C toolchain rules for target '%s'", tg)
 }
@@ -80,6 +86,27 @@ func (g *Generator) detectWasiCompiler(cFile, exeFile string) (string, []string,
 	}
 	return "", nil, crossToolchainError(target.Target{Arch: target.ArchWasm32, OS: target.OSWasi},
 		"clang", "$CC")
+}
+
+// detectMacOSCrossCompiler produces a Mach-O binary for a macOS target using
+// clang with an explicit --target (the only supported producer). CC override
+// is honored first (historical host-probing rule). Without clang the result
+// is a ToolchainError listing exactly what was searched — never a silent
+// host-toolchain fallback and never a wrong-OS binary.
+func (g *Generator) detectMacOSCrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
+	if cc := os.Getenv("CC"); cc != "" {
+		return cc, []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}, nil
+	}
+	clangTarget := tg.Arch.String() + "-apple-macosx"
+	searched := []string{"clang --target=" + clangTarget}
+	if _, err := exec.LookPath("clang"); err == nil {
+		flags := []string{cFile, "-o", exeFile, "--target=" + clangTarget, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+		if g.cfg.Debug {
+			flags = append(flags, "-g")
+		}
+		return "clang", flags, nil
+	}
+	return "", nil, crossToolchainError(tg, searched...)
 }
 
 // detectHostCompiler retains the exact historical host probing: CC override,

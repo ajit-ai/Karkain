@@ -43,6 +43,21 @@ matrix is:
      - N/A
      - Same story as ``x86_64-linux``: mechanism implemented, needs a
        triple-prefixed GNU cross-gcc on PATH to actually build.
+   * - ``aarch64-windows``
+     - N/A
+     - Needs ``aarch64-w64-mingw32-gcc`` or clang on PATH (Phase 139).
+   * - ``riscv64-linux``
+     - N/A
+     - Parse + error paths only (Phase 139): no backend builds it yet,
+       so the deterministic ``ToolchainError`` is the whole surface.
+   * - ``x86_64-macos``
+     - N/A
+     - Needs clang with ``--target=x86_64-apple-macosx`` on PATH
+       (Phase 139; never GNU/MSVC by design).
+   * - ``aarch64-macos``
+     - N/A
+     - Needs clang with ``--target=aarch64-apple-macosx`` on PATH
+       (Phase 139).
    * - ``wasm32-wasi``
      - :production-candidate:`Production Candidate`
      - The dedicated Karkain-owned WASM backend emits the module directly

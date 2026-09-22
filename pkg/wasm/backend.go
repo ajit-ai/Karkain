@@ -45,6 +45,7 @@ type gen struct {
 	mb       *ModuleBuilder
 	rt       RuntimeFunc
 	ko       kindOffsets
+	layouts  map[string][]string // Phase 139: struct name -> ordered fields
 	fileBase string
 
 	e        *Emitter
@@ -94,7 +95,9 @@ func CompileProgram(prog *parser.Program, srcFile string) ([]byte, error) {
 	}
 
 	fnames := collectFuncNames(prog)
-	if err := g.scanUnsupported(prog, fnames); err != nil {
+	layouts := collectStructLayouts(prog)
+	g.layouts = layouts
+	if err := g.scanUnsupported(prog, fnames, layouts); err != nil {
 		return nil, err
 	}
 
@@ -306,6 +309,9 @@ func (g *gen) genStmt(n parser.Node) {
 	switch s := n.(type) {
 	case *parser.VarDeclStmt:
 		g.genVarDecl(s)
+	case *parser.StructDeclStmt:
+		// Phase 139: declaration only — field layouts are pre-collected
+		// and values materialize at StructLiteral sites. No code emitted.
 	case *parser.ExprStmt:
 		g.genExpr(s.Expression)
 		g.e.Drop()
@@ -551,6 +557,10 @@ func (g *gen) genExpr(n parser.Node) {
 		g.e.Call(g.rt.Get)
 	case *parser.CallExpr:
 		g.genCall(x)
+	case *parser.StructLiteral:
+		g.genStructLiteral(x)
+	case *parser.DotExpr:
+		g.genFieldGet(x)
 	case *parser.FuncRefExpr:
 		g.e.Call(g.funcIdx[x.Name])
 	default:
@@ -634,6 +644,18 @@ func (g *gen) genAssign(x *parser.BinaryExpr) {
 		g.e.I32Const(g.ko.filePtr)
 		g.e.I32Const(g.ko.fileLen)
 		g.e.I32Const(ix.Line)
+		g.e.Call(g.rt.Set)
+		return
+	}
+	if dot, ok := x.Left.(*parser.DotExpr); ok {
+		// Phase 139: `p.field = v` mirrors the index-assignment arm with
+		// the declaration-directed field index (scan-validated).
+		g.genExpr(dot.Left)
+		g.e.I64Const(int64(g.structFieldIndex(dot)) << 1)
+		g.genExpr(x.Right)
+		g.e.I32Const(g.ko.filePtr)
+		g.e.I32Const(g.ko.fileLen)
+		g.e.I32Const(dot.Line)
 		g.e.Call(g.rt.Set)
 		return
 	}
@@ -778,10 +800,19 @@ func (g *gen) genCall(x *parser.CallExpr) {
 
 // --- unsupported feature scan ---
 
-func (g *gen) scanUnsupported(prog *parser.Program, fnames map[string]bool) error {
+func (g *gen) scanUnsupported(prog *parser.Program, fnames map[string]bool, layouts map[string][]string) error {
 	var errs []string
 	add := func(feature string) {
 		errs = append(errs, fmt.Sprintf("error K108: feature '%s' is not supported for target wasm32-wasi", feature))
+	}
+	// allowType reports whether a type annotation is emittable: the MVP
+	// scalars plus any declared struct name (Phase 139 boxed-cell structs).
+	allowType := func(t string) bool {
+		switch t {
+		case "", "int", "string", "array", "bool":
+			return true
+		}
+		return isStructTypeName(layouts, t)
 	}
 
 	checkCall := func(c *parser.CallExpr) {
@@ -829,18 +860,24 @@ func (g *gen) scanUnsupported(prog *parser.Program, fnames map[string]bool) erro
 				add("generics")
 			}
 			for _, t := range x.ParamTypes {
-				if t != "" && t != "int" && t != "string" && t != "array" && t != "bool" {
+				if !allowType(t) {
 					add("type annotation '" + t + "'")
 				}
 			}
 			for _, s := range x.Body {
 				walk(s)
 			}
+		case *parser.StructDeclStmt:
+			// Declaration only: layouts are pre-collected, no code emitted.
+			// (Generic structs stay rejected via the caller's own gate.)
+			if len(x.GenericParams) > 0 {
+				add("generics")
+			}
 		case *parser.VarDeclStmt:
 			if x.IsMatrix || x.IsSIMD {
 				add("matrices/SIMD")
 			}
-			if x.Type != "" && x.Type != "int" && x.Type != "string" && x.Type != "array" && x.Type != "bool" {
+			if !allowType(x.Type) {
 				add("type annotation '" + x.Type + "'")
 			}
 			walkExpr(x.Value)
@@ -892,7 +929,21 @@ func (g *gen) scanUnsupported(prog *parser.Program, fnames map[string]bool) erro
 		case *parser.FuncRefExpr:
 			add("function references")
 		case *parser.StructLiteral:
-			add("structs")
+			// Phase 139: declared structs with exact field sets lower to
+			// boxed cells; anything else stays a K108 diagnostic.
+			if err := checkStructLiteral(layouts, x); err != nil {
+				add(err.Error())
+			}
+			for _, entry := range x.Fields {
+				walkExpr(entry)
+			}
+		case *parser.DotExpr:
+			// Phase 139: struct field access resolves declaration-directed
+			// (unknown/ambiguous fields are K108, never miscompiles).
+			if _, err := fieldIndex(layouts, x.Right); err != nil {
+				add(err.Error())
+			}
+			walkExpr(x.Left)
 		case *parser.BorrowExpr, *parser.MoveExpr, *parser.RawAccessExpr:
 			add("references/@raw")
 		case *parser.SpawnExpr:

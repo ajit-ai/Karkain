@@ -153,13 +153,15 @@ func TestPhase111_ValidateTarget_Rejections(t *testing.T) {
 		"x86_64",              // 1 component — malformed
 		"native-X",            // unknown alias, parses as arch=native → unknown arch
 		"s390x-linux",         // unsupported architecture
-		"riscv64-linux",       // unsupported architecture
+		"riscv64-windows",     // Phase 139: riscv64 parses but is Linux-only
 		"x86_64-openbsd",      // unsupported OS
 		"x86_64-linux-musl",   // musl ABI recognized but unsupported
 		"aarch64-linux-musl",  // musl ABI recognized but unsupported
 		"x86_64-linux-msvc",   // msvc env is windows-only
+		"x86_64-macos-gnu",    // Phase 139: macOS builds use clang, never gnu
 		"x86_64-linux-macabi", // unknown env
 		"wasm32-linux",        // wasm32 is only supported with wasi
+		"wasm32-macos",        // Phase 139: macos is x86_64/aarch64-only
 		"x86_64-wasi",         // wasi only pairs with wasm32
 	}
 	for _, value := range bad {
