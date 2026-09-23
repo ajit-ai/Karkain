@@ -178,17 +178,26 @@ jobs:
 
       # Execution bisection: one step per micro-program so each case's
       # pass/fail is visible as a step conclusion (log-independent).
+      # if:always — these are diagnostic: they must run even when the
+      # native gate above fails (otherwise a red gate hides the very
+      # data needed to fix it, and all later steps skip).
       - name: Bisect empty
+        if: always()
         run: go test ./pkg/native/ -run 'TestNativeBisect/empty' -count=1 -v
       - name: Bisect retcode
+        if: always()
         run: go test ./pkg/native/ -run 'TestNativeBisect/retcode' -count=1 -v
       - name: Bisect int42
+        if: always()
         run: go test ./pkg/native/ -run 'TestNativeBisect/int42' -count=1 -v
       - name: Bisect str
+        if: always()
         run: go test ./pkg/native/ -run 'TestNativeBisect/str' -count=1 -v
       - name: Bisect arith
+        if: always()
         run: go test ./pkg/native/ -run 'TestNativeBisect/arith' -count=1 -v
       - name: Bisect call
+        if: always()
         run: go test ./pkg/native/ -run 'TestNativeBisect/call' -count=1 -v
 
       - name: Run Phase 141 SSA unit gate
