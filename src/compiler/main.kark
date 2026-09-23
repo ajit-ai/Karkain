@@ -582,19 +582,394 @@ func siblingContent(dir, target) {
     return content
 }
 
+// ============================================================
+// Project manifest / dependency resolution (Phase 144)
+//
+// Mirrors Go pm.DependencySources + projectSourceFiles for the manifest
+// shapes the CLI used to assemble itself: kcc reads karkain.toml /
+// karkain.lock / karkain.workspace.json from the staged tree and computes
+// the same dependency directories, so flat AND manifest projects assemble
+// without Go. Unresolvable deps skip silently (Go parity); imported-but-
+// missing modules still raise error[K122] below.
+// ============================================================
+
+// pmSplitFirst splits s on the first sep occurrence: flat [head, tail].
+func pmSplitFirst(s, sep) {
+    let i = indexOf(s, sep)
+    if (i < 0) { return [s, ""] }
+    return [substr(s, 0, i), substr(s, i + len(sep), len(s))]
+}
+
+// pmStripQuotes removes one matching outer quote pair ("" or '').
+func pmStripQuotes(s) {
+    let t = trim(s)
+    if (len(t) >= 2) {
+        let first = substr(t, 0, 1)
+        let last = substr(t, len(t) - 1, 1)
+        if ((first == "\"" && last == "\"") || (first == "'" && last == "'")) {
+            return substr(t, 1, len(t) - 2)
+        }
+    }
+    return t
+}
+
+// pmSplitTopLevel splits s on commas outside any {}[]() nesting (mirrors
+// Go splitTopLevel; quoted commas split in both — parity by construction).
+func pmSplitTopLevel(s) {
+    let out = []
+    let cur = ""
+    let depth = 0
+    let i = 0
+    while (i < len(s)) {
+        let c = substr(s, i, 1)
+        if (c == "{" || c == "[" || c == "(") { depth = depth + 1 }
+        if (c == "}" || c == "]" || c == ")") { depth = depth - 1 }
+        if (c == "," && depth == 0) {
+            out = appendArray(out, cur)
+            cur = ""
+        } else {
+            cur = cur + c
+        }
+        i = i + 1
+    }
+    out = appendArray(out, cur)
+    return out
+}
+
+// pmParseDepValue parses one dependency value: inline table fields or a
+// bare version string (registry default). Flat [version, source, url].
+func pmParseDepValue(val) {
+    let version = "*"
+    let source = "registry"
+    let url = ""
+    let t = trim(val)
+    if (len(t) >= 2 && substr(t, 0, 1) == "{" && substr(t, len(t) - 1, 1) == "}") {
+        let inner = substr(t, 1, len(t) - 2)
+        let pairs = pmSplitTopLevel(inner)
+        let i = 0
+        while (i < len(pairs)) {
+            let kv = pmSplitFirst(pairs[i], "=")
+            let k = trim(kv[0])
+            let v = pmStripQuotes(kv[1])
+            if (k == "version") { version = v }
+            if (k == "source") { source = v }
+            if (k == "url") { url = v }
+            i = i + 1
+        }
+    } else {
+        version = pmStripQuotes(t)
+    }
+    return [version, source, url]
+}
+
+// manifestDepRecords parses [dependencies] (never dev-dependencies) into
+// flat records [name, version, source, url] * 4.
+func manifestDepRecords(text) {
+    let out = []
+    let lines = sourceLines(text)
+    let inDeps = 0
+    let i = 0
+    while (i < len(lines)) {
+        let line = trim(stripLineEnd(lines[i]))
+        if (line == "" || substr(line, 0, 1) == "#") {
+            i = i + 1
+        } else {
+            if (len(line) >= 2 && substr(line, 0, 1) == "[" && substr(line, len(line) - 1, 1) == "]") {
+                if (line == "[dependencies]") { inDeps = 1 } else { inDeps = 0 }
+                i = i + 1
+            } else {
+                if (inDeps == 1) {
+                    let kv = pmSplitFirst(line, "=")
+                    if (trim(kv[0]) != "" && trim(kv[1]) != "") {
+                        let name = trim(kv[0])
+                        let val = pmParseDepValue(kv[1])
+                        out = appendArray(out, name)
+                        out = appendArray(out, val[1])
+                        out = appendArray(out, val[2])
+                        out = appendArray(out, val[0])
+                    }
+                }
+                i = i + 1
+            }
+        }
+    }
+    return out
+}
+
+// lockLookup finds the [[package]] block named name: flat [version, rev]
+// (both "" when absent).
+func lockLookup(text, name) {
+    let version = ""
+    let rev = ""
+    let lines = sourceLines(text)
+    let inBlock = 0
+    let i = 0
+    while (i < len(lines)) {
+        let line = trim(stripLineEnd(lines[i]))
+        if (line == "[[package]]") {
+            inBlock = 0
+        } else {
+            if (len(line) >= 2 && substr(line, 0, 1) == "[") {
+                inBlock = 0
+            } else {
+                if (inBlock == 0 && hasPrefix(line, "name")) {
+                    let kv = pmSplitFirst(line, "=")
+                    if (pmStripQuotes(kv[1]) == name) { inBlock = 1 }
+                } else {
+                    if (inBlock == 1 && hasPrefix(line, "version")) {
+                        let kv = pmSplitFirst(line, "=")
+                        version = pmStripQuotes(kv[1])
+                    }
+                    if (inBlock == 1 && hasPrefix(line, "rev")) {
+                        let kv = pmSplitFirst(line, "=")
+                        rev = pmStripQuotes(kv[1])
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return [version, rev]
+}
+
+// pmIsAbs reports an absolute path (POSIX leading slash or Windows drive).
+func pmIsAbs(p) {
+    if (len(p) == 0) { return 0 }
+    if (substr(p, 0, 1) == "/") { return 1 }
+    if (len(p) > 1 && substr(p, 1, 1) == ":") { return 1 }
+    return 0
+}
+
+// sanitizeCacheComponent mirrors Go SanitizeCacheComponent exactly:
+// [A-Za-z0-9-_.] kept, every other char becomes _.
+func sanitizeCacheComponent(s) {
+    let allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+    let out = ""
+    let i = 0
+    while (i < len(s)) {
+        let c = substr(s, i, 1)
+        if (indexOf(allowed, c) >= 0) {
+            out = out + c
+        } else {
+            out = out + "_"
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// normalizeSourceURL mirrors Go normalizeSourceURL: trim + drop one
+// trailing ".git".
+func normalizeSourceURL(u) {
+    let t = trim(u)
+    if (endsWith(t, ".git") == 1) {
+        return substr(t, 0, len(t) - 4)
+    }
+    return t
+}
+
+// depCacheName mirrors Go cacheDirName: registry name@version (bare),
+// name@ver+source+normurl when a url is present, git name@rev-or-version,
+// local/workspace just the name.
+func depCacheName(name, version, rev, source, url) {
+    if (source == "local" || source == "workspace") {
+        return sanitizeCacheComponent(name)
+    }
+    if (source == "git") {
+        let id = rev
+        if (id == "") {
+            id = version
+            if (id == "") { id = "head" }
+        }
+        return sanitizeCacheComponent(name) + "@" + sanitizeCacheComponent(id)
+    }
+    if (url == "") {
+        return sanitizeCacheComponent(name) + "@" + sanitizeCacheComponent(version)
+    }
+    let resolved = version
+    if (source == "git" && rev != "") { resolved = rev }
+    return sanitizeCacheComponent(name) + "@" + sanitizeCacheComponent(resolved) + "+" + sanitizeCacheComponent(source) + "+" + sanitizeCacheComponent(normalizeSourceURL(url))
+}
+
+// findProjectRoot walks up for karkain.toml (Go FindProjectRoot minus the
+// go.mod fallback: assembly requires a real Karkain manifest on both
+// engines, and the Go side rejects go.mod-only dirs identically).
+// Presence is probed with openFile (regular files); directories are never
+// probed for existence at all (see depSourceDir).
+func findProjectRoot(dir) {
+    let probe = dir
+    let up = 0
+    while (up < 14) {
+        if (openFile(probe + "/karkain.toml") != "") { return probe }
+        let parent = dirName(probe)
+        if (parent == probe) { return "" }
+        probe = parent
+        up = up + 1
+    }
+    return ""
+}
+
+// findWorkspaceRoot walks up for karkain.workspace.json.
+func findWorkspaceRoot(dir) {
+    let probe = dir
+    let up = 0
+    while (up < 14) {
+        if (openFile(probe + "/karkain.workspace.json") != "") { return probe }
+        let parent = dirName(probe)
+        if (parent == probe) { return "" }
+        probe = parent
+        up = up + 1
+    }
+    return ""
+}
+
+// depSourceDir mirrors Go DependencySources directory computation: workspace
+// (ws-root-relative url, else project-relative, else deps/<name>), local
+// (project-relative url, else deps/<name>), registry/git (project-relative
+// .karkain/cache/<name>). It returns the COMPUTED dir unconditionally —
+// never an existence verdict: joining a missing dir yields no files, which
+// is observationally identical to Go's silent skip (and empty dirs
+// contribute nothing on either engine). Unknown sources yield "".
+func depSourceDir(projectDir, wsRoot, name, source, url, version, rev) {
+    if (source == "workspace") {
+        let base = url
+        if (base == "") { base = "deps/" + name }
+        if (pmIsAbs(base) == 0) {
+            if (wsRoot != "") {
+                return wsRoot + "/" + base
+            }
+            return projectDir + "/" + base
+        }
+        return base
+    }
+    if (source == "local" || source == "") {
+        let base = url
+        if (base == "") { base = "deps/" + name }
+        if (pmIsAbs(base) == 0) { return projectDir + "/" + base }
+        return base
+    }
+    if (source == "registry" || source == "git") {
+        let ver = version
+        if (source == "registry" && ver == "") { ver = rev }
+        return projectDir + "/.karkain/cache/" + depCacheName(name, ver, rev, source, url)
+    }
+    return ""
+}
+
+// depDirPaths lists a dependency directory's .kark files (top + src/,
+// mirroring Go addSortedKark x2) as staged paths. Content decisions
+// (main-skip, dedup, root-exclusion) happen once in projectDepSources:
+// Karkain arrays are values, so per-dir joins can not share a dedup set.
+func depDirPaths(dir) {
+    let out = []
+    let i = 0
+    while (i < 2) {
+        let d = dir
+        if (i == 1) { d = dir + "/src" }
+        let names = collectKarkFiles(d, "")
+        let j = 0
+        while (j < len(names)) {
+            out = appendArray(out, d + "/" + names[j])
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// pmPathSeen reports membership in the joined-path set (dedup can not use
+// a map: Karkain has none — dep counts are tiny).
+func pmPathSeen(seen, p) {
+    let i = 0
+    while (i < len(seen)) {
+        if (seen[i] == p) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// projectDepSources assembles manifest dependency sources upstream-first
+// (sorted by dep name, mirroring Go): the full content or "" when the file
+// lives outside a manifest project. Files declaring their own main are
+// skipped (Go check/build/run parity), joined paths deduped, the root file
+// itself excluded.
+func projectDepSources(path) {
+    let dir = dirName(path)
+    let projectDir = findProjectRoot(dir)
+    if (projectDir == "") { return "" }
+    let manifest = readFile(projectDir + "/karkain.toml")
+    if (manifest == "") { return "" }
+    let lockText = readFile(projectDir + "/karkain.lock")
+    let wsRoot = findWorkspaceRoot(dir)
+    let recs = manifestDepRecords(manifest)
+    let names = []
+    let i = 0
+    while (i < len(recs)) {
+        names = appendArray(names, recs[i])
+        i = i + 4
+    }
+    names = sortStrings(names)
+    let files = []
+    i = 0
+    while (i < len(names)) {
+        let j = 0
+        while (j < len(recs)) {
+            if (recs[j] == names[i]) {
+                let ver = recs[j + 3]
+                let src = recs[j + 1]
+                let url = recs[j + 2]
+                let lk = lockLookup(lockText, names[i])
+                if (src == "registry" && ver == "") { ver = lk[0] }
+                let rv = ""
+                if (src == "git") { rv = lk[1] }
+                let d = depSourceDir(projectDir, wsRoot, names[i], src, url, ver, rv)
+                if (d != "") {
+                    let ps = depDirPaths(d)
+                    let k = 0
+                    while (k < len(ps)) {
+                        files = appendArray(files, ps[k])
+                        k = k + 1
+                    }
+                }
+            }
+            j = j + 4
+        }
+        i = i + 1
+    }
+    let seen = []
+    let content = ""
+    i = 0
+    while (i < len(files)) {
+        let p = files[i]
+        if (p == path || pmPathSeen(seen, p) == 1) {
+            i = i + 1
+        } else {
+            let src = readFile(p)
+            if (contains(src, "func main(") == 0) {
+                content = content + src + "\n\n"
+                seen = appendArray(seen, p)
+            }
+            i = i + 1
+        }
+    }
+    return content
+}
+
 // assembleProject returns the self-contained assembled source for a project
 // root file, or "" (after printing error[K122] for an unresolvable module)
 // when assembly cannot complete. check/build/run/kir/verifykir all compile
-// through this function.
+// through this function. Manifest dependency sources (Phase 144) come first
+// (upstream, mirroring Go projectSourceFiles); the sibling/import content
+// follows; the root file is always last.
 func assembleProject(path) {
     let rootSrc = readFile(path)
     if (rootSrc == "") { return "" }
     let dir = dirName(path)
     let base = baseName(path)
     let names = moduleImportNames(rootSrc)
-    let content = ""
+    let content = projectDepSources(path)
     if (len(names) == 0) {
-        content = siblingContent(dir, base)
+        content = content + siblingContent(dir, base)
     } else {
         let i = 0
         while (i < len(names)) {

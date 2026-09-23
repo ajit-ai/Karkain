@@ -170,6 +170,9 @@ jobs:
         # full go-less closure (stages 2+3 + identity) on capable runners.
         run: go test ./pkg/bootstrap/ -run 'TestBootstrap_SeedClosure|TestBootstrap_SeedSmoke|TestBootstrap_GoStubShadow' -count=1 -v
 
+      - name: Run Phase 144 PM-resolution gate
+        run: go test ./pkg/cli/ -run 'TestPhase144' -count=1
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 
