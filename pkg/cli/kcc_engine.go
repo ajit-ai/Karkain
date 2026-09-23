@@ -582,12 +582,82 @@ func kccMirrorFlat(targetFile, sandbox string) (string, error) {
 	return stagedRoot, nil
 }
 
+// pmWorkspaceRoot returns the nearest ancestor of dir (inclusive) holding
+// a karkain.workspace.json marker, or "" when dir is not in a workspace
+// (mirrors pm's unexported findWorkspaceRoot without importing internals).
+func pmWorkspaceRoot(dir string) (string, error) {
+	cur, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	for {
+		if fi, serr := os.Stat(filepath.Join(cur, pm.WorkspaceFile)); serr == nil && !fi.IsDir() {
+			return cur, nil
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", nil
+		}
+		cur = parent
+	}
+}
+
+// kccMirrorProject stages a manifest-driven project for kcc-native assembly
+// (Phase 144). Everything mirrors preserving paths relative to an anchor:
+// the workspace root when the project lives in one, else the project dir
+// itself. Mirrored: every *.kark, every karkain.toml, karkain.lock, and
+// karkain.workspace.json. kcc reads the staged manifest/lock and resolves
+// all dependency directories itself (projectDepSources in
+// src/compiler/main.kark); Go injects NOTHING, so definitions cannot
+// duplicate. Absolute-path dependencies resolve live (same-machine sandbox
+// property) and are never staged. Registry/git cache dirs ride along
+// inside the mirrored tree. Returns the staged root path.
+func kccMirrorProject(projectDir, rootFile, sandbox string) (string, error) {
+	anchor := projectDir
+	if ws, err := pmWorkspaceRoot(projectDir); err == nil && ws != "" {
+		anchor = ws
+	}
+	err := filepath.WalkDir(anchor, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		base := filepath.Base(path)
+		if !strings.HasSuffix(base, ".kark") && base != pm.ManifestFile &&
+			base != pm.LockFileName && base != pm.WorkspaceFile {
+			return nil
+		}
+		rel, err := filepath.Rel(anchor, path)
+		if err != nil {
+			return nil
+		}
+		dst := filepath.Join(sandbox, rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		return copyFileContents(path, dst)
+	})
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(anchor, rootFile)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(sandbox, rel), nil
+}
+
 // kccStageInput composes the file the self-hosted engine will compile inside a
-// sandbox and returns its absolute path. For flat projects the root file is
-// mirrored so kcc's own assembleProject builds the assembly from the staged
-// project; otherwise the legacy Go module-aware assembler writes the single
-// assembled file.
+// sandbox and returns its absolute path. Manifest projects mirror for
+// kcc-native assembly (Phase 144: kcc reads the staged manifest and resolves
+// dependencies itself); flat projects mirror for the sibling assembler
+// (Phase 122); otherwise the legacy Go module-aware assembler writes the
+// single assembled file.
 func kccStageInput(file, sandbox string) (string, error) {
+	if proj, err := pm.FindProjectRoot(filepath.Dir(effectiveRootFile(file))); err == nil {
+		if _, serr := os.Stat(filepath.Join(proj, pm.ManifestFile)); serr == nil {
+			return kccMirrorProject(proj, effectiveRootFile(file), sandbox)
+		}
+	}
 	flat, err := flatAssemblyEligible(file)
 	if err != nil {
 		return "", err
