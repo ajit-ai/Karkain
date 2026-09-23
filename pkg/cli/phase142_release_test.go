@@ -115,8 +115,11 @@ func TestPhase142_ChangelogPresence(t *testing.T) {
 	}
 }
 
-// TestPhase142_LTSBranch pins the 1.0.x maintenance line (local or origin
-// ref — fresh clones only carry the remote-tracking one).
+// TestPhase142_LTSBranch pins the 1.0.x maintenance line. Local clones
+// check refs directly; CI uses shallow single-ref checkouts (actions/
+// checkout fetch-depth 1) where remote-tracking refs for other branches
+// never exist — so the fallback asks the remote itself. A host with no
+// git remote skips (unverifiable environment, not a product defect).
 func TestPhase142_LTSBranch(t *testing.T) {
 	root := repoRoot(t)
 	for _, ref := range []string{"refs/heads/1.0.x", "refs/remotes/origin/1.0.x"} {
@@ -126,7 +129,15 @@ func TestPhase142_LTSBranch(t *testing.T) {
 			return
 		}
 	}
-	t.Error("no 1.0.x LTS branch (neither local nor origin ref present)")
+	cmd := exec.Command("git", "ls-remote", "--heads", "origin", "1.0.x")
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Skipf("cannot reach origin to verify the LTS branch: %v", err)
+	}
+	if !strings.Contains(string(out), "refs/heads/1.0.x") {
+		t.Error("no 1.0.x LTS branch on origin")
+	}
 }
 
 // TestPhase142_ArchiveRehearsal mirrors the CI release job for the host
