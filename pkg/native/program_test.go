@@ -38,7 +38,7 @@ func compileNative(t *testing.T, src string) []byte {
 	return img
 }
 
-func runNative(t *testing.T, img []byte) string {
+func runNativeCode(t *testing.T, img []byte) (string, int) {
 	t.Helper()
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		t.Skip("native execution needs Linux x86-64")
@@ -48,20 +48,23 @@ func runNative(t *testing.T, img []byte) string {
 		t.Fatal(err)
 	}
 	out, err := exec.Command(path).CombinedOutput()
-	if err != nil {
-		t.Fatalf("run: %v (out=%q)", err, out)
+	if err == nil {
+		return string(out), 0
 	}
-	return string(out)
+	if ee, ok := err.(*exec.ExitError); ok {
+		return string(out), ee.ExitCode()
+	}
+	t.Fatalf("run: %v (out=%q)", err, out)
+	return "", -1
 }
 
-func TestNativeHello(t *testing.T) {
-	img := compileNative(t, `func main() {
+func TestNativeHello(t *testing.T) {	img := compileNative(t, `func main() {
     print("hello native")
     print(2 + 3 * 4)
     print((10 - 4) * 2)
 }
 `)
-	if out := runNative(t, img); out != "" && out != "hello native\n14\n12\n" {
+	if out, _ := runNativeCode(t, img); out != "" && out != "hello native\n14\n12\n" {
 		t.Fatalf("output mismatch: %q", out)
 	}
 }
@@ -81,8 +84,36 @@ func main() {
     print(1000000 * 1000000)
 }
 `)
-	if out := runNative(t, img); out != "" && out != "42\n126\n-7\n1000000000000\n" {
+	if out, _ := runNativeCode(t, img); out != "" && out != "42\n126\n-7\n1000000000000\n" {
 		t.Fatalf("output mismatch: %q", out)
+	}
+}
+
+func TestNativeBisect(t *testing.T) {
+	// Execution bisection: each program exercises one more subsystem, so
+	// a crash pins the responsible layer. Permanent regression coverage.
+	cases := []struct {
+		name     string
+		src      string
+		want     string
+		wantCode int
+	}{
+		{"empty", "func main() {\n}\n", "", 0},
+		{"retcode", "func main() {\n    return 7\n}\n", "", 7},
+		{"int42", "func main() {\n    print(42)\n}\n", "42\n", 0},
+		{"str", "func main() {\n    print(\"hi\")\n}\n", "hi\n", 0},
+		{"arith", "func main() {\n    print(2 + 3 * 4)\n}\n", "14\n", 0},
+		{"call", "func add(a, b) {\n    return a + b\n}\nfunc main() {\n    print(add(20, 22))\n}\n", "42\n", 0},
+	}
+	for _, c := range cases {
+		img := compileNative(t, c.src)
+		out, code := runNativeCode(t, img)
+		if out != "" && out != c.want {
+			t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+		}
+		if code != c.wantCode {
+			t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
+		}
 	}
 }
 
