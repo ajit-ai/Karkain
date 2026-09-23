@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -27,39 +28,34 @@ import (
 // KARKAIN_ENGINE=go is pinned on the child commands by runCmdOutput, but
 // the seed is a native kcc binary that never consults it — the pin is
 // Go-CLI-side configuration and is inert here by construction.
+//
+// Go-neutralization is by SHADOWING (a failing `go` stub prepended to
+// PATH), not directory removal: on some hosts `go` shares its directory
+// with gcc, and scrubbing the directory would amputate the linker.
 
-// normPath canonicalizes a directory for comparison: forward slashes, no
-// trailing slash, folded case (Windows spellings vary).
-func normPath(p string) string {
-	return strings.ToLower(strings.TrimRight(strings.ReplaceAll(p, "\\", "/"), "/"))
-}
-
-// goBinDir returns the directory holding a tool binary, splitting on both
-// separator styles and ignoring trailing slashes: LookPath results are
-// native (backslashes on Windows), CI toolcache paths vary in spelling,
-// and PATH entries may carry trailing slashes that would defeat a naive
-// equality match (the CI failure that motivated the scrub loop).
-func goBinDir(tool string) string {
-	flat := strings.ReplaceAll(tool, "\\", "/")
-	flat = strings.TrimRight(flat, "/")
-	if i := strings.LastIndex(flat, "/"); i >= 0 {
-		return tool[:i]
-	}
-	return "."
-}
-func scrubGoFromPath(t *testing.T, goBin string) string {
+// shadowGoWithStub prepends a directory holding a `go` stub that always
+// fails, so every PATH-based `go` invocation from here on errors loudly
+// instead of running the real toolchain. Directory scrubbing was tried
+// first and abandoned: on some hosts (notably CI images) `go` shares its
+// directory with gcc, so removing the directory amputates the linker the
+// closure genuinely needs. Shadowing is layout-agnostic: gcc and every
+// other tool resolve untouched, while `go` provably cannot succeed.
+// It returns the stub directory for the proof assertion below.
+func shadowGoWithStub(t *testing.T) string {
 	t.Helper()
-	goDir := goBinDir(goBin)
-	sep := string(os.PathListSeparator)
-	parts := strings.Split(os.Getenv("PATH"), sep)
-	kept := parts[:0]
-	for _, p := range parts {
-		if normPath(p) == normPath(goDir) {
-			continue
-		}
-		kept = append(kept, p)
+	dir := t.TempDir()
+	sh := "#!/bin/sh\necho 'go: toolchain disabled for the seed-closure proof' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "go"), []byte(sh), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	return strings.Join(kept, sep)
+	// Windows resolves `go` via PATHEXT (.bat); a bare shell script would
+	// be skipped there and the real toolchain found instead.
+	bat := "@echo off\r\necho go: toolchain disabled for the seed-closure proof 1>&2\r\nexit /b 1\r\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.bat"), []byte(bat), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dir
 }
 
 func TestBootstrap_SeedClosure(t *testing.T) {
@@ -87,22 +83,25 @@ func TestBootstrap_SeedClosure(t *testing.T) {
 	}
 	t.Logf("seed: %s (%d bytes) SHA256=%s", s1.Binary, s1.Size, s1.SHA256[:16])
 
-	// From here on the Go tool must be unresolvable: prove the closure.
-	// Loop because hosts often expose `go` through several PATH entries
-	// (toolcache + system symlinks): remove each newly-resolved directory
-	// until LookPath fails, capped so a pathological PATH cannot spin.
-	for i := 0; i < 10; i++ {
-		goBin, err := exec.LookPath("go")
-		if err != nil {
-			break
-		}
-		t.Setenv("PATH", scrubGoFromPath(t, goBin))
+	// From here on the Go tool must be unusable: shadow it with a stub that
+	// always fails, then prove the shadow is active. Any stage that
+	// secretly needs Go now fails loudly instead of silently succeeding.
+	stubDir := shadowGoWithStub(t)
+	resolved, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("PATH shadow broken: `go` unresolvable at all (%v) — want the stub", err)
 	}
-	if _, err := exec.LookPath("go"); err == nil {
-		t.Fatal("PATH scrub failed: `go` still resolvable, closure would prove nothing")
+	if filepath.Dir(resolved) != stubDir && !strings.EqualFold(filepath.Dir(resolved), stubDir) {
+		// Resolve symlinks/relative spellings before declaring defeat.
+		if eval, everr := filepath.EvalSymlinks(resolved); everr != nil || filepath.Dir(eval) != stubDir {
+			t.Fatalf("PATH shadow failed: `go` resolves to %s, not the stub in %s", resolved, stubDir)
+		}
+	}
+	if out, err := exec.Command(resolved).CombinedOutput(); err == nil {
+		t.Fatalf("stub `go` unexpectedly succeeded: %s", out)
 	}
 	if _, err := exec.LookPath("gcc"); err != nil {
-		t.Fatal("PATH scrub removed gcc too: fix the test environment")
+		t.Fatalf("gcc must stay resolvable for the linker: %v", err)
 	}
 
 	s2, err := RunStage2(projectRoot, s1.Binary)
@@ -124,24 +123,19 @@ func TestBootstrap_SeedClosure(t *testing.T) {
 	t.Logf("seed closure: stage2 == stage3 bitwise identical (%d bytes), no Go tool used", s2.Size)
 }
 
-// TestBootstrap_ScrubGoFromPath unit-tests the PATH scrub without needing
-// RAM, gcc or a seed build: the go tool's own directory is removed, every
-// other entry is kept — including the CI shape (several go-bearing entries,
-// trailing-slash spellings).
-func TestBootstrap_ScrubGoFromPath(t *testing.T) {
-	sep := string(os.PathListSeparator)
-	t.Setenv("PATH", strings.Join([]string{"/tools/go", "/usr/bin", "/opt"}, sep))
-	got := scrubGoFromPath(t, "/tools/go/go")
-	want := strings.Join([]string{"/usr/bin", "/opt"}, sep)
-	if got != want {
-		t.Errorf("scrub = %q, want %q", got, want)
+// TestBootstrap_GoStubShadow unit-tests the shadow without needing RAM,
+// gcc or a seed build: after shadowing, `go` resolves inside the stub dir
+// and invoking it fails, while unrelated tools keep resolving.
+func TestBootstrap_GoStubShadow(t *testing.T) {
+	stubDir := shadowGoWithStub(t)
+	resolved, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("`go` unresolvable after shadowing: %v", err)
 	}
-
-	// Trailing-slash entry spelling still matches.
-	t.Setenv("PATH", strings.Join([]string{"/opt/go/bin/", "/usr/bin"}, sep))
-	got = scrubGoFromPath(t, "/opt/go/bin/go")
-	want = strings.Join([]string{"/usr/bin"}, sep)
-	if got != want {
-		t.Errorf("trailing-slash scrub = %q, want %q", got, want)
+	if d := filepath.Dir(resolved); d != stubDir && !strings.EqualFold(d, stubDir) {
+		t.Fatalf("`go` resolves to %s, want the stub in %s", resolved, stubDir)
+	}
+	if out, err := exec.Command(resolved).CombinedOutput(); err == nil {
+		t.Fatalf("stub `go` unexpectedly succeeded: %s", out)
 	}
 }
