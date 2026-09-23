@@ -229,6 +229,18 @@ static void karkain_prof_free(void* k_pf_p) {
 #define malloc karkain_prof_malloc
 #define free karkain_prof_free
 
+/* Phase 141: Value-cell allocation sites. make_string/make_array/make_map
+ * calls in generated user code redirect through a counter before reaching
+ * the real helper (self-reference in a macro body is not re-expanded, so
+ * the expansion calls the true function). Same placement rule as
+ * malloc/free above: preamble definitions sit above these lines, so only
+ * user-code call sites count. Struct values stay invisible (map-backed
+ * cells) — documented boundary, not a defect. */
+static long long k_pf_cells;
+#define make_string(k_pf_s) (k_pf_cells++, make_string(k_pf_s))
+#define make_array() (k_pf_cells++, make_array())
+#define make_map() (k_pf_cells++, make_map())
+
 static void karkain_prof_flush(void) {
     const char* k_pf_out;
     FILE* k_pf_f;
@@ -250,7 +262,8 @@ static void karkain_prof_flush(void) {
     fprintf(k_pf_f, "  \"allocation\": {\n");
     fprintf(k_pf_f, "    \"count\": %lld,\n", k_pf_alloc_count);
     fprintf(k_pf_f, "    \"bytes\": %lld,\n", k_pf_alloc_bytes);
-    fprintf(k_pf_f, "    \"peak_bytes\": %lld\n", k_pf_peak_bytes);
+    fprintf(k_pf_f, "    \"peak_bytes\": %lld,\n", k_pf_peak_bytes);
+    fprintf(k_pf_f, "    \"cells\": %lld\n", k_pf_cells);
     fprintf(k_pf_f, "  },\n");
     fprintf(k_pf_f, "  \"functions\": [\n");
     k_pf_first = 1;

@@ -36,11 +36,13 @@ type Profile struct {
 
 // ProfileAllocation tracks allocations performed by the generated program
 // code (struct instances / raw memory ops). Peak is the maximum bytes held
-// live at once among those tracked allocations.
+// live at once among those tracked allocations. Cells counts Value-cell
+// constructions (make_string/make_array/make_map in user code, Phase 141).
 type ProfileAllocation struct {
 	Count     int64 `json:"count"`
 	Bytes     int64 `json:"bytes"`
 	PeakBytes int64 `json:"peak_bytes"`
+	Cells     int64 `json:"cells"`
 }
 
 // ProfileFunction is per-function aggregate timing. Total/self are inclusive
@@ -78,6 +80,7 @@ type profDump struct {
 		Count     int64 `json:"count"`
 		Bytes     int64 `json:"bytes"`
 		PeakBytes int64 `json:"peak_bytes"`
+		Cells     int64 `json:"cells"`
 	} `json:"allocation"`
 	Functions []struct {
 		Name    string `json:"name"`
@@ -218,7 +221,7 @@ func parseProfDump(data []byte, targetFile string) (*Profile, error) {
 		Engine:     "go",
 		DurationNS: d.DurationNS,
 		Overflow:   d.Overflow != 0,
-		Allocation: ProfileAllocation{Count: d.Allocation.Count, Bytes: d.Allocation.Bytes, PeakBytes: d.Allocation.PeakBytes},
+		Allocation: ProfileAllocation{Count: d.Allocation.Count, Bytes: d.Allocation.Bytes, PeakBytes: d.Allocation.PeakBytes, Cells: d.Allocation.Cells},
 	}
 	for _, f := range d.Functions {
 		p.Functions = append(p.Functions, ProfileFunction{
@@ -291,8 +294,8 @@ func (p *Profile) RenderText() string {
 	for _, c := range edges {
 		fmt.Fprintf(&sb, "  %s -> %s x%d (%s)\n", c.Caller, c.Callee, c.Count, nsString(c.TotalNS))
 	}
-	fmt.Fprintf(&sb, "Allocation: %d allocation(s), %s allocated, %s peak live\n",
-		p.Allocation.Count, nsString(p.Allocation.Bytes), nsString(p.Allocation.PeakBytes))
+	fmt.Fprintf(&sb, "Allocation: %d allocation(s), %s allocated, %s peak live, %d value cell(s)\n",
+		p.Allocation.Count, nsString(p.Allocation.Bytes), nsString(p.Allocation.PeakBytes), p.Allocation.Cells)
 	return sb.String()
 }
 
