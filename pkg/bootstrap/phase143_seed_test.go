@@ -28,12 +28,20 @@ import (
 // the seed is a native kcc binary that never consults it — the pin is
 // Go-CLI-side configuration and is inert here by construction.
 
+// normPath canonicalizes a directory for comparison: forward slashes, no
+// trailing slash, folded case (Windows spellings vary).
+func normPath(p string) string {
+	return strings.ToLower(strings.TrimRight(strings.ReplaceAll(p, "\\", "/"), "/"))
+}
+
 // goBinDir returns the directory holding a tool binary, splitting on both
-// separator styles: LookPath results are native (backslashes on Windows),
-// while tests and cross-platform callers may pass forward slashes.
-// filepath.Dir alone would mis-split the foreign style.
+// separator styles and ignoring trailing slashes: LookPath results are
+// native (backslashes on Windows), CI toolcache paths vary in spelling,
+// and PATH entries may carry trailing slashes that would defeat a naive
+// equality match (the CI failure that motivated the scrub loop).
 func goBinDir(tool string) string {
 	flat := strings.ReplaceAll(tool, "\\", "/")
+	flat = strings.TrimRight(flat, "/")
 	if i := strings.LastIndex(flat, "/"); i >= 0 {
 		return tool[:i]
 	}
@@ -46,7 +54,7 @@ func scrubGoFromPath(t *testing.T, goBin string) string {
 	parts := strings.Split(os.Getenv("PATH"), sep)
 	kept := parts[:0]
 	for _, p := range parts {
-		if strings.EqualFold(p, goDir) {
+		if normPath(p) == normPath(goDir) {
 			continue
 		}
 		kept = append(kept, p)
@@ -54,8 +62,8 @@ func scrubGoFromPath(t *testing.T, goBin string) string {
 	return strings.Join(kept, sep)
 }
 
-func TestBootstrap_SeedClosure(t *testing.T) {	goBin, err := exec.LookPath("go")
-	if err != nil {
+func TestBootstrap_SeedClosure(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain absent: nothing to build the seed from (see the 142 seed ceremony)")
 	}
 	if _, err := exec.LookPath("gcc"); err != nil {
@@ -80,7 +88,16 @@ func TestBootstrap_SeedClosure(t *testing.T) {	goBin, err := exec.LookPath("go")
 	t.Logf("seed: %s (%d bytes) SHA256=%s", s1.Binary, s1.Size, s1.SHA256[:16])
 
 	// From here on the Go tool must be unresolvable: prove the closure.
-	t.Setenv("PATH", scrubGoFromPath(t, goBin))
+	// Loop because hosts often expose `go` through several PATH entries
+	// (toolcache + system symlinks): remove each newly-resolved directory
+	// until LookPath fails, capped so a pathological PATH cannot spin.
+	for i := 0; i < 10; i++ {
+		goBin, err := exec.LookPath("go")
+		if err != nil {
+			break
+		}
+		t.Setenv("PATH", scrubGoFromPath(t, goBin))
+	}
 	if _, err := exec.LookPath("go"); err == nil {
 		t.Fatal("PATH scrub failed: `go` still resolvable, closure would prove nothing")
 	}
@@ -109,7 +126,8 @@ func TestBootstrap_SeedClosure(t *testing.T) {	goBin, err := exec.LookPath("go")
 
 // TestBootstrap_ScrubGoFromPath unit-tests the PATH scrub without needing
 // RAM, gcc or a seed build: the go tool's own directory is removed, every
-// other entry is kept.
+// other entry is kept — including the CI shape (several go-bearing entries,
+// trailing-slash spellings).
 func TestBootstrap_ScrubGoFromPath(t *testing.T) {
 	sep := string(os.PathListSeparator)
 	t.Setenv("PATH", strings.Join([]string{"/tools/go", "/usr/bin", "/opt"}, sep))
@@ -117,5 +135,13 @@ func TestBootstrap_ScrubGoFromPath(t *testing.T) {
 	want := strings.Join([]string{"/usr/bin", "/opt"}, sep)
 	if got != want {
 		t.Errorf("scrub = %q, want %q", got, want)
+	}
+
+	// Trailing-slash entry spelling still matches.
+	t.Setenv("PATH", strings.Join([]string{"/opt/go/bin/", "/usr/bin"}, sep))
+	got = scrubGoFromPath(t, "/opt/go/bin/go")
+	want = strings.Join([]string{"/usr/bin"}, sep)
+	if got != want {
+		t.Errorf("trailing-slash scrub = %q, want %q", got, want)
 	}
 }
