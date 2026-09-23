@@ -65,6 +65,66 @@ func shadowGoWithStub(t *testing.T) string {
 	return dir
 }
 
+func TestBootstrap_SeedSmoke(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go toolchain absent: nothing to build the seed from")
+	}
+	if _, err := exec.LookPath("gcc"); err != nil {
+		t.Skip("gcc absent: no linker")
+	}
+	projectRoot := findProjectRoot(t)
+	cleanupBinaries(t, projectRoot)
+	defer cleanupBinaries(t, projectRoot)
+
+	s1, err := RunStage1(projectRoot)
+	if err != nil {
+		t.Fatalf("Stage 1 (seed build) failed: %v", err)
+	}
+
+	stubDir := shadowGoWithStub(t)
+	resolved, err := exec.LookPath("go")
+	if err != nil || (!strings.EqualFold(filepath.Dir(resolved), stubDir) && filepath.Dir(resolved) != stubDir) {
+		t.Fatalf("shadow not active (go resolves to %q, err %v)", resolved, err)
+	}
+
+	dir := t.TempDir()
+	src := filepath.Join(dir, "tiny.kark")
+	if err := os.WriteFile(src, []byte("func main() {\n    print(40 + 2)\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runCmdOutput(dir, s1.Binary, "build", src, "--target", "c23")
+	if err != nil {
+		t.Fatalf("seed transpile of tiny program failed (go-less): %v\n%s", err, out)
+	}
+	cFile := filepath.Join(dir, "tiny.c23")
+	if _, err := os.Stat(cFile); err != nil {
+		t.Fatalf("seed produced no C output: %v", err)
+	}
+	exe := filepath.Join(dir, "tiny")
+	if runtime.GOOS == "windows" {
+		exe += ".exe"
+	}
+	if err := compileWithGCC(cFile, exe); err != nil {
+		t.Fatalf("gcc link of seed output failed: %v", err)
+	}
+	out, err = exec.Command(exe).CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "42" {
+		t.Fatalf("seed-built tiny program = %q, err %v; want 42", out, err)
+	}
+}
+func TestBootstrap_GoStubShadow(t *testing.T) {
+	stubDir := shadowGoWithStub(t)
+	resolved, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatalf("`go` unresolvable after shadowing: %v", err)
+	}
+	if d := filepath.Dir(resolved); d != stubDir && !strings.EqualFold(d, stubDir) {
+		t.Fatalf("`go` resolves to %s, want the stub in %s", resolved, stubDir)
+	}
+	if out, err := exec.Command(resolved).CombinedOutput(); err == nil {
+		t.Fatalf("stub `go` unexpectedly succeeded: %s", out)
+	}
+}
 func TestBootstrap_SeedClosure(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go toolchain absent: nothing to build the seed from (see the 142 seed ceremony)")
@@ -134,75 +194,4 @@ func TestBootstrap_SeedClosure(t *testing.T) {
 		t.Fatalf("seed closure FAILED: stage2 SHA256=%s != stage3 SHA256=%s", s2.SHA256, s3.SHA256)
 	}
 	t.Logf("seed closure: stage2 == stage3 bitwise identical (%d bytes), no Go tool used", s2.Size)
-}
-
-// TestBootstrap_SeedSmoke transpiles one small file with the seed under the
-// go-stub shadow and gcc-links it. It is the fast half of the closure proof
-// (seconds, always runs where go+gcc exist): if this passes while the full
-// tree dies, the killer is load-dependent; if this dies too, the runner
-// cannot execute the seed at all. It also pins the shadow end-to-end (a
-// stage secretly needing Go fails here first, loudly).
-func TestBootstrap_SeedSmoke(t *testing.T) {
-	if _, err := exec.LookPath("go"); err != nil {
-		t.Skip("go toolchain absent: nothing to build the seed from")
-	}
-	if _, err := exec.LookPath("gcc"); err != nil {
-		t.Skip("gcc absent: no linker")
-	}
-	projectRoot := findProjectRoot(t)
-	cleanupBinaries(t, projectRoot)
-	defer cleanupBinaries(t, projectRoot)
-
-	s1, err := RunStage1(projectRoot)
-	if err != nil {
-		t.Fatalf("Stage 1 (seed build) failed: %v", err)
-	}
-
-	stubDir := shadowGoWithStub(t)
-	resolved, err := exec.LookPath("go")
-	if err != nil || (!strings.EqualFold(filepath.Dir(resolved), stubDir) && filepath.Dir(resolved) != stubDir) {
-		t.Fatalf("shadow not active (go resolves to %q, err %v)", resolved, err)
-	}
-
-	dir := t.TempDir()
-	src := filepath.Join(dir, "tiny.kark")
-	if err := os.WriteFile(src, []byte("func main() {\n    print(40 + 2)\n}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	out, err := runCmdOutput(dir, s1.Binary, "build", src, "--target", "c23")
-	if err != nil {
-		t.Fatalf("seed transpile of tiny program failed (go-less): %v\n%s", err, out)
-	}
-	cFile := filepath.Join(dir, "tiny.c23")
-	if _, err := os.Stat(cFile); err != nil {
-		t.Fatalf("seed produced no C output: %v", err)
-	}
-	exe := filepath.Join(dir, "tiny")
-	if runtime.GOOS == "windows" {
-		exe += ".exe"
-	}
-	if err := compileWithGCC(cFile, exe); err != nil {
-		t.Fatalf("gcc link of seed output failed: %v", err)
-	}
-	out, err = exec.Command(exe).CombinedOutput()
-	if err != nil || strings.TrimSpace(string(out)) != "42" {
-		t.Fatalf("seed-built tiny program = %q, err %v; want 42", out, err)
-	}
-}
-
-// TestBootstrap_GoStubShadow unit-tests the shadow without needing RAM,
-// gcc or a seed build: after shadowing, `go` resolves inside the stub dir
-// and invoking it fails, while unrelated tools keep resolving.
-func TestBootstrap_GoStubShadow(t *testing.T) {
-	stubDir := shadowGoWithStub(t)
-	resolved, err := exec.LookPath("go")
-	if err != nil {
-		t.Fatalf("`go` unresolvable after shadowing: %v", err)
-	}
-	if d := filepath.Dir(resolved); d != stubDir && !strings.EqualFold(d, stubDir) {
-		t.Fatalf("`go` resolves to %s, want the stub in %s", resolved, stubDir)
-	}
-	if out, err := exec.Command(resolved).CombinedOutput(); err == nil {
-		t.Fatalf("stub `go` unexpectedly succeeded: %s", out)
-	}
 }
