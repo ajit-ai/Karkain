@@ -343,7 +343,13 @@ func (g *Generator) emitFuncBodies(sb *strings.Builder, prog *parser.Program, on
 				continue
 			}
 			// Phase 53: SSA IR pipeline — lower, optimize, verify, emit.
-			// Falls back to legacy emission on any lowering/verification failure.
+			// Falls back to legacy emission on lowering crashes or
+			// structural verification failure. Phase 141 note: the
+			// fallback covers crashes and malformed IR, NOT wrong-code
+			// survival — Verify checks structure (terminators, single
+			// assignment, arities), not use-def soundness, so passes must
+			// be loop-sound on their own (Mem2Reg is not: it stays
+			// unwired pending the loop-aware slice; see PHASE-141).
 			// Phase 121: closure-bearing functions always use the legacy path so
 			// the deferred closure definitions in lambdaBuf flush correctly.
 			if !g.cfg.DisableSSA && !g.bodyTouchesClosures(fn.Body) {

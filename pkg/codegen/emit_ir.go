@@ -330,7 +330,12 @@ func (g *Generator) emitFunctionViaIR(prog *parser.Program, fn *parser.FuncDecl)
 	if !lf.cur.Terminated() {
 		lf.cur.Emit(ssa.Instr{Op: ssa.OpRet})
 	}
+	// Phase 141: SimplifyCFG runs between folding and DCE — folding
+	// creates constant branch conditions, this pass turns them into jumps
+	// and deletes the dead arms, DCE cleans the detritus. (Mem2Reg/CSE/
+	// LICM/SROA stay unwired: measured verdicts in PHASE-141.)
 	mod.FoldConstants()
+	(&ssa.SimplifyCFGPass{}).Run(sfn)
 	mod.EliminateDeadCode()
 	if err := mod.Verify(); err != nil {
 		return "", false

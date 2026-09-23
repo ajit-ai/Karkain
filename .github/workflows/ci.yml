@@ -159,6 +159,12 @@ jobs:
       - name: Run Phase 140 debugger-integration gate
         run: go test ./pkg/cli/ -run 'TestPhase140|TestVSCodeExtension' -count=1
 
+      - name: Run Phase 141 optimizer-pipeline gate
+        run: go test ./pkg/codegen/ -run 'TestPhase141' -count=1
+
+      - name: Run Phase 141 SSA unit gate
+        run: go test ./pkg/ir/ssa/ -count=1
+
       - name: Run Phase 139 triple-model unit gate
         run: go test ./pkg/target/ ./pkg/wit/ -count=1
 
