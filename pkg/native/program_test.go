@@ -106,14 +106,17 @@ func TestNativeBisect(t *testing.T) {
 		{"call", "func add(a, b) {\n    return a + b\n}\nfunc main() {\n    print(add(20, 22))\n}\n", "42\n", 0},
 	}
 	for _, c := range cases {
-		img := compileNative(t, c.src)
-		out, code := runNativeCode(t, img)
-		if out != "" && out != c.want {
-			t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-		}
-		if code != c.wantCode {
-			t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
-		}
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNative(t, c.src)
+			out, code := runNativeCode(t, img)
+			if out != "" && out != c.want {
+				t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+			}
+			if code != c.wantCode {
+				t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
+			}
+		})
 	}
 }
 

@@ -176,6 +176,21 @@ jobs:
       - name: Run Phase 145 native-backend gate
         run: go test ./pkg/native/ -count=1
 
+      # Execution bisection: one step per micro-program so each case's
+      # pass/fail is visible as a step conclusion (log-independent).
+      - name: Bisect empty
+        run: go test ./pkg/native/ -run 'TestNativeBisect/empty' -count=1 -v
+      - name: Bisect retcode
+        run: go test ./pkg/native/ -run 'TestNativeBisect/retcode' -count=1 -v
+      - name: Bisect int42
+        run: go test ./pkg/native/ -run 'TestNativeBisect/int42' -count=1 -v
+      - name: Bisect str
+        run: go test ./pkg/native/ -run 'TestNativeBisect/str' -count=1 -v
+      - name: Bisect arith
+        run: go test ./pkg/native/ -run 'TestNativeBisect/arith' -count=1 -v
+      - name: Bisect call
+        run: go test ./pkg/native/ -run 'TestNativeBisect/call' -count=1 -v
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 
