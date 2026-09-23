@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-const versionString = "Karkain Compiler v1.0.0 (%s/%s, Stable Build)"
+const versionString = "Karkain Compiler v1.1.0 (%s/%s, Stable Build)"
 
 // CommandResult holds the outcome of a CLI command
 type CommandResult struct {

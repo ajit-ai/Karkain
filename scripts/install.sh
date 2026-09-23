@@ -48,13 +48,13 @@ echo "Building karkain from source..."
 echo "Built: $EXE"
 
 # ---- write version fingerprint ----
-REPO_VERSION="$(head -n 1 "$PROJECT_ROOT/VERSION" 2>/dev/null || echo "1.0.0")"
+REPO_VERSION="$(head -n 1 "$PROJECT_ROOT/VERSION" 2>/dev/null || echo "1.1.0")"
 printf 'Karkain Compiler %s (source build)\n' "$REPO_VERSION" > "$PREFIX/VERSION"
 
 # ---- verify --version ----
 VER_OUT="$("$EXE" --version 2>&1 || true)"
 if ! printf '%s' "$VER_OUT" | grep -q "Stable Build"; then
-    echo "installed binary does not identify a 1.0.0 Stable build: $VER_OUT" >&2
+    echo "installed binary does not identify a 1.1.0 Stable build: $VER_OUT" >&2
     exit 3
 fi
 echo "Version: $VER_OUT"

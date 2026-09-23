@@ -1,13 +1,13 @@
 # Karkain
 
-> **Karkain 1.0.0 (Stable)** — Karkain is a working compiler and language, not an
+> **Karkain 1.1.0 (Stable)** — Karkain is a working compiler and language, not an
 > empty roadmap. Everything labeled Implemented below is verified by automated
 > gates through the real CLI. Everything else is honestly labeled
 > `Planned` / `Not Yet Implemented`.
 
 Karkain is a statically typed systems programming language with a
 self-hosted compiler, a byte-identical dual-engine pipeline, a real standard
-library, native executables, cross-compilation, and an experimental
+library, native executables, cross-compilation, and a byte-identical
 concurrency surface (WASM is a Go-engine production candidate). It compiles
 `.kark` source to C23 and delegates to a
 host C compiler (GCC/Clang/MSVC) for final machine code.
@@ -26,7 +26,7 @@ Karkain builds from source with Go 1.21+ and any C compiler.
 git clone https://github.com/ajit-ai/Karkain.git
 cd Karkain
 go build -o karkain ./cmd/karkain        # Windows: go build -o karkain.exe ./cmd/karkain
-./karkain --version                      # Karkain Compiler v1.0.0 (..., Stable Build)
+./karkain --version                      # Karkain Compiler v1.1.0 (..., Stable Build)
 ```
 
 Write your first program:
@@ -103,20 +103,20 @@ Neuro/heterogeneous work:
 
 | Capability | Status |
 |---|---|
-| Networking (TCP/UDP/HTTP) | Not Yet Implemented |
-| Databases | Not Yet Implemented |
-| Web framework | Not Yet Implemented |
+| Networking (TCP/UDP/HTTP) | Implemented (`std.net`, `std.http`, Phase 125A) |
+| Databases | Implemented (`std.db` SQL-text engine, Phase 125A) |
+| Web framework | Partial (`std.http` primitives; no routing/middleware/TLS) |
 | Quantum language surface | Not Yet Implemented (infrastructure only) |
-| GPU/NPU kernel language surface | Not Yet Implemented from `.kark` |
+| GPU/NPU kernel language surface | Implemented (`@target(gpu)`/`@target(npu)`, Phases 98/138; compile-only guarantee) |
 | Advanced package registry | Not Yet Implemented (local resolution + lockfiles only) |
-| Pre-built release binaries | Available — 13 `v1.0.0` archives (see the [Installation guide](docs/source/getting-started/installation.rst)) |
+| Pre-built release binaries | Pending release cut — 13 `v1.1.0` archives (see the [Installation guide](docs/source/getting-started/installation.rst)) |
 
 ## Experimental surface
 
 Experimental means *real and testable, but the surface may change*:
 
-- **Concurrency runtime** (Phase 107) — `spawn`/`join`, channels, actors.
-  Go engine only; kcc parity deferred.
+- **Concurrency runtime** (Phase 107) — `spawn`/`join`, channels, actors,
+  byte-identical on both engines since Phase 137.
 - **SIMD/vector types** (Phase 106) — `[N]f32`/`[N]f64`/`[N]i32`/`[N]i64`
   with `@simd_*` builtins.
 - **Profiling & debug trace** — `karkain prof` and `karkain debug`, both
@@ -124,8 +124,8 @@ Experimental means *real and testable, but the surface may change*:
 
 ## Example corpus
 
-`examples/` holds **59 real `.kark` programs across 15 categories** — 56
-Runnable (incl. test-mode), 2 Experimental, 1 Planned (README only).
+`examples/` holds **61 real `.kark` programs across 15 categories** — 58
+Runnable (incl. test-mode), 2 Stable, 1 Planned (README only).
 
 ```bash
 karkain run examples/01-fundamentals/01_hello_world.kark
@@ -287,16 +287,19 @@ Karkain/
 
 ## Roadmap
 
-See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–119
-delivered, plus the current post-1.0.0 track). The project label is now
-**Karkain 1.0.0 (Stable)**, released from the Phase 119 milestone.
+See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–141
+delivered, plus the GA-3 track to 1.1.0). The project label is now
+**Karkain 1.1.0 (Stable)**, released from the Phase 142 milestone
+(1.0.x continues as the LTS line).
 
 High-level status today: the compiler is self-hosted, byte-identical on two
-engines, and the standard library, toolchain and example corpus are real and
-regression-gated — but networking, databases, web, quantum, GPU/NPU language
-surfaces, and the package registry are `Planned`/`Not Yet Implemented`. The
-1.0.0 release verdict and evidence are documented in the Phase 119 QA report
-(`docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md`).
+engines, and the standard library (incl. networking, database and web
+modules), toolchain and example corpus are real and regression-gated —
+while the package registry, JIT tier and native backend remain
+`Planned`/`Not Yet Implemented`. The 1.0.0 release verdict and evidence are
+documented in the Phase 119 QA report
+(`docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md`); the 1.1.0 story is in
+`docs/release/KARKAIN-1.1-RELEASE-NOTES.md`.
 
 ## Contributing
 

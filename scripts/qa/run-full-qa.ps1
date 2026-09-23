@@ -1,4 +1,4 @@
-# run-full-qa.ps1 - Karkain 1.0.0 master QA gate
+# run-full-qa.ps1 - Karkain 1.1.0 master QA gate
 #
 # Orchestrates the existing test machinery (no duplicated suites) for the
 # Phase 119 release preparation. Stages run in order and abort at the first

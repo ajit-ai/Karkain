@@ -4,15 +4,15 @@ Thanks for your interest in Karkain! This guide explains how the project is
 organized, how to run the toolchain and its tests, and the conventions you
 must follow before your contribution can land.
 
-Karkain is **1.0.0 (Stable)** software. Every contribution is expected to
+Karkain is **1.1.0 (Stable)** software. Every contribution is expected to
 respect the honesty rules documented in `docs/source/status/index.rst`:
 never claim a feature works unless it is verified by an automated gate.
 
 ## Project status and expectations
 
 Read `docs/source/development/index.rst` and `docs/source/status/index.rst`
-before starting. The 1.0.0 stable core is frozen and regression-gated; the
-experimental surfaces (concurrency, WASM, SIMD, profiling/trace) may still
+before starting. The 1.1.0 stable core is frozen and regression-gated; the
+experimental surfaces (WASM, SIMD, profiling/trace) may still
 change between releases. Contributions that silently introduce unsupported
 behavior, or that describe planned features as implemented, will **not** be
 accepted.

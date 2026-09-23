@@ -12,8 +12,8 @@ Karkain is distributed as pre-compiled binaries and built from source.
 Pre-compiled binaries
 =====================
 
-:implemented:`Available` — pre-built binaries for **v1.0.0** have been
-built and validated as a **13-archive set**. The v1.0.0 GitHub Release
+:implemented:`Available` — pre-built binaries for **v1.1.0** have been
+built and validated as a **13-archive set**. The v1.1.0 GitHub Release
 (tag-triggered CI pipeline) publishes them to `GitHub Releases
 <https://github.com/ajit-ai/Karkain/releases>`_ with a ``checksums.txt``
 (SHA-256) listing; :ref:`release-status` below records whether the release is
@@ -29,7 +29,7 @@ Release status
 
 .. note::
 
-   :planned:`Release cut pending` — once the owner publishes the v1.0.0
+   :planned:`Release cut pending` — once the owner publishes the v1.1.0
    release (owner-only action on the existing CI pipeline), the archive
    links below become live and this note should be removed. Until then the
    archives are not yet downloadable and the

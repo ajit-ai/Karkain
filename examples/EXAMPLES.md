@@ -14,24 +14,24 @@ Authoritative list of the 15-category example corpus. Jargon:
 
 ## Category map
 
-| # | Category               | Files | Runnable | Experimental | Planned |
-|---|------------------------|-------|----------|--------------|---------|
-| 01| Fundamentals           | 15    | 15       | 0            | 0       |
-| 02| Algorithms             | 13    | 13       | 0            | 0       |
-| 03| Systems                | 1     | 1        | 0            | 0       |
-| 04| Networking             | 2     | 2        | 0            | 0       |
-| 05| Data                   | 4     | 4        | 0            | 0       |
-| 06| Database               | 2     | 2        | 0            | 0       |
-| 07| Web                    | 2     | 2        | 0            | 0       |
-| 08| Concurrency            | 2     | 0        | 2            | 0       |
-| 09| AI                     | 3     | 3        | 0            | 0       |
-| 10| Machine Learning       | 2     | 2        | 0            | 0       |
-| 11| Quantum                | 0     | 0        | 0            | 1 (dir) |
-| 12| Scientific Computing   | 4     | 4        | 0            | 0       |
-| 13| Finance                | 4     | 4        | 0            | 0       |
-| 14| Security               | 4     | 4        | 0            | 0       |
-| 15| Developer Tools        | 2     | 1 + 1    | 0            | 0       |
-|    | **Total**              | **59**| **56 + 1 test-mode** | **2**  | **1**   |
+| # | Category               | Files | Runnable | Stable | Experimental | Planned |
+|---|------------------------|-------|----------|--------|--------------|---------|
+| 01| Fundamentals           | 15    | 15       | 0      | 0            | 0       |
+| 02| Algorithms             | 13    | 13       | 0      | 0            | 0       |
+| 03| Systems                | 1     | 1        | 0      | 0            | 0       |
+| 04| Networking             | 2     | 2        | 0      | 0            | 0       |
+| 05| Data                   | 4     | 4        | 0      | 0            | 0       |
+| 06| Database               | 2     | 2        | 0      | 0            | 0       |
+| 07| Web                    | 2     | 2        | 0      | 0            | 0       |
+| 08| Concurrency            | 2     | 0        | 2      | 0            | 0       |
+| 09| AI                     | 3     | 3        | 0      | 0            | 0       |
+| 10| Machine Learning       | 3     | 3        | 0      | 0            | 0       |
+| 11| Quantum                | 0     | 0        | 0      | 0            | 1 (dir) |
+| 12| Scientific Computing   | 4     | 4        | 0      | 0            | 0       |
+| 13| Finance                | 4     | 4        | 0      | 0            | 0       |
+| 14| Security               | 4     | 4        | 0      | 0            | 0       |
+| 15| Developer Tools        | 2     | 1 + 1    | 0      | 0            | 0       |
+|    | **Total**              | **61**| **58 + 1 test-mode** | **2** | **0** | **1**   |
 
 ## Individual examples
 
@@ -76,8 +76,8 @@ Authoritative list of the 15-category example corpus. Jargon:
 | 06-database/02_db_persist.kark | Runnable | both | std.db file-backed persistence | gcc | true 2 1 alpha 2 beta |
 | 07-web/01_http_loopback.kark | Runnable | both | std.http server loopback | gcc | 90 GET /hello ok 0 70 200 OK hello /hello |
 | 07-web/02_http_codec.kark | Runnable | both | std.http constructors/destructors | gcc | GET /items text/plain 3 201 Created ok |
-| 08-concurrency/01_parallel_sum.kark | Experimental | go | spawn/join grid | gcc | 285 |
-| 08-concurrency/02_channel_ping.kark | Experimental | go | channel producer | gcc | 5 0 8 |
+| 08-concurrency/01_parallel_sum.kark | Stable | both | spawn/join grid | gcc | 285 |
+| 08-concurrency/02_channel_ping.kark | Stable | both | channel producer | gcc | 5 0 8 |
 | 09-ai/01_nearest_neighbor.kark | Runnable | both | Manhattan k-NN | gcc | 10 60 100 60 |
 | 09-ai/02_linear_classifier.kark | Runnable | both | perceptron updates | gcc | 5 1 -1 2 -3 |
 | 10-machine-learning/01_linear_regression.kark | Runnable | both | OLS closed form | gcc | 0.9 1.3 6.7 |

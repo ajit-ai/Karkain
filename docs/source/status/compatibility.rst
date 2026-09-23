@@ -37,16 +37,17 @@ Guarantee levels
        release-blocking corrections (bugs, security, compatibility breaks,
        deterministic-correctness fixes) are made.
 
-Karkain 1.0.0 versioning
+Karkain 1.1.0 versioning
 =========================
 
-The ``v1.0.0`` ``Stable Build`` label applies from Phase 119. Before that,
+The ``v1.1.0`` ``Stable Build`` label applies from Phase 142 (1.0.x
+continues as the LTS line). Before that, 1.0.0 (``v1.0.0``, Phase 119),
 Beta 1 (``v0.117.x``) and Developer Preview (``v0.115.x``) carried the
-pre-production lines. The versioning convention is:
+earlier lines. The versioning convention is:
 
-* ``Karkain Compiler v1.0.0 (... Stable Build)`` — the current Stable line.
-* ``VERSION`` at the repository root: ``1.0.0``.
-* Patch releases within the 1.0 line stay ``1.0.x``.
+* ``Karkain Compiler v1.1.0 (... Stable Build)`` — the current Stable line.
+* ``VERSION`` at the repository root: ``1.1.0``.
+* Patch releases within the 1.0 line stay ``1.0.x`` (LTS).
 
 Versioning
 ==========

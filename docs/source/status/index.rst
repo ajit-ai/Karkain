@@ -89,7 +89,7 @@ The catalog pages
 
 .. note::
 
-   The overall project status is **Karkain 1.0.0 (Stable)** — see
+   The overall project status is **Karkain 1.1.0 (Stable)** — see
    :doc:`/status/beta` for the Beta 1 capability assessment it builds on.
    Individual
    features are labeled per the model above; the ``Developer Preview`` label

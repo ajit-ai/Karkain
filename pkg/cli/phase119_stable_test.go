@@ -43,7 +43,7 @@ func TestPhase119_StableReleaseReadiness(t *testing.T) {
 		if err != nil {
 			t.Fatalf("karkain --version failed: %v\n%s", err, out)
 		}
-		for _, want := range []string{"Karkain Compiler v1.0.0", "Stable Build"} {
+		for _, want := range []string{"Karkain Compiler v1.1.0", "Stable Build"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("--version does not contain %q: %s", want, out)
 			}
@@ -52,8 +52,8 @@ func TestPhase119_StableReleaseReadiness(t *testing.T) {
 	t.Run("VersionFile", func(t *testing.T) {
 		root := repoRoot(t)
 		ver := strings.TrimSpace(mustRead(t, filepath.Join(root, "VERSION")))
-		if ver != "1.0.0" {
-			t.Errorf("VERSION = %q, want %q", ver, "1.0.0")
+		if ver != "1.1.0" {
+			t.Errorf("VERSION = %q, want %q", ver, "1.1.0")
 		}
 	})
 	t.Run("CleanupInvariants", func(t *testing.T) {
@@ -114,13 +114,13 @@ func TestPhase119_StableReleaseReadiness(t *testing.T) {
 	})
 	t.Run("LabelMarkers", func(t *testing.T) {
 		root := repoRoot(t)
-		if s := mustRead(t, filepath.Join(root, "README.md")); !strings.Contains(s, "Karkain 1.0.0") {
-			t.Error("README.md does not carry the 1.0.0 Stable label")
+		if s := mustRead(t, filepath.Join(root, "README.md")); !strings.Contains(s, "Karkain 1.1.0") {
+			t.Error("README.md does not carry the 1.1.0 Stable label")
 		}
-		if s := mustRead(t, filepath.Join(root, "docs", "source", "status", "index.rst")); !strings.Contains(s, "Karkain 1.0.0") {
+		if s := mustRead(t, filepath.Join(root, "docs", "source", "status", "index.rst")); !strings.Contains(s, "Karkain 1.1.0") {
 			t.Error("status/index.rst does not carry the 1.0.0 status")
 		}
-		if s := mustRead(t, filepath.Join(root, "docs", "source", "status", "compatibility.rst")); !strings.Contains(s, "Karkain 1.0.0 versioning") {
+		if s := mustRead(t, filepath.Join(root, "docs", "source", "status", "compatibility.rst")); !strings.Contains(s, "Karkain 1.1.0 versioning") {
 			t.Error("compatibility.rst does not carry the 1.0.0 versioning section")
 		}
 	})
