@@ -344,6 +344,11 @@ func compileWithGCC(cFile, outputBinary string) error {
 	args := []string{
 		"-std=c2x",
 		"-o", outputBinary,
+		// Every other generated-C link in the repo carries this (CLI,
+		// kcc, cross-target): strict -std=c2x hides POSIX declarations
+		// (getaddrinfo/freeaddrinfo) on glibc without it — Phase 143
+		// caught the bootstrap link as the one missing it (Linux CI).
+		"-D_POSIX_C_SOURCE=200809L",
 		// The karkain compiler writes generated C with a target extension such
 		// as ".c23", which gcc does not recognize as a C source by extension.
 		// Force the input to be treated as C so gcc compiles it (instead of
