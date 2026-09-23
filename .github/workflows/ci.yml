@@ -173,6 +173,9 @@ jobs:
       - name: Run Phase 144 PM-resolution gate
         run: go test ./pkg/cli/ -run 'TestPhase144' -count=1
 
+      - name: Run Phase 145 native-backend gate
+        run: go test ./pkg/native/ -count=1
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 
