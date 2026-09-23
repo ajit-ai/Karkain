@@ -123,7 +123,6 @@ Located in `kcc-tests/`:
 | `pkg/cli/phase88_test.go` | Go tests for Phase 88 |
 
 ## Differences from Bootstrap Compiler
-
 | Feature | Bootstrap (Go) | Self-hosted (Karkain) |
 |---------|----------------|----------------------|
 | Lexer | 69 token types | 44 token types |
@@ -133,3 +132,27 @@ Located in `kcc-tests/`:
 | Codegen | SSA → C23 | Direct C23 emission |
 | Diagnostics | Phase-83 model | Basic error messages |
 | Modules | Full import resolution | Not implemented |
+
+## Seed Closure (Phase 143) — Go-free self-reproduction
+
+Go is the **historical seed authorship**, not a runtime requirement. The
+bootstrap pipeline's stages 2 and 3 invoke only the seed compiler binary
+(absolute path) plus gcc — the `go` tool never runs there
+(`KARKAIN_ENGINE=go` is Go-CLI-side configuration, inert on the native
+seed). Consequently, FROM any working seed, the closure completes with no
+Go on PATH:
+
+1. Seed (downloaded per the 142 ceremony, or stage-1 built) transpiles
+   `src/compiler/main.kark` → C, gcc links `karkain-compiler2`.
+2. `karkain-compiler2` repeats the step → `karkain-compiler3`.
+3. Stage 2 and stage 3 are bitwise identical (`VerifyIdentity`).
+
+Gate: `TestBootstrap_SeedClosure` (`pkg/bootstrap/phase143_seed_test.go`)
+builds the seed with Go present, scrubs the Go tool's directory from PATH
+(proving unresolvability), runs stages 2–3 go-less, and asserts identity.
+It skips fast when `go`/`gcc` is absent or free RAM is below the K127
+threshold — the full closure runs on capable hosts and CI.
+
+What still needs Go or C (honest boundaries): the Go reference toolchain
+itself (always available as an option, never a requirement after the seed
+ceremony), and gcc as the linker (native backend is Phase 145).
