@@ -9,6 +9,12 @@ import (
 	"testing"
 )
 
+// trapExternalKill installs a SIGTERM witness for the duration of the test.
+// Exit 143 (SIGTERM) with no test failure line means something OUTSIDE the
+// test binary killed it (manual cancel, runner preemption) — without a
+// witness that recycles as a "product" failure forever. See
+// sigterm_unix.go / sigterm_windows.go for the per-OS mechanism.
+
 // Phase 143 — Seed-Binary Bootstrap Closure (Go-free).
 //
 // Proves that FROM any working seed compiler, the self-hosting closure
@@ -76,7 +82,11 @@ func TestBootstrap_SeedClosure(t *testing.T) {
 	cleanupBinaries(t, projectRoot)
 	defer cleanupBinaries(t, projectRoot)
 
+	stage := "setup"
+	trapExternalKill(t, &stage)
+
 	// Stage 1 (Go present): build the seed compiler.
+	stage = "stage 1 (seed build)"
 	s1, err := RunStage1(projectRoot)
 	if err != nil {
 		t.Fatalf("Stage 1 (seed build) failed: %v", err)
@@ -104,10 +114,12 @@ func TestBootstrap_SeedClosure(t *testing.T) {
 		t.Fatalf("gcc must stay resolvable for the linker: %v", err)
 	}
 
+	stage = "stage 2 (go-less transpile+link)"
 	s2, err := RunStage2(projectRoot, s1.Binary)
 	if err != nil {
 		t.Fatalf("Stage 2 (go-less) failed: %v", err)
 	}
+	stage = "stage 3 (go-less transpile+link)"
 	s3, err := RunStage3(projectRoot, s2.Binary)
 	if err != nil {
 		t.Fatalf("Stage 3 (go-less) failed: %v", err)
