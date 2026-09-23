@@ -1,8 +1,8 @@
 # Karkain Language Specification
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Production — extracted from the reference compiler (`pkg/lexer`, `pkg/parser`, `pkg/sema`, `pkg/codegen`, `pkg/ir/ssa`)
-**Date:** 2026-09-06
+**Date:** 2026-09-23
 
 > This document is the **single source of truth** for the Karkain programming
 > language. It is derived from the working Go compiler, and the Phase 88
@@ -42,6 +42,7 @@
 | 0.115.0 | 115 | Developer Preview: language foundation corpus, stdlib v2, module system, capability status model, complete example corpus, developer-preview readiness |
 | 0.117.0 | 117 | Beta 1: stable core defined, Go/kcc parity hardened (while, semantic gating), parse-error hardening, numeric error codes, stdlib edge-case gates, Beta documentation |
 | 1.0.0 | 119 | Karkain 1.0.0 (Stable): public repository finalization and preparation — cleanup of superseded artifacts, unified v1.0.0 identity, release documentation, master QA gate and full QA battery |
+| 1.1.0 | 142 | Karkain 1.1.0 (Stable): GA-3 platform track — stdlib networking/database/web (125A), first-class fn values (133), local registry (135), LSP v2 (136), concurrency parity (137), accelerator kernels (138), cross-compilation expansion + WASM GC surface (139), debugger integration (140), optimizer/memory/profiling (141); unified v1.1.0 identity |
 
 ---
 

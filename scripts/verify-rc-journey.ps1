@@ -65,10 +65,10 @@ try {
     }
 
     # 2. version identity
-    Step "--version identifies 1.0.0 Stable" {
+    Step "--version identifies 1.1.0 Stable" {
         $out = & $bin --version 2>&1
         AssertTrue ($LASTEXITCODE -eq 0) "--version failed: $out"
-        AssertTrue ($out -match "Karkain Compiler v1\.0\.0" -and $out -match "Stable Build") "unexpected --version: $out"
+        AssertTrue ($out -match "Karkain Compiler v1\.1\.0" -and $out -match "Stable Build") "unexpected --version: $out"
     }
 
     # 3. help coverage

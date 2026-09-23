@@ -96,7 +96,7 @@ func TestPhase88_SelfHostedCompilerCompiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("self-hosted compiler failed to run: %v", err)
 	}
-	if !strings.Contains(string(out), "v1.0.0") {
+	if !strings.Contains(string(out), "v1.1.0") {
 		t.Fatalf("unexpected version output: %s", string(out))
 	}
 }

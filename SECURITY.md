@@ -9,7 +9,8 @@ Only the current Stable release line receives security fixes.
 
 | Version               | Category                     | Supported |
 |-----------------------|------------------------------|-----------|
-| 1.0.0 (Stable) | Current release line | Supported |
+| 1.1.0 (Stable) | Current release line | Supported |
+| 1.0.x (LTS) | Maintenance line (security fixes) | Supported |
 | 0.115.x Developer Preview | Superseded                  | Not supported |
 
 Use the version reported by `karkain --version` when reporting.

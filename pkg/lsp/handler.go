@@ -61,7 +61,7 @@ func (h *Handler) HandleInitialize(params json.RawMessage) (interface{}, *JSONRP
 		},
 		ServerInfo: ServerInfo{
 			Name:    "karkain-lsp",
-			Version: "1.0.0",
+			Version: "1.1.0",
 		},
 	}
 	return result, nil

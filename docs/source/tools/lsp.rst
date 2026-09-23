@@ -76,7 +76,7 @@ The LSP capability is what powers the bundled **VS Code extension**:
 starts a language client against ``karkain lsp`` for hover, go-to-definition,
 completion and semantic highlighting. Configure the
 extension to launch ``karkain lsp`` with stdio and the server reports
-version ``karkain-lsp 1.0.0`` on ``initialize``.
+version ``karkain-lsp 1.1.0`` on ``initialize``.
 
 .. code-block:: console
 

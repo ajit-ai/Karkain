@@ -83,7 +83,7 @@ Write-Host "Built: $Exe" -ForegroundColor Green
 
 # ---- write version fingerprint ----
 $repoVersion = Get-Content (Join-Path $ProjectRoot "VERSION") -ErrorAction SilentlyContinue
-if (-not $repoVersion) { $repoVersion = "1.0.0" }
+if (-not $repoVersion) { $repoVersion = "1.1.0" }
 $fp = "Karkain Compiler $repoVersion`r`nBuild: from source (Go `$(go version))`r`nInstall date: $(Get-Date -Format 'yyyy-MM-dd')"
 Set-Content -Path (Join-Path $Prefix "VERSION") -Value $fp -Encoding ASCII
 
@@ -93,7 +93,7 @@ if ($LASTEXITCODE -ne 0) {
     Fail 3 "installed binary failed --version:`n$verOut"
 }
 if ($verOut -notmatch "Stable Build") {
-    Fail 3 "installed binary does not identify a 1.0.0 Stable build: $verOut"
+    Fail 3 "installed binary does not identify a 1.1.0 Stable build: $verOut"
 }
 Write-Host "Version: $verOut" -ForegroundColor Green
 

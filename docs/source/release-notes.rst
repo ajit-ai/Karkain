@@ -3,16 +3,44 @@ Release Notes
 =============
 
 This page tracks the honest development state of Karkain. The toolchain is a
-**Karkain 1.0.0 (Stable)** build: functional, tested, and self-hosted. The
-v1.0.0 identity is the public label from Phase 119; the release-readiness
-verdict and full QA evidence live in ``docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md``.
+**Karkain 1.1.0 (Stable)** build: functional, tested, and self-hosted. The
+v1.1.0 identity is the public label from Phase 142 (1.0.x continues as the
+LTS line); the 1.0.0 story is preserved below as history.
 
-Versioning: the CLI reports ``Karkain Compiler v1.0.0`` via
+Versioning: the CLI reports ``Karkain Compiler v1.1.0`` via
 ``karkain --version``; the public label progressed Developer Preview (≤115,
-v0.115.x) → Beta 1 (117–118, v0.117.x) → **1.0.0 (Stable)** from Phase 119.
+v0.115.x) → Beta 1 (117–118, v0.117.x) → **1.0.0 (Stable)** (Phase 119) →
+**1.1.0 (Stable)** (Phase 142, minor bump: strictly additive surface).
 
-v1.0.0 — Stable Build (current)
-=================================
+v1.1.0 — Stable Build (current)
+================================
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 0
+
+   * - Status
+     - Karkain 1.1.0 (Stable) — the project's public status; 1.0.x is the
+       LTS line (security fixes). Full story:
+       ``docs/release/KARKAIN-1.1-RELEASE-NOTES.md``
+   * - Since 1.0.0
+     - Stdlib freeze + SemVer policy (132); first-class ``fn`` values (133);
+       incremental v2 (134); local registry (135); LSP v2 (136);
+       concurrency parity, 08-concurrency Stable (137); ``@target(gpu)``
+       WGSL kernels (138); new triples + WASM structs + ``karkain wit``
+       (139); ``karkain dbg`` + VS Code debug surface (140); SimplifyCFG
+       optimizer pass + profile cell counts + measured RSS table (141);
+       ``std.net``/``std.http``/``std.db`` (125A); ``std.numerics`` (126)
+   * - Compatibility
+     - Every 1.0.0 program builds and runs identically (conformance 64/64,
+       Phase 114 corpus byte-identical Go↔kcc); the one behavior fix is
+       K114 escape rejection (previously accepted-and-miscompiled)
+   * - Example corpus
+     - **61 files** across 15 categories (59 Runnable incl. test-mode,
+       2 Stable, 1 Planned dir), pinned goldens byte-identical both engines
+
+v1.0.0 — Stable Build (historical)
+=====================================
 
 .. list-table::
    :widths: 30 70

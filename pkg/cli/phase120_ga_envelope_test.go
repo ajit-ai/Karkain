@@ -46,13 +46,13 @@ func TestPhase120_GaEnvelope(t *testing.T) {
 		if err != nil {
 			t.Fatalf("karkain --version failed: %v\n%s", err, out)
 		}
-		for _, want := range []string{"Karkain Compiler v1.0.0", "Stable Build"} {
+		for _, want := range []string{"Karkain Compiler v1.1.0", "Stable Build"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("--version does not contain %q: %s", want, out)
 			}
 		}
-		if ver := strings.TrimSpace(mustRead(t, filepath.Join(root, "VERSION"))); ver != "1.0.0" {
-			t.Errorf("VERSION = %q, want %q", ver, "1.0.0")
+		if ver := strings.TrimSpace(mustRead(t, filepath.Join(root, "VERSION"))); ver != "1.1.0" {
+			t.Errorf("VERSION = %q, want %q", ver, "1.1.0")
 		}
 	})
 
