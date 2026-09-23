@@ -42,3 +42,15 @@ authorship from here on).
 - No product code changed (test + docs + CI only — Phase 130 precedent).
 - Combined-run OOM class untouched; stage-2 success on a big host
   remains the open live-verification item (open since Phase 127).
+
+## F. Post-merge amendment — full closure quarantined (runner kills)
+
+Five consecutive CI deaths, all ~35s into the stage-2 full-tree
+transpile (exit 143, no witness line even unbuffered-stderr, no timer,
+OOM or crash signature anywhere in-repo), while the seed smoke
+(seed→shadow→transpile→link→run) passes on the SAME runner. The
+mechanism is proven; the minutes-long burn is not runner-safe, and the
+killer leaves no fingerprint reachable from the test process. The full
+closure is therefore opt-in (`KARKAIN_SEED_CLOSURE=1` on a capable
+host); CI runs the smoke + shadow proofs every build. Revisit when a
+cooperative runner class exists — never by weakening the proof.
