@@ -43,4 +43,25 @@ func TestNativeEvidenceDump(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	t.Logf("dumped %d-byte image to %s", len(img), out)
+
+	// Phase 147C: the `call` bisect program exercises multi-arg calls
+	// plus print (the second-defect surface) — dump it alongside.
+	l2 := lexer.New("func add(a, b) {\n    return a + b\n}\nfunc main() {\n    print(add(20, 22))\n}\n")
+	p2 := parser.New(l2)
+	prog2 := p2.ParseProgram()
+	if len(p2.Errors) > 0 {
+		t.Fatalf("parse call: %v", p2.Errors)
+	}
+	img2, err := CompileProgram(prog2)
+	if err != nil {
+		t.Fatalf("compile call: %v", err)
+	}
+	if _, _, err := Parse(img2); err != nil {
+		t.Fatalf("structural parse of call image: %v", err)
+	}
+	out2 := filepath.Join(dir, "native-call")
+	if err := os.WriteFile(out2, img2, 0o755); err != nil {
+		t.Fatalf("write call: %v", err)
+	}
+	t.Logf("dumped %d-byte image to %s", len(img2), out2)
 }

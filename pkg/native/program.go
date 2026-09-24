@@ -38,6 +38,13 @@ var argRegs = []Reg{RDI, RSI, RDX, RCX, R8, R9}
 // argSpillBytes reserves caller-side spill space for 6 args x (ptr+len).
 const argSpillBytes = 96
 
+// maxBinDepth bounds nested binary-expression evaluation. Binary operands
+// stage through depth-indexed scratch slots (never push: pushing moves rsp
+// and silently shifts every frame-relative slot address — the Phase-147
+// `add(20,22) = 40` defect, where the right operand re-read slot a).
+// Nesting deeper than this is a loud K145 error, never a silent miscompile.
+const maxBinDepth = 64
+
 // addrPatch records an imm64 placeholder resolving to a .rodata address.
 type addrPatch struct {
 	pos   int
@@ -54,6 +61,7 @@ type Builder struct {
 	slots   map[string]int
 	kinds   map[string]bool
 	frame   int
+	binTemp int // Phase 147: base offset of the binary-operand scratch stack
 }
 
 // CompileProgram lowers prog to a linked static executable image. Only
@@ -159,6 +167,10 @@ func (b *Builder) emitHelpers() {
 	b.e.MovRegImm32(RAX, sysWrite)
 	b.e.Syscall()
 	b.e.AddRsp(64)
+	// Phase 147: `print` terminates the line (matches the C-backend
+	// contract the execution goldens pin: "42\n", not "42"). RDI is
+	// still 1 from the payload write; syscalls clobber only RCX/R11.
+	b.printNewline()
 	b.e.Ret()
 
 	b.e.Mark("print_str")
@@ -167,7 +179,16 @@ func (b *Builder) emitHelpers() {
 	b.e.MovRegImm32(RDI, 1)
 	b.e.MovRegImm32(RAX, sysWrite)
 	b.e.Syscall()
+	b.printNewline()
 	b.e.Ret()
+}
+
+// printNewline emits write(1, "\n", 1) with RDI already holding 1.
+func (b *Builder) printNewline() {
+	b.rodataRef(RSI, "\n")
+	b.e.MovRegImm32(RDX, 1)
+	b.e.MovRegImm32(RAX, sysWrite)
+	b.e.Syscall()
 }
 
 func (b *Builder) layout(fd *parser.FuncDecl) error {
@@ -196,6 +217,10 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 		b.slots[n.Name] = off
 		b.kinds[n.Name] = isStr
 	}
+	// Phase 147: binary-operand scratch stack (see maxBinDepth). rsp never
+	// moves during expression evaluation, so slot addresses stay stable.
+	b.binTemp = next
+	next += 8 * maxBinDepth
 	b.frame = next + argSpillBytes
 	return nil
 }
@@ -236,7 +261,7 @@ func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
 			b.e.Jmp(name + "$ret")
 			returned = true
 		case *parser.ExprStmt:
-			if err := b.emitExpr(n.Expression); err != nil {
+			if err := b.emitExpr(n.Expression, 0); err != nil {
 				return err
 			}
 		case *parser.IfStmt, *parser.WhileStmt, *parser.ForStmt, *parser.ForInStmt:
@@ -274,7 +299,7 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 		b.e.StoreStack(RSI, off+8)
 		return nil
 	}
-	if err := b.emitExpr(n.Value); err != nil {
+	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
 	}
 	b.e.StoreStack(RAX, off)
@@ -293,7 +318,7 @@ func (b *Builder) emitPrint(n *parser.PrintStmt) error {
 		b.e.Call("print_str")
 		return nil
 	}
-	if err := b.emitExpr(n.Value); err != nil {
+	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
 	}
 	b.e.MovRegReg(RDI, RAX)
@@ -311,7 +336,7 @@ func (b *Builder) emitReturn(n *parser.ReturnStmt) error {
 	} else if isStr {
 		return fmt.Errorf("error[K145]: string return values are not supported (function must return int)")
 	}
-	return b.emitExpr(n.Value)
+	return b.emitExpr(n.Value, 0)
 }
 
 func (b *Builder) isStringExpr(n parser.Node) (bool, error) {
@@ -339,7 +364,7 @@ func (b *Builder) isStringExpr(n parser.Node) (bool, error) {
 	}
 }
 
-func (b *Builder) emitExpr(n parser.Node) error {
+func (b *Builder) emitExpr(n parser.Node, depth int) error {
 	switch x := n.(type) {
 	case *parser.IntLiteral:
 		b.e.MovRegImm64(RAX, uint64(parseIntLit(x.Value)))
@@ -355,18 +380,18 @@ func (b *Builder) emitExpr(n parser.Node) error {
 		b.e.LoadStack(RAX, off)
 		return nil
 	case *parser.BinaryExpr:
-		return b.emitBinary(x)
+		return b.emitBinary(x, depth)
 	case *parser.UnaryExpr:
 		if x.Operator != "-" {
 			return fmt.Errorf("error[K145]: unsupported unary operator '%s'", x.Operator)
 		}
-		if err := b.emitExpr(x.Operand); err != nil {
+		if err := b.emitExpr(x.Operand, depth); err != nil {
 			return err
 		}
 		b.e.NegReg(RAX)
 		return nil
 	case *parser.CallExpr:
-		return b.emitCallValue(x)
+		return b.emitCallValue(x, depth)
 	default:
 		return fmt.Errorf("error[K145]: unsupported expression %T", n)
 	}
@@ -395,19 +420,26 @@ func (b *Builder) emitStr(n parser.Node) error {
 	}
 }
 
-func (b *Builder) emitBinary(x *parser.BinaryExpr) error {
+func (b *Builder) emitBinary(x *parser.BinaryExpr, depth int) error {
 	if x.Operator != "+" && x.Operator != "-" && x.Operator != "*" {
 		return fmt.Errorf("error[K145]: unsupported operator '%s' (want +, - or *)", x.Operator)
 	}
-	if err := b.emitExpr(x.Left); err != nil {
+	if depth >= maxBinDepth {
+		return fmt.Errorf("error[K145]: expression nesting exceeds %d binary levels", maxBinDepth)
+	}
+	// Phase 147: stage the left operand through the depth-indexed scratch
+	// slot. The old code pushed rax, which moved rsp and shifted every
+	// frame-relative slot address — the right operand then re-read the
+	// left's slot (`add(20,22)` yielded 40). rsp never moves now.
+	if err := b.emitExpr(x.Left, depth+1); err != nil {
 		return err
 	}
-	b.e.PushReg(RAX)
-	if err := b.emitExpr(x.Right); err != nil {
+	b.e.StoreStack(RAX, b.binTemp+depth*8)
+	if err := b.emitExpr(x.Right, depth+1); err != nil {
 		return err
 	}
 	b.e.MovRegReg(RCX, RAX)
-	b.e.PopReg(RAX)
+	b.e.LoadStack(RAX, b.binTemp+depth*8)
 	switch x.Operator {
 	case "+":
 		b.e.AddRegReg(RAX, RCX)
@@ -419,7 +451,7 @@ func (b *Builder) emitBinary(x *parser.BinaryExpr) error {
 	return nil
 }
 
-func (b *Builder) emitCallValue(x *parser.CallExpr) error {
+func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 	if x.Module != "" || x.IsCFunc {
 		return fmt.Errorf("error[K145]: module-qualified and C-interop calls are not supported (call to '%s')", x.Function)
 	}
@@ -435,7 +467,7 @@ func (b *Builder) emitCallValue(x *parser.CallExpr) error {
 		} else if isStr {
 			return fmt.Errorf("error[K145]: string arguments are not supported (call to '%s')", x.Function)
 		}
-		if err := b.emitExpr(a); err != nil {
+		if err := b.emitExpr(a, depth); err != nil {
 			return err
 		}
 		b.e.StoreStack(RAX, b.argTemp(i))
