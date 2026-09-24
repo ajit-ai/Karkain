@@ -314,6 +314,10 @@ func (g *Generator) initProfiling(prog *parser.Program) {
 		if !ok {
 			continue
 		}
+		// Phase 146A: generic templates never emit.
+		if len(fn.GenericParams) > 0 {
+			continue
+		}
 		if _, seen := g.profFID[fn.Name]; seen {
 			continue
 		}
@@ -339,6 +343,11 @@ func (g *Generator) profID(name string) int {
 func (g *Generator) emitFuncBodies(sb *strings.Builder, prog *parser.Program, only map[string]bool) {
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			// Phase 146A: generic templates never emit — only their
+			// plain-unit specializations do.
+			if len(fn.GenericParams) > 0 {
+				continue
+			}
 			if only != nil && !only[fn.Name] {
 				continue
 			}
@@ -381,6 +390,10 @@ func (g *Generator) emitSharedDecls(sb *strings.Builder, prog *parser.Program) {
 	// Phase 50: Generate struct type declarations before functions
 	for _, stmt := range prog.Statements {
 		if st, ok := stmt.(*parser.StructDeclStmt); ok {
+			// Phase 146A: generic struct templates never emit.
+			if len(st.GenericParams) > 0 {
+				continue
+			}
 			sb.WriteString(g.genStructDecl(st))
 		}
 	}
@@ -391,6 +404,10 @@ func (g *Generator) emitSharedDecls(sb *strings.Builder, prog *parser.Program) {
 	// definition order.
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			// Phase 146A: generic templates never emit.
+			if len(fn.GenericParams) > 0 {
+				continue
+			}
 			for _, lf := range collectLocalFuncs(fn.Body) {
 				g.localFuncs[lf.Name] = true
 				if len(lf.Captures) > 0 && !g.closureHeaders[lf.Name] {
@@ -412,6 +429,10 @@ func (g *Generator) emitSharedDecls(sb *strings.Builder, prog *parser.Program) {
 	// This enables cross-file references when multiple .kark files are concatenated
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok {
+			// Phase 146A: generic templates never emit.
+			if len(fn.GenericParams) > 0 {
+				continue
+			}
 			params := []string{}
 			for _, p := range fn.Params {
 				params = append(params, "Value "+p)
@@ -454,6 +475,11 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 	g.userFuncs = make(map[string]bool)
 	for _, stmt := range prog.Statements {
 		if fn, ok := stmt.(*parser.FuncDecl); ok && fn.Name != "main" && fn.Name != "getArgs" {
+			// Phase 146A: generic templates never emit — only their
+			// plain-unit specializations do.
+			if len(fn.GenericParams) > 0 {
+				continue
+			}
 			g.userFuncs[fn.Name] = true
 			g.concFns[fn.Name] = fn
 		}
@@ -475,6 +501,14 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 
 func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) error {
 	var sb strings.Builder
+
+	// Phase 146A: instantiate explicit type-argument generics before any
+	// pre-scan or emission. Idempotent (re-runs append nothing), so CLI
+	// preflight + this direct path compose safely. Templates stay in the
+	// tree but every emission site below skips them.
+	if monoErrs := sema.MonomorphizeProgram(prog); len(monoErrs) > 0 {
+		return fmt.Errorf("%s", monoErrs[0].Error())
+	}
 
 	g.sourceFile = strings.Replace(sourceFile, "\\", "/", -1)
 	g.prescanTables(prog)
@@ -545,6 +579,11 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	for _, stmt := range prog.Statements {
 		fn, ok := stmt.(*parser.FuncDecl)
 		if !ok || fn.Target == "" {
+			continue
+		}
+		// Phase 146A: generic templates never emit (GPU generic
+		// kernels are out of v1 scope).
+		if len(fn.GenericParams) > 0 {
 			continue
 		}
 		if !sema.ValidTarget(fn.Target) {

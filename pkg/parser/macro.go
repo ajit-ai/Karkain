@@ -130,6 +130,7 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Module:   n.Module,
 			Args:     newArgs,
 			IsCFunc:  n.IsCFunc,
+			TypeArgs: n.TypeArgs,
 			Line:     n.Line,
 			Col:      n.Col,
 			EndCol:   n.EndCol,
@@ -180,7 +181,7 @@ func (me *MacroExpander) expandNode(node Node) Node {
 		for _, f := range n.Fields {
 			newFields = append(newFields, me.expandNode(f))
 		}
-		return &StructLiteral{TypeName: n.TypeName, Fields: newFields, Line: n.Line}
+		return &StructLiteral{TypeName: n.TypeName, Fields: newFields, TypeArgs: n.TypeArgs, Line: n.Line}
 	case *IfStmt:
 		newIf := &IfStmt{
 			Condition:   me.expandNode(n.Condition),

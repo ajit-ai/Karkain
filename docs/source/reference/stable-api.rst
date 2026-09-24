@@ -125,8 +125,12 @@ Stable stdlib modules
      - TCP networking (Address/Endpoint/Connection/Listener, 10 functions).
    * - ``std.http``
      - HTTP/1.1 client/server building blocks (Request/Response, 20 functions).
-   * - ``std.db``
-     - Backend-neutral database layer (SQL subset, persistence, 20 functions).
+    * - ``std.db``
+      - Backend-neutral database layer (SQL subset, persistence, 20 functions).
+    * - ``std.generics``
+      - Persistent ``Stack[T]`` / ``Queue[T]`` over plain arrays (12
+        functions; new in Phase 146, Go engine — kcc parity pending
+        Phase 146C).
 
 Full stdlib reference: :doc:`/stdlib/index`.
 

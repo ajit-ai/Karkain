@@ -210,6 +210,147 @@ func (p *Parser) parseTargetAttr() *FuncDecl {
 	return fn
 }
 
+// Phase 146: parse a generic parameter list `[T, U: Constraint]` when the
+// current token is '['. Returns nil when no bracket follows. Each entry is
+// an identifier with an optional `: Constraint` suffix; constraints parse
+// and store but are unchecked in v1 (no trait/impl declaration syntax
+// exists to check against — see the Phase-146 baseline). Malformed lists
+// record a parse error and return what was recovered.
+func (p *Parser) parseGenericParams() []GenericTypeParam {
+	if p.curToken.Type != lexer.TokenLBracket {
+		return nil
+	}
+	p.nextToken() // consume '['
+	var out []GenericTypeParam
+	for p.curToken.Type != lexer.TokenRBracket && p.curToken.Type != lexer.TokenEOF {
+		if p.curToken.Type != lexer.TokenIdent {
+			p.addError(fmt.Sprintf("expected type parameter name, found '%s'", p.curToken.Literal(p.src)))
+			p.nextToken()
+			continue
+		}
+		name := p.curToken.Literal(p.src)
+		p.nextToken() // consume parameter name
+		var constraints []string
+		if p.curToken.Type == lexer.TokenColon {
+			p.nextToken() // consume ':'
+			if p.curToken.Type != lexer.TokenIdent {
+				p.addError(fmt.Sprintf("expected constraint name after ':', found '%s'", p.curToken.Literal(p.src)))
+			} else {
+				constraints = append(constraints, p.curToken.Literal(p.src))
+				p.nextToken() // consume constraint name
+			}
+		}
+		out = append(out, GenericTypeParam{Name: name, Constraints: constraints})
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+		}
+	}
+	if p.curToken.Type == lexer.TokenRBracket {
+		p.nextToken() // consume ']'
+	} else {
+		p.addError("expected ']' to close generic parameter list")
+	}
+	return out
+}
+
+// Phase 146: speculative generic-argument parse with full rollback.
+//
+// `f[T](x)` is syntactically identical to index-then-call (`ops[idx](5)`,
+// Phase 133), and the parser carries one token of lookahead — so the
+// grammar cannot decide locally. Instead this helper attempts
+// `[Ident (, Ident)* ] (` with zero side effects: lexer/parser/error
+// state snapshots restore on ANY mismatch, and only identifier tokens are
+// ever consumed (no AST nodes allocated, no diagnostics kept). Callers
+// fall through to the ordinary index/slice/matrix paths untouched, which
+// is what makes the optimistic parse behavior-preserving.
+type parseMark struct {
+	lexer   lexer.Lexer
+	cur     lexer.Token
+	peek    lexer.Token
+	errs    int
+	errCols int
+}
+
+func (p *Parser) mark() parseMark {
+	return parseMark{
+		lexer:   *p.l,
+		cur:     p.curToken,
+		peek:    p.peekToken,
+		errs:    len(p.Errors),
+		errCols: len(p.ErrorCols),
+	}
+}
+
+func (p *Parser) restore(m parseMark) {
+	*p.l = m.lexer
+	p.curToken = m.cur
+	p.peekToken = m.peek
+	p.Errors = p.Errors[:m.errs]
+	p.ErrorCols = p.ErrorCols[:m.errCols]
+}
+
+// Phase 146: genericCallTarget inspects a bracket-built call target for the
+// generic-call shape `f[T, U]`: a bare identifier head with bare-identifier
+// index/indices. It returns the head identifier and type-arg names, or
+// ok=false for every other shape (literals, variables-in-expressions,
+// slices, chains) which keep their exact legacy lowering. The sema
+// monomorphize pass decides generic-call vs demoted-indirect-call from
+// here; the parser only recognizes the shape.
+func genericCallTarget(target Node) (head *Identifier, targs []string, ok bool) {
+	switch t := target.(type) {
+	case *IndexExpr:
+		h, hok := t.Left.(*Identifier)
+		a, aok := t.Index.(*Identifier)
+		if !hok || !aok {
+			return nil, nil, false
+		}
+		return h, []string{a.Name}, true
+	case *MatrixIndexExpr:
+		h, hok := t.Matrix.(*Identifier)
+		r, rok := t.Row.(*Identifier)
+		c, cok := t.Col.(*Identifier)
+		if !hok || !rok || !cok {
+			return nil, nil, false
+		}
+		return h, []string{r.Name, c.Name}, true
+	}
+	return nil, nil, false
+}
+
+// tryGenericArgs attempts `[A, B] <follow>` at the current token (which
+// must be '['), consuming through the follower on success and returning
+// the type-arg names. Calls use follow='(' and struct literals use
+// follow='{'. On any mismatch it restores the mark and reports ok=false,
+// leaving the token stream, AST arena and diagnostics exactly as found.
+func (p *Parser) tryGenericArgs(follow lexer.TokenType) (args []string, ok bool) {
+	m := p.mark()
+	p.nextToken() // consume '['
+	for {
+		if p.curToken.Type != lexer.TokenIdent {
+			p.restore(m)
+			return nil, false
+		}
+		args = append(args, p.curToken.Literal(p.src))
+		p.nextToken()
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken()
+			continue
+		}
+		break
+	}
+	if p.curToken.Type != lexer.TokenRBracket {
+		p.restore(m)
+		return nil, false
+	}
+	p.nextToken() // consume ']'
+	if p.curToken.Type != follow {
+		p.restore(m)
+		return nil, false
+	}
+	p.nextToken() // consume the follower — caller continues after it
+	return args, true
+}
+
 func (p *Parser) parseFunc() *FuncDecl {
 	p.nextToken() // consume 'func'
 	fn := p.arena.AllocFuncDecl(p.curToken.Literal(p.src), nil, nil, nil)
@@ -219,6 +360,8 @@ func (p *Parser) parseFunc() *FuncDecl {
 	fn.Params = []string{}
 
 	p.nextToken() // consume fn name
+	// Phase 146: optional generic parameter list `func name[T, U](...)`.
+	fn.GenericParams = p.parseGenericParams()
 	p.nextToken() // consume '('
 
 	// Parse parameters
@@ -943,6 +1086,8 @@ func (p *Parser) parseIdentStatement() Node {
 		// Identifier callees never reach here (handled above with static
 		// dispatch); only computed targets lower to IndirectCallExpr.
 		// Chains (`get_fn()(1);`) loop, mirroring expression position.
+		// Phase 146: `f[T](args);` arrives as IndexExpr(f, T) — same
+		// generic-call recognition as expression position.
 		for p.curToken.Type == lexer.TokenLParen {
 			callLine := int(p.curToken.Line)
 			p.nextToken() // consume '('
@@ -956,6 +1101,10 @@ func (p *Parser) parseIdentStatement() Node {
 				p.advanceIfStalled(start, "indirect call arguments")
 			}
 			p.nextToken() // consume ')'
+			if head, targs, ok := genericCallTarget(target); ok {
+				target = &CallExpr{Function: head.Name, TypeArgs: targs, Args: args, Line: callLine, Col: head.Col, EndCol: head.EndCol}
+				continue
+			}
 			ind := p.arena.AllocIndirectCallExpr(target, args)
 			ind.Line = callLine
 			target = ind
@@ -1155,6 +1304,13 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 				p.advanceIfStalled(start, "indirect call arguments")
 			}
 			p.nextToken() // consume ')'
+			// Phase 146: `f[T](args)` parses here as IndexExpr(f, T) —
+			// recognize the generic-call shape and keep the type args on a
+			// static CallExpr; the sema pass instantiates or demotes.
+			if head, targs, ok := genericCallTarget(left); ok {
+				left = &CallExpr{Function: head.Name, TypeArgs: targs, Args: args, Line: callLine, Col: head.Col, EndCol: head.EndCol}
+				continue
+			}
 			ind := p.arena.AllocIndirectCallExpr(left, args)
 			ind.Line = callLine
 			left = ind
@@ -1741,6 +1897,15 @@ func (p *Parser) parseIdentExpr() Node {
 	// Phase 81: inside an unparenthesized `if` condition, a trailing '{' opens
 	// the body, not a struct literal — the identifier stays a plain operand so
 	// parseIf can consume the body block.
+	// Phase 146: generic struct literal `Point[int]{...}` — speculative;
+	// anything else falls through to the plain literal below.
+	if p.curToken.Type == lexer.TokenLBracket && !p.unparenthesizedIfCondition {
+		if targs, ok := p.tryGenericArgs(lexer.TokenLBrace); ok {
+			lit := p.parseStructLiteralAfterBrace(ident)
+			lit.TypeArgs = targs
+			return lit
+		}
+	}
 	if p.curToken.Type == lexer.TokenLBrace && !p.unparenthesizedIfCondition {
 		return p.parseStructLiteral(ident)
 	}
@@ -1752,6 +1917,37 @@ func (p *Parser) parseIdentExpr() Node {
 }
 
 // Phase 19: Struct literal parsing: Name{field: val, ...}
+// Phase 146: AfterBrace variant — `tryGenericArgs('{')` already consumed
+// '[' T ']' '{', so the current token is the first field (or '}').
+func (p *Parser) parseStructLiteralAfterBrace(typeName string) *StructLiteral {
+	fields := []Node{}
+	if p.curToken.Type != lexer.TokenRBrace {
+		fieldName := p.curToken.Literal(p.src)
+		p.nextToken() // consume field name
+		p.nextToken() // consume ':'
+		val := p.parseExpr()
+		fields = append(fields, &BinaryExpr{
+			Left:     &Identifier{Name: fieldName},
+			Operator: "=",
+			Right:    val,
+		})
+		for p.curToken.Type == lexer.TokenComma {
+			p.nextToken() // consume ','
+			fieldName = p.curToken.Literal(p.src)
+			p.nextToken() // consume field name
+			p.nextToken() // consume ':'
+			val = p.parseExpr()
+			fields = append(fields, &BinaryExpr{
+				Left:     &Identifier{Name: fieldName},
+				Operator: "=",
+				Right:    val,
+			})
+		}
+	}
+	p.nextToken() // consume '}'
+	return &StructLiteral{TypeName: typeName, Fields: fields}
+}
+
 func (p *Parser) parseStructLiteral(typeName string) *StructLiteral {
 	p.nextToken() // consume '{'
 	fields := []Node{}
@@ -1789,6 +1985,9 @@ func (p *Parser) parseStructDecl() *StructDeclStmt {
 	name := p.curToken.Literal(p.src)
 	nameLine := int(p.curToken.Line)
 	p.nextToken() // consume struct name
+	// Phase 146: optional generic parameter list `type Name[T] struct`.
+	var genericParams []GenericTypeParam
+	genericParams = p.parseGenericParams()
 	p.nextToken() // consume 'struct'
 	p.nextToken() // consume '{'
 
@@ -1807,7 +2006,7 @@ func (p *Parser) parseStructDecl() *StructDeclStmt {
 	}
 	p.nextToken() // consume '}'
 
-	return &StructDeclStmt{Name: name, Fields: fields, Line: nameLine}
+	return &StructDeclStmt{Name: name, Fields: fields, GenericParams: genericParams, Line: nameLine}
 }
 
 // Phase 45: enum declaration parsing: enum Name { Variant, Variant(payload), ... }

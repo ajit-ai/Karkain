@@ -150,6 +150,11 @@ type CallExpr struct {
 	Module   string // Phase 103: module qualifier for `mod.fn(...)`; "" = bare call
 	Args     []Node
 	IsCFunc  bool // True if this is a C function call (e.g., C.sqrt)
+	// Phase 146: explicit generic type arguments from `f[T, U](args)`.
+	// Empty for ordinary calls. A non-generic callee with type args is
+	// demoted to IndirectCallExpr by the sema monomorphize pass, so
+	// Phase-133 index-then-call programs keep working byte-identically.
+	TypeArgs []string
 	Line     int
 	Col      int // Phase 83: 0-based byte column of the callee start (function-name token)
 	EndCol   int // Phase 83: 0-based byte column just past the callee
@@ -585,6 +590,8 @@ type StructDeclStmt struct {
 type StructLiteral struct {
 	TypeName string
 	Fields   []Node // BinaryExpr nodes: field = value
+	// Phase 146: explicit generic type arguments from `Point[int]{...}`.
+	TypeArgs []string
 	Line     int
 }
 
