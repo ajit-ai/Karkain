@@ -340,6 +340,49 @@ func (e *Emitter) Jnz(label string) {
 	e.rel32(label)
 }
 
+// Phase 148: condition-code jumps (near form only, uniform with Jnz).
+// CmpRegReg emits cmp r64, r64: REX.W + 39 /r (compares dst against src).
+func (e *Emitter) CmpRegReg(dst, src Reg) {
+	e.rex(true, src, dst)
+	e.byte(0x39)
+	e.modrm(3, src.low(), dst.low())
+}
+
+// Jz emits jz rel32: 0F 84 cd.
+func (e *Emitter) Jz(label string) {
+	e.byte(0x0F)
+	e.byte(0x84)
+	e.rel32(label)
+}
+
+// Jl emits jl rel32: 0F 8C cd (signed less-than).
+func (e *Emitter) Jl(label string) {
+	e.byte(0x0F)
+	e.byte(0x8C)
+	e.rel32(label)
+}
+
+// Jle emits jle rel32: 0F 8E cd.
+func (e *Emitter) Jle(label string) {
+	e.byte(0x0F)
+	e.byte(0x8E)
+	e.rel32(label)
+}
+
+// Jg emits jg rel32: 0F 8F cd.
+func (e *Emitter) Jg(label string) {
+	e.byte(0x0F)
+	e.byte(0x8F)
+	e.rel32(label)
+}
+
+// Jge emits jge rel32: 0F 8D cd.
+func (e *Emitter) Jge(label string) {
+	e.byte(0x0F)
+	e.byte(0x8D)
+	e.rel32(label)
+}
+
 // Jns emits jns rel32 (jump if sign flag clear): 0F 89 cd.
 func (e *Emitter) Jns(label string) {
 	e.byte(0x0F)

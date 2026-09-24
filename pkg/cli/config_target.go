@@ -91,6 +91,8 @@ func aliasTargetNote(name string) string {
 		return "(Phase 84 object/linker pipeline)"
 	case "wasm32-wasi":
 		return "(WebAssembly WASI module)"
+	case NativeLinuxTarget:
+		return "(C-free x86-64 Linux executable; run needs linux/amd64)"
 	}
 	return ""
 }

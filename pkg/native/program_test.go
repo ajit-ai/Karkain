@@ -137,9 +137,12 @@ func main() { print(2) }`, "duplicate function"},
 		{`func f(a, b, c, d, e, g, h) { return a }
 func main() { print(f(1, 2, 3, 4, 5, 6, 7)) }`, "max 6"},
 		{`func main() { print(1.5) }`, "floating-point"},
-		{`func main() { if (1 == 1) { print(1) } }`, "control flow"},
 		{`func main() { print(nope(1)) }`, "undefined function"},
 		{`func main() { let s = "x" print(s + 1) }`, "in int position"},
+		{`func main() { break }`, "break outside"},
+		{`func main() { continue }`, "continue outside"},
+		{`func main() { if (1) { print(1) } }`, "must be an int comparison"},
+		{`func main() { let y = 1 for x in y { print(x) } }`, "for-in loops are not supported"},
 	}
 	for _, c := range cases {
 		_, err := CompileProgram(parseNative(t, c.src))
@@ -150,6 +153,38 @@ func main() { print(f(1, 2, 3, 4, 5, 6, 7)) }`, "max 6"},
 		if !strings.Contains(err.Error(), "error[K145]") || !strings.Contains(err.Error(), c.feature) {
 			t.Errorf("bad diagnostic for %s: %v", c.feature, err)
 		}
+	}
+}
+
+func TestNativeControl(t *testing.T) {
+	// Phase 148: control-flow execution goldens. Each program exercises
+	// one more construct, so a failure pins the responsible lowering.
+	// Execution runs on Linux x86-64; elsewhere compileNative still
+	// proves parse + lowering + structural validity.
+	cases := []struct {
+		name     string
+		src      string
+		want     string
+		wantCode int
+	}{
+		{"if_else", "func main() {\n    if (2 > 1) {\n        print(10)\n    } else {\n        print(20)\n    }\n    if (1 == 2) {\n        print(30)\n    } else {\n        print(40)\n    }\n}\n", "10\n40\n", 0},
+		{"while_sum", "func main() {\n    let s = 0\n    let i = 1\n    while (i <= 10) {\n        s = s + i\n        i = i + 1\n    }\n    print(s)\n}\n", "55\n", 0},
+		{"cfor_sum", "func main() {\n    let s = 0\n    for (let i = 0; i < 10; i = i + 1) {\n        s = s + i\n    }\n    print(s)\n}\n", "45\n", 0},
+		{"break_continue", "func main() {\n    let s = 0\n    let i = 0\n    while (i < 10) {\n        i = i + 1\n        if (i == 3) {\n            continue\n        }\n        if (i == 7) {\n            break\n        }\n        s = s + i\n    }\n    print(s)\n}\n", "18\n", 0},
+		{"nested", "func main() {\n    let n = 0\n    let i = 0\n    while (i < 3) {\n        let j = 0\n        while (j < 3) {\n            n = n + 1\n            j = j + 1\n        }\n        i = i + 1\n    }\n    print(n)\n}\n", "9\n", 0},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNative(t, c.src)
+			out, code := runNativeCode(t, img)
+			if out != "" && out != c.want {
+				t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+			}
+			if code != c.wantCode {
+				t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
+			}
+		})
 	}
 }
 

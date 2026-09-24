@@ -111,7 +111,7 @@ OPTIONS:
   -o <path>               Output binary path (build)
   -c, --compile-only      Keep generated C source
   -g, --debug             Generate debug symbols + #line directives
-  --target <target>       Target architecture (native, c23, wasm32-wasi)
+  --target <target>       Target architecture (native, c23, wasm32-wasi, native-x86_64-linux)
   --filter <pattern>      Run only matching tests (substring of test name)
   --verbose               Emit detailed pipeline logs
   -v, --version           Show version

@@ -24,21 +24,37 @@ const (
 // validTargets is the closed set of legacy target aliases the toolchain
 // accepts. `native` and `c23` share the native write-`.c` path; `wasm32-wasi`
 // selects the Karkain-owned WASM backend; `native-link` uses the Phase-84
-// object/linker pipeline. Phase 111 adds conventional target triples
+// object/linker pipeline; `native-x86_64-linux` selects the Karkain-owned
+// C-free machine-code backend (Phase 145/147, CLI in Phase 148).
+// Phase 111 adds conventional target triples
 // (x86_64-windows, x86_64-linux, aarch64-linux, ...) which are validated
 // through the target model in pkg/target rather than this map. Anything else
 // is rejected rather than silently falling back to native.
 var validTargets = map[string]bool{
-	"native":      true,
-	"c23":         true,
-	"wasm32-wasi": true,
-	"native-link": true,
+	"native":              true,
+	"c23":                 true,
+	"wasm32-wasi":         true,
+	"native-link":         true,
+	"native-x86_64-linux": true,
+}
+
+// NativeLinuxTarget is the Phase-148 C-free machine-code target: static
+// x86-64 Linux executables with no C compiler anywhere on the path.
+// Emission is pure Go (buildable from any host); execution needs
+// linux/amd64 (run elsewhere is refused with a build-only hint).
+const NativeLinuxTarget = "native-x86_64-linux"
+
+// IsNativeTarget reports whether a --target value selects the C-free
+// machine-code backend (as opposed to the C23/gcc pipeline, the Phase-84
+// object pipeline, WASM, or a conventional cross triple).
+func IsNativeTarget(value string) bool {
+	return value == NativeLinuxTarget
 }
 
 // supportedTargetsLine is the deterministic human list appended to target
 // diagnostics and shown by `karkain target`.
 func supportedTargetsLine() string {
-	names := []string{"native, c23, native-link, wasm32-wasi"}
+	names := []string{"native, c23, native-link, wasm32-wasi, native-x86_64-linux"}
 	for _, t := range target.SupportedTargets() {
 		names = append(names, t.String())
 	}
@@ -83,12 +99,13 @@ func NormalizeTarget(value string) (string, error) {
 }
 
 // SelectedTarget resolves a --target value into a target model. The legacy
-// aliases `native`, `c23` and `native-link` mean "compile for the host"; a
-// recognized triple means that target. The second return value is false when
-// the value is not a concrete triple (wasm32-wasi is a triple target handled
-// by the dedicated WASM backend).
+// aliases `native`, `c23`, `native-link` and `native-x86_64-linux` mean
+// "compile for the host" (the native machine-code target additionally
+// enforces linux/amd64 at run time); a recognized triple means that target.
+// The second return value is false when the value is not a concrete triple
+// (wasm32-wasi is a triple target handled by the dedicated WASM backend).
 func SelectedTarget(value string) (target.Target, bool) {
-	if value == "" || value == "native" || value == "c23" || value == "native-link" {
+	if value == "" || value == "native" || value == "c23" || value == "native-link" || value == NativeLinuxTarget {
 		return target.Host(), false
 	}
 	t, err := target.Parse(value)

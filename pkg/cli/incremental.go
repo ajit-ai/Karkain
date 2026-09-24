@@ -119,6 +119,13 @@ func BuildCommandIncremental(targetFile, outputPath string, cfg codegen.Config, 
 	if err := ValidateKarFile(targetFile); err != nil {
 		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
+	// Phase 148: the incremental cache serves the C pipeline (monolith C
+	// + objects); the C-free native backend has no C artifacts to cache,
+	// so incremental+native is refused loudly (native-split caching is
+	// post-148 work, never silent C fallback).
+	if IsNativeTarget(cfg.Target) {
+		return CommandResult{ExitCode: ExitUsage, Message: "karkain build --incremental does not support --target native-x86_64-linux yet (native-split caching is future work); build without --incremental"}
+	}
 	if verbose {
 		// resolve doubt about the target path resolution up front.
 		fmt.Printf("incremental: target=%s cache=%s\n", effectiveRootFile(targetFile), cacheDir)

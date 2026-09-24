@@ -79,3 +79,22 @@ func TestEmitControl(t *testing.T) {
 		0x0F, 0x89, 0xF4, 0xFF, 0xFF, 0xFF,
 		0x0F, 0x05)
 }
+
+// Phase 148: golden pins for cmp + the signed condition-code jumps.
+// cmp rax,rcx is REX.W + 39 C8; each jcc is the 0F 8x near form with a
+// zero displacement (self-target, so rel = 0 - 6 = -6 = F AF FF FF).
+func TestEmitCondJumps(t *testing.T) {
+	want(t, "cmp rax,rcx", hexOf(t, func(e *Emitter) { e.CmpRegReg(RAX, RCX) }), 0x48, 0x39, 0xC8)
+	want(t, "cmp r9,r8", hexOf(t, func(e *Emitter) { e.CmpRegReg(R9, R8) }), 0x4D, 0x39, 0xC1)
+	back := func(build func(e *Emitter)) []byte {
+		e := NewEmitter()
+		e.Mark("here")
+		build(e)
+		return e.Bytes()
+	}
+	want(t, "jz", back(func(e *Emitter) { e.Jz("here") }), 0x0F, 0x84, 0xFA, 0xFF, 0xFF, 0xFF)
+	want(t, "jl", back(func(e *Emitter) { e.Jl("here") }), 0x0F, 0x8C, 0xFA, 0xFF, 0xFF, 0xFF)
+	want(t, "jle", back(func(e *Emitter) { e.Jle("here") }), 0x0F, 0x8E, 0xFA, 0xFF, 0xFF, 0xFF)
+	want(t, "jg", back(func(e *Emitter) { e.Jg("here") }), 0x0F, 0x8F, 0xFA, 0xFF, 0xFF, 0xFF)
+	want(t, "jge", back(func(e *Emitter) { e.Jge("here") }), 0x0F, 0x8D, 0xFA, 0xFF, 0xFF, 0xFF)
+}

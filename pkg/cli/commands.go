@@ -83,6 +83,12 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 		return wasmRunCommand(prog, targetFile, "", verbose)
 	}
 
+	// Phase 148: C-free machine-code target (Linux-only execution; build
+	// from anywhere since emission is pure Go).
+	if IsNativeTarget(cfg.Target) {
+		return cfreeRunCommand(prog, targetFile, verbose)
+	}
+
 	// Phase 111: an explicit triple whose machine differs from the host can be
 	// cross-BUILT but never cross-RUN here. Running a natives-built binary of
 	// another architecture/OS would be silent host fallback — refuse with a
@@ -162,6 +168,11 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 
 	if cfg.Target == "wasm32-wasi" {
 		return wasmBuildCommand(prog, targetFile, outputPath, verbose)
+	}
+
+	// Phase 148: C-free machine-code target (see nativeRunCommand above).
+	if IsNativeTarget(cfg.Target) {
+		return cfreeBuildCommand(prog, targetFile, outputPath, verbose)
 	}
 
 	cfg.RunAfter = false

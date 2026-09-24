@@ -62,6 +62,22 @@ type Builder struct {
 	kinds   map[string]bool
 	frame   int
 	binTemp int // Phase 147: base offset of the binary-operand scratch stack
+	scanErr error
+	uid     int // Phase 148: monotonically increasing label discriminator
+	loops   []loopTgt
+}
+
+// loopTgt records a loop's jump targets for break/continue (Phase 148).
+type loopTgt struct {
+	brk  string // break jumps here (past the loop)
+	cont string // continue jumps here (condition check / post statement)
+}
+
+// fresh returns a program-unique label (Emitter.Mark panics on duplicates,
+// so control-flow labels can never be a bare fixed string).
+func (b *Builder) fresh(prefix string) string {
+	b.uid++
+	return fmt.Sprintf("%s$%d", prefix, b.uid)
 }
 
 // CompileProgram lowers prog to a linked static executable image. Only
@@ -194,28 +210,16 @@ func (b *Builder) printNewline() {
 func (b *Builder) layout(fd *parser.FuncDecl) error {
 	b.slots = map[string]int{}
 	b.kinds = map[string]bool{}
+	b.scanErr = nil
 	next := 0
 	for _, p := range fd.Params {
 		b.slots[p] = next
 		b.kinds[p] = false
 		next += 8
 	}
-	for _, s := range fd.Body {
-		n, ok := s.(*parser.VarDeclStmt)
-		if !ok {
-			continue
-		}
-		off := next
-		next += 8
-		isStr, err := b.isStringExpr(n.Value)
-		if err != nil {
-			return err
-		}
-		if isStr {
-			next += 8
-		}
-		b.slots[n.Name] = off
-		b.kinds[n.Name] = isStr
+	next = b.scanLets(fd.Body, next)
+	if b.scanErr != nil {
+		return b.scanErr
 	}
 	// Phase 147: binary-operand scratch stack (see maxBinDepth). rsp never
 	// moves during expression evaluation, so slot addresses stay stable.
@@ -223,6 +227,52 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	next += 8 * maxBinDepth
 	b.frame = next + argSpillBytes
 	return nil
+}
+
+// scanLets assigns slots to every `let` in a statement list, recursing
+// into control-flow bodies and C-for initializers (Phase 148: loop bodies
+// may declare variables; slots are function-wide, first declaration wins
+// a slot and shadowing writes through — v1 semantics, documented). The
+// first isStringExpr failure is recorded and returned by layout; emission
+// re-validates every node anyway, so the diagnostic is identical.
+func (b *Builder) scanLets(stmts []parser.Node, next int) int {
+	for _, s := range stmts {
+		switch n := s.(type) {
+		case *parser.VarDeclStmt:
+			if _, seen := b.slots[n.Name]; seen {
+				continue
+			}
+			off := next
+			next += 8
+			isStr, err := b.isStringExpr(n.Value)
+			if err != nil {
+				if b.scanErr == nil {
+					b.scanErr = err
+				}
+				return next
+			}
+			if isStr {
+				next += 8
+			}
+			b.slots[n.Name] = off
+			b.kinds[n.Name] = isStr
+		case *parser.IfStmt:
+			next = b.scanLets(n.Consequence, next)
+			next = b.scanLets(n.Alternative, next)
+		case *parser.WhileStmt:
+			next = b.scanLets(n.Body, next)
+		case *parser.ForStmt:
+			if n.Init != nil {
+				next = b.scanLets([]parser.Node{n.Init}, next)
+			}
+			next = b.scanLets(n.Body, next)
+		case *parser.ForInStmt:
+			next = b.scanLets(n.Body, next)
+		case *parser.BlockStmt:
+			next = b.scanLets(n.Statements, next)
+		}
+	}
+	return next
 }
 
 func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
@@ -245,29 +295,12 @@ func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
 	}
 	returned := false
 	for _, s := range fd.Body {
-		switch n := s.(type) {
-		case *parser.VarDeclStmt:
-			if err := b.emitLet(n); err != nil {
-				return err
-			}
-		case *parser.PrintStmt:
-			if err := b.emitPrint(n); err != nil {
-				return err
-			}
-		case *parser.ReturnStmt:
-			if err := b.emitReturn(n); err != nil {
-				return err
-			}
-			b.e.Jmp(name + "$ret")
+		done, err := b.emitStmt(s, fd.Name)
+		if err != nil {
+			return err
+		}
+		if done {
 			returned = true
-		case *parser.ExprStmt:
-			if err := b.emitExpr(n.Expression, 0); err != nil {
-				return err
-			}
-		case *parser.IfStmt, *parser.WhileStmt, *parser.ForStmt, *parser.ForInStmt:
-			return fmt.Errorf("error[K145]: control flow is not supported (straight-line code and calls only)")
-		default:
-			return fmt.Errorf("error[K145]: unsupported statement %T in '%s'", s, fd.Name)
 		}
 	}
 	if !returned {
@@ -278,6 +311,236 @@ func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
 		b.e.AddRsp(b.frame)
 	}
 	b.e.Ret()
+	return nil
+}
+
+// emitStmt lowers one statement. It returns done=true for a mid-body
+// `return` (the caller records it so a missing trailing return still
+// yields 0). Phase 148: factored from emitFunc so loop and branch bodies
+// reuse the exact straight-line paths (byte-identical for straight-line
+// programs by construction).
+func (b *Builder) emitStmt(s parser.Node, fname string) (bool, error) {
+	switch n := s.(type) {
+	case *parser.VarDeclStmt:
+		if err := b.emitLet(n); err != nil {
+			return false, err
+		}
+		return false, nil
+	case *parser.PrintStmt:
+		if err := b.emitPrint(n); err != nil {
+			return false, err
+		}
+		return false, nil
+	case *parser.ReturnStmt:
+		if err := b.emitReturn(n); err != nil {
+			return false, err
+		}
+		name := "fn_" + fname
+		if fname == "main" {
+			name = "karkain_main"
+		}
+		b.e.Jmp(name + "$ret")
+		return true, nil
+	case *parser.ExprStmt:
+		if err := b.emitExprStmt(n); err != nil {
+			return false, err
+		}
+		return false, nil
+	case *parser.IfStmt:
+		return false, b.emitIf(n, fname)
+	case *parser.WhileStmt:
+		return false, b.emitWhile(n, fname)
+	case *parser.ForStmt:
+		return false, b.emitFor(n, fname)
+	case *parser.BreakStmt:
+		if len(b.loops) == 0 {
+			return false, fmt.Errorf("error[K145]: break outside of a loop")
+		}
+		b.e.Jmp(b.loops[len(b.loops)-1].brk)
+		return false, nil
+	case *parser.ContinueStmt:
+		if len(b.loops) == 0 {
+			return false, fmt.Errorf("error[K145]: continue outside of a loop")
+		}
+		b.e.Jmp(b.loops[len(b.loops)-1].cont)
+		return false, nil
+	case *parser.ForInStmt:
+		return false, fmt.Errorf("error[K145]: for-in loops are not supported on the native target yet (arrays lower in a later slice; use while or C-style for)")
+	default:
+		return false, fmt.Errorf("error[K145]: unsupported statement %T in '%s'", s, fname)
+	}
+}
+
+// emitExprStmt lowers an expression statement: plain value expressions
+// evaluate and discard, while `x = <int>` reassigns a slot variable
+// (Phase 148: loop counters need reassignment; strings are immutable
+// through this form — declare a fresh variable instead).
+func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
+	if be, ok := n.Expression.(*parser.BinaryExpr); ok && be.Operator == "=" {
+		id, ok := be.Left.(*parser.Identifier)
+		if !ok {
+			return fmt.Errorf("error[K145]: assignment target must be a variable")
+		}
+		off, ok := b.slots[id.Name]
+		if !ok {
+			return fmt.Errorf("error[K145]: undefined identifier '%s'", id.Name)
+		}
+		if b.kinds[id.Name] {
+			return fmt.Errorf("error[K145]: cannot reassign string '%s' (declare a fresh variable)", id.Name)
+		}
+		if isStr, err := b.isStringExpr(be.Right); err != nil {
+			return err
+		} else if isStr {
+			return fmt.Errorf("error[K145]: cannot assign a string to int variable '%s'", id.Name)
+		}
+		if err := b.emitExpr(be.Right, 0); err != nil {
+			return err
+		}
+		b.e.StoreStack(RAX, off)
+		return nil
+	}
+	return b.emitExpr(n.Expression, 0)
+}
+
+// emitCond evaluates an int comparison and jumps to falseLabel when it
+// does NOT hold. Only `== != < <= > >=` over int expressions lower in v1
+// (operands reuse the depth-indexed scratch evaluator, so rsp stays put);
+// anything else is a loud K145, never a miscompiled truthiness test.
+func (b *Builder) emitCond(cond parser.Node, falseLabel string) error {
+	be, ok := cond.(*parser.BinaryExpr)
+	if !ok {
+		return fmt.Errorf("error[K145]: condition must be an int comparison (==, !=, <, <=, >, >=)")
+	}
+	var jump func(string)
+	switch be.Operator {
+	case "==":
+		jump = b.e.Jnz
+	case "!=":
+		jump = b.e.Jz
+	case "<":
+		jump = b.e.Jge
+	case "<=":
+		jump = b.e.Jg
+	case ">":
+		jump = b.e.Jle
+	case ">=":
+		jump = b.e.Jl
+	default:
+		return fmt.Errorf("error[K145]: condition must be an int comparison (==, !=, <, <=, >, >=), found '%s'", be.Operator)
+	}
+	if isStr, err := b.isStringExpr(be.Left); err != nil {
+		return err
+	} else if isStr {
+		return fmt.Errorf("error[K145]: string comparison is not supported (ints only)")
+	}
+	if isStr, err := b.isStringExpr(be.Right); err != nil {
+		return err
+	} else if isStr {
+		return fmt.Errorf("error[K145]: string comparison is not supported (ints only)")
+	}
+	if err := b.emitExpr(be.Left, 1); err != nil {
+		return err
+	}
+	b.e.StoreStack(RAX, b.binTemp)
+	if err := b.emitExpr(be.Right, 1); err != nil {
+		return err
+	}
+	b.e.MovRegReg(RCX, RAX)
+	b.e.LoadStack(RAX, b.binTemp)
+	b.e.CmpRegReg(RAX, RCX)
+	jump(falseLabel)
+	return nil
+}
+
+func (b *Builder) emitStmts(stmts []parser.Node, fname string) error {
+	for _, s := range stmts {
+		if _, err := b.emitStmt(s, fname); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// emitIf lowers `if cond { consequence } else { alternative }`.
+func (b *Builder) emitIf(n *parser.IfStmt, fname string) error {
+	elseLabel := b.fresh("ifelse")
+	endLabel := b.fresh("ifend")
+	if err := b.emitCond(n.Condition, elseLabel); err != nil {
+		return err
+	}
+	if err := b.emitStmts(n.Consequence, fname); err != nil {
+		return err
+	}
+	b.e.Jmp(endLabel)
+	b.e.Mark(elseLabel)
+	if err := b.emitStmts(n.Alternative, fname); err != nil {
+		return err
+	}
+	b.e.Mark(endLabel)
+	return nil
+}
+
+// emitWhile lowers `while cond { body }`.
+func (b *Builder) emitWhile(n *parser.WhileStmt, fname string) error {
+	loopLabel := b.fresh("while")
+	endLabel := b.fresh("whileend")
+	b.e.Mark(loopLabel)
+	b.loops = append(b.loops, loopTgt{brk: endLabel, cont: loopLabel})
+	if err := b.emitCond(n.Condition, endLabel); err != nil {
+		b.loops = b.loops[:len(b.loops)-1]
+		return err
+	}
+	if err := b.emitStmts(n.Body, fname); err != nil {
+		b.loops = b.loops[:len(b.loops)-1]
+		return err
+	}
+	b.loops = b.loops[:len(b.loops)-1]
+	b.e.Jmp(loopLabel)
+	b.e.Mark(endLabel)
+	return nil
+}
+
+// emitFor lowers C-style `for (init; cond; post) { body }`. A nil
+// condition means always-true; init/post are arbitrary statements
+// (typically `let` and reassignment) emitted inline.
+func (b *Builder) emitFor(n *parser.ForStmt, fname string) error {
+	if n.Init != nil {
+		if _, err := b.emitStmt(n.Init, fname); err != nil {
+			return err
+		}
+	}
+	loopLabel := b.fresh("for")
+	postLabel := b.fresh("forpost")
+	endLabel := b.fresh("forend")
+	b.e.Mark(loopLabel)
+	b.loops = append(b.loops, loopTgt{brk: endLabel, cont: postLabel})
+	if n.Condition != nil {
+		if err := b.emitCond(n.Condition, endLabel); err != nil {
+			b.loops = b.loops[:len(b.loops)-1]
+			return err
+		}
+	}
+	if err := b.emitStmts(n.Body, fname); err != nil {
+		b.loops = b.loops[:len(b.loops)-1]
+		return err
+	}
+	b.e.Mark(postLabel)
+	if n.Post != nil {
+		// The parser reads the post clause as a bare expression, so a
+		// `i = i + 1` post arrives as BinaryExpr("="), not an ExprStmt —
+		// wrap it so the assignment path handles it identically.
+		post := n.Post
+		if be, ok := post.(*parser.BinaryExpr); ok && be.Operator == "=" {
+			post = &parser.ExprStmt{Expression: be, Line: be.Line}
+		}
+		if _, err := b.emitStmt(post, fname); err != nil {
+			b.loops = b.loops[:len(b.loops)-1]
+			return err
+		}
+	}
+	b.loops = b.loops[:len(b.loops)-1]
+	b.e.Jmp(loopLabel)
+	b.e.Mark(endLabel)
 	return nil
 }
 
