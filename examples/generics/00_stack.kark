@@ -1,0 +1,24 @@
+// Status: Runnable
+// Engine: go (kcc parity in Phase 146C)
+// Category: Generics
+//
+// Persistent Stack[T] from std.generics: every push/pop returns a new
+// stack; the input is never mutated. Instantiated at int and string.
+
+import std.generics
+
+func main() {
+    let s = stack_new()
+    println(stack_is_empty(s))
+    let s1 = stack_push[int](s, 10)
+    let s2 = stack_push[int](s1, 20)
+    println(stack_len(s2))
+    println(stack_peek[int](s2))
+    let s3 = stack_pop[int](s2)
+    println(stack_peek[int](s3))
+    println(stack_len(s))
+    let w = stack_new()
+    let w1 = stack_push[string](w, "a")
+    let w2 = stack_push[string](w1, "b")
+    println(stack_peek[string](w2))
+}

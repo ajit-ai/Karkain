@@ -1,0 +1,98 @@
+// Karkain Standard Library - Generics Module (Phase 146B)
+// Persistent Stack[T] / Queue[T] over plain arrays, in canonical Karkain.
+//
+// A stack (queue) IS its element array; every mutating operation returns
+// the new stack (queue) and never touches the input — arrays are values
+// across calls, so persistence is the sound model (verified: a push
+// inside a callee is invisible to the caller).
+//
+// Engine note: the [T] declarations require the Phase-146 monomorphizer,
+// so this module compiles on the Go engine. kcc parity lands in Phase
+// 146C; until then kcc rejects generic declarations loudly (check the
+// Phase-146B gate), never silently.
+
+// stack_new returns an empty stack.
+func stack_new() {
+    return []
+}
+
+// stack_push[T] returns s with v appended (the new top).
+func stack_push[T](s, v) {
+    let out = []
+    let i = 0
+    while (i < len(s)) {
+        push(out, s[i])
+        i = i + 1
+    }
+    push(out, v)
+    return out
+}
+
+// stack_pop[T] returns s without its top element (empty stays empty).
+func stack_pop[T](s) {
+    let out = []
+    let i = 0
+    while (i < len(s) - 1) {
+        push(out, s[i])
+        i = i + 1
+    }
+    return out
+}
+
+// stack_peek[T] returns the top element (runtime error on empty stack).
+func stack_peek[T](s) {
+    return s[len(s) - 1]
+}
+
+// stack_len returns the element count.
+func stack_len(s) {
+    return len(s)
+}
+
+// stack_is_empty reports whether the stack holds no elements.
+func stack_is_empty(s) {
+    return len(s) == 0
+}
+
+// queue_new returns an empty queue.
+func queue_new() {
+    return []
+}
+
+// queue_enqueue[T] returns q with v appended at the back.
+func queue_enqueue[T](q, v) {
+    let out = []
+    let i = 0
+    while (i < len(q)) {
+        push(out, q[i])
+        i = i + 1
+    }
+    push(out, v)
+    return out
+}
+
+// queue_dequeue[T] returns q without its front element (empty stays empty).
+func queue_dequeue[T](q) {
+    let out = []
+    let i = 1
+    while (i < len(q)) {
+        push(out, q[i])
+        i = i + 1
+    }
+    return out
+}
+
+// queue_front[T] returns the front element (runtime error on empty queue).
+func queue_front[T](q) {
+    return q[0]
+}
+
+// queue_len returns the element count.
+func queue_len(q) {
+    return len(q)
+}
+
+// queue_is_empty reports whether the queue holds no elements.
+func queue_is_empty(q) {
+    return len(q) == 0
+}

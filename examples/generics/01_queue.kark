@@ -1,0 +1,21 @@
+// Status: Runnable
+// Engine: go (kcc parity in Phase 146C)
+// Category: Generics
+//
+// Persistent Queue[T] from std.generics: enqueue appends at the back,
+// dequeue drops the front; inputs are never mutated. FIFO order pinned.
+
+import std.generics
+
+func main() {
+    let q = queue_new()
+    println(queue_is_empty(q))
+    let q1 = queue_enqueue[int](q, 1)
+    let q2 = queue_enqueue[int](q1, 2)
+    let q3 = queue_enqueue[int](q2, 3)
+    println(queue_len(q3))
+    println(queue_front[int](q3))
+    let q4 = queue_dequeue[int](q3)
+    println(queue_front[int](q4))
+    println(queue_len(q))
+}
