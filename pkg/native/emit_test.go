@@ -24,8 +24,8 @@ func want(t *testing.T, name string, got []byte, want ...byte) {
 }
 
 func TestEmitMov(t *testing.T) {
-	want(t, "mov rax,1", hexOf(t, func(e *Emitter) { e.MovRegImm32(RAX, 1) }), 0x48, 0xB8, 0x01, 0x00, 0x00, 0x00)
-	want(t, "mov r8,1", hexOf(t, func(e *Emitter) { e.MovRegImm32(R8, 1) }), 0x49, 0xB8, 0x01, 0x00, 0x00, 0x00)
+	want(t, "mov rax,1", hexOf(t, func(e *Emitter) { e.MovRegImm32(RAX, 1) }), 0xB8, 0x01, 0x00, 0x00, 0x00)
+	want(t, "mov r8,1", hexOf(t, func(e *Emitter) { e.MovRegImm32(R8, 1) }), 0x41, 0xB8, 0x01, 0x00, 0x00, 0x00)
 	want(t, "mov rax,imm64", hexOf(t, func(e *Emitter) { e.MovRegImm64(RAX, 0x1122334455667788) }),
 		0x48, 0xB8, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11)
 	want(t, "mov rax,rbx", hexOf(t, func(e *Emitter) { e.MovRegReg(RAX, RBX) }), 0x48, 0x89, 0xD8)

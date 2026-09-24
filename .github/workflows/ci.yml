@@ -239,6 +239,16 @@ jobs:
           KARKAIN_NATIVE_DUMP: ${{ runner.temp }}/native-evidence
         run: go test ./pkg/native/ -run 'TestNativeEvidenceDump' -count=1 -v
 
+      - name: Execute native suite under quarantine flag (147C prover)
+        # Runs the genuine execution tests with the P1 flag set. The `|| true`
+        # keeps this informational step green either way — the PASS/FAIL lines
+        # in the output are the signal, and the mandatory suite never depends
+        # on them. When this step goes green, the quarantine is lifted.
+        if: always()
+        env:
+          KARKAIN_NATIVE_EXEC: 1
+        run: go test ./pkg/native/ -run 'TestNativeBisect|TestNativeHello|TestNativeCalls' -count=1 -v || true
+
       - name: readelf headers and program headers
         if: always()
         run: readelf -h -l ${{ runner.temp }}/native-evidence/native-empty || true
