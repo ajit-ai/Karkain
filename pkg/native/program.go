@@ -36,11 +36,31 @@ import (
 // evaluation: register units stage through the per-arg spill, extras
 // through the extras area, and only then do registers reload.
 
-// sys_write / sys_exit numbers (Linux x86-64).
+// OS names accepted by CompileProgramForOS (Phase 149). Emission is
+// pure Go on every host; only the container, the syscall numbers (or
+// kernel32 boundary on Windows) and the _start tail vary per OS.
 const (
-	sysWrite = 1
-	sysExit  = 60
+	OSLinux   = "linux"
+	OSWindows = "windows"
+	OSMacOS   = "macos"
 )
+
+// sysWrite returns the write syscall number for the target OS
+// (Linux/macOS raw-syscall path; Windows uses kernel32 instead).
+func (b *Builder) sysWrite() uint32 {
+	if b.goos == OSMacOS {
+		return 0x2000004
+	}
+	return 1
+}
+
+// sysExit returns the exit syscall number for the target OS.
+func (b *Builder) sysExit() uint32 {
+	if b.goos == OSMacOS {
+		return 0x2000001
+	}
+	return 60
+}
 
 // argRegs is the user-function calling convention (System V order).
 var argRegs = []Reg{RDI, RSI, RDX, RCX, R8, R9}
@@ -61,12 +81,30 @@ type addrPatch struct {
 	roOff uint64
 }
 
+// iatPatch records a movabs placeholder resolving to a PE IAT slot
+// address (Phase 149): kernel32 calls go through the import table.
+type iatPatch struct {
+	pos   int
+	index int
+}
+
+// absPatch records a mov-[imm64] placeholder resolving to a PE IAT slot
+// address (Phase 149): the loader-independent bootstrap publishes the
+// PEB-resolved kernel32 addresses straight into the slots.
+type absPatch struct {
+	pos   int
+	index int
+}
+
 // Builder lowers one program to .text+.rodata.
 type Builder struct {
 	e       *Emitter
+	goos    string // Phase 149: OSLinux, OSWindows or OSMacOS
 	rodata  []byte
 	strs    map[string]uint64
 	patches []addrPatch
+	ipatches []iatPatch // Phase 149: PE import-slot placeholders
+	apatches []absPatch // Phase 149: bootstrap IAT publishes
 	funcs   map[string]bool
 	ftab    map[string]*parser.FuncDecl // Phase 148: name -> declaration (arity, param kinds)
 	retKind map[string]bool             // Phase 148: name -> true if the function returns a string
@@ -93,12 +131,24 @@ func (b *Builder) fresh(prefix string) string {
 	return fmt.Sprintf("%s$%d", prefix, b.uid)
 }
 
-// CompileProgram lowers prog to a linked static executable image. Only
-// main is the entry; every other top-level func is emitted as a callable
-// unit. Anything outside the v1 surface is an error naming the construct
-// (error code K145); nothing is silently dropped.
+// CompileProgram lowers prog to a linked static Linux executable image
+// (the Phase-145 default; CompileProgramForOS selects the OS).
 func CompileProgram(prog *parser.Program) ([]byte, error) {
+	return CompileProgramForOS(prog, OSLinux)
+}
+
+// CompileProgramForOS lowers prog to a linked static executable image
+// for the named OS ("linux", "windows", "macos"): one encoder and one
+// lowering feed per-OS containers, syscall numbers (or the kernel32
+// boundary on Windows) and entry tails. Anything else is a K145 error.
+func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 	b := newBuilder()
+	b.goos = osName
+	switch osName {
+	case OSLinux, OSWindows, OSMacOS:
+	default:
+		return nil, fmt.Errorf("error[K145]: unsupported native OS '%s' (want linux, windows or macos)", osName)
+	}
 	for _, stmt := range prog.Statements {
 		if fd, ok := stmt.(*parser.FuncDecl); ok {
 			if b.funcs[fd.Name] {
@@ -127,13 +177,40 @@ func CompileProgram(prog *parser.Program) ([]byte, error) {
 		}
 	}
 	b.e.Mark("_start")
+	if b.goos == OSWindows {
+		// Alignment first: everything downstream (main's frame math,
+		// every kernel32 call) assumes rsp%16==0 here. Then the
+		// loader-independent bootstrap fills the IAT before main runs.
+		b.e.AndRspNeg16()
+		b.emitWinBootstrap()
+	}
 	b.e.Call("karkain_main")
-	b.e.MovRegReg(RDI, RAX)
-	b.e.MovRegImm32(RAX, sysExit)
-	b.e.Syscall()
+	if b.goos == OSWindows {
+		b.emitWindowsExit()
+	} else {
+		b.e.MovRegReg(RDI, RAX)
+		b.e.MovRegImm32(RAX, b.sysExit())
+		b.e.Syscall()
+	}
 	text := b.e.Bytes()
-	const textOff = elfHeaderSize + progHeaderSize
-	roBase := uint64(BaseAddr + textOff + len(text))
+	textOff := elfHeaderSize + progHeaderSize
+	base := uint64(BaseAddr)
+	switch b.goos {
+	case OSMacOS:
+		textOff = machoTextOff
+		base = MachoBase
+	case OSWindows:
+		textOff = peTextOff
+		base = PEBaseAddr
+	}
+	entry := textOff + b.e.labels["_start"]
+	// Windows resolves both patch kinds inside LinkPE (rodata against
+	// the .text base, IAT slots against .idata); ELF/Mach-O share the
+	// rodata-only loop here.
+	if b.goos == OSWindows {
+		return LinkPE(b, text, b.rodata, textOff, entry)
+	}
+	roBase := base + uint64(textOff) + uint64(len(text))
 	out := append([]byte{}, text...)
 	for _, p := range b.patches {
 		v := roBase + p.roOff
@@ -146,10 +223,13 @@ func CompileProgram(prog *parser.Program) ([]byte, error) {
 		out[p.pos+6] = byte(v >> 48)
 		out[p.pos+7] = byte(v >> 56)
 	}
-	entry := textOff + b.e.labels["_start"]
-	return Link(out, b.rodata, textOff, entry)
+	switch b.goos {
+	case OSMacOS:
+		return LinkMachO(out, b.rodata, textOff, entry)
+	default:
+		return Link(out, b.rodata, textOff, entry)
+	}
 }
-
 func newBuilder() *Builder {
 	return &Builder{e: NewEmitter(), strs: map[string]uint64{}, funcs: map[string]bool{}, ftab: map[string]*parser.FuncDecl{}, retKind: map[string]bool{}}
 }
@@ -309,6 +389,189 @@ func (b *Builder) rodataRef(r Reg, s string) {
 	b.patches = append(b.patches, addrPatch{pos: b.e.imm64Patch(r), roOff: b.internRodata(s)})
 }
 
+// emitWrite emits the payload write for (RDI=fd, RSI=ptr, RDX=len):
+// a raw syscall on Linux/macOS (numbers via sysWrite), the kernel32
+// WriteFile sequence on Windows (Phase 149).
+func (b *Builder) emitWrite() {
+	if b.goos == OSWindows {
+		b.emitWinWrite()
+		return
+	}
+	b.e.MovRegImm32(RAX, b.sysWrite())
+	b.e.Syscall()
+	// NOTE: keep this body as raw emitter calls — the 148C replaceAll
+	// that introduced emitWrite once rewrote this branch into infinite
+	// self-recursion. Do not route through emitWrite here.
+}
+
+// emitWinWrite emits write(1, RSI, RDX) through kernel32 WriteFile.
+// Win64 passes the first four args in RCX,RDX,R8,R9 with a 32-byte
+// caller shadow; kernel calls preserve RDI/RSI/RBX (callee-saved) but
+// may clobber everything else, so ptr/len ride the stack across the
+// GetStdHandle call and registers reload after it.
+func (b *Builder) emitWinWrite() {
+	b.e.PushReg(RSI)
+	b.e.PushReg(RDX)
+	b.e.SubRsp(32)
+	b.e.MovRegImm32(RCX, 0xFFFFFFF5) // STD_OUTPUT_HANDLE
+	b.iatCall(IATGetStdHandle)
+	b.e.AddRsp(32)
+	b.e.PopReg(RDX)
+	b.e.PopReg(RSI)
+	b.e.MovRegReg(RCX, RAX)
+	b.e.MovRegReg(R8, RDX)
+	b.e.MovRegReg(RDX, RSI)
+	// 48 = 32 shadow + 8 written-dword + 8 pad: Win64 requires
+	// rsp%16==8 before the call (40 would flip it to 0 and fault).
+	b.e.SubRsp(48)
+	b.e.LeaRegStack(R9, 24)
+	b.e.XorRegReg(RAX)
+	b.e.StoreStack(RAX, 32)
+	b.iatCall(IATWriteFile)
+	b.e.AddRsp(48)
+}
+
+// emitWindowsExit emits the _start tail on Windows: ExitProcess(main's
+// value). Win64 requires caller shadow even for a single argument
+// (entry alignment itself is fixed by AndRspNeg16 before the main call).
+func (b *Builder) emitWindowsExit() {
+	b.e.MovRegReg(RCX, RAX)
+	b.e.SubRsp(32)
+	b.iatCall(IATExitProcess)
+}
+
+// emitWinBootstrap emits the loader-independent kernel32 bootstrap
+// (Phase 149): the host loader maps the image and runs entry but does
+// not snap the IAT on minimal images (proven: slots keep file content
+// at runtime), so _start resolves ExitProcess/GetStdHandle/WriteFile
+// itself via the PEB and publishes the addresses into the IAT slots
+// (writable .idata) before main runs. Standard shellcode technique,
+// fully deterministic: PEB (gs:[0x60]) -> Ldr -> module walk matching
+// "kernel32.dll" (never positional) -> export table walk per name.
+// Clobbers RAX,RCX,RDX,RSI,RDI,RBP,R8-R11 (nothing is live pre-main);
+// RSP is never moved. A missing module or export hits Int3: loud,
+// never silent wrong-code.
+func (b *Builder) emitWinBootstrap() {
+	b.e.MovRegGsMem(RAX, 0x60)     // PEB
+	b.e.LoadBaseOff(RAX, RAX, 0x18) // PEB->Ldr
+	b.e.LoadBaseOff(RAX, RAX, 0x20) // InMemoryOrder head
+	b.e.MovRegImm32(R11, 64)        // walk bound (every process has kernel32)
+	walkLbl := b.fresh("k32walk")
+	nextLbl := b.fresh("k32next")
+	foundLbl := b.fresh("k32found")
+	failLbl := b.fresh("k32fail")
+	b.e.Mark(walkLbl)
+	b.e.LoadBaseOff(RAX, RAX, 0) // Flink -> entry links
+	b.e.MovRegReg(RBX, RAX)
+	b.e.SubRegImm32(RBX, 0x10) // links field -> entry base
+	// Phase-149 correction: 64-bit LDR_DATA_TABLE_ENTRY puts DllBase at
+	// +0x30 and BaseDllName at +0x58 (Length +0, Buffer +8); +0x28/+0x50
+	// is the 32-bit shape and skipped every module into the Int3.
+	b.e.MovzxRegMem16(RCX, RBX, 0x58)
+	b.e.CmpRegImm32(RCX, 24) // "kernel32.dll" is 24 bytes
+	b.e.Jnz(nextLbl)
+	b.e.LoadBaseOff(RDX, RBX, 0x60) // BaseDllName.Buffer
+	// Phase-149 ground truth: BaseDllName arrives UPPERCASE
+	// (KERNEL32.DLL — read live from the PEB), so fold each WCHAR
+	// with 0x20 before comparing against lowercase (folding is a
+	// no-op for the digits and dots in this alphabet).
+	for k, ch := range "kernel32.dll" {
+		b.e.MovzxRegMem16(R8, RDX, k*2)
+		b.e.OrRegImm8(R8, 0x20)
+		b.e.CmpRegImm32(R8, uint32(ch))
+		b.e.Jnz(nextLbl)
+	}
+	b.e.LoadBaseOff(R10, RBX, 0x30) // DllBase -> kept for all resolves
+	b.e.Jmp(foundLbl)
+	b.e.Mark(nextLbl)
+	b.e.DecReg(R11)
+	b.e.Jnz(walkLbl)
+	b.e.Mark(failLbl)
+	b.e.Int3()
+	b.e.Mark(foundLbl)
+	b.emitWinResolve("ExitProcess", IATExitProcess)
+	b.emitWinResolve("GetStdHandle", IATGetStdHandle)
+	b.emitWinResolve("WriteFile", IATWriteFile)
+}
+
+// emitWinResolve emits one export-table walk resolving a kernel32 name
+// (R10 holds the module base): names/ordinals/functions pointers,
+// count-bounded candidate loop with unrolled byte compares, resolved
+// address published to the IAT slot. Falls into Int3 when exhausted.
+func (b *Builder) emitWinResolve(name string, slot int) {
+	b.e.LoadBaseOff32(RCX, R10, 0x3C) // e_lfanew
+	b.e.MovRegReg(RDX, R10)
+	b.e.AddRegReg(RDX, RCX) // RDX = NT headers
+	// Phase-149 ground truth: the export directory is at NT+136
+	// (COFF 24 + Optional 112 — the +96 shape is the 32-bit header;
+	// verified live against kernel32: dir[0] VA 0xA65F0). The old +120
+	// read garbage and faulted the first namesPtr load.
+	b.e.LoadBaseOff32(RCX, RDX, 136) // export directory RVA
+	b.e.MovRegReg(RDX, R10)
+	b.e.AddRegReg(RDX, RCX) // RDX = export directory
+	b.e.LoadBaseOff32(R9, RDX, 24)  // NumberOfNames
+	b.e.LoadBaseOff32(RCX, RDX, 32) // AddressOfNames
+	b.e.MovRegReg(RSI, R10)
+	b.e.AddRegReg(RSI, RCX) // RSI = namesPtr
+	b.e.LoadBaseOff32(RCX, RDX, 36) // AddressOfNameOrdinals
+	b.e.MovRegReg(RDI, R10)
+	b.e.AddRegReg(RDI, RCX) // RDI = ordPtr
+	b.e.LoadBaseOff32(RCX, RDX, 28) // AddressOfFunctions
+	b.e.MovRegReg(RBP, R10)
+	b.e.AddRegReg(RBP, RCX) // RBP = funcsPtr
+	loopLbl := b.fresh("exprt")
+	nextLbl := b.fresh("expnext")
+	doneLbl := b.fresh("expdone")
+	failLbl := b.fresh("expfail")
+	b.e.Mark(loopLbl)
+	b.e.TestRegReg(R9, R9)
+	b.e.Jz(failLbl)
+	b.e.LoadBaseOff32(RCX, RSI, 0) // nameRVA
+	b.e.MovRegReg(RDX, R10)
+	b.e.AddRegReg(RDX, RCX) // RDX = candidate name
+	// Export names are ASCII bytes; compare them as aligned pairs
+	// (odd tail pairs against the NUL terminator, always mapped).
+	for k := 0; k < len(name); k += 2 {
+		lo := uint32(name[k])
+		var hi uint32
+		if k+1 < len(name) {
+			hi = uint32(name[k+1])
+		}
+		b.e.MovzxRegMem16(R8, RDX, k)
+		b.e.CmpRegImm32(R8, lo|hi<<8)
+		b.e.Jnz(nextLbl)
+	}
+	b.e.MovzxRegMem16(R8, RDI, 0) // ordinal
+	b.e.LoadScaled32(RAX, RBP, R8, 4, 0)
+	b.e.MovRegReg(RDX, R10)
+	b.e.AddRegReg(RDX, RAX)
+	// Phase-149 correction: 48 A3 stores RAX specifically (moffs form
+	// is accumulator-only), so the resolved address moves RDX -> RAX
+	// first — storing RDX's predecessor (the raw funcRVA) was silently
+	// publishing garbage into the slot.
+	b.e.MovRegReg(RAX, RDX)
+	pos := b.e.StoreAbs64Placeholder()
+	b.apatches = append(b.apatches, absPatch{pos: pos, index: slot})
+	b.e.Jmp(doneLbl)
+	b.e.Mark(nextLbl)
+	b.e.AddRegImm32(RSI, 4)
+	b.e.AddRegImm32(RDI, 2)
+	b.e.DecReg(R9)
+	b.e.Jmp(loopLbl)
+	b.e.Mark(failLbl)
+	b.e.Int3()
+	b.e.Mark(doneLbl)
+}
+
+// iatCall emits movabs rax, <IAT slot index> + call rax for a kernel32
+// import (Phase 149, PE target only). The slot address resolves at link
+// time against the .idata base, reusing the imm64 placeholder machinery.
+func (b *Builder) iatCall(index int) {
+	pos := b.e.imm64Patch(RAX)
+	b.ipatches = append(b.ipatches, iatPatch{pos: pos, index: index})
+	b.e.CallReg(RAX)
+}
+
 func (b *Builder) emitHelpers() {
 	b.e.Mark("print_int")
 	b.e.SubRsp(64)
@@ -321,7 +584,7 @@ func (b *Builder) emitHelpers() {
 	b.e.PushReg(RAX)
 	b.e.PushReg(RSI)
 	b.e.MovRegImm32(RDX, 1)
-	b.e.MovRegImm32(RAX, sysWrite)
+	b.e.MovRegImm32(RAX, b.sysWrite())
 	b.e.MovRegImm32(RDI, 1)
 	b.rodataRef(RSI, "-")
 	b.e.Syscall()
@@ -342,8 +605,7 @@ func (b *Builder) emitHelpers() {
 	b.e.MovRegReg(RDX, RBX)
 	b.e.SubRegReg(RDX, RSI)
 	b.e.MovRegImm32(RDI, 1)
-	b.e.MovRegImm32(RAX, sysWrite)
-	b.e.Syscall()
+	b.emitWrite()
 	b.e.AddRsp(64)
 	// Phase 147: `print` terminates the line (matches the C-backend
 	// contract the execution goldens pin: "42\n", not "42"). RDI is
@@ -355,8 +617,7 @@ func (b *Builder) emitHelpers() {
 	b.e.MovRegReg(RDX, RSI)
 	b.e.MovRegReg(RSI, RDI)
 	b.e.MovRegImm32(RDI, 1)
-	b.e.MovRegImm32(RAX, sysWrite)
-	b.e.Syscall()
+	b.emitWrite()
 	b.printNewline()
 	b.e.Ret()
 }
@@ -365,8 +626,7 @@ func (b *Builder) emitHelpers() {
 func (b *Builder) printNewline() {
 	b.rodataRef(RSI, "\n")
 	b.e.MovRegImm32(RDX, 1)
-	b.e.MovRegImm32(RAX, sysWrite)
-	b.e.Syscall()
+	b.emitWrite()
 }
 
 func (b *Builder) layout(fd *parser.FuncDecl) error {
@@ -396,6 +656,13 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	maxExtra := b.scanMaxExtras(fd.Body)
 	b.extrasBase = next
 	next += maxExtra * 8
+	// Phase 149: Win64 calls fault on misaligned stacks, so the frame
+	// is rounded to 16 on Windows (extras sizing can otherwise leave it
+	// 8-mod-16; Linux never noticed because syscalls don't care, and its
+	// images stay byte-frozen by gating this to Windows).
+	if b.goos == OSWindows && next%16 != 0 {
+		next += 8
+	}
 	b.frame = next + argSpillBytes
 	return nil
 }

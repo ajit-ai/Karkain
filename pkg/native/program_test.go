@@ -28,12 +28,31 @@ func parseNative(t *testing.T, src string) *parser.Program {
 
 func compileNative(t *testing.T, src string) []byte {
 	t.Helper()
-	img, err := CompileProgram(parseNative(t, src))
+	return compileNativeOS(t, OSLinux, src)
+}
+
+// compileNativeOS lowers src for the named native OS and structurally
+// validates the linked image with the matching parser. Runs everywhere;
+// only execution is host-gated.
+func compileNativeOS(t *testing.T, osName, src string) []byte {
+	t.Helper()
+	img, err := CompileProgramForOS(parseNative(t, src), osName)
 	if err != nil {
-		t.Fatalf("compile: %v", err)
+		t.Fatalf("compile (%s): %v", osName, err)
 	}
-	if _, _, err := Parse(img); err != nil {
-		t.Fatalf("structural parse of linked image: %v", err)
+	switch osName {
+	case OSWindows:
+		if _, _, err := ParsePE(img); err != nil {
+			t.Fatalf("structural parse of PE image: %v", err)
+		}
+	case OSMacOS:
+		if _, _, err := ParseMachO(img); err != nil {
+			t.Fatalf("structural parse of Mach-O image: %v", err)
+		}
+	default:
+		if _, _, err := Parse(img); err != nil {
+			t.Fatalf("structural parse of linked image: %v", err)
+		}
 	}
 	return img
 }
@@ -49,6 +68,52 @@ func runNativeCode(t *testing.T, img []byte) (string, int) {
 	// read in binary operands and missing print newlines — all fixed and
 	// proven green on Linux CI (see docs/audit/PHASE-147-FINAL-REPORT.md).
 	// Execution tests run normally in default CI from here on.
+	path := filepath.Join(t.TempDir(), "prog")
+	if err := os.WriteFile(path, img, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(path).CombinedOutput()
+	if err == nil {
+		return string(out), 0
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return string(out), ee.ExitCode()
+	}
+	t.Fatalf("run: %v (out=%q)", err, out)
+	return "", -1
+}
+
+// runNativeWindows executes a PE image where it can run (windows/amd64)
+// and skips elsewhere. Phase 149: the dev host itself is a Windows
+// runner, so these execute locally as well as on Windows CI.
+func runNativeWindows(t *testing.T, img []byte) (string, int) {
+	t.Helper()
+	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
+		t.Skip("PE execution needs windows/amd64")
+	}
+	path := filepath.Join(t.TempDir(), "prog.exe")
+	if err := os.WriteFile(path, img, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(path).CombinedOutput()
+	if err == nil {
+		return string(out), 0
+	}
+	if ee, ok := err.(*exec.ExitError); ok {
+		return string(out), ee.ExitCode()
+	}
+	t.Fatalf("run: %v (out=%q)", err, out)
+	return "", -1
+}
+
+// runNativeMacOS would execute a Mach-O image on darwin/amd64; no such
+// runner exists (GitHub macOS legs are arm64), so it honestly skips.
+// The structural pins in TestNativeMachO are the v1 proof.
+func runNativeMacOS(t *testing.T, img []byte) (string, int) {
+	t.Helper()
+	if runtime.GOOS != "darwin" || runtime.GOARCH != "amd64" {
+		t.Skip("Mach-O execution needs darwin/amd64 (no runner: structural pins only)")
+	}
 	path := filepath.Join(t.TempDir(), "prog")
 	if err := os.WriteFile(path, img, 0o755); err != nil {
 		t.Fatal(err)
@@ -238,5 +303,70 @@ func TestNativeDeterministic(t *testing.T) {
 	}
 	if string(a) != string(b) {
 		t.Fatal("non-deterministic linked image")
+	}
+}
+
+// TestNativePE pins the Phase-149 Windows target: the same goldens as
+// the Linux suite, executed where they can run (windows/amd64 — the dev
+// host proves them locally as well as Windows CI) and structurally
+// validated elsewhere. kernel32 imports + Win64 boundary sequences are
+// what these exercise beyond the shared lowering.
+func TestNativePE(t *testing.T) {
+	cases := []struct {
+		name     string
+		src      string
+		want     string
+		wantCode int
+	}{
+		{"empty", "func main() {\n}\n", "", 0},
+		{"retcode", "func main() {\n    return 7\n}\n", "", 7},
+		{"int42", "func main() {\n    print(42)\n}\n", "42\n", 0},
+		{"str", "func main() {\n    print(\"hi\")\n}\n", "hi\n", 0},
+		{"add", "func add(a, b) {\n    return a + b\n}\nfunc main() {\n    print(add(20, 22))\n}\n", "42\n", 0},
+		{"while_sum", "func main() {\n    let s = 0\n    let i = 1\n    while (i <= 10) {\n        s = s + i\n        i = i + 1\n    }\n    print(s)\n}\n", "55\n", 0},
+		{"string_arg", "func greet(name string) {\n    print(name)\n}\nfunc main() {\n    greet(\"yo\")\n}\n", "yo\n", 0},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNativeOS(t, OSWindows, c.src)
+			out, code := runNativeWindows(t, img)
+			if out != "" && out != c.want {
+				t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+			}
+			if code != c.wantCode {
+				t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
+			}
+		})
+	}
+}
+
+// TestNativeMachO pins the Phase-149 macOS target structurally: magic,
+// cputype, EXECUTE type, four load commands with LC_MAIN inside the
+// file. No Intel-mac runner exists, so execution honestly skips
+// (runNativeMacOS); the first run on a real Mac validates the
+// dyld-info shape beyond these pins.
+func TestNativeMachO(t *testing.T) {
+	srcs := []string{
+		"func main() {\n}\n",
+		"func main() {\n    print(40 + 2)\n}\n",
+		"func add(a, b) {\n    return a + b\n}\nfunc main() {\n    print(add(20, 22))\n}\n",
+	}
+	for i, src := range srcs {
+		img := compileNativeOS(t, OSMacOS, src)
+		entry, textOff, err := ParseMachO(img)
+		if err != nil {
+			t.Fatalf("case %d: %v", i, err)
+		}
+		if entry < MachoBase+uint64(textOff) || entry >= MachoBase+uint64(len(img)) {
+			t.Fatalf("case %d: entry %#x outside image", i, entry)
+		}
+		a, err := CompileProgramForOS(parseNative(t, src), OSMacOS)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(a) != string(img) {
+			t.Fatalf("case %d: non-deterministic mach-o image", i)
+		}
 	}
 }

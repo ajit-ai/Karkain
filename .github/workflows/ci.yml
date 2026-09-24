@@ -264,6 +264,24 @@ jobs:
         if: always()
         run: strace -f -e trace=process,write,exit_group,memory ${{ runner.temp }}/native-evidence/native-empty; echo "exit=$?"
 
+  native-windows:
+    # Phase 149: PE execution proof. Runs the full pkg/native suite on
+    # windows/amd64, the only CI leg that can execute PE images: ELF
+    # images skip by platform, PE goldens execute, Mach-O validates
+    # structurally. Without this job the CallReg-class regressions
+    # (ModRM-level encoder faults) are invisible to CI.
+    name: Native PE execution (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run native suite (PE executes, ELF skips)
+        run: go test ./pkg/native/ -count=1
+
   toolchain-matrix:
     # Phase 139: cross-linker presence matrix. Informational ONLY (never red):
     # it reports which foreign toolchains the runner happens to carry so

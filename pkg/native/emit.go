@@ -327,6 +327,31 @@ func (e *Emitter) Call(label string) {
 	e.rel32(label)
 }
 
+// CallReg emits call m64 (FF /2 with a memory ModRM): an indirect call
+// through the address STORED at [r].
+//
+// Phase-149 root-cause fix: this previously emitted FF D0 (modrm 11 010
+// 000), which is call r64 — a call to the address IN the register. For
+// the IAT sequence the register holds the SLOT address, so every import
+// call jumped into the slot bytes themselves (fault RIP == slot address
+// in every run) instead of the resolved address stored there. Memory
+// indirect (mod != 11) is required; REX.R stays clear because /2 is a
+// fixed opcode extension, with REX.B only for extended base regs.
+func (e *Emitter) CallReg(r Reg) {
+	e.rex(false, 0, r)
+	e.byte(0xFF)
+	switch {
+	case r.low() == 4:
+		e.modrm(0, 2, 4)
+		e.byte(0x20 | r.low())
+	case r.low() == 5:
+		e.modrm(1, 2, r.low())
+		e.byte(0)
+	default:
+		e.modrm(0, 2, r.low())
+	}
+}
+
 // Jmp emits jmp rel32: E9 cd.
 func (e *Emitter) Jmp(label string) {
 	e.byte(0xE9)
@@ -393,6 +418,86 @@ func (e *Emitter) Jns(label string) {
 // Ret emits ret: C3.
 func (e *Emitter) Ret() { e.byte(0xC3) }
 
+// AndRspNeg16 emits and rsp, -16: REX.W + 83 /4 F0. Used once at the
+// Windows _start so entry alignment is guaranteed regardless of what
+// the loader provides (Win64 calls fault on misaligned stacks).
+func (e *Emitter) AndRspNeg16() {
+	e.rex(true, RSP, RSP)
+	e.byte(0x83)
+	e.modrm(3, 4, RSP.low())
+	e.byte(0xF0)
+}
+
+// Phase 149: loader-independent bootstrap primitives (PEB walk + export
+// resolve for the Windows kernel32 boundary). All golden-pinned below.
+
+// MovRegGsMem emits mov r64, gs:[disp32]: 0x65 + REX.W + 8B /r + SIB
+// 0x25 + disp32. Used once: rax = PEB (gs:[0x60] on x86-64 Windows).
+func (e *Emitter) MovRegGsMem(dst Reg, disp uint32) {
+	e.byte(0x65)
+	e.rex(true, dst, RSP)
+	e.byte(0x8B)
+	e.modrm(0, dst.low(), 4)
+	e.byte(0x25)
+	e.u32(disp)
+}
+
+// MovzxRegMem16 emits movzx r32, word [base+off]: 0F B7 /r + ModRM +
+// SIB + disp (no REX.W: 32-bit destination). Used to read UNICODE_STRING
+// Length fields and WCHARs while matching DLL/export names.
+func (e *Emitter) MovzxRegMem16(dst, base Reg, off int) {
+	e.rex(false, dst, base)
+	e.byte(0x0F)
+	e.byte(0xB7)
+	switch {
+	case off == 0 && base.low() != 5:
+		e.modrm(0, dst.low(), 4)
+	case off >= -128 && off <= 127:
+		e.modrm(1, dst.low(), 4)
+	default:
+		e.modrm(2, dst.low(), 4)
+	}
+	e.byte(0x20 | base.low())
+	switch {
+	case off == 0 && base.low() != 5:
+	case off >= -128 && off <= 127:
+		e.byte(byte(int8(off)))
+	default:
+		e.u32(uint32(int32(off)))
+	}
+}
+
+// CmpRegImm32 emits cmp r64, imm32: REX.W + 81 /7 io.
+func (e *Emitter) CmpRegImm32(r Reg, v uint32) {
+	e.rex(true, r, r)
+	e.byte(0x81)
+	e.modrm(3, 7, r.low())
+	e.u32(v)
+}
+
+// StoreBaseOff emits mov [base+off], r64: REX.W + 89 /r + ModRM + SIB +
+// disp. Used to publish resolved kernel32 addresses into the IAT slots.
+func (e *Emitter) StoreBaseOff(src, base Reg, off int) {
+	e.rex(true, src, base)
+	e.byte(0x89)
+	switch {
+	case off == 0 && base.low() != 5:
+		e.modrm(0, src.low(), 4)
+	case off >= -128 && off <= 127:
+		e.modrm(1, src.low(), 4)
+	default:
+		e.modrm(2, src.low(), 4)
+	}
+	e.byte(0x20 | base.low())
+	switch {
+	case off == 0 && base.low() != 5:
+	case off >= -128 && off <= 127:
+		e.byte(byte(int8(off)))
+	default:
+		e.u32(uint32(int32(off)))
+	}
+}
+
 // Phase 148: frame-addressing primitives for the extras-pointer ABI
 // (arguments past the six register units travel in a caller-frame array
 // whose address reaches the callee in R10).
@@ -431,4 +536,108 @@ func (e *Emitter) LoadBaseOff(dst, base Reg, off int) {
 func (e *Emitter) Syscall() {
 	e.byte(0x0F)
 	e.byte(0x05)
+}
+
+// Phase 149: loader-independent bootstrap memory forms.
+
+// LoadBaseOff32 emits mov r32, [base+off] (zero-extending): 8B /r +
+// ModRM + SIB + disp with no REX.W (REX.B only for extended regs).
+// Used for u32 fields (PE headers, export directory, name RVAs).
+func (e *Emitter) LoadBaseOff32(dst, base Reg, off int) {
+	e.rex(false, dst, base)
+	e.byte(0x8B)
+	switch {
+	case off == 0 && base.low() != 5:
+		e.modrm(0, dst.low(), 4)
+	case off >= -128 && off <= 127:
+		e.modrm(1, dst.low(), 4)
+	default:
+		e.modrm(2, dst.low(), 4)
+	}
+	e.byte(0x20 | base.low())
+	switch {
+	case off == 0 && base.low() != 5:
+	case off >= -128 && off <= 127:
+		e.byte(byte(int8(off)))
+	default:
+		e.u32(uint32(int32(off)))
+	}
+}
+
+// LoadScaled32 emits mov r32, [base+index*scale+disp]: 8B /r + ModRM +
+// SIB(scale,index,base) + disp. Used for the export functions table
+// ([funcsPtr + ordinal*4]).
+func (e *Emitter) LoadScaled32(dst, base, index Reg, scale int, disp int) {
+	var sc byte
+	switch scale {
+	case 1:
+		sc = 0
+	case 2:
+		sc = 1
+	case 4:
+		sc = 2
+	case 8:
+		sc = 3
+	default:
+		panic("native backend: bad scale (want 1, 2, 4 or 8)")
+	}
+	r := byte(0x40)
+	if dst.ext() {
+		r |= 0x04 // REX.R extends the modrm reg field (dst here)
+	}
+	if index.ext() {
+		r |= 0x02 // REX.X extends the SIB index field
+	}
+	if base.ext() {
+		r |= 0x01 // REX.B extends the SIB base field
+	}
+	if r != 0x40 {
+		e.byte(r)
+	}
+	e.byte(0x8B)
+	if disp == 0 && base.low() != 5 {
+		e.modrm(0, dst.low(), 4)
+	} else if disp >= -128 && disp <= 127 {
+		e.modrm(1, dst.low(), 4)
+	} else {
+		e.modrm(2, dst.low(), 4)
+	}
+	e.byte(sc<<6 | index.low()<<3 | base.low())
+	if disp == 0 && base.low() != 5 {
+	} else if disp >= -128 && disp <= 127 {
+		e.byte(byte(int8(disp)))
+	} else {
+		e.u32(uint32(int32(disp)))
+	}
+}
+
+// StoreAbs64Placeholder emits mov [imm64], rax (48 A3 + 8 placeholder
+// bytes) and returns the offset of the immediate for link-time
+// resolution. Used once per kernel32 import: the bootstrap publishes
+// the resolved address straight into the IAT slot.
+func (e *Emitter) StoreAbs64Placeholder() int {
+	e.rex(true, RAX, RAX)
+	e.byte(0xA3)
+	pos := len(e.code)
+	e.u64(0)
+	return pos
+}
+
+// Int3 emits int3 (CC): a loud breakpoint fault. The bootstrap uses it
+// for the impossible path (a kernel32 export missing on a real host) so
+// it can never fail silently into wrong-code execution.
+func (e *Emitter) Int3() {
+	e.byte(0xCC)
+}
+
+// OrRegImm8 emits or r64, imm8: REX.W + 83 /1 ib (REX.B only for
+// r8-r15; REX.R stays clear because the /1 lives in the fixed opcode
+// extension, not a register field). The bootstrap folds WCHARs with
+// 0x20 before comparing DLL names (BaseDllName arrives uppercase,
+// e.g. KERNEL32.DLL; folding is a no-op for digits/dots).
+func (e *Emitter) OrRegImm8(r Reg, v byte) {
+	e.rex(true, RAX, r)
+	e.byte(0x83)
+	e.modrm(3, 1, r.low())
+	e.byte(v)
 }

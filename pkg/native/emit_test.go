@@ -107,4 +107,25 @@ func TestEmitFrameAddr(t *testing.T) {
 		0x49, 0x8B, 0x04, 0x22)
 	want(t, "mov rax,[r10+24]", hexOf(t, func(e *Emitter) { e.LoadBaseOff(RAX, R10, 24) }),
 		0x49, 0x8B, 0x44, 0x22, 0x18)
+	want(t, "call [rax]", hexOf(t, func(e *Emitter) { e.CallReg(RAX) }), 0xFF, 0x10)
+	want(t, "call [r10]", hexOf(t, func(e *Emitter) { e.CallReg(R10) }), 0x41, 0xFF, 0x12)
+	want(t, "call [rsp]", hexOf(t, func(e *Emitter) { e.CallReg(RSP) }), 0xFF, 0x14, 0x24)
+	want(t, "and rsp,-16", hexOf(t, func(e *Emitter) { e.AndRspNeg16() }), 0x48, 0x83, 0xE4, 0xF0)
+	want(t, "mov rax,gs:[0x60]", hexOf(t, func(e *Emitter) { e.MovRegGsMem(RAX, 0x60) }),
+		0x65, 0x48, 0x8B, 0x04, 0x25, 0x60, 0x00, 0x00, 0x00)
+	want(t, "movzx ecx,[rbx]", hexOf(t, func(e *Emitter) { e.MovzxRegMem16(RCX, RBX, 0) }),
+		0x0F, 0xB7, 0x0C, 0x23)
+	want(t, "cmp rax,60", hexOf(t, func(e *Emitter) { e.CmpRegImm32(RAX, 60) }),
+		0x48, 0x81, 0xF8, 0x3C, 0x00, 0x00, 0x00)
+	want(t, "mov [rax],rcx", hexOf(t, func(e *Emitter) { e.StoreBaseOff(RCX, RAX, 0) }),
+		0x48, 0x89, 0x0C, 0x20)
+	want(t, "mov ecx,[rsi]", hexOf(t, func(e *Emitter) { e.LoadBaseOff32(RCX, RSI, 0) }),
+		0x8B, 0x0C, 0x26)
+	want(t, "mov eax,[rbp+ecx*4]", hexOf(t, func(e *Emitter) { e.LoadScaled32(RAX, RBP, RCX, 4, 0) }),
+		0x8B, 0x44, 0x8D, 0x00)
+	want(t, "mov [imm64],rax", hexOf(t, func(e *Emitter) { e.StoreAbs64Placeholder() }),
+		0x48, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+	want(t, "int3", hexOf(t, func(e *Emitter) { e.Int3() }), 0xCC)
+	want(t, "or r8,0x20", hexOf(t, func(e *Emitter) { e.OrRegImm8(R8, 0x20) }),
+		0x49, 0x83, 0xC8, 0x20)
 }
