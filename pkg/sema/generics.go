@@ -197,26 +197,42 @@ func (m *Monomorphizer) InstantiateGenericKernel(
 }
 
 // InstantiateGenericFunc creates a specialized function from a generic template
+// Phase 146A: hardens the Phase-26 stub (which copied Params/Body verbatim)
+// into a real substitution: ParamTypes go through substituteType, the body
+// goes through substituteNode, and the specialization carries no
+// GenericParams so codegen emits it as a plain unit. Constraints are
+// stored but unchecked in v1 (no trait/impl declaration syntax exists to
+// check against — see the Phase-146 baseline).
 func (m *Monomorphizer) InstantiateGenericFunc(
 	tmpl *parser.FuncDecl,
 	typeArgs map[string]string,
 ) (*parser.FuncDecl, error) {
 	m.errors = nil
 
-	for _, gp := range tmpl.GenericParams {
-		if concreteType, ok := typeArgs[gp.Name]; ok {
-			if err := m.CheckTraitConstraints(concreteType, gp.Constraints); err != nil {
-				return nil, err
-			}
-		}
-	}
-
 	specializedName := m.buildSpecializedName(tmpl.Name, tmpl.GenericParams, typeArgs)
 
+	paramTypes := make([]string, len(tmpl.ParamTypes))
+	for i, pt := range tmpl.ParamTypes {
+		resolved, err := m.substituteType(pt, typeArgs)
+		if err != nil {
+			return nil, fmt.Errorf("function %q param %q: %w", tmpl.Name, tmpl.Params[i], err)
+		}
+		paramTypes[i] = resolved
+	}
+
+	params := make([]string, len(tmpl.Params))
+	copy(params, tmpl.Params)
+
 	return &parser.FuncDecl{
-		Name:   specializedName,
-		Params: tmpl.Params,
-		Body:   tmpl.Body,
+		Name:       specializedName,
+		Params:     params,
+		ParamTypes: paramTypes,
+		Body:       m.substituteBody(tmpl.Body, typeArgs),
+		Public:     tmpl.Public,
+		Target:     tmpl.Target,
+		Line:       tmpl.Line,
+		Col:        tmpl.Col,
+		EndCol:     tmpl.EndCol,
 	}, nil
 }
 
@@ -282,6 +298,12 @@ func (m *Monomorphizer) substituteBody(stmts []parser.Node, typeArgs map[string]
 }
 
 // substituteNode substitutes types in a single AST node
+// Phase 146A: extended beyond the Phase-26 VarDecl/Binary/Index/ExprStmt
+// core so generic function bodies survive monomorphization intact —
+// ReturnStmt, control flow, calls, struct literals, arrays and unary
+// expressions all recurse; type-carrying strings (VarDecl types,
+// StructLiteral type names) go through substituteType. Anything exotic
+// falls through unchanged (conservative: never miscompile).
 func (m *Monomorphizer) substituteNode(node parser.Node, typeArgs map[string]string) parser.Node {
 	switch n := node.(type) {
 	case *parser.VarDeclStmt:
@@ -289,27 +311,157 @@ func (m *Monomorphizer) substituteNode(node parser.Node, typeArgs map[string]str
 		if err != nil {
 			resolved = n.Type
 		}
+		var val parser.Node
+		if n.Value != nil {
+			val = m.substituteNode(n.Value, typeArgs)
+		}
 		return &parser.VarDeclStmt{
 			Name:     n.Name,
-			Value:    m.substituteNode(n.Value, typeArgs),
+			Value:    val,
 			Type:     resolved,
+			Const:    n.Const,
 			IsMatrix: n.IsMatrix,
+			IsSIMD:   n.IsSIMD,
+			Align:    n.Align,
+			Escapes:  n.Escapes,
+			Line:     n.Line,
+			Col:      n.Col,
+			EndCol:   n.EndCol,
 		}
 	case *parser.BinaryExpr:
 		return &parser.BinaryExpr{
 			Left:     m.substituteNode(n.Left, typeArgs),
 			Operator: n.Operator,
 			Right:    m.substituteNode(n.Right, typeArgs),
+			Line:     n.Line,
+		}
+	case *parser.UnaryExpr:
+		return &parser.UnaryExpr{
+			Operator: n.Operator,
+			Operand:  m.substituteNode(n.Operand, typeArgs),
+			Line:     n.Line,
 		}
 	case *parser.IndexExpr:
 		return &parser.IndexExpr{
 			Left:  m.substituteNode(n.Left, typeArgs),
 			Index: m.substituteNode(n.Index, typeArgs),
+			Line:  n.Line,
 		}
 	case *parser.ExprStmt:
 		return &parser.ExprStmt{
 			Expression: m.substituteNode(n.Expression, typeArgs),
+			Line:       n.Line,
 		}
+	case *parser.ReturnStmt:
+		var v parser.Node
+		if n.Value != nil {
+			v = m.substituteNode(n.Value, typeArgs)
+		}
+		return &parser.ReturnStmt{Value: v, Line: n.Line}
+	case *parser.IfStmt:
+		return &parser.IfStmt{
+			Condition:   m.substituteNode(n.Condition, typeArgs),
+			Consequence: m.substituteBody(n.Consequence, typeArgs),
+			Alternative: m.substituteBody(n.Alternative, typeArgs),
+			Line:        n.Line,
+		}
+	case *parser.WhileStmt:
+		return &parser.WhileStmt{
+			Condition: m.substituteNode(n.Condition, typeArgs),
+			Body:      m.substituteBody(n.Body, typeArgs),
+			Line:      n.Line,
+		}
+	case *parser.ForStmt:
+		var init, cond, post parser.Node
+		if n.Init != nil {
+			init = m.substituteNode(n.Init, typeArgs)
+		}
+		if n.Condition != nil {
+			cond = m.substituteNode(n.Condition, typeArgs)
+		}
+		if n.Post != nil {
+			post = m.substituteNode(n.Post, typeArgs)
+		}
+		return &parser.ForStmt{
+			Init:      init,
+			Condition: cond,
+			Post:      post,
+			Body:      m.substituteBody(n.Body, typeArgs),
+			Line:      n.Line,
+		}
+	case *parser.ForInStmt:
+		return &parser.ForInStmt{
+			VarName: n.VarName,
+			KeyName: n.KeyName,
+			Iter:    m.substituteNode(n.Iter, typeArgs),
+			Body:    m.substituteBody(n.Body, typeArgs),
+			Line:    n.Line,
+		}
+	case *parser.PrintStmt:
+		return &parser.PrintStmt{Value: m.substituteNode(n.Value, typeArgs), Line: n.Line}
+	case *parser.CallExpr:
+		args := make([]parser.Node, len(n.Args))
+		for i, a := range n.Args {
+			args[i] = m.substituteNode(a, typeArgs)
+		}
+		// Phase 146A: nested generic arguments name type parameters too
+		// (`f[T]` inside `f[T]`'s own body) — map them so the fixpoint
+		// monomorphize walk instantiates the concrete target (`f[int]`).
+		targs := append([]string(nil), n.TypeArgs...)
+		for i, ta := range targs {
+			if concrete, ok := typeArgs[ta]; ok {
+				targs[i] = concrete
+			}
+		}
+		return &parser.CallExpr{
+			Function: n.Function,
+			Module:   n.Module,
+			Args:     args,
+			IsCFunc:  n.IsCFunc,
+			TypeArgs: targs,
+			Line:     n.Line,
+			Col:      n.Col,
+			EndCol:   n.EndCol,
+		}
+	case *parser.IndirectCallExpr:
+		args := make([]parser.Node, len(n.Args))
+		for i, a := range n.Args {
+			args[i] = m.substituteNode(a, typeArgs)
+		}
+		return &parser.IndirectCallExpr{
+			Target: m.substituteNode(n.Target, typeArgs),
+			Args:   args,
+			Line:   n.Line,
+			Col:    n.Col,
+			EndCol: n.EndCol,
+		}
+	case *parser.StructLiteral:
+		typeName := n.TypeName
+		if concrete, ok := typeArgs[typeName]; ok {
+			typeName = concrete
+		}
+		fields := make([]parser.Node, len(n.Fields))
+		for i, f := range n.Fields {
+			fields[i] = m.substituteNode(f, typeArgs)
+		}
+		targs := append([]string(nil), n.TypeArgs...)
+		for i, ta := range targs {
+			if concrete, ok := typeArgs[ta]; ok {
+				targs[i] = concrete
+			}
+		}
+		return &parser.StructLiteral{
+			TypeName: typeName,
+			Fields:   fields,
+			TypeArgs: targs,
+			Line:     n.Line,
+		}
+	case *parser.ArrayLiteral:
+		elems := make([]parser.Node, len(n.Elements))
+		for i, e := range n.Elements {
+			elems[i] = m.substituteNode(e, typeArgs)
+		}
+		return &parser.ArrayLiteral{Elements: elems, Line: n.Line}
 	default:
 		return node
 	}

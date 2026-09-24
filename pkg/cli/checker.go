@@ -84,6 +84,12 @@ func AnalyzeSource(file string, src string, srcMap sema.SourceMap) (diags []diag
 	// Whole-program name resolution (Phase 81 fix: macro expansion runs
 	// before resolution and preserves node spans).
 	prog = parser.ApplyMacroExpansion(prog)
+	// Phase 146A: explicit type-argument generics — instantiate
+	// specializations and rewrite call sites before resolution so the
+	// resolver and every downstream stage see plain units.
+	if monoErrs := sema.MonomorphizeProgram(prog); len(monoErrs) > 0 {
+		return collectResolveDiagnostics(file, src, monoErrs), nil, 0
+	}
 	resolver := sema.NewResolver(prog, srcMap)
 	if resolveErrs := resolver.Resolve(); len(resolveErrs) > 0 {
 		return collectResolveDiagnostics(file, src, resolveErrs), nil, 0
@@ -173,6 +179,12 @@ func collectUnusedWarnings(file string, src string, warns []sema.Warning) []diag
 // clean `error[K00x]` report and ExitCompile — never raw compiler noise from
 // codegen of an un-resolvable program. Returns nil when the program resolves.
 func runSemanticPreflight(file, src string, srcMap sema.SourceMap, prog *parser.Program) []diagnostics.Diagnostic {
+	// Phase 146A: same monomorphization the check path runs — build/run
+	// must reject generic arity errors identically (exit 3) and codegen
+	// must see the rewritten plain units.
+	if monoErrs := sema.MonomorphizeProgram(prog); len(monoErrs) > 0 {
+		return collectResolveDiagnostics(file, src, monoErrs)
+	}
 	resolver := sema.NewResolver(prog, srcMap)
 	if resolveErrs := resolver.Resolve(); len(resolveErrs) > 0 {
 		return collectResolveDiagnostics(file, src, resolveErrs)

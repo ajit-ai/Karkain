@@ -32,6 +32,7 @@ import (
 
 	"karkain/pkg/lexer"
 	"karkain/pkg/parser"
+	"karkain/pkg/sema"
 )
 
 // SplitResult bundles every text artifact of a split emission.
@@ -81,6 +82,11 @@ func ModuleFuncNames(files []string) (map[string][]string, error) {
 // whole-program prescans run here — per-module work is pure emission.
 func GenerateSplit(cfg Config, prog *parser.Program, files []string, rootFile string) (*SplitResult, error) {
 	g := New(cfg)
+	// Phase 146A: same instantiation the monolith path runs — split TUs
+	// must see plain-unit specializations, never templates.
+	if monoErrs := sema.MonomorphizeProgram(prog); len(monoErrs) > 0 {
+		return nil, fmt.Errorf("%s", monoErrs[0].Error())
+	}
 	g.sourceFile = strings.Replace(rootFile, "\\", "/", -1)
 	g.prescanTables(prog)
 
