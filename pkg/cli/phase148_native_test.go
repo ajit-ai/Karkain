@@ -44,7 +44,11 @@ func TestPhase148_BuildWritesImage(t *testing.T) {
 	straight := write148Probe(t, "straight", "func main() {\n\tprint(40 + 2)\n}\n")
 	ctrl := write148Probe(t, "ctrl",
 		"func main() {\n\tlet s = 0\n\tlet i = 0\n\twhile (i < 10) {\n\t\ti = i + 1\n\t\ts = s + i\n\t}\n\tprint(s)\n}\n")
-	for name, probe := range map[string]string{"straight": straight, "ctrl": ctrl} {
+	abi := write148Probe(t, "abi",
+		"func greet(name string) {\n\tprint(name)\n}\n"+
+			"func sum7(a, b, c, d, e, f, g) {\n\treturn a + b + c + d + e + f + g\n}\n"+
+			"func main() {\n\tgreet(\"hi\")\n\tprint(sum7(1, 2, 3, 4, 5, 6, 7))\n}\n")
+	for name, probe := range map[string]string{"straight": straight, "ctrl": ctrl, "abi": abi} {
 		out := filepath.Join(t.TempDir(), name+".elf")
 		cmd := exec.Command(karkain, "build", probe, "--engine", "go", "--target", "native-x86_64-linux", "-o", out)
 		cmd.Env = append(os.Environ(), "KARKAIN_ENGINE=go")

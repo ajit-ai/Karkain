@@ -200,6 +200,13 @@ jobs:
         if: always()
         run: go test ./pkg/native/ -run 'TestNativeBisect/call' -count=1 -v
 
+      - name: Run Phase 148 native-target gate
+        # CLI surface for native-x86_64-linux (Go engine): target
+        # registration, build-writes-image, run refusal, incremental
+        # refusal, listing. Execution goldens run in the pkg/native
+        # gate above (Linux) with structural validation elsewhere.
+        run: go test ./pkg/cli/ -run 'TestPhase148' -count=1
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 

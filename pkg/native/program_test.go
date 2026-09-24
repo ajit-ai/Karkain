@@ -135,7 +135,7 @@ func TestNativeNegatives(t *testing.T) {
 		{`func main() { print(1) }
 func main() { print(2) }`, "duplicate function"},
 		{`func f(a, b, c, d, e, g, h) { return a }
-func main() { print(f(1, 2, 3, 4, 5, 6, 7)) }`, "max 6"},
+func main() { print(f(1, 2)) }`, "has 2 args (want 7)"},
 		{`func main() { print(1.5) }`, "floating-point"},
 		{`func main() { print(nope(1)) }`, "undefined function"},
 		{`func main() { let s = "x" print(s + 1) }`, "in int position"},
@@ -143,6 +143,10 @@ func main() { print(f(1, 2, 3, 4, 5, 6, 7)) }`, "max 6"},
 		{`func main() { continue }`, "continue outside"},
 		{`func main() { if (1) { print(1) } }`, "must be an int comparison"},
 		{`func main() { let y = 1 for x in y { print(x) } }`, "for-in loops are not supported"},
+		{`func main(x) { print(x) }`, "takes no arguments"},
+		{`func main() { return "x" }`, "must return int"},
+		{`func f(s string) { print(s) } func main() { f(1) }`, "int argument for string parameter"},
+		{`func f(a int) { print(a) } func main() { f("x") }`, "string argument for int parameter"},
 	}
 	for _, c := range cases {
 		_, err := CompileProgram(parseNative(t, c.src))
@@ -172,6 +176,40 @@ func TestNativeControl(t *testing.T) {
 		{"cfor_sum", "func main() {\n    let s = 0\n    for (let i = 0; i < 10; i = i + 1) {\n        s = s + i\n    }\n    print(s)\n}\n", "45\n", 0},
 		{"break_continue", "func main() {\n    let s = 0\n    let i = 0\n    while (i < 10) {\n        i = i + 1\n        if (i == 3) {\n            continue\n        }\n        if (i == 7) {\n            break\n        }\n        s = s + i\n    }\n    print(s)\n}\n", "18\n", 0},
 		{"nested", "func main() {\n    let n = 0\n    let i = 0\n    while (i < 3) {\n        let j = 0\n        while (j < 3) {\n            n = n + 1\n            j = j + 1\n        }\n        i = i + 1\n    }\n    print(n)\n}\n", "9\n", 0},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNative(t, c.src)
+			out, code := runNativeCode(t, img)
+			if out != "" && out != c.want {
+				t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+			}
+			if code != c.wantCode {
+				t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
+			}
+		})
+	}
+}
+
+// TestNativeCallsABI pins the Phase-148 calling convention: string args
+// as (ptr,len) pairs, string returns as (RAX=ptr,RDX=len), stack units
+// past the six register units via the R10 extras pointer, exact arity,
+// and main-takes-no-arguments. Execution on Linux; structural elsewhere.
+func TestNativeCallsABI(t *testing.T) {
+	cases := []struct {
+		name     string
+		src      string
+		want     string
+		wantCode int
+	}{
+		{"string_arg", "func greet(name string) {\n    print(name)\n}\nfunc main() {\n    greet(\"hi\")\n}\n", "hi\n", 0},
+		{"string_var_arg", "func greet(name string) {\n    print(name)\n}\nfunc main() {\n    let w = \"yo\"\n    greet(w)\n}\n", "yo\n", 0},
+		{"string_return", "func word() {\n    return \"abc\"\n}\nfunc main() {\n    print(word())\n}\n", "abc\n", 0},
+		{"mixed_args", "func show(a int, s string, b int) {\n    print(a)\n    print(s)\n    print(b)\n}\nfunc main() {\n    show(1, \"two\", 3)\n}\n", "1\ntwo\n3\n", 0},
+		{"seven_params", "func sum7(a, b, c, d, e, f, g) {\n    return a + b + c + d + e + f + g\n}\nfunc main() {\n    print(sum7(1, 2, 3, 4, 5, 6, 7))\n}\n", "28\n", 0},
+		{"straddle", "func mix(a, b, c, d, e, s string) {\n    print(a)\n    print(s)\n}\nfunc main() {\n    mix(1, 2, 3, 4, 5, \"six\")\n}\n", "1\nsix\n", 0},
+		{"nested_strcall", "func id(s string) {\n    return s\n}\nfunc main() {\n    print(id(id(\"ok\")))\n}\n", "ok\n", 0},
 	}
 	for _, c := range cases {
 		c := c

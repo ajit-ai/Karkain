@@ -393,6 +393,40 @@ func (e *Emitter) Jns(label string) {
 // Ret emits ret: C3.
 func (e *Emitter) Ret() { e.byte(0xC3) }
 
+// Phase 148: frame-addressing primitives for the extras-pointer ABI
+// (arguments past the six register units travel in a caller-frame array
+// whose address reaches the callee in R10).
+
+// LeaRegStack emits lea r64, [rsp+off]: REX.W + 8D /r.
+func (e *Emitter) LeaRegStack(dst Reg, off int) {
+	e.rex(true, dst, RSP)
+	e.byte(0x8D)
+	e.memRsp(dst, off)
+}
+
+// LoadBaseOff emits mov r64, [base+off] for an arbitrary base register:
+// REX.W + 8B /r + ModRM + SIB + disp.
+func (e *Emitter) LoadBaseOff(dst, base Reg, off int) {
+	e.rex(true, dst, base)
+	e.byte(0x8B)
+	switch {
+	case off == 0 && base.low() != 5:
+		e.modrm(0, dst.low(), 4)
+	case off >= -128 && off <= 127:
+		e.modrm(1, dst.low(), 4)
+	default:
+		e.modrm(2, dst.low(), 4)
+	}
+	e.byte(0x20 | base.low())
+	switch {
+	case off == 0 && base.low() != 5:
+	case off >= -128 && off <= 127:
+		e.byte(byte(int8(off)))
+	default:
+		e.u32(uint32(int32(off)))
+	}
+}
+
 // Syscall emits syscall: 0F 05.
 func (e *Emitter) Syscall() {
 	e.byte(0x0F)

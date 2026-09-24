@@ -98,3 +98,13 @@ func TestEmitCondJumps(t *testing.T) {
 	want(t, "jg", back(func(e *Emitter) { e.Jg("here") }), 0x0F, 0x8F, 0xFA, 0xFF, 0xFF, 0xFF)
 	want(t, "jge", back(func(e *Emitter) { e.Jge("here") }), 0x0F, 0x8D, 0xFA, 0xFF, 0xFF, 0xFF)
 }
+
+// Phase 148: frame-addressing goldens for the extras-pointer ABI.
+func TestEmitFrameAddr(t *testing.T) {
+	want(t, "lea rax,[rsp+16]", hexOf(t, func(e *Emitter) { e.LeaRegStack(RAX, 16) }),
+		0x48, 0x8D, 0x44, 0x24, 0x10)
+	want(t, "mov rax,[r10]", hexOf(t, func(e *Emitter) { e.LoadBaseOff(RAX, R10, 0) }),
+		0x49, 0x8B, 0x04, 0x22)
+	want(t, "mov rax,[r10+24]", hexOf(t, func(e *Emitter) { e.LoadBaseOff(RAX, R10, 24) }),
+		0x49, 0x8B, 0x44, 0x22, 0x18)
+}

@@ -20,11 +20,21 @@ import (
 // validate first; the gate fixtures are fixed programs.
 //
 // Values live in stack slots ([rsp+off], 8 bytes each): params, then one
-// slot per let (two for strings: ptr+len), then a fixed 96-byte argument
+// slot per let (two for strings: ptr+len), then the binary-operand scratch
+// stack, then the caller-frame extras area, then a fixed 96-byte argument
 // spill area (6 args x 16 bytes). Eval scratch is rax/rcx/rdx (+ the
 // stack) ONLY, so argument spill slots and not-yet-loaded argument
 // registers are never disturbed by nested evaluation. Helpers take fixed
 // registers and may clobber anything.
+//
+// Native calling convention (Phase 148): argument 8-byte units pack in
+// order — ints take one unit, strings two (ptr+len). Units 0-5 travel in
+// RDI,RSI,RDX,RCX,R8,R9; further units travel in the caller-frame extras
+// array whose address reaches the callee in R10 (set with lea just before
+// the call; the callee homes stack units at entry, before R10 can die).
+// String returns leave (RAX=ptr, RDX=len). rsp never moves during argument
+// evaluation: register units stage through the per-arg spill, extras
+// through the extras area, and only then do registers reload.
 
 // sys_write / sys_exit numbers (Linux x86-64).
 const (
@@ -58,10 +68,13 @@ type Builder struct {
 	strs    map[string]uint64
 	patches []addrPatch
 	funcs   map[string]bool
+	ftab    map[string]*parser.FuncDecl // Phase 148: name -> declaration (arity, param kinds)
+	retKind map[string]bool             // Phase 148: name -> true if the function returns a string
 	slots   map[string]int
 	kinds   map[string]bool
 	frame   int
 	binTemp int // Phase 147: base offset of the binary-operand scratch stack
+	extrasBase int // Phase 148: base offset of the caller-frame extras area
 	scanErr error
 	uid     int // Phase 148: monotonically increasing label discriminator
 	loops   []loopTgt
@@ -92,10 +105,18 @@ func CompileProgram(prog *parser.Program) ([]byte, error) {
 				return nil, fmt.Errorf("error[K145]: duplicate function '%s'", fd.Name)
 			}
 			b.funcs[fd.Name] = true
+			b.ftab[fd.Name] = fd
 		}
 	}
 	if !b.funcs["main"] {
 		return nil, fmt.Errorf("error[K145]: no 'main' function for native target")
+	}
+	// Phase 148: string-return inference for the whole unit before any
+	// emission (callers need callee kinds; see retKindOf).
+	for name := range b.ftab {
+		if _, err := b.retKindOf(name); err != nil {
+			return nil, err
+		}
 	}
 	b.emitHelpers()
 	for _, stmt := range prog.Statements {
@@ -130,7 +151,148 @@ func CompileProgram(prog *parser.Program) ([]byte, error) {
 }
 
 func newBuilder() *Builder {
-	return &Builder{e: NewEmitter(), strs: map[string]uint64{}, funcs: map[string]bool{}}
+	return &Builder{e: NewEmitter(), strs: map[string]uint64{}, funcs: map[string]bool{}, ftab: map[string]*parser.FuncDecl{}, retKind: map[string]bool{}}
+}
+
+// paramIsString reports whether parameter i of fd is a string (Phase-46
+// annotation `name string`; untyped parameters are ints in v1).
+func paramIsString(fd *parser.FuncDecl, i int) bool {
+	return i < len(fd.ParamTypes) && fd.ParamTypes[i] == "string"
+}
+
+// retKindOf infers whether a function returns a string (true) or an int
+// (false): every `return` in its body (descending into control flow)
+// must agree; no returns means int (the missing-return-yields-0 rule).
+// Cyclic call graphs that never ground out are a loud K145.
+func (b *Builder) retKindOf(name string) (bool, error) {
+	if k, done := b.retKind[name]; done {
+		return k, nil
+	}
+	return b.retKindVisit(name, map[string]bool{})
+}
+
+func (b *Builder) retKindVisit(name string, visiting map[string]bool) (bool, error) {
+	if k, done := b.retKind[name]; done {
+		return k, nil
+	}
+	if visiting[name] {
+		return false, fmt.Errorf("error[K145]: cannot determine return kind of recursive function '%s'", name)
+	}
+	fd, ok := b.ftab[name]
+	if !ok {
+		return false, fmt.Errorf("error[K145]: undefined function '%s'", name)
+	}
+	visiting[name] = true
+	// Local varDecl map for resolving returned identifiers, seeded with
+	// the parameter kinds (untyped parameters are ints).
+	vars := map[string]parser.Node{}
+	pstr := map[string]bool{}
+	for i, p := range fd.Params {
+		pstr[p] = paramIsString(fd, i)
+	}
+	var collectVars func(stmts []parser.Node)
+	collectVars = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch n := s.(type) {
+			case *parser.VarDeclStmt:
+				vars[n.Name] = n.Value
+			case *parser.IfStmt:
+				collectVars(n.Consequence)
+				collectVars(n.Alternative)
+			case *parser.WhileStmt:
+				collectVars(n.Body)
+			case *parser.ForStmt:
+				collectVars(n.Body)
+			case *parser.ForInStmt:
+				collectVars(n.Body)
+			case *parser.BlockStmt:
+				collectVars(n.Statements)
+			}
+		}
+	}
+	collectVars(fd.Body)
+	seen := false
+	isStr := false
+	var walkReturns func(stmts []parser.Node) error
+	walkReturns = func(stmts []parser.Node) error {
+		for _, s := range stmts {
+			switch n := s.(type) {
+			case *parser.ReturnStmt:
+				if n.Value == nil {
+					continue
+				}
+				k, err := b.retKindOfExpr(n.Value, vars, pstr, visiting)
+				if err != nil {
+					return err
+				}
+				if !seen {
+					seen, isStr = true, k
+				} else if isStr != k {
+					return fmt.Errorf("error[K145]: function '%s' mixes int and string returns", name)
+				}
+			case *parser.IfStmt:
+				if err := walkReturns(n.Consequence); err != nil {
+					return err
+				}
+				if err := walkReturns(n.Alternative); err != nil {
+					return err
+				}
+			case *parser.WhileStmt:
+				if err := walkReturns(n.Body); err != nil {
+					return err
+				}
+			case *parser.ForStmt:
+				if err := walkReturns(n.Body); err != nil {
+					return err
+				}
+			case *parser.ForInStmt:
+				if err := walkReturns(n.Body); err != nil {
+					return err
+				}
+			case *parser.BlockStmt:
+				if err := walkReturns(n.Statements); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := walkReturns(fd.Body); err != nil {
+		return false, err
+	}
+	delete(visiting, name)
+	b.retKind[name] = isStr
+	return isStr, nil
+}
+
+// retKindOfExpr classifies a returned value expression.
+func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr map[string]bool, visiting map[string]bool) (bool, error) {
+	switch x := n.(type) {
+	case *parser.StringLiteral:
+		return true, nil
+	case *parser.IntLiteral:
+		return false, nil
+	case *parser.Float64Literal:
+		return false, fmt.Errorf("error[K145]: floating-point numbers are not supported (ints and strings only)")
+	case *parser.Identifier:
+		if k, isParam := pstr[x.Name]; isParam {
+			return k, nil
+		}
+		v, ok := vars[x.Name]
+		if !ok {
+			return false, fmt.Errorf("error[K145]: undefined identifier '%s'", x.Name)
+		}
+		if v == nil {
+			return false, nil
+		}
+		return b.retKindOfExpr(v, vars, pstr, visiting)
+	case *parser.BinaryExpr, *parser.UnaryExpr:
+		return false, nil
+	case *parser.CallExpr:
+		return b.retKindVisit(x.Function, visiting)
+	default:
+		return false, fmt.Errorf("error[K145]: unsupported return expression %T", n)
+	}
 }
 
 func (b *Builder) internRodata(s string) uint64 {
@@ -212,10 +374,14 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	b.kinds = map[string]bool{}
 	b.scanErr = nil
 	next := 0
-	for _, p := range fd.Params {
+	for i, p := range fd.Params {
+		// Phase 148: string parameters occupy two slots (ptr+len).
 		b.slots[p] = next
-		b.kinds[p] = false
+		b.kinds[p] = paramIsString(fd, i)
 		next += 8
+		if b.kinds[p] {
+			next += 8
+		}
 	}
 	next = b.scanLets(fd.Body, next)
 	if b.scanErr != nil {
@@ -225,11 +391,112 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	// moves during expression evaluation, so slot addresses stay stable.
 	b.binTemp = next
 	next += 8 * maxBinDepth
+	// Phase 148: caller-frame extras area for argument units past the six
+	// register units (sized by the hungriest call site in this function).
+	maxExtra := b.scanMaxExtras(fd.Body)
+	b.extrasBase = next
+	next += maxExtra * 8
 	b.frame = next + argSpillBytes
 	return nil
 }
 
-// scanLets assigns slots to every `let` in a statement list, recursing
+// scanMaxExtras returns the largest extras-unit count of any call in a
+// statement list: total caller-side 8-byte units (int 1, string 2) minus
+// the six register units, floored at 0. It walks every expression
+// position so nested calls size the area too; unknown callees are
+// ignored here (emission rejects them loudly).
+func (b *Builder) scanMaxExtras(stmts []parser.Node) int {
+	max := 0
+	var walkExpr func(n parser.Node)
+	walkExpr = func(n parser.Node) {
+		switch x := n.(type) {
+		case *parser.CallExpr:
+			units := 0
+			for _, a := range x.Args {
+				if isStr, err := b.isStringExpr(a); err == nil && isStr {
+					units += 2
+				} else {
+					units++
+				}
+			}
+			if e := units - len(argRegs); e > max {
+				max = e
+			}
+			for _, a := range x.Args {
+				walkExpr(a)
+			}
+		case *parser.IndirectCallExpr:
+			for _, a := range x.Args {
+				walkExpr(a)
+			}
+			walkExpr(x.Target)
+		case *parser.BinaryExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Right)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand)
+		case *parser.IndexExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Index)
+		case *parser.ArrayLiteral:
+			for _, e := range x.Elements {
+				walkExpr(e)
+			}
+		case *parser.StructLiteral:
+			for _, f := range x.Fields {
+				walkExpr(f)
+			}
+		}
+	}
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch n := s.(type) {
+			case *parser.VarDeclStmt:
+				if n.Value != nil {
+					walkExpr(n.Value)
+				}
+			case *parser.ReturnStmt:
+				if n.Value != nil {
+					walkExpr(n.Value)
+				}
+			case *parser.ExprStmt:
+				walkExpr(n.Expression)
+			case *parser.PrintStmt:
+				walkExpr(n.Value)
+			case *parser.IfStmt:
+				walkExpr(n.Condition)
+				walkStmts(n.Consequence)
+				walkStmts(n.Alternative)
+			case *parser.WhileStmt:
+				walkExpr(n.Condition)
+				walkStmts(n.Body)
+			case *parser.ForStmt:
+				if n.Init != nil {
+					walkStmts([]parser.Node{n.Init})
+				}
+				if n.Condition != nil {
+					walkExpr(n.Condition)
+				}
+				if n.Post != nil {
+					post := n.Post
+					if be, ok := post.(*parser.BinaryExpr); ok && be.Operator == "=" {
+						post = &parser.ExprStmt{Expression: be, Line: be.Line}
+					}
+					walkStmts([]parser.Node{post})
+				}
+				walkStmts(n.Body)
+			case *parser.ForInStmt:
+				walkExpr(n.Iter)
+				walkStmts(n.Body)
+			case *parser.BlockStmt:
+				walkStmts(n.Statements)
+			}
+		}
+	}
+	walkStmts(stmts)
+	return max
+}
 // into control-flow bodies and C-for initializers (Phase 148: loop bodies
 // may declare variables; slots are function-wide, first declaration wins
 // a slot and shadowing writes through — v1 semantics, documented). The
@@ -276,8 +543,10 @@ func (b *Builder) scanLets(stmts []parser.Node, next int) int {
 }
 
 func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
-	if len(fd.Params) > len(argRegs) {
-		return fmt.Errorf("error[K145]: function '%s' has %d params (max %d)", fd.Name, len(fd.Params), len(argRegs))
+	// Phase 148: main takes no arguments on the native target (there is
+	// no argv protocol in v1; _start invokes it bare).
+	if fd.Name == "main" && len(fd.Params) > 0 {
+		return fmt.Errorf("error[K145]: 'main' takes no arguments on the native target")
 	}
 	name := "fn_" + fd.Name
 	if fd.Name == "main" {
@@ -290,8 +559,26 @@ func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
 	if b.frame > 0 {
 		b.e.SubRsp(b.frame)
 	}
-	for i, p := range fd.Params {
-		b.e.StoreStack(argRegs[i], b.slots[p])
+	// Home the parameters under the native ABI (Phase 148): the first
+	// six 8-byte units arrive in RDI,RSI,RDX,RCX,R8,R9 (a string takes
+	// two units); further units arrive in the caller-frame extras array
+	// addressed by R10. R10 dies at the first call, so stack homing runs
+	// here at entry, before anything else.
+	unit := 0
+	for _, p := range fd.Params {
+		units := 1
+		if b.kinds[p] {
+			units = 2
+		}
+		for k := 0; k < units; k++ {
+			if unit < len(argRegs) {
+				b.e.StoreStack(argRegs[unit], b.slots[p]+k*8)
+			} else {
+				b.e.LoadBaseOff(RAX, R10, (unit-len(argRegs))*8)
+				b.e.StoreStack(RAX, b.slots[p]+k*8)
+			}
+			unit++
+		}
 	}
 	returned := false
 	for _, s := range fd.Body {
@@ -332,7 +619,7 @@ func (b *Builder) emitStmt(s parser.Node, fname string) (bool, error) {
 		}
 		return false, nil
 	case *parser.ReturnStmt:
-		if err := b.emitReturn(n); err != nil {
+		if err := b.emitReturn(n, fname == "main"); err != nil {
 			return false, err
 		}
 		name := "fn_" + fname
@@ -555,7 +842,7 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 	}
 	off := b.slots[n.Name]
 	if isStr {
-		if err := b.emitStr(n.Value); err != nil {
+		if err := b.emitStr(n.Value, 0); err != nil {
 			return err
 		}
 		b.e.StoreStack(RDI, off)
@@ -575,7 +862,7 @@ func (b *Builder) emitPrint(n *parser.PrintStmt) error {
 		return err
 	}
 	if isStr {
-		if err := b.emitStr(n.Value); err != nil {
+		if err := b.emitStr(n.Value, 0); err != nil {
 			return err
 		}
 		b.e.Call("print_str")
@@ -589,7 +876,7 @@ func (b *Builder) emitPrint(n *parser.PrintStmt) error {
 	return nil
 }
 
-func (b *Builder) emitReturn(n *parser.ReturnStmt) error {
+func (b *Builder) emitReturn(n *parser.ReturnStmt, isMain bool) error {
 	if n.Value == nil {
 		b.e.XorRegReg(RAX)
 		return nil
@@ -597,7 +884,17 @@ func (b *Builder) emitReturn(n *parser.ReturnStmt) error {
 	if isStr, err := b.isStringExpr(n.Value); err != nil {
 		return err
 	} else if isStr {
-		return fmt.Errorf("error[K145]: string return values are not supported (function must return int)")
+		// Phase 148: string-return convention is (RAX=ptr, RDX=len).
+		// main keeps the int-only rule (exit codes are ints).
+		if isMain {
+			return fmt.Errorf("error[K145]: string return values are not supported (function must return int)")
+		}
+		if err := b.emitStr(n.Value, 0); err != nil {
+			return err
+		}
+		b.e.MovRegReg(RAX, RDI)
+		b.e.MovRegReg(RDX, RSI)
+		return nil
 	}
 	return b.emitExpr(n.Value, 0)
 }
@@ -621,6 +918,11 @@ func (b *Builder) isStringExpr(n parser.Node) (bool, error) {
 	case *parser.UnaryExpr:
 		return false, nil
 	case *parser.CallExpr:
+		// Phase 148: string-ness follows the callee's inferred return
+		// kind (unknown callees already fail loudly at emission).
+		if k, ok := b.retKind[x.Function]; ok {
+			return k, nil
+		}
 		return false, nil
 	default:
 		return false, fmt.Errorf("error[K145]: unsupported expression %T", n)
@@ -660,7 +962,7 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 	}
 }
 
-func (b *Builder) emitStr(n parser.Node) error {
+func (b *Builder) emitStr(n parser.Node, depth int) error {
 	switch x := n.(type) {
 	case *parser.StringLiteral:
 		off := b.internRodata(x.Value)
@@ -678,8 +980,17 @@ func (b *Builder) emitStr(n parser.Node) error {
 		b.e.LoadStack(RDI, off)
 		b.e.LoadStack(RSI, off+8)
 		return nil
+	case *parser.CallExpr:
+		// Phase 148: a string-returning call leaves (RAX=ptr, RDX=len);
+		// move the pair into the (RDI, RSI) string-value convention.
+		if err := b.emitCallValue(x, depth); err != nil {
+			return err
+		}
+		b.e.MovRegReg(RDI, RAX)
+		b.e.MovRegReg(RSI, RDX)
+		return nil
 	default:
-		return fmt.Errorf("error[K145]: unsupported string expression %T (literals and variables only)", n)
+		return fmt.Errorf("error[K145]: unsupported string expression %T (literals, variables and string calls only)", n)
 	}
 }
 
@@ -718,25 +1029,67 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 	if x.Module != "" || x.IsCFunc {
 		return fmt.Errorf("error[K145]: module-qualified and C-interop calls are not supported (call to '%s')", x.Function)
 	}
-	if !b.funcs[x.Function] {
+	fd, ok := b.ftab[x.Function]
+	if !ok {
 		return fmt.Errorf("error[K145]: undefined function '%s'", x.Function)
 	}
-	if len(x.Args) > len(argRegs) {
-		return fmt.Errorf("error[K145]: call to '%s' has %d args (max %d)", x.Function, len(x.Args), len(argRegs))
+	// Phase 148: exact arity (previously unchecked — a short call read
+	// uninitialized slots, a long one silently dropped arguments).
+	if len(x.Args) != len(fd.Params) {
+		return fmt.Errorf("error[K145]: call to '%s' has %d args (want %d)", x.Function, len(x.Args), len(fd.Params))
 	}
+	// Kind check + unit plan: int args take one unit, string args two;
+	// units 0-5 ride argRegs, further units ride the extras area via R10.
+	argStr := make([]bool, len(x.Args))
 	for i, a := range x.Args {
-		if isStr, err := b.isStringExpr(a); err != nil {
+		gotStr, err := b.isStringExpr(a)
+		if err != nil {
 			return err
-		} else if isStr {
-			return fmt.Errorf("error[K145]: string arguments are not supported (call to '%s')", x.Function)
+		}
+		wantStr := paramIsString(fd, i)
+		if gotStr != wantStr {
+			if wantStr {
+				return fmt.Errorf("error[K145]: int argument for string parameter '%s' (call to '%s')", fd.Params[i], x.Function)
+			}
+			return fmt.Errorf("error[K145]: string argument for int parameter '%s' (call to '%s')", fd.Params[i], x.Function)
+		}
+		argStr[i] = gotStr
+	}
+	// Evaluate + stage: register units to the per-arg spill, extras units
+	// to the caller-frame extras area. rsp never moves (147's rule).
+	unit := 0
+	for i, a := range x.Args {
+		if argStr[i] {
+			if err := b.emitStr(a, depth); err != nil {
+				return err
+			}
+			b.stageUnit(i, unit, RDI)
+			b.stageUnit(i, unit+1, RSI)
+			unit += 2
+			continue
 		}
 		if err := b.emitExpr(a, depth); err != nil {
 			return err
 		}
-		b.e.StoreStack(RAX, b.argTemp(i))
+		b.stageUnit(i, unit, RAX)
+		unit++
 	}
+	// Load the register units back (extras are already home).
+	unit = 0
 	for i := range x.Args {
-		b.e.LoadStack(argRegs[i], b.argTemp(i))
+		units := 1
+		if argStr[i] {
+			units = 2
+		}
+		for k := 0; k < units; k++ {
+			if unit < len(argRegs) {
+				b.e.LoadStack(argRegs[unit], b.argTemp(i)+k*8)
+			}
+			unit++
+		}
+	}
+	if unit > len(argRegs) {
+		b.e.LeaRegStack(R10, b.extrasBase)
 	}
 	if x.Function == "main" {
 		b.e.Call("karkain_main")
@@ -744,6 +1097,21 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 		b.e.Call("fn_" + x.Function)
 	}
 	return nil
+}
+
+// stageUnit homes one evaluated unit: unit < 6 goes to the per-arg spill
+// (argTemp(i) is 16 bytes: k selects the low/high half), further units go
+// to the caller-frame extras area at the callee-visible extras index.
+func (b *Builder) stageUnit(arg, unit int, r Reg) {
+	if unit < len(argRegs) {
+		off := b.argTemp(arg)
+		if r == RSI {
+			off += 8
+		}
+		b.e.StoreStack(r, off)
+		return
+	}
+	b.e.StoreStack(r, b.extrasBase+(unit-len(argRegs))*8)
 }
 
 func parseIntLit(s string) int64 {
