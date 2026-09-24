@@ -127,9 +127,17 @@ func (e *Emitter) memRsp(reg Reg, off int) {
 	e.u32(uint32(int32(off)))
 }
 
-// MovRegImm32 emits mov r64, imm32 (sign-extended): REX.W + B8+rd io.
+// MovRegImm32 emits mov r32, imm32 (B8+rd io): the 32-bit result is
+// zero-extended into the full r64, which is exactly what every caller
+// wants (syscall numbers, fds, counts — all small nonneg constants).
+// Phase-147 correction: this previously emitted REX.W + B8+rd with only
+// a 32-bit immediate, but per the Intel SDM (vol. 2, MOV) REX.W + B8+rd
+// IS mov r64, imm64 (10 bytes) — the CPU consumed the next 4 bytes as
+// immediate, desynchronizing the stream at every use site. The REX
+// prefix is now emitted only for r8-r15 (REX.B); plain registers get
+// the 5-byte form with no prefix.
 func (e *Emitter) MovRegImm32(r Reg, v uint32) {
-	e.rex(true, 0, r)
+	e.rex(false, 0, r)
 	e.byte(0xB8 + r.low())
 	e.u32(v)
 }

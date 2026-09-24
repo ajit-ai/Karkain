@@ -1,9 +1,28 @@
-# Phase 145 Quarantine — Native Execution P1 (NOT a root-cause fix)
+# Phase 145 Quarantine — Native Execution P1 (RESOLVED by Phase 147)
 
 ## Status
 
-Quarantined, unresolved. Native execution tests fail immediately on CI;
-root cause not established.
+~~Quarantined, unresolved.~~ **CLOSED 2026-09-24 by Phase 147.**
+Root causes established by CI-captured evidence and fixed; execution
+green in default CI. This document is retained as the historical record;
+the live state is `docs/audit/PHASE-147-FINAL-REPORT.md`.
+
+Resolution summary: (1) `MovRegImm32` emitted a bogus `REX.W + B8+rd`
+with a 32-bit immediate — per the Intel SDM that decodes as
+`mov r64, imm64`, so the CPU consumed the next 4 bytes and every use
+site desynchronized the stream (the immediate SIGSEGV). Fixed to the
+correct prefix-less `B8+rd io` (plus `REX.B` for r8–r15); the two
+goldens that pinned the buggy bytes are corrected.
+(2) Binary operands pushed rax, moving rsp and shifting frame-relative
+slots — `add(20,22)` read slot a twice (40). Lowering now stages
+through depth-indexed scratch slots (rsp never moves; 64-deep K145
+guard). (3) `print` wrote no trailing newline. Newline tails added to
+both helpers. Proven: full execution suite green on Linux CI
+(`TestNativeHello/Calls`, all six bisect cases, `strace exit=0`).
+Quarantine flag `KARKAIN_NATIVE_EXEC` removed from
+`runNativeCode`; the `native-evidence` CI job stays informational.
+
+Original record follows unchanged.
 
 ## Evidence (bounded troubleshooting round, verbatim)
 

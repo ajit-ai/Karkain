@@ -215,6 +215,48 @@ jobs:
             ./karkain fmt --check "$f" || { echo "needs format: $f"; exit 1; }
           done
 
+  native-evidence:
+    # Phase 147A: decisive-evidence gatherer for the native-execution P1
+    # (docs/audit/PHASE-145-QUARANTINE.md). Informational ONLY
+    # (continue-on-error): it dumps one linked image and captures
+    # readelf/strace into the step log. It can never fail the build; the
+    # mandatory suite is the `test` job's pkg/native gate above.
+    name: Native P1 evidence (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install forensics tools
+        run: sudo apt-get update && sudo apt-get install -y binutils strace || true
+
+      - name: Dump linked image (empty bisect program)
+        env:
+          KARKAIN_NATIVE_DUMP: ${{ runner.temp }}/native-evidence
+        run: go test ./pkg/native/ -run 'TestNativeEvidenceDump' -count=1 -v
+
+      - name: Execute native suite under quarantine flag (147C prover)
+        # Runs the genuine execution tests with the P1 flag set. The `|| true`
+        # keeps this informational step green either way — the PASS/FAIL lines
+        # in the output are the signal, and the mandatory suite never depends
+        # on them. When this step goes green, the quarantine is lifted.
+        if: always()
+        env:
+          KARKAIN_NATIVE_EXEC: 1
+        run: go test ./pkg/native/ -run 'TestNativeBisect|TestNativeHello|TestNativeCalls' -count=1 -v || true
+
+      - name: readelf headers and program headers
+        if: always()
+        run: readelf -h -l ${{ runner.temp }}/native-evidence/native-empty || true
+
+      - name: strace execution
+        if: always()
+        run: strace -f -e trace=process,write,exit_group,memory ${{ runner.temp }}/native-evidence/native-empty; echo "exit=$?"
+
   toolchain-matrix:
     # Phase 139: cross-linker presence matrix. Informational ONLY (never red):
     # it reports which foreign toolchains the runner happens to carry so
