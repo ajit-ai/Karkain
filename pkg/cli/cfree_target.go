@@ -43,6 +43,11 @@ func cfreeBuildCommand(prog *parser.Program, sourceFile string, outputPath strin
 	if err := os.WriteFile(out, img, 0o755); err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("write image: %v", err)}
 	}
+	// Same CreateTemp lesson as run: ensure the bit on rebuilds, where
+	// WriteFile preserves the existing file's mode.
+	if err := os.Chmod(out, 0o755); err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("chmod image: %v", err)}
+	}
 
 	if verbose {
 		fmt.Printf("native image: %d bytes → %s\n", len(img), out)
@@ -76,6 +81,11 @@ func cfreeRunCommand(prog *parser.Program, sourceFile string, verbose bool) Comm
 
 	if err := os.WriteFile(tmpName, img, 0o755); err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("write temp: %v", err)}
+	}
+	// os.WriteFile does not chmod an existing file: CreateTemp above made
+	// it 0600, so set the executable bit explicitly (Linux runs it).
+	if err := os.Chmod(tmpName, 0o755); err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("chmod temp: %v", err)}
 	}
 
 	cmd := exec.Command(tmpName)
