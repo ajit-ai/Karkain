@@ -4,7 +4,7 @@ Beta 1
 .. note::
 
    This page is the **historical** Beta 1 capability assessment (Phases
-   117–118). The current public label is **Karkain 1.0.0 (Stable)** — see
+   117–118). The current public label is **Karkain 1.1.0 (Stable)** — see
    :doc:`/release-notes` and :doc:`/status/compatibility` for the current
    release identity and guarantees.
 

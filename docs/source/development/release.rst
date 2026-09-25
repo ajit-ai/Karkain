@@ -71,7 +71,7 @@ root, so there are no hidden ``-ldflags`` version-injection hoops.
        cross builds.
    * - Version injection
      - None required: the version is a compiled constant
-       (``Karkain Compiler v1.0.0``, ``VERSION`` = ``1.0.0``).
+       (``Karkain Compiler v1.1.0``, ``VERSION`` = ``1.1.0``).
    * - Output artifact
      - A single platform binary named ``karkain`` / ``karkain.exe``.
    * - Checksum

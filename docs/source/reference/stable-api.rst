@@ -1,8 +1,8 @@
 ===========================
-Stable API Snapshot (1.0.0)
+Stable API Snapshot (1.1.0)
 ===========================
 
-This is the authoritative 1.0.0 (Stable) API snapshot — the reference point
+This is the authoritative 1.1.0 (Stable) API snapshot — the reference point
 for the release-readiness evaluation. A feature belongs to the snapshot only
 when a gate test exercises it through the real pipeline on both engines.
 Anything not listed here is not part of the stable surface.

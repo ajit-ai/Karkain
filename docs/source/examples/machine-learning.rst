@@ -10,7 +10,7 @@ ML framework callable from ``.kark``**. The matrix/vector machinery built in
 Phases 71–78 exists as compiler/backend infrastructure, not as a language
 surface. These examples instead implement two classic learning algorithms
 with plain floats, arrays and loops — which is exactly the kind of program a
-Karkain 1.0.0 user should be able to write today.
+Karkain 1.1.0 user should be able to write today.
 
 .. list-table:: examples/10-machine-learning/
    :widths: 30 70
