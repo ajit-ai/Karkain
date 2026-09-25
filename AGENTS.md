@@ -743,7 +743,18 @@ list-table indent fix), refreshing the whole-tree KIR pin 8986 → 9574. Gates
 `pkg/cli/phase146_generics_test.go`, `phase146b_generics_test.go`,
 `phase146c_generics_test.go`. NOTE: no in-phase final report file exists for
 146 — this record is composed from `docs/audit/PHASE-146-BASELINE.md` and the
-146a/b/c commits.)
+146a/b/c commits.) Pass B supplement (2026-09-25, traceability + evidence):
+slice commits `fdde0b9` (146a) / `8e6b62d` (146b) / `4d3d7a6` (146c) with
+follow-up fixes `4be2d7c` (index-then-brace + stable-api indent) /
+`736cea4` (KIR pin); gates measured green locally — 146 (7 tests) 13.6s,
+146b (4 tests) 21.5s, 146c (10/10 incl. 265s compiler self-check) 313s,
+full 146A–C legs 21 tests; 146c closure verdict **CLOSED — PASS WITH
+ENVIRONMENT LIMITATION** (combined 120–145 sweep interrupted on the 4GB
+host, not failed); index-then-brace root cause is Go parity with
+`pkg/parser/parser.go:1902` (`!unparenthesizedIfCondition` guards both the
+bracket and brace attempts — kcc guarded only the brace); KIR pin verified
+deterministic 9574/9574 text/verify on repeat runs. 146D is baselined
+separately (`docs/audit/PHASE-146D-BASELINE.md` — close-out only).
 
 Also completed: **147 — Native Execution P1 Resolution** (verdict
 **COMPLETE**; INDEPENDENCE C-front opener after the 145 quarantine — the
