@@ -176,6 +176,9 @@ jobs:
       - name: Run Phase 145 native-backend gate
         run: go test ./pkg/native/ -count=1
 
+      - name: Run Phase 146 generics gate
+        run: go test ./pkg/cli/ -run 'TestPhase146_|TestPhase146B|TestPhase146C|TestPhase146D' -count=1
+
       # Execution bisection: one step per micro-program so each case's
       # pass/fail is visible as a step conclusion (log-independent).
       # if:always — these are diagnostic: they must run even when the

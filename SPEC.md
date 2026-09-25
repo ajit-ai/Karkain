@@ -478,12 +478,12 @@ GPU kernel auto-generics (Phase 26) and tensor autodiff
 
 | Feature | Status | Syntax |
 |---------|--------|--------|
-| Monomorphized generics | Ã°Å¸Å¸Â¡ | `func max<T: Numeric>(a: T, b: T) -> T` |
-| Generic parameters | Ã°Å¸Å¸Â¡ | `T: Constraint` |
-| Trait declarations | Ã°Å¸â€œÂ | `trait Numeric { fn add(self, other: T) -> T; }` |
-| Trait impls | Ã°Å¸â€œÂ | `impl Numeric for int { ... }` |
-| Struct generics | Ã°Å¸Å¸Â¡ | `struct Vector<T> { ... }` |
-| Kernel generics | Ã°Å¸â€œÂ | `kernel k<T>(...)` |
+| Monomorphized generic functions | Stable | `func id[T](x)` + `id[int](v)` — both engines (146C) |
+| Monomorphized generic structs | Stable | `type Point[T] struct { ... }` + `Point[int]{...}` — both engines (146C) |
+| Trait declarations / impls | Planned | syntax stubs only; no dispatch (146 non-goal) |
+| Constraint annotations (`T: Numeric`) | Partial | parse and store; unchecked in v1 |
+| Explicit type arguments | Stable | square brackets `f[int]`; no inference (146A) |
+| K115 misuse diagnostics | Stable | bare/arity errors both engines; `explain K115` |
 
 Instantiation is monomorphic (compile-time per concrete type argument).
 

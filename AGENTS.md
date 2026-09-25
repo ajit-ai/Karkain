@@ -755,6 +755,18 @@ host, not failed); index-then-brace root cause is Go parity with
 bracket and brace attempts — kcc guarded only the brace); KIR pin verified
 deterministic 9574/9574 text/verify on repeat runs. 146D is baselined
 separately (`docs/audit/PHASE-146D-BASELINE.md` — close-out only).
+Also completed: **146D — Generics v1 Close-Out** (verdict **COMPLETE**;
+consolidation gate `pkg/cli/phase146d_closeout_test.go`
+(`TestPhase146D_Closeout`: GoTrack, FuncStructGoldensBoth, RejectionsBoth,
+DemotionIdempotence, StdlibParity, SelfCheck — green in one invocation);
+CI `Run Phase 146 generics gate` step (146/146B/146C/146D patterns);
+`SPEC.md` §9 rewritten to the honest v1 surface (mojibake badges replaced,
+`type Point[T] struct` real syntax, constraints parse-but-unchecked,
+traits Planned) after live-syntax probes proved the old examples overclaimed
+(constrained/annotated decls exit 3, `struct Vector[T]` exits 3);
+`stable-api.rst` diagnostics range extended to K101–K115 (K114 escape +
+K115 generics); new `docs/source/status/feature-matrix.rst` ledger wired
+into the status toctree. No language change — docs, gates, and CI only.)
 
 Also completed: **147 — Native Execution P1 Resolution** (verdict
 **COMPLETE**; INDEPENDENCE C-front opener after the 145 quarantine — the
