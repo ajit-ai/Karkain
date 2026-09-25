@@ -3,12 +3,12 @@ package cli
 // Phase 146B — stdlib generic Stack[T]/Queue[T] (new std.generics
 // module, persistent over plain arrays) + sibling examples + goldens.
 //
-// Engine contract for this slice: the Go engine is live (monomorphizer
-// instantiates the stdlib templates through the normal import
-// assembly). kcc cannot parse [T] yet (146C owns that), so the kcc leg
-// below pins the honest boundary — a kcc run that completes must fail
-// LOUDLY (silent acceptance of unparsed generics would be a soundness
-// hole); a slow-host self-build (timeout/K127) skips with a note.
+// Go-engine goldens + check-clean contract live here; kcc parity for
+// the same corpus lives in phase146c_generics_test.go (146C). The kcc
+// leg below asserts that a COMPLETED kcc run on the generic corpus
+// succeeds with the Go engine's golden stdout (silent acceptance
+// without monomorphization would be a soundness hole); the documented
+// slow-host self-build skip (timeout / error[K127]) still applies.
 
 import (
 	"context"
@@ -49,27 +49,34 @@ func TestPhase146B_CheckClean(t *testing.T) {
 	}
 }
 
-// TestPhase146B_KccBoundary pins the pre-146C contract: kcc must never
-// silently accept generic declarations. The kcc self-build is slow on
-// small hosts, so this runs under a short timeout — timeouts and the
-// K127 low-RAM guard skip with a note (146C flips these to parity).
-func TestPhase146B_KccBoundary(t *testing.T) {
+// TestPhase146B_KccParity asserts the post-146C contract for the stdlib
+// generic corpus: a COMPLETED kcc run reproduces the Go engine's golden
+// stdout byte for byte. The kcc self-build is slow on small hosts, so
+// timeouts and the K127 low-RAM guard skip with a note (the parity
+// subtests in phase146c_generics_test.go carry the same contract).
+func TestPhase146B_KccParity(t *testing.T) {
 	karkain := phase130Karkain(t)
 	for _, c := range phase146bCases(t) {
 		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-		cmd := exec.CommandContext(ctx, karkain, "check", c.file, "--engine", "kcc")
+		cmd := exec.CommandContext(ctx, karkain, "run", c.file, "--engine", "kcc")
 		cmd.Env = append(os.Environ(), "KARKAIN_ENGINE=kcc")
 		out, err := cmd.CombinedOutput()
 		cancel()
 		msg := string(out)
 		if ctx.Err() == context.DeadlineExceeded {
-			t.Skipf("%s: kcc self-build exceeds the 90s boundary probe (slow host) — parity deferred to 146C", filepath.Base(c.file))
+			t.Skipf("%s: kcc self-build exceeds the 90s parity probe (slow host)", filepath.Base(c.file))
 		}
 		if strings.Contains(msg, "error[K127]") {
-			t.Skipf("%s: low-RAM host guards the kcc self-build — parity deferred to 146C", filepath.Base(c.file))
+			t.Skipf("%s: low-RAM host guards the kcc self-build — parity deferred", filepath.Base(c.file))
 		}
-		if err == nil {
-			t.Errorf("%s: kcc check unexpectedly ACCEPTED generic syntax (want loud rejection until 146C):\n%s", filepath.Base(c.file), msg)
+		if err != nil {
+			t.Errorf("%s: kcc run failed (want parity): %v\n%s", filepath.Base(c.file), err, msg)
+			continue
+		}
+		got := stripKCCBuildBanner(t, msg)
+		got = strings.ReplaceAll(got, "\r\n", "\n")
+		if got != c.want {
+			t.Errorf("%s (engine=kcc): parity mismatch\nwant:\n%q\ngot:\n%q", filepath.Base(c.file), c.want, got)
 		}
 	}
 }

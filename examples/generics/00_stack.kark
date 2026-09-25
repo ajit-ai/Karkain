@@ -1,5 +1,5 @@
 // Status: Runnable
-// Engine: go (kcc parity in Phase 146C)
+// Engine: both
 // Category: Generics
 //
 // Persistent Stack[T] from std.generics: every push/pop returns a new

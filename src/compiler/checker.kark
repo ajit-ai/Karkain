@@ -172,6 +172,10 @@ func createCheckerTab() {
     tab = appendArray(tab, [])  // 4: current function locals
     tab = appendArray(tab, [])  // 5: current function const names (immutable bindings)
     tab = appendArray(tab, [])  // 6: enum variant lists (parallel to 0/1/2)
+    // Phase 146: generic template tracking
+    tab = appendArray(tab, [])  // 7: generic function templates (name -> funcDecl)
+    tab = appendArray(tab, [])  // 8: generic struct templates (name -> structDecl)
+    tab = appendArray(tab, [])  // 9: instantiated specialization names (to avoid duplicates)
     return tab
 }
 
@@ -316,10 +320,16 @@ func collectDecls(tab, stmts) {
         let nt = getNodeType(s)
         if (nt == "FuncDecl") {
             let name = funcName(s)
+            let gp = funcGenericParams(s)
             if (name != "" && ckKind(tab, name) != "") {
                 ckAddError(tab, "K107", funcLine(s), "duplicate function definition '" + name + "'")
             } else {
                 ckDeclare(tab, name, "func", len(funcParams(s)))
+                // Phase 146: register generic function template
+                if (len(gp) > 0) {
+                    tab[7] = appendArray(tab[7], name)
+                    tab[7] = appendArray(tab[7], s)
+                }
             }
         }
         if (nt == "KernelDecl") {
@@ -331,11 +341,17 @@ func collectDecls(tab, stmts) {
             }
         }
         if (nt == "StructDecl") {
-            let name = structName(s)
+            let name = structDeclName(s)
+            let gp = structDeclGenericParams(s)
             if (name != "" && ckKind(tab, name) != "") {
                 ckAddError(tab, "K107", structDeclLine(s), "duplicate type definition '" + name + "'")
             } else {
                 ckDeclare(tab, name, "struct", 0)
+                // Phase 146: register generic struct template
+                if (len(gp) > 0) {
+                    tab[8] = appendArray(tab[8], name)
+                    tab[8] = appendArray(tab[8], s)
+                }
             }
         }
         if (nt == "EnumDecl") {
@@ -1134,12 +1150,550 @@ func ckCheckReturns(tab, stmts, tainted) {
 }
 
 // ============================================================
+// Phase 146C: Monomorphization (kcc Generics v1 parity)
+//
+// Mirrors pkg/sema/monomorph.go exactly:
+//   - Collects generic FuncDecl/StructDecl templates (nodes carrying
+//     non-empty genericParams).
+//   - Fixpoint worklist over the (growing) statements array; appended
+//     specializations carry no genericParams, so their nested generic
+//     calls instantiate on later iterations.
+//   - Call: `f[T](args)` with template head instantiates and renames to
+//     the mangled spec name; non-template head demotes back to the
+//     Phase-133 index-then-call lowering (`ops[idx](5)`); bare template
+//     calls error K115 "requires explicit type arguments".
+//   - StructLiteral: `Point[T]{...}` instantiates the struct template
+//     (fields are "name:type" strings, substituted), renames the type
+//     name, and clears the typeArgs slot; non-template head errors K115
+//     "is not defined".
+//   - Arity mismatch errors K115 "expects N type argument(s), got M".
+//   - 2+ type args on a non-generic call head error K115 (the Go matrix
+//     demotion has no kcc AST/codegen representation).
+//   - The pass is idempotent: a re-run finds no TypeArgs left and every
+//     specialization name already present.
+// ============================================================
+
+func monoGpName(gp) {
+    // Generic params parse as "T" or "T:Constraint"; the constraint is
+    // stored but unchecked in v1, so name matching strips it.
+    let ci = strFindChar(gp, ":")
+    if (ci >= 0) { return substr(gp, 0, ci) }
+    return gp
+}
+
+func monoCreateCtx() {
+    let ctx = []
+    ctx = appendArray(ctx, [])  // 0: generic FuncDecl templates
+    ctx = appendArray(ctx, [])  // 1: generic StructDecl templates
+    ctx = appendArray(ctx, [])  // 2: pending specializations (drained to stmts)
+    ctx = appendArray(ctx, [])  // 3: emitted specialization names (dedup)
+    ctx = appendArray(ctx, [])  // 4: K115 error messages
+    return ctx
+}
+
+func monoAddError(ctx, line, msg) {
+    ctx[4] = appendArray(ctx[4], "error[K115] line " + str(line) + ": " + msg)
+}
+
+func monoCollect(ctx, stmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        let s = stmts[i]
+        let nt = getNodeType(s)
+        if (nt == "FuncDecl" && len(funcGenericParams(s)) > 0) {
+            ctx[0] = appendArray(ctx[0], s)
+        }
+        if (nt == "StructDecl" && len(structDeclGenericParams(s)) > 0) {
+            ctx[1] = appendArray(ctx[1], s)
+        }
+        i = i + 1
+    }
+}
+
+func monoFindFuncTmpl(ctx, name) {
+    let list = ctx[0]
+    let i = 0
+    while (i < len(list)) {
+        if (funcName(list[i]) == name) { return list[i] }
+        i = i + 1
+    }
+    return []
+}
+
+func monoFindStructTmpl(ctx, name) {
+    let list = ctx[1]
+    let i = 0
+    while (i < len(list)) {
+        if (structDeclName(list[i]) == name) { return list[i] }
+        i = i + 1
+    }
+    return []
+}
+
+func monoMangle(base, targs) {
+    let result = base
+    let i = 0
+    while (i < len(targs)) {
+        result = result + "_" + targs[i]
+        i = i + 1
+    }
+    return result
+}
+
+func monoFuncPublic(n) {
+    // funcPublic returns a bool/string mix; read the raw slot instead.
+    let s = ""
+    if (len(n) > 8) { s = n[8] }
+    return s == "1"
+}
+
+func monoSubstTypeStr(typeStr, gps, targs) {
+    let i = 0
+    while (i < len(gps)) {
+        if (monoGpName(gps[i]) == typeStr) { return targs[i] }
+        i = i + 1
+    }
+    if (len(typeStr) > 1 && hasPrefix(typeStr, "*")) {
+        return "*" + monoSubstTypeStr(substr(typeStr, 1, len(typeStr) - 1), gps, targs)
+    }
+    if (len(typeStr) > 2 && hasPrefix(typeStr, "[]")) {
+        return "[]" + monoSubstTypeStr(substr(typeStr, 2, len(typeStr) - 2), gps, targs)
+    }
+    return typeStr
+}
+
+func monoSubstTarg(t, gps, targs) {
+    let i = 0
+    while (i < len(gps)) {
+        if (monoGpName(gps[i]) == t) { return targs[i] }
+        i = i + 1
+    }
+    return t
+}
+
+// monoSubstNode clones `node` with generic type parameters (gps) mapped to
+// concrete type arguments (targs). Mirrors the Go substituteNode: every
+// type-carrying position goes through monoSubstTypeStr; call/struct-literal
+// TypeArgs are conjugated (f[T] -> f[int]) so the fixpoint instantiates
+// nested generics. Unhandled node kinds share the original (read-only —
+// never mutated by the rewriter afterward), exactly like Go's default.
+func monoSubstNode(node, gps, targs) {
+    let nt = getNodeType(node)
+    if (nt == "VarDecl") {
+        let v = varDeclValue(node)
+        let nv = []
+        if (v != []) { nv = monoSubstNode(v, gps, targs) }
+        return makeVarDecl(varDeclName(node), nv, monoSubstTypeStr(varDeclType(node), gps, targs), varDeclLine(node))
+    }
+    if (nt == "LetDecl") {
+        let v = letDeclValue(node)
+        let nv = []
+        if (v != []) { nv = monoSubstNode(v, gps, targs) }
+        return makeLetDecl(letDeclName(node), nv, monoSubstTypeStr(letDeclType(node), gps, targs), letDeclLine(node))
+    }
+    if (nt == "ConstDecl") {
+        let v = constDeclValue(node)
+        let nv = []
+        if (v != []) { nv = monoSubstNode(v, gps, targs) }
+        return makeConstDecl(constDeclName(node), nv, monoSubstTypeStr(constDeclType(node), gps, targs), constDeclLine(node))
+    }
+    if (nt == "BinaryExpr") {
+        return makeBinary(binaryOp(node), monoSubstNode(binaryLeft(node), gps, targs), monoSubstNode(binaryRight(node), gps, targs), binaryLine(node))
+    }
+    if (nt == "UnaryExpr") {
+        return makeUnary(unaryOp(node), monoSubstNode(unaryOperand(node), gps, targs), unaryLine(node))
+    }
+    if (nt == "Index") {
+        return makeIndex(monoSubstNode(indexLeft(node), gps, targs), monoSubstNode(indexExpr(node), gps, targs), indexLine(node))
+    }
+    if (nt == "ExprStmt") {
+        return makeExprStmt(monoSubstNode(exprStmtExpr(node), gps, targs), exprStmtLine(node))
+    }
+    if (nt == "Return") {
+        let v = retVal(node)
+        let nv = []
+        if (v != []) { nv = monoSubstNode(v, gps, targs) }
+        return makeReturn(nv, retLine(node))
+    }
+    if (nt == "If") {
+        return makeIf(monoSubstNode(ifCond(node), gps, targs), monoSubstStmts(ifCons(node), gps, targs), monoSubstStmts(ifAlt(node), gps, targs), ifLine(node))
+    }
+    if (nt == "While") {
+        return makeWhile(monoSubstNode(whileCond(node), gps, targs), monoSubstStmts(whileBody(node), gps, targs), whileLine(node))
+    }
+    if (nt == "For") {
+        let ninit = []
+        let ncond = []
+        let npost = []
+        if (forInit(node) != []) { ninit = monoSubstNode(forInit(node), gps, targs) }
+        if (forCond(node) != []) { ncond = monoSubstNode(forCond(node), gps, targs) }
+        if (forPost(node) != []) { npost = monoSubstNode(forPost(node), gps, targs) }
+        return makeFor(ninit, ncond, npost, monoSubstStmts(forBody(node), gps, targs), forLine(node))
+    }
+    if (nt == "ForIn") {
+        return makeForIn(forInVar(node), monoSubstNode(forInIter(node), gps, targs), monoSubstStmts(forInBody(node), gps, targs), forInLine(node))
+    }
+    if (nt == "Print") {
+        return makePrint(monoSubstNode(printVal(node), gps, targs), printLine(node))
+    }
+    if (nt == "Call") {
+        let call = makeCall(callFunc(node), monoSubstStmts(callArgs(node), gps, targs), callLine(node), callCol(node))
+        let ta = callTypeArgs(node)
+        let nta = []
+        let i = 0
+        while (i < len(ta)) {
+            nta = appendArray(nta, monoSubstTarg(ta[i], gps, targs))
+            i = i + 1
+        }
+        call[5] = nta
+        return call
+    }
+    if (nt == "IndirectCall") {
+        return makeIndirectCall(monoSubstNode(indirectTarget(node), gps, targs), monoSubstStmts(indirectArgs(node), gps, targs), indirectLine(node))
+    }
+    if (nt == "StructLiteral") {
+        let lit = makeStructLit(monoSubstTarg(structLitName(node), gps, targs), monoSubstStmts(structLitFields(node), gps, targs), structLitLine(node))
+        let ta = structLitTypeArgs(node)
+        let nta = []
+        let i = 0
+        while (i < len(ta)) {
+            nta = appendArray(nta, monoSubstTarg(ta[i], gps, targs))
+            i = i + 1
+        }
+        lit[4] = nta
+        return lit
+    }
+    if (nt == "ArrayLiteral") {
+        return makeArrayLit(monoSubstStmts(arrayLitElems(node), gps, targs), arrayLitLine(node))
+    }
+    if (nt == "MapLiteral") {
+        return makeMapLit(monoSubstStmts(mapKeys(node), gps, targs), monoSubstStmts(mapValues(node), gps, targs), mapLitLine(node))
+    }
+    if (nt == "Lambda") {
+        return makeLambda(lambdaParams(node), monoSubstStmts(lambdaBody(node), gps, targs), lambdaLine(node), lambdaSeq(node))
+    }
+    return node
+}
+
+func monoSubstStmts(list, gps, targs) {
+    let out = []
+    let i = 0
+    while (i < len(list)) {
+        out = appendArray(out, monoSubstNode(list[i], gps, targs))
+        i = i + 1
+    }
+    return out
+}
+
+func monoInstantiateFunc(tmpl, gps, targs) {
+    let spec = makeFuncDecl(monoMangle(funcName(tmpl), targs), funcParams(tmpl), monoSubstStmts(funcBody(tmpl), gps, targs), funcLine(tmpl), funcCol(tmpl))
+    let tg = funcTarget(tmpl)
+    if (tg != "") { spec = setFuncTarget(spec, tg) }
+    if (monoFuncPublic(tmpl) == 1) { spec = setFuncPublic(spec) }
+    return spec
+}
+
+func monoInstantiateStruct(tmpl, gps, targs) {
+    let fields = structDeclFields(tmpl)
+    let newFields = []
+    let i = 0
+    while (i < len(fields)) {
+        let f = fields[i]
+        let ci = strFindChar(f, ":")
+        if (ci >= 0) {
+            let fname = substr(f, 0, ci)
+            let ftype = substr(f, ci + 1, len(f) - ci - 1)
+            newFields = appendArray(newFields, fname + ":" + monoSubstTypeStr(ftype, gps, targs))
+        } else {
+            newFields = appendArray(newFields, f)
+        }
+        i = i + 1
+    }
+    return makeStructDecl(monoMangle(structDeclName(tmpl), targs), newFields, structDeclLine(tmpl))
+}
+
+func monoAddSpec(ctx, spec) {
+    let specName = ""
+    if (getNodeType(spec) == "FuncDecl") { specName = funcName(spec) }
+    if (getNodeType(spec) == "StructDecl") { specName = structDeclName(spec) }
+    if (specName == "") { return }
+    let i = 0
+    while (i < len(ctx[3])) {
+        if (ctx[3][i] == specName) { return }
+        i = i + 1
+    }
+    ctx[3] = appendArray(ctx[3], specName)
+    ctx[2] = appendArray(ctx[2], spec)
+}
+
+// monoRewriteNode rewrites one node's contained expressions (in place,
+// like the Go pass). Container elements are replaced via index_set; only
+// call/struct-literal heads that become generic/specialized return fresh
+// nodes. Lambda bodies are descended so generic calls inside closures also
+// instantiate.
+func monoRewriteNode(ctx, node) {
+    let nt = getNodeType(node)
+    if (nt == "ExprStmt") {
+        node[1] = monoRewriteNode(ctx, exprStmtExpr(node))
+        return node
+    }
+    if (nt == "VarDecl" || nt == "LetDecl" || nt == "ConstDecl") {
+        if (varDeclValue(node) != []) {
+            node[2] = monoRewriteNode(ctx, varDeclValue(node))
+        }
+        return node
+    }
+    if (nt == "Return") {
+        if (retVal(node) != []) {
+            node[1] = monoRewriteNode(ctx, retVal(node))
+        }
+        return node
+    }
+    if (nt == "If") {
+        node[1] = monoRewriteNode(ctx, ifCond(node))
+        node[2] = monoRewriteStmts(ctx, ifCons(node))
+        node[3] = monoRewriteStmts(ctx, ifAlt(node))
+        return node
+    }
+    if (nt == "While") {
+        node[1] = monoRewriteNode(ctx, whileCond(node))
+        node[2] = monoRewriteStmts(ctx, whileBody(node))
+        return node
+    }
+    if (nt == "For") {
+        if (forInit(node) != []) { node[1] = monoRewriteNode(ctx, forInit(node)) }
+        if (forCond(node) != []) { node[2] = monoRewriteNode(ctx, forCond(node)) }
+        if (forPost(node) != []) { node[3] = monoRewriteNode(ctx, forPost(node)) }
+        node[4] = monoRewriteStmts(ctx, forBody(node))
+        return node
+    }
+    if (nt == "ForIn") {
+        node[2] = monoRewriteNode(ctx, forInIter(node))
+        node[3] = monoRewriteStmts(ctx, forInBody(node))
+        return node
+    }
+    if (nt == "Print") {
+        node[1] = monoRewriteNode(ctx, printVal(node))
+        return node
+    }
+    if (nt == "Block") {
+        node[1] = monoRewriteStmts(ctx, blockStmts(node))
+        return node
+    }
+    if (nt == "BinaryExpr") {
+        node[2] = monoRewriteNode(ctx, binaryLeft(node))
+        node[3] = monoRewriteNode(ctx, binaryRight(node))
+        return node
+    }
+    if (nt == "UnaryExpr") {
+        node[2] = monoRewriteNode(ctx, unaryOperand(node))
+        return node
+    }
+    if (nt == "Index") {
+        node[1] = monoRewriteNode(ctx, indexLeft(node))
+        node[2] = monoRewriteNode(ctx, indexExpr(node))
+        return node
+    }
+    if (nt == "ArrayLiteral") {
+        let elems = arrayLitElems(node)
+        let i = 0
+        while (i < len(elems)) {
+            elems[i] = monoRewriteNode(ctx, elems[i])
+            i = i + 1
+        }
+        node[1] = elems
+        return node
+    }
+    if (nt == "MapLiteral") {
+        let ks = mapKeys(node)
+        let vs = mapValues(node)
+        let i = 0
+        while (i < len(ks)) { ks[i] = monoRewriteNode(ctx, ks[i]); i = i + 1 }
+        let j = 0
+        while (j < len(vs)) { vs[j] = monoRewriteNode(ctx, vs[j]); j = j + 1 }
+        node[1] = ks
+        node[2] = vs
+        return node
+    }
+    if (nt == "Member") {
+        node[1] = monoRewriteNode(ctx, dotLeft(node))
+        return node
+    }
+    if (nt == "Lambda") {
+        node[2] = monoRewriteStmts(ctx, lambdaBody(node))
+        return node
+    }
+    if (nt == "Call") {
+        return monoRewriteCall(ctx, node)
+    }
+    if (nt == "IndirectCall") {
+        node[1] = monoRewriteNode(ctx, indirectTarget(node))
+        let args = indirectArgs(node)
+        let i = 0
+        while (i < len(args)) {
+            args[i] = monoRewriteNode(ctx, args[i])
+            i = i + 1
+        }
+        node[2] = args
+        return node
+    }
+    if (nt == "StructLiteral") {
+        return monoRewriteStructLit(ctx, node)
+    }
+    if (nt == "FuncDecl") {
+        if (len(funcGenericParams(node)) == 0) {
+            node[3] = monoRewriteStmts(ctx, funcBody(node))
+        }
+        return node
+    }
+    return node
+}
+
+func monoRewriteStmts(ctx, list) {
+    let i = 0
+    while (i < len(list)) {
+        list[i] = monoRewriteNode(ctx, list[i])
+        i = i + 1
+    }
+    return list
+}
+
+func monoRewriteTop(ctx, stmt) {
+    if (getNodeType(stmt) == "FuncDecl") {
+        stmt[3] = monoRewriteStmts(ctx, funcBody(stmt))
+        return stmt
+    }
+    return monoRewriteNode(ctx, stmt)
+}
+
+func monoRewriteCall(ctx, node) {
+    let args = callArgs(node)
+    let i = 0
+    while (i < len(args)) {
+        args[i] = monoRewriteNode(ctx, args[i])
+        i = i + 1
+    }
+    node[2] = args
+    let targs = callTypeArgs(node)
+    if (len(targs) > 0) {
+        return monoRewriteGenericCall(ctx, node)
+    }
+    let head = callFunc(node)
+    if (monoFindFuncTmpl(ctx, head) != []) {
+        monoAddError(ctx, callLine(node), "generic function '" + head + "' requires explicit type arguments (e.g. " + head + "[T](...))")
+    }
+    return node
+}
+
+func monoRewriteGenericCall(ctx, node) {
+    let head = callFunc(node)
+    let targs = callTypeArgs(node)
+    let tmpl = monoFindFuncTmpl(ctx, head)
+    if (tmpl == []) {
+        return monoDemoteCall(ctx, node)
+    }
+    let gps = funcGenericParams(tmpl)
+    if (len(targs) != len(gps)) {
+        monoAddError(ctx, callLine(node), "generic function '" + head + "' expects " + str(len(gps)) + " type argument(s), got " + str(len(targs)))
+        return node
+    }
+    let specName = monoMangle(funcName(tmpl), targs)
+    monoAddSpec(ctx, monoInstantiateFunc(tmpl, gps, targs))
+    node[1] = specName
+    node[5] = []
+    return node
+}
+
+func monoDemoteCall(ctx, node) {
+    let head = callFunc(node)
+    let targs = callTypeArgs(node)
+    let line = callLine(node)
+    if (len(targs) == 1) {
+        let target = makeIndex(makeIdent(head, line, 0), makeIdent(targs[0], line, 0), line)
+        return makeIndirectCall(target, callArgs(node), line)
+    }
+    monoAddError(ctx, line, "generic function '" + head + "' expects 1 type argument(s), got " + str(len(targs)))
+    return node
+}
+
+func monoRewriteStructLit(ctx, node) {
+    let fields = structLitFields(node)
+    let i = 0
+    while (i < len(fields)) {
+        fields[i] = monoRewriteNode(ctx, fields[i])
+        i = i + 1
+    }
+    node[2] = fields
+    let typeName = structLitName(node)
+    let targs = structLitTypeArgs(node)
+    if (len(targs) == 0) {
+        if (monoFindStructTmpl(ctx, typeName) != []) {
+            monoAddError(ctx, structLitLine(node), "generic struct '" + typeName + "' requires explicit type arguments (e.g. " + typeName + "[T]{...})")
+        }
+        return node
+    }
+    let tmpl = monoFindStructTmpl(ctx, typeName)
+    if (tmpl == []) {
+        monoAddError(ctx, structLitLine(node), "generic struct '" + typeName + "' is not defined")
+        return node
+    }
+    let gps = structDeclGenericParams(tmpl)
+    if (len(targs) != len(gps)) {
+        monoAddError(ctx, structLitLine(node), "generic struct '" + typeName + "' expects " + str(len(gps)) + " type argument(s), got " + str(len(targs)))
+        return node
+    }
+    let specName = monoMangle(structDeclName(tmpl), targs)
+    monoAddSpec(ctx, monoInstantiateStruct(tmpl, gps, targs))
+    node[1] = specName
+    node[4] = []
+    return node
+}
+
+// monomorphizeProgram rewrites `ast`'s statements list in place and returns
+// any K115 diagnostics. Specializations are appended during the walk so the
+// fixpoint continues into them (nested generic calls instantiate). The final
+// write-back `ast[1] = stmts` keeps the program's statements slot pointing at
+// the (possibly reallocated) array — mirroring Go's prog.Statements growth.
+func monomorphizeProgram(ast) {
+    let ctx = monoCreateCtx()
+    let stmts = programStatements(ast)
+    monoCollect(ctx, stmts)
+    let i = 0
+    while (1) {
+        if (i >= len(stmts)) { break }
+        let s = stmts[i]
+        let nt = getNodeType(s)
+        let skip = 0
+        if (nt == "FuncDecl" && len(funcGenericParams(s)) > 0) { skip = 1 }
+        if (nt == "StructDecl" && len(structDeclGenericParams(s)) > 0) { skip = 1 }
+        if (skip == 0) {
+            stmts[i] = monoRewriteTop(ctx, s)
+        }
+        let p = 0
+        while (p < len(ctx[2])) {
+            stmts = appendArray(stmts, ctx[2][p])
+            p = p + 1
+        }
+        ctx[2] = []
+        i = i + 1
+    }
+    ast[1] = stmts
+    return ctx[4]
+}
+
+// ============================================================
 // Entry point
 // ============================================================
 
 // typeCheckProgram runs both passes over the (assembled) program and returns
 // the collected error messages. A clean program returns an empty list.
 func typeCheckProgram(ast) {
+    // Phase 146C: monomorphize first (mirrors the Go pipeline where the mono
+    // pass runs before resolve). K115 diagnostics short-circuit like the Go
+    // engine's mono-errors gate: when they are present we do not descend into
+    // the template bodies/bare-generic call sites that would cascade.
+    let errs = monomorphizeProgram(ast)
+    if (len(errs) > 0) { return errs }
     let tab = createCheckerTab()
     let stmts = programStatements(ast)
     collectDecls(tab, stmts)

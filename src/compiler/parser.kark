@@ -412,6 +412,51 @@ func psAdvance(state) {
     return []
 }
 
+// Phase 146: non-consuming lookahead deciding whether the token at the cursor
+// opens generic type-argument syntax. True only for the exact shape
+//   [ IDENT (',' IDENT)* ]  '('  |  '{'
+// Scanning runs directly over the token array (no position mutation), so a
+// negative result leaves ordinary postfix indexing (s[i], arr[0], m[i][j],
+// arr[1:3] slices) untouched for parseBinary's index loop.
+func psIsTypeArgName(kind) {
+    if (kind == TK_IDENT()) { return 1 }
+    if (kind == TK_INT()) { return 1 }
+    if (kind == TK_STRING()) { return 1 }
+    if (kind == TK_FLOAT64()) { return 1 }
+    if (kind == TK_BOOL()) { return 1 }
+    return 0
+}
+
+func psLooksLikeTypeArgs(state) {
+    if (psCurKind(state) != TK_LBRACKET()) { return 0 }
+    let tokens = psTokens(state)
+    let base = psPos(state)
+    let n = len(tokens)
+    let i = base + 1
+    if (i >= n) { return 0 }
+    if (psIsTypeArgName(tokenKind(tokens[i])) == 0) { return 0 }
+    i = i + 1
+    while (i < n) {
+        let k = tokenKind(tokens[i])
+        if (k == TK_COMMA()) {
+            i = i + 1
+            if (i >= n) { return 0 }
+            if (psIsTypeArgName(tokenKind(tokens[i])) == 0) { return 0 }
+            i = i + 1
+        } else if (k == TK_RBRACKET()) {
+            i = i + 1
+            if (i >= n) { return 0 }
+            let f = tokenKind(tokens[i])
+            if (f == TK_LPAREN()) { return 1 }
+            if (f == TK_LBRACE()) { return 1 }
+            return 0
+        } else {
+            return 0
+        }
+    }
+    return 0
+}
+
 func psAddError(state, msg) {
     let line = psLine(state)
     let errStr = "line " + str(line) + ": " + msg
@@ -770,6 +815,12 @@ func parseFunc(state, target) {
     let name = psCurLiteral(state)
     psAdvance(state) // consume name
 
+    // Phase 146: optional generic parameters [T, U]
+    let genericParams = []
+    if (psCurKind(state) == TK_LBRACKET()) {
+        genericParams = parseGenericParams(state)
+    }
+
     // Consume '('
     if (psCurKind(state) != TK_LPAREN()) {
         psAddError(state, "expected '(' after function name")
@@ -806,7 +857,13 @@ func parseFunc(state, target) {
 
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
 
-    return setFuncTarget(makeFuncDecl(name, params, body, line, startCol), target)
+    let funcDecl = makeFuncDecl(name, params, body, line, startCol)
+    if (len(genericParams) > 0) {
+        // Store genericParams at index 6
+        if (len(funcDecl) <= 6) { funcDecl = appendArray(funcDecl, []) }
+        funcDecl[6] = genericParams
+    }
+    return setFuncTarget(funcDecl, target)
 }
 
 // ============================================================
@@ -1181,6 +1238,35 @@ func parseFor(state) {
 }
 
 // ============================================================
+// Phase 146: Parse generic parameters [T, U] with optional constraints T: Numeric
+// ============================================================
+func parseGenericParams(state) {
+    let params = []
+    psAdvance(state) // consume '['
+    while (psCurKind(state) != TK_RBRACKET() && psCurKind(state) != TK_EOF()) {
+        if (psCurKind(state) == TK_IDENT()) {
+            let name = psCurLiteral(state)
+            psAdvance(state)
+            // Optional constraint: T: Numeric
+            if (psCurKind(state) == TK_COLON()) {
+                psAdvance(state) // consume ':'
+                if (psCurKind(state) == TK_IDENT()) {
+                    let constraint = psCurLiteral(state)
+                    psAdvance(state)
+                    name = name + ":" + constraint
+                }
+            }
+            params = appendArray(params, name)
+            if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+        } else {
+            psAdvance(state)
+        }
+    }
+    if (psCurKind(state) == TK_RBRACKET()) { psAdvance(state) }
+    return params
+}
+
+// ============================================================
 // Parse struct declaration: type Name struct { field type, ... }
 // ============================================================
 
@@ -1190,6 +1276,12 @@ func parseStructDecl(state) {
 
     let name = psCurLiteral(state)
     psAdvance(state) // consume name
+
+    // Phase 146: optional generic parameters [T, U]
+    let genericParams = []
+    if (psCurKind(state) == TK_LBRACKET()) {
+        genericParams = parseGenericParams(state)
+    }
 
     if (psCurKind(state) == TK_STRUCT()) { psAdvance(state) }
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
@@ -1206,7 +1298,12 @@ func parseStructDecl(state) {
     }
 
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
-    return makeStructDecl(name, fields, line)
+    let st = makeStructDecl(name, fields, line)
+    if (len(genericParams) > 0) {
+        if (len(st) <= 4) { st = appendArray(st, []) }
+        st[4] = genericParams
+    }
+    return st
 }
 
 // ============================================================
@@ -1529,7 +1626,17 @@ func parseIdentOrCall(state) {
 
     psAdvance(state) // consume identifier
 
-    // Function call: name(args)
+    // Phase 146: optional type arguments [T, U] for generic calls or struct
+    // literals. Gate on the full shape [IDENT(,IDENT)*] followed by '(' or '{'
+    // so ordinary postfix indexing (s[i], arr[0], m[i][j], slices) is never
+    // consumed here — a pure lookahead over the token array, parsing only
+    // proceeds via the shape check.
+    let typeArgs = []
+    if (psCurKind(state) == TK_LBRACKET() && psLooksLikeTypeArgs(state) == 1) {
+        typeArgs = parseGenericTypeArgs(state)
+    }
+
+    // Function call: name[typeArgs](args)
     if (psCurKind(state) == TK_LPAREN()) {
         psAdvance(state) // consume '('
         let args = []
@@ -1539,7 +1646,9 @@ func parseIdentOrCall(state) {
             if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
         }
         if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
-        return makeCall(name, args, line, col)
+        let call = makeCall(name, args, line, col)
+        if (len(typeArgs) > 0) { call[5] = typeArgs }
+        return call
     }
 
     // Dot access: name.field, name.field(args), or EnumName.Variant[(payload)]
@@ -1579,13 +1688,15 @@ func parseIdentOrCall(state) {
             // C.* keeps its dotted name for raw C binds.
             let callName = field
             if (name == "C") { callName = "C." + field }
-            return makeCall(callName, args, line, col)
+            let call = makeCall(callName, args, line, col)
+            if (len(typeArgs) > 0) { call[5] = typeArgs }
+            return call
         }
 
         return makeDot(makeIdent(name, line, col), field, line)
     }
 
-    // Struct literal: TypeName { field: val, ... }
+    // Struct literal: TypeName[typeArgs] { field: val, ... }
     if (psCurKind(state) == TK_LBRACE() && psNoStructAtBrace(state) == 0) {
         psAdvance(state) // consume '{'
         let fields = []
@@ -1598,11 +1709,31 @@ func parseIdentOrCall(state) {
             if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
         }
         if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
-        return makeStructLit(name, fields, line)
+        let lit = makeStructLit(name, fields, line)
+        if (len(typeArgs) > 0) { lit[4] = typeArgs }
+        return lit
     }
 
     // Simple identifier
     return makeIdent(name, line, col)
+}
+
+// Phase 146: parse generic type arguments [T, U] at expression position
+func parseGenericTypeArgs(state) {
+    let args = []
+    psAdvance(state) // consume '['
+    while (psCurKind(state) != TK_RBRACKET() && psCurKind(state) != TK_EOF()) {
+        if (psIsTypeArgName(psCurKind(state)) == 1) {
+            args = appendArray(args, psCurLiteral(state))
+            psAdvance(state)
+            if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+        } else {
+            psAddError(state, "expected type argument in generic type argument list")
+            psAdvance(state)
+        }
+    }
+    if (psCurKind(state) == TK_RBRACKET()) { psAdvance(state) }
+    return args
 }
 
 // ============================================================
