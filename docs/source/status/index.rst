@@ -80,6 +80,7 @@ The catalog pages
 
    beta
    scope
+   feature-matrix
    implemented
    experimental
    planned

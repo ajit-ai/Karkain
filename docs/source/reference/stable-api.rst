@@ -137,7 +137,8 @@ Stable diagnostic expectations
 ==============================
 
 * ``error[K...]`` numeric codes on the front end; ``karkain explain <code>``
-  documents each code (K001–K008, K100, K101–K113).
+  documents each code (K001–K008, K100, K101–K115, including K114 escape
+  rejection and K115 generic-arity/misuse).
 * ``karkain check --format=json`` emits the ``karkain-diagnostics-v1`` JSON
   contract.
 * Runtime failure model: ``runtime error: <kind> at <file>:<line>`` with a
