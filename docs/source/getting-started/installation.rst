@@ -6,7 +6,7 @@ Karkain is distributed as pre-compiled binaries and built from source.
 
 .. note::
 
-   Karkain is **1.0.0 (Stable)** software. The stable core is regression-gated;
+   Karkain is **1.1.0 (Stable)** software. The stable core is regression-gated;
    experimental surfaces may change between releases.
 
 Pre-compiled binaries

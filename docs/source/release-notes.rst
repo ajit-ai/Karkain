@@ -47,7 +47,7 @@ v1.0.0 — Stable Build (historical)
    :header-rows: 0
 
    * - Status
-     - Karkain 1.0.0 (Stable) — the project's public status (see
+     - Karkain 1.1.0 (Stable) — the project's public status (see
        :doc:`/status/compatibility` for the guarantees attached to it)
    * - Language core
      - Stable core defined and regression-gated on both engines: variables,
@@ -60,7 +60,7 @@ v1.0.0 — Stable Build (historical)
        undefined identifiers exit 3 on both engines during build/run
        (``error[K002]`` Go / ``error[K102]`` kcc) — same contract as ``check``
    * - Error codes
-     - Numeric codes (K001-K008, K100, K101-K113) documented by
+     - Numeric codes (K001-K008, K100, K101–K115) documented by
        ``karkain explain`` and ``explain --list``
    * - Standard library
      - Public modules hardened: ``std.string``, ``std.collections``,

@@ -10,17 +10,17 @@ cross-compile.
 
 .. note::
 
-   Status: **Karkain 1.0.0 (Stable)**. The implemented language core, standard
+   Status: **Karkain 1.1.0 (Stable)**. The implemented language core, standard
    library and toolchain are functional and regression-tested on two engines
    (the Go front end and the self-hosted ``kcc`` engine), with a documented
    stable core and broad parity for the claimed surface. Large planned
-   surfaces (networking, databases, web, GPU/NPU/quantum kernels, an
-   advanced package registry) are **not yet implemented**. Nothing on this
+   surfaces (GPU/NPU/quantum kernels, an advanced package registry) are
+   **not yet implemented**. Nothing on this
    site describes hypothetical features as available. Every advanced
    capability states its real status.
 
-   Public status: **Karkain 1.0.0 (Stable)** (``karkain --version`` →
-   ``Karkain Compiler v1.0.0 (... Stable Build)``). See
+   Public status: **Karkain 1.1.0 (Stable)** (``karkain --version`` →
+   ``Karkain Compiler v1.1.0 (... Stable Build)``). See
    :doc:`release-notes` and :doc:`status/beta`.
 
    Feedback: open an issue at

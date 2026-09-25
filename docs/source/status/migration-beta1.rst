@@ -89,7 +89,7 @@ Moving a Developer Preview project
 
 1. Rebuild the toolchain from source (see
    :doc:`/getting-started/installation`).
-2. `karkain --version` reports ``Karkain Compiler v1.0.0``.
+2. `karkain --version` reports ``Karkain Compiler v1.1.0``.
 3. Re-run your existing programs with ``karkain check`` / ``run`` — no
    source changes should be required.
 4. If you used the workspace dependency path, verify cross-member calls now
