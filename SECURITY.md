@@ -1,6 +1,6 @@
 # Security Policy
 
-Karkain is developed in the open by the QuantsMind community. Reports from
+Karkain is developed in the open by its contributors. Reports from
 external contributors make the toolchain safer for everyone.
 
 ## Supported versions
