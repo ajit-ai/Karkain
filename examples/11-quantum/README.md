@@ -2,7 +2,8 @@
 
 **Status: Planned (infrastructure in progress)**
 
-Karkain's quantum story is explicitly *not* MicroQuantum. The architecture
+Karkain's quantum story is infrastructure-only: no external quantum backend
+is integrated. The architecture
 boundary is:
 
 ```
@@ -12,10 +13,10 @@ Karkain (.kark)
 Karkain quantum interface
    |
    v
-MicroQuantum / future quantum backends
+future quantum backends
 ```
 
-Nothing in this category reimplements MicroQuantum.
+Nothing in this category implements an external quantum backend.
 
 ## What exists today
 
@@ -41,7 +42,7 @@ engine, today.
 - wire `circuit`/`qubit`/`qpu` through the parser (smallest real foundation)
 - quantum simulator runtime for generated C
 - examples: Bell state, GHZ, Deutsch-Jozsa, Grover (as they become runnable)
-- backend integration surface toward MicroQuantum — preserving the boundary
+- backend integration surface toward future quantum backends — preserving the boundary
 
 ## Run
 

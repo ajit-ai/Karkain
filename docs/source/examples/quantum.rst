@@ -5,7 +5,8 @@ Quantum
 compiler as infrastructure only, and **no quantum syntax is runnable end-to-end**
 on either engine. The category is honest: ``Planned / Infrastructure-only``.
 
-Karkain's quantum story is explicitly not MicroQuantum. The architecture
+Karkain's quantum story is infrastructure-only: no external quantum backend
+is integrated. The architecture
 boundary is:
 
 .. code-block:: text
@@ -16,7 +17,7 @@ boundary is:
    Quantum integration layer
       |
       v
-   MicroQuantum / future quantum backends
+   future quantum backends
 
 What exists today:
 
