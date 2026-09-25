@@ -1857,6 +1857,9 @@ func emitC11Stmt(state, node) {
     }
 
     if (nt == "FuncDecl") {
+        // Phase 146C: generic templates are never emitted as C — only their
+        // monomorphized specializations (plain FuncDecls) reach this branch.
+        if (len(funcGenericParams(node)) > 0) { return }
         let fnName = funcName(node)
         let params = funcParams(node)
         let trapTarget = funcTarget(node)
@@ -1925,6 +1928,9 @@ func emitC11Stmt(state, node) {
     }
 
     if (nt == "StructDecl") {
+        // Phase 146C: a generic struct template emits nothing; only its
+        // monomorphized specializations (plain StructDecls) are materialized.
+        if (len(structDeclGenericParams(node)) > 0) { return }
         emitLine(state, "// struct " + structName(node) + " { ")
         emitNewline(state)
     }
@@ -2183,6 +2189,12 @@ func collectLocalFuncsC11(state, stmts) {
 func generateC11(ast, sourceName) {
     let state = createCodegenState("c11")
     setCodegenSourceName(state, sourceName)
+    // Phase 146C: monomorphize the program before any emission, exactly like
+    // the Go pipeline. Diagnostic gating already happened upstream (kcc
+    // check/build/run run typeCheckProgram first; a bad generic call exits 3
+    // there), so any errors here are ignored — the generated C for a program
+    // that reached codegen is always fully monomorphized.
+    monomorphizeProgram(ast)
     let stmts = programStatements(ast)
     // Phase 137: concurrency prescan (uses-flag, spawn order, handler
     // order). Runs before any emission; the runtime text, wrappers and
@@ -2213,10 +2225,14 @@ func generateC11(ast, sourceName) {
     i = 0
     while (i < len(stmts)) {
         if (getNodeType(stmts[i]) == "FuncDecl") {
-            emitC11ForwardDecl(state, stmts[i])
-            // Phase 121: register + declare let-bound lambdas so closures are
-            // usable from any top-level function regardless of definition order.
-            emitLocalFuncDecls(state, funcBody(stmts[i]))
+            // Phase 146C: generic templates are never emitted; only their
+            // monomorphized specializations produce C.
+            if (len(funcGenericParams(stmts[i])) == 0) {
+                emitC11ForwardDecl(state, stmts[i])
+                // Phase 121: register + declare let-bound lambdas so closures are
+                // usable from any top-level function regardless of definition order.
+                emitLocalFuncDecls(state, funcBody(stmts[i]))
+            }
         }
         i = i + 1
     }

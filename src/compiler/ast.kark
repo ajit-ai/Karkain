@@ -108,7 +108,8 @@ func progStatements(p) { return p[1] }
 func progImports(p)    { return p[2] }
 
 // ============================================================
-// FuncDecl node: [NODE_FUNC_DECL, name, params, body, line, col]
+// FuncDecl node: [NODE_FUNC_DECL, name, params, body, line, col, genericParams]
+// genericParams (index 6) is an array of generic type parameter names (Phase 146)
 // ============================================================
 
 func makeFuncDecl(name, params, body, line, col) {
@@ -118,57 +119,64 @@ func makeFuncDecl(name, params, body, line, col) {
     n = appendArray(n, body)
     n = appendArray(n, line)
     n = appendArray(n, col)
+    n = appendArray(n, [])  // genericParams (empty by default for non-generic)
     return n
 }
 
-func funcName(n)      { return n[1] }
-func funcParams(n)    { return n[2] }
-func funcBody(n)      { return n[3] }
-func funcLine(n)      { return n[4] }
-func funcCol(n)       { return n[5] }
+func funcName(n)        { return n[1] }
+func funcParams(n)      { return n[2] }
+func funcBody(n)        { return n[3] }
+func funcLine(n)        { return n[4] }
+func funcCol(n)         { return n[5] }
+func funcGenericParams(n) {
+    if (len(n) > 6) { return n[6] }
+    return []
+}
 
-// setFuncTarget attaches a @target(...) attribute to a FuncDecl node. The
-// target slot is optional (index 6); unset functions keep the 6-field shape.
+// setFuncTarget attaches a @target(...) attribute to a FuncDecl node.
+// target lives at index 7 (index 6 is genericParams).
 func setFuncTarget(n, target) {
     if (target == "") { return n }
+    if (len(n) <= 6) { n = appendArray(n, []) }  // pad genericParams
     n = appendArray(n, target)
     return n
 }
 
 // funcTarget returns the function's @target(...) name, or "" when unset.
 func funcTarget(n) {
-    if (len(n) > 6) { return n[6] }
+    if (len(n) > 7) { return n[7] }
     return ""
 }
 
 // setFuncPublic marks a FuncDecl public (Phase 103). The public flag lives at
-// index 7; index 6 is reserved for the optional @target attribute, padded with
-// "" when only public is set so the slot layout stays stable.
+// index 8; index 6 is genericParams, index 7 is @target.
 func setFuncPublic(n) {
-    if (len(n) <= 6) { n = appendArray(n, "") }
+    if (len(n) <= 6) { n = appendArray(n, []) }  // pad genericParams
+    if (len(n) <= 7) { n = appendArray(n, "") }  // pad @target
     n = appendArray(n, "1")
     return n
 }
 
 // funcPublic reports whether a FuncDecl was declared public.
 func funcPublic(n) {
-    if (len(n) > 7) { return n[7] == "1" }
+    if (len(n) > 8) { return n[8] == "1" }
     return false
 }
 
 // setFuncCaptures attaches a let-bound lambda's capture list (Phase 121).
-// It lives at index 8; slots 6/7 (@target / public) are padded with "" when
-// unset so the slot layout stays stable.
+// It lives at index 9; slots 6/7/8 (genericParams/@target/public) are padded
+// with "" when unset so the slot layout stays stable.
 func setFuncCaptures(n, caps) {
-    if (len(n) <= 6) { n = appendArray(n, "") }
-    if (len(n) <= 7) { n = appendArray(n, "") }
+    if (len(n) <= 6) { n = appendArray(n, []) }  // pad genericParams
+    if (len(n) <= 7) { n = appendArray(n, "") }  // pad @target
+    if (len(n) <= 8) { n = appendArray(n, "") }  // pad public
     n = appendArray(n, caps)
     return n
 }
 
 // funcCaptures returns a let-bound lambda's captured free variables, or [].
 func funcCaptures(n) {
-    if (len(n) > 8) { return n[8] }
+    if (len(n) > 9) { return n[9] }
     return []
 }
 
@@ -420,19 +428,26 @@ func unaryLine(n)    { return n[3] }
 // Call: [NODE_CALL, funcName, args, line, col]
 // ============================================================
 
+// Call: [NODE_CALL, funcName, args, line, col, typeArgs]
+// typeArgs (index 5) holds explicit type arguments for generic calls (Phase 146)
 func makeCall(funcName, args, line, col) {
     let n = makeNode(NODE_CALL())
     n = appendArray(n, funcName)
     n = appendArray(n, args)
     n = appendArray(n, line)
     n = appendArray(n, col)
+    n = appendArray(n, [])  // typeArgs
     return n
 }
 
-func callFunc(n)  { return n[1] }
-func callArgs(n)  { return n[2] }
-func callLine(n)  { return n[3] }
-func callCol(n)   { return n[4] }
+func callFunc(n)    { return n[1] }
+func callArgs(n)    { return n[2] }
+func callLine(n)    { return n[3] }
+func callCol(n)     { return n[4] }
+func callTypeArgs(n) {
+    if (len(n) > 5) { return n[5] }
+    return []
+}
 
 // ============================================================
 // IndirectCall: [NODE_INDIRECTCALL, target, args, line]
@@ -594,7 +609,7 @@ func forCondition(n)   { return forCond(n) }
 func funcReturnType(n) { return "Value" }
 
 // ============================================================
-// StructDecl: [NODE_STRUCT_DECL, name, fields, line]
+// StructDecl: [NODE_STRUCT_DECL, name, fields, line, genericParams]
 // ============================================================
 
 func makeStructDecl(name, fields, line) {
@@ -602,28 +617,34 @@ func makeStructDecl(name, fields, line) {
     n = appendArray(n, name)
     n = appendArray(n, fields)
     n = appendArray(n, line)
+    n = appendArray(n, [])  // genericParams
     return n
 }
 
-func structDeclName(n)    { return n[1] }
-func structDeclFields(n)  { return n[2] }
-func structDeclLine(n)    { return n[3] }
+func structDeclName(n)       { return n[1] }
+func structDeclFields(n)     { return n[2] }
+func structDeclLine(n)       { return n[3] }
+func structDeclGenericParams(n) {
+    if (len(n) > 4) { return n[4] }
+    return []
+}
 
-// setStructPublic marks a StructDecl public (Phase 103), optional slot index 4.
+// setStructPublic marks a StructDecl public (Phase 103), optional slot index 5.
 func setStructPublic(n, flag) {
     if (flag != "1") { return n }
+    if (len(n) <= 4) { n = appendArray(n, []) }  // pad genericParams
     n = appendArray(n, "1")
     return n
 }
 
 // structDeclPublic reports whether a StructDecl was declared public.
 func structDeclPublic(n) {
-    if (len(n) > 4) { return n[4] == "1" }
+    if (len(n) > 5) { return n[5] == "1" }
     return false
 }
 
 // ============================================================
-// StructLiteral: [NODE_STRUCT_LIT, typeName, fields, line]
+// StructLiteral: [NODE_STRUCT_LIT, typeName, fields, line, typeArgs]
 // ============================================================
 
 func makeStructLit(typeName, fields, line) {
@@ -631,12 +652,17 @@ func makeStructLit(typeName, fields, line) {
     n = appendArray(n, typeName)
     n = appendArray(n, fields)
     n = appendArray(n, line)
+    n = appendArray(n, [])  // typeArgs (empty by default for non-generic)
     return n
 }
 
 func structLitName(n)    { return n[1] }
 func structLitFields(n)  { return n[2] }
 func structLitLine(n)    { return n[3] }
+func structLitTypeArgs(n) {
+    if (len(n) > 4) { return n[4] }
+    return []
+}
 
 // ============================================================
 // ArrayLiteral: [NODE_ARRAY_LIT, elements, line]

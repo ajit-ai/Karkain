@@ -6,10 +6,10 @@
 // across calls, so persistence is the sound model (verified: a push
 // inside a callee is invisible to the caller).
 //
-// Engine note: the [T] declarations require the Phase-146 monomorphizer,
-// so this module compiles on the Go engine. kcc parity lands in Phase
-// 146C; until then kcc rejects generic declarations loudly (check the
-// Phase-146B gate), never silently.
+// Engine note: the [T] declarations are monomorphized by the Phase-146
+// pass on BOTH engines; kcc parity landed in Phase 146C
+// (src/compiler/checker.kark — bare/arity generic misuse is rejected
+// there, never silently miscompiled).
 
 // stack_new returns an empty stack.
 func stack_new() {

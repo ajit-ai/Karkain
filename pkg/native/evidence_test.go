@@ -64,4 +64,29 @@ func TestNativeEvidenceDump(t *testing.T) {
 		t.Fatalf("write call: %v", err)
 	}
 	t.Logf("dumped %d-byte image to %s", len(img2), out2)
+
+	// Phase 149: same programs for the PE and Mach-O containers, so
+	// objdump/readelf-class forensics work for every format.
+	dumpOS := func(osName, name, src string) {
+		t.Helper()
+		l := lexer.New(src)
+		p := parser.New(l)
+		prog := p.ParseProgram()
+		if len(p.Errors) > 0 {
+			t.Fatalf("parse %s: %v", name, p.Errors)
+		}
+		img, err := CompileProgramForOS(prog, osName)
+		if err != nil {
+			t.Fatalf("compile %s: %v", name, err)
+		}
+		out := filepath.Join(dir, name)
+		if err := os.WriteFile(out, img, 0o755); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+		t.Logf("dumped %d-byte image to %s", len(img), out)
+	}
+	dumpOS(OSWindows, "native-empty-pe.exe", "func main() {\n}\n")
+	dumpOS(OSMacOS, "native-empty-macho", "func main() {\n}\n")
+	dumpOS(OSWindows, "native-retcode-pe.exe", "func main() {\n    return 7\n}\n")
+	dumpOS(OSWindows, "native-int42-pe.exe", "func main() {\n    print(42)\n}\n")
 }
