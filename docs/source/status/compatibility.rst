@@ -2,10 +2,10 @@
 Compatibility Policy
 ====================
 
-Karkain 1.0.0 (Stable) defines what external developers may rely on between
-releases. This policy is deliberately lightweight: a full 1.0 compatibility
-matrix is established only after a release candidate proves the stable core
-in the field.
+Karkain 1.1.0 defines what external developers may rely on between
+releases. This policy is governed by the formal SemVer policy
+(:doc:`/development/semver-policy`) and the version-wise development plan
+(``docs/audit/KARKAIN-VERSION-PLAN.md``).
 
 .. contents:: Sections
    :local:

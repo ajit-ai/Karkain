@@ -10,10 +10,47 @@ After EVERY Phase completion and successful test run:
 This ensures `main` always reflects the latest working state.
 NEVER skip this step. This is a hard rule, not optional.
 
+### Release cadence (version-wise, since the 1.2.0 line)
+
+Work is planned by **version** (`docs/audit/KARKAIN-VERSION-PLAN.md`) but
+executed by **increment** — an increment *is* a phase. The two levels are:
+
+1. **Per increment (every time):** code + gate + audit note + this file's
+   record → commit `develop` → merge `main` → push. The push triggers the
+   full CI matrix (`.github/workflows/ci.yml`, `on: push`) and the GitHub
+   Pages deploy (`.github/workflows/docs.yml`, push to `main`). No
+   long-lived version branch, ever — `main` stays shippable at all times.
+2. **Per version close (one go):** the whole ceremony —
+   `docs/release/vX.Y.Z-CHECKLIST.md` → full QA battery (units, corpus
+   both engines, conformance, probes, every gate file, Sphinx `-W` +
+   linkcheck, `verify-examples`, install/verify-install, rc-journey) →
+   version identity (`VERSION`, Go + kcc banners, generated headers, LSP,
+   every version-pinning test) → docs flip (`roadmap.rst`,
+   `compatibility.rst`, `scope.rst`, `stable-api.rst`, `installation.rst`,
+   release notes) → final `develop` → `main` merge + push → **tag
+   `vX.Y.Z`** (owner-only; the tag is what triggers the CI `release` job
+   that publishes the 13 archives + `checksums.txt`) → GitHub Release →
+   Pages → post-publish verification against the *shipped* binary.
+
+Version scope is frozen when its checklist is written: new ideas go to the
+next version or an explicit carry-over list, never silently into an open
+one.
+
 ## Roadmap
 
-See `ROADMAP.md` for the complete development plan (Phases 50–79+).
-Current phase: **post-137** — Phases 50–106 complete, 107 (Concurrency
+**Version-wise plan (authoritative forward view):
+`docs/audit/KARKAIN-VERSION-PLAN.md`** — 1.1.0 (in-tree, ceremony pending),
+1.2.0 "Sovereignty I" (increments 150, 151, 152, 154, 165), 1.3.0, 1.4.0,
+1.5.0, 1.6.0, 2.0.0. Per-version exit criteria, increment queue, NFR targets
+and the library backlog live there. This file remains the **completion
+record**; `ROADMAP.md` is the historical phase log (Phases 1–49).
+
+Current increment: **post-149** — increment 149 (PE + Mach-O writers, Win64
+boundary, PEB bootstrap) complete; next queued increment is 150 (native Value
+model + Windows/macOS native CLI targets) under version **1.2.0**.
+Increments 138–149 are recorded below (version **1.1.0**, all in-tree; only
+the owner tag/archive ceremony is outstanding). Historical chain:
+Phases 50–106 complete, 107 (Concurrency
 Runtime) complete, 108 (WASM target) complete, 109 (Standard Library v2)
 complete, 110 (Profiling & Diagnostics) complete, 111 (Cross-Compilation)
 complete, 112 (Language probe hardening/debug trace/testing module) complete,
@@ -547,6 +584,263 @@ changed from Status Experimental/Engine go to Status Stable/Engine both.
 Regressions green: Phase 107, 130, 133, 134, 135, 136 gates, full
 `pkg/codegen`/`pkg/cli` suites, `go vet`, `go build`. Report:
 `docs/audit/PHASE-137-CONCURRENCY-PARITY-FINAL-REPORT.md`.)
+
+Also completed: **138 — Accelerator Kernel Surface v1 (GPU/NPU)** (verdict
+**COMPLETE**; GA-3 first step. `@target(gpu)` kernel functions emit real WGSL
+compute kernels from `pkg/backend/gpu` (no comment stubs) with a
+**compile-only guarantee**: `karkain build --target gpu-*` produces artifacts
+without hardware, SDK or driver, and the CPU reference backend stays the
+correctness oracle. Unknown accelerator targets are rejected on BOTH engines
+(the Phase 98 `@target` preflight extended); the Phase 78 NPU quantization
+path is unchanged — only the authoring surface grew. Gate
+`pkg/cli/phase138_gpu_test.go` (`TestPhase138`, isolated-CWD harness so
+generated `.c` never lands in the package dir) + CI step "Run Phase 138
+accelerator-kernel-surface gate". NOTE: no in-phase audit report file exists
+for 138 — this record is retro-filled from the gate and the GA-3 plan
+(`docs/audit/GENERAL-AVAILABILITY-ROADMAP.md` §6).)
+
+Also completed: **139 — Cross-Compilation Expansion + WASM GC** (verdict
+**COMPLETE**; GA-3 second step. `pkg/target/triple.go` gains `ArchRiscv64`
+and `OSMacOS` (`darwin`/`macosx` normalize to `*-macos`); ABI rules enforce
+riscv64 = Linux-only, macOS = x86_64/aarch64-only, gnu/msvc rejected on
+macOS; `pkg/target/features.go` marks Mach-O + Apple ABI + clang-only
+linking, 64-bit LE for riscv64, and extends `SupportedTargets` with
+`aarch64-windows`, `riscv64-linux`, `x86_64-macos`, `aarch64-macos` (error
+texts and `SupportedArchs/OSes` extended — foreign targets still fail
+deterministically with the toolchain error, never a silent host fallback).
+WASM component envelope + `karkain wit` MVP land here, plus a CI
+cross-linker presence matrix that is informational only (never red). Gates:
+`pkg/cli/phase139_cross_test.go` + `pkg/target`/`pkg/wit` unit suites. Report:
+`docs/audit/PHASE-139-FINAL-REPORT.md`.)
+
+Also completed: **140 — Debugger Integration** (verdict **COMPLETE**; GA-3
+third step. New `pkg/cli/dbg.go` `DbgCommand`: `karkain dbg` stages the
+source into a temp sandbox (so beside-source `.c` debris never touches user
+code), runs the RunCommand gate prologue (syntax → borrow → semantic, same
+codes), links a `-g` binary through the **Go engine** (kcc deferred — the
+Phase 112 boundary), then walks it under gdb batch (`rbreak
+^karkain_user_` + run + 10× `bt`/`continue`, deepest stack wins); frames
+parse `#N [addr in] FUNC (...) [at FILE:LINE]`, demangle the
+`karkain_user_` namespace and render as `karkain_dbg trace:` with numbered
+frames. VS Code extension gains the debug command + `launch.json`/tasks
+templates; validated by `pkg/cli/phase140_debug_test.go` +
+`TestVSCodeExtension`. Boundaries: no lldb wiring on this host; no DAP
+server (that is Phase 153). Report: `docs/audit/PHASE-140-FINAL-REPORT.md`.)
+
+Also completed: **141 — Performance & Memory (compiler itself)** (verdict
+**COMPLETE** — optimizer headline + allocation accuracy + measurements;
+split-TU self-build stays future work with its lever documented. New
+`pkg/ir/ssa/passes_simplify_cfg.go`: constant-branch → `jmp` plus
+unreachable-block sweep (loop-safe BFS from entry) with 3 unit tests; the
+optimizer now drives emitted C for the gated corpus, pinned by
+`pkg/codegen/phase141_opt_test.go` (6-case corpus fold/cse/loop/dce/licm/
+sroa, optimized-vs-legacy runtime parity goldens, fold pin `make_int(14)`,
+DCE pin, byte-determinism twice, anti-bloat bound +2%). `prof` reports
+Value-cell allocation counts. Measured RSS table recorded: kcc check
+544.5 MB, `go build` 229.9 MB, gcc big-TU 484 MB — target ≤2.5 GB for the
+full self-build; per-pass loop-soundness verdicts documented (Mem2Reg stays
+unwired). Report: `docs/audit/PHASE-141-FINAL-REPORT.md`.)
+
+Also completed: **142 — 1.1.0 Release** (verdict **COMPLETE (preparation)**;
+GA-3 final step — everything up to the owner-only ceremony is done, gated and
+rehearsed; no tag cut in-phase, matching the 1.0.0 precedent. Version
+identity unified at **1.1.0** across `VERSION`, both Go banner sites, three
+kcc banners, six kcc codegen headers, the Go quantum/QIR/QEC/QASM/OpenPulse/
+DWARF headers and the LSP server; the pinning tests moved together
+(88/90, 115 skeleton + DocTree, 118 RC identity, 119 identity + labels,
+120 envelope, bootstrap args) while historical assertions stayed untouched;
+kcc rebuilt so its banner matches, and the concurrency pipeline golden stayed
+intact. `1.0.x` LTS branch created from `v1.0.0` and pushed; SECURITY gains
+the LTS row. New `docs/release/KARKAIN-1.1-RELEASE-NOTES.md` (phases 132–141
+deltas, compatibility statement — one behavior fix: K114 escape rejection —
+honest limitations, verify ceremony); `release-notes.rst` restructured (1.1.0
+on top, 1.0.0 demoted to historical); README/SPEC/status/cli/lsp/showcase/
+issue-template/scripts swept; corpus recounted to **61 files in the 15
+categories** (114 `.kark` total; 59 runnable incl. test-mode, 2 Stable, 1
+Planned dir). Gate `pkg/cli/phase142_release_test.go` (identity on both
+engines, emitter-header allowlist, changelog presence, LTS ref, host archive
+rehearsal with SHA-256 → verify → `--version` from the extracted tree).
+Report: `docs/audit/PHASE-142-FINAL-REPORT.md`.)
+
+Also completed: **143 — Seed-Binary Bootstrap Closure (Go-free)** (verdict
+**COMPLETE**; SOVEREIGNTY opener, gate + docs only — zero new production
+paths. `pkg/bootstrap/phase143_seed_test.go`: `TestBootstrap_SeedClosure`
+builds the seed via stage 1, scrubs the Go toolchain's directory from `PATH`
+while asserting `go` is unresolvable and `gcc` intact, runs stages 2–3
+go-less and asserts bitwise identity; `TestBootstrap_ScrubGoFromPath` pins
+the separator-agnostic scrub logic without needing RAM or gcc (it caught a
+real Windows bug during development: `filepath.Dir` mis-splits forward-slash
+paths — fixed with a dual-style split). CI gains a dedicated (fast
+self-skipping) closure step; `docs/self-hosted-compiler.md` gains the Seed
+Closure section with the honest remaining boundaries (optional Go reference
+toolchain; gcc linker until Phase 145/152). Dev host: the closure **skips
+honestly** under the Phase-127 guard (`error[K127]`, ~100–600 MiB free <
+1536 MiB required) — the guard working as designed. Report:
+`docs/audit/PHASE-143-FINAL-REPORT.md`.)
+
+Also completed: **144 — Toolchain Sovereignty (PM resolution in kcc)**
+(verdict **COMPLETE**; SOVEREIGNTY second step. The self-hosted engine now
+assembles manifest/workspace/registry/git dependencies itself:
+`src/compiler/main.kark` gains a 16-function PM section (flat
+`[dependencies]` parse with dev-deps excluded, lock version/rev lookup,
+workspace-root discovery, `sanitizeCacheComponent`/`depCacheName`/
+`normalizeSourceURL` mirrors, `depSourceDir` source switch, `depDirPaths`
+single-pass join with main-skip, path-dedup and root-exclusion) prepended
+upstream-first in `assembleProject` for both import and sibling shapes.
+Unresolvable deps skip silently (Go parity); imported-but-missing modules
+still raise `error[K122]`; no new error codes. The CLI mirrors the project
+rather than composing its input (`kccMirrorProject` + `pmWorkspaceRoot`;
+`kccStageInput` routes manifest projects to the mirror, flat/legacy paths
+untouched; Go-engine assembly and kcc test injection unchanged). Two real
+defects were caught by the project's own machinery during development:
+`fileExists` is not a Go-resolver builtin (K002 → all existence checks
+dropped by design instead of adding surface), and the sibling branch
+**assigned instead of appended**, discarding dependency content (one `+`
+fix, found by isolating the join in a kcc-run harness). Gate
+`pkg/cli/phase144_pm_test.go`. Report:
+`docs/audit/PHASE-144-FINAL-REPORT.md`.)
+
+Also completed: **145 — Native Backend v1 (C-free)** (verdict **COMPLETE**;
+SOVEREIGNTY / INDEPENDENCE C-front first step — the first machine code
+Karkain has ever emitted without a C compiler. `pkg/native/emit.go`:
+hand-encoded x86-64 (mov reg/reg/imm32/imm64/stack/disp8/disp32/SIB/mem8,
+add/sub, imul, push/pop, xor-zero, neg, dec, cqo, div, test, near
+call/jmp/jnz/jns with label + rel32 backpatch, ret, syscall, ModRM/SIB/REX)
+with golden byte pins for every primitive; `pkg/native/elf.go`: static
+ELF64-LE writer (single PT_LOAD, `_start`, `.text`+`.rodata`, no INTERP, no
+libc) + structural `Parse` validator; lowering for straight-line ints,
+string literals and user calls, `print` via raw `write`/`exit`; determinism
+plus a 7-case K145 reject table. Slice 145C was gates/docs/regressions only —
+**no CLI flag in 145** (package API + tests, mirroring `pkg/wasm`'s shape).
+Execution on the Linux CI leg died instantly and deterministically
+(`TestNativeHello` segfault, `TestNativeCalls` trap, all six bisect cases
+zero output), so the phase closed under **quarantine**
+(`docs/audit/PHASE-145-QUARANTINE.md`, flag `KARKAIN_NATIVE_EXEC`, per-case
+`if: always()` bisect CI steps) — every non-execution gate stayed mandatory.
+Report: `docs/audit/PHASE-145-FINAL-REPORT.md`.)
+
+Also completed: **146 — Generics v1 (Go-engine, then kcc parity)** (verdict
+**COMPLETE**; LANGUAGE opener after the 145 quarantine, delivered in three
+commits. Contract: `func name[T,U](params)` and `type Name[T] struct {...}`
+declarations; call sites use **explicit type args** with square brackets
+(`f[int](args)`) because angle brackets collide with `<`/`>` in the
+expression grammar; no inference in v1; constraints parse and store but are
+unchecked (no trait/impl syntax exists to declare against). Because
+`f[T](x)` is syntactically identical to index-then-call (`ops[idx](5)`,
+Phase 133) and the parser has one token of lookahead, the design is
+**optimistic parse + semantic demotion**: `IDENT[ident-list](args)` parses as
+CallExpr+TypeArgs, and the sema monomorphize pass either instantiates and
+rewrites to the specialized name or demotes back to
+IndirectCall(IndexExpr), preserving Phase-133 behavior exactly (including
+variable indices); unresolved callees stay K002. New **K115** for misuse.
+Slice 146a wired `pkg/sema/generics.go` to function/struct call sites
+(previously kernels only) and filled `GenericParams` in the parser; 146b
+shipped the importable `std.generics` module (persistent `Stack[T]`/
+`Queue[T]`, 12 functions) with goldens and a kcc boundary pin; 146c delivered
+**kcc generics parity** (monomorphize pass, keyword type-arg gate, goldens;
+plus a kcc index-then-brace fix in bare conditions and a `stable-api.rst`
+list-table indent fix), refreshing the whole-tree KIR pin 8986 → 9574. Gates
+`pkg/cli/phase146_generics_test.go`, `phase146b_generics_test.go`,
+`phase146c_generics_test.go`. NOTE: no in-phase final report file exists for
+146 — this record is composed from `docs/audit/PHASE-146-BASELINE.md` and the
+146a/b/c commits.)
+
+Also completed: **147 — Native Execution P1 Resolution** (verdict
+**COMPLETE**; INDEPENDENCE C-front opener after the 145 quarantine — the
+generated native binaries now execute on Linux CI and the quarantine is
+lifted. Evidence first: new `TestNativeEvidenceDump`
+(`pkg/native/evidence_test.go`, env-gated `KARKAIN_NATIVE_DUMP`, bytes-only so
+it runs everywhere) plus an informational Linux-only `native-evidence` CI job
+capturing `readelf -h -l` and `strace -f`; the decisive capture showed
+`execve(...) = 0` (loader exonerated — clean ELF, entry `0x400112` inside the
+single `LOAD`) followed by immediate `SIGSEGV si_code=SI_KERNEL si_addr=NULL`
+with zero userspace progress. **Root cause 1 (the P1):** `MovRegImm32`
+emitted `REX.W + B8+rd` *with a 32-bit immediate* — per the Intel SDM that
+opcode **is** `mov r64, imm64` (10 bytes), so the CPU consumed the next four
+bytes at every use site (syscall numbers, fds, loop constants, the `_start`
+exit sequence) and the stream desynchronized from the first use; the
+Phase-145 comment calling it sign-extended was wrong and two goldens pinned
+the buggy bytes. Fixed to the correct prefix-less `B8+rd io` (zero-extends)
+with `REX.B` only for r8–r15, goldens corrected. **Root cause 2:** binary
+operands pushed `rax`, moving `rsp` and shifting frame-relative slots
+(`add(20,22)` read slot a twice → 40); lowering now stages through
+depth-indexed scratch slots (rsp never moves; 64-deep K145 guard). **Root
+cause 3:** `print` wrote no trailing newline; newline tails added to both
+helpers. Result: `TestNativeHello`, `TestNativeCalls`, all six
+`TestNativeBisect` cases and `strace exit=0` green in default CI; the
+`KARKAIN_NATIVE_EXEC` flag removed from `runNativeCode`; the quarantine doc
+marked closed; bisect `if: always()` steps kept as permanent regression
+coverage. Report: `docs/audit/PHASE-147-FINAL-REPORT.md`.)
+
+Also completed: **148 — Native CLI Flag + Control Flow + Calls ABI** (verdict
+**COMPLETE**; INDEPENDENCE C-front second step. `karkain build/run --target
+native-x86_64-linux` is now a real user path: a pure-Go emission that writes
+a `0755` ELF from **any** host with no C compiler, executes on linux/amd64
+with stdio passthrough (program failure → `ExitFailure`), refuses `run` off
+Linux with the build-only hint and exit 6, and refuses `--incremental`
+loudly (the cache serves the C pipeline; native-split is 150+). kcc
+auto-routes exotic targets to the Go commands, so **no kcc changes** (kcc
+native parity is 151). Control flow: `CmpRegReg` + near `Jz/Jl/Jle/Jg/Jge`
+golden-pinned; `emitFunc` body factored into `emitStmt` (straight-line paths
+byte-identical by construction); `emitCond` accepts int comparisons only
+(loud K145 — never miscompiled truthiness); `if`/`while`/C-style `for`
+(bare-assignment post wrapped), nested `let`s via a function-wide pre-scan
+(first declaration wins, shadowing writes through — documented v1 semantics),
+int reassignment, `break`/`continue` via a loop-label stack (outside loops =
+K145); `for-in` stays K145 (arrays are 150 Value-model work). Calls ABI
+(documented in `program.go`): 8-byte units packed in order (int 1, string 2),
+units 0–5 in RDI/RSI/RDX/RCX/R8/R9, further units in the caller-frame extras
+area addressed by R10; string returns `(RAX=ptr, RDX=len)`; `rsp` never moves
+during evaluation; a function table enforces exact arity with kind-checked
+arguments (loud int/string mismatches naming the parameter), string params
+via Phase-46 annotations (two slots), string returns via whole-unit
+inference (cycles/mixes loud), and `main` takes no arguments. Goldens
+`TestNativeControl` (`if_else 10/40`, `while_sum 55`, `cfor_sum 45`,
+`break_continue 18`, `nested 9`) and `TestNativeCallsABI` (executed on Linux,
+structural elsewhere); gate `pkg/cli/phase148_native_test.go` 5/5 (including
+an ABI build probe, run-refusal, incremental refusal and listing) —
+`--engine go` pinned. Report: `docs/audit/PHASE-148-FINAL-REPORT.md`.)
+
+Also completed: **149 — PE + Mach-O Writers, Win64 Boundary, PEB Bootstrap**
+(verdict **COMPLETE (execution proven)**; INDEPENDENCE C-front third step —
+**PE images execute green on windows/amd64 (7/7 goldens live on the dev
+host)**, Mach-O is structural (parse + determinism; no Intel-mac runner
+exists) and ELF stays byte-identical and green on Linux. `pkg/native/pe.go`:
+DOS header + PE signature + COFF + PE32+ (240 B, correct 64-bit offsets) +
+three sections (`.text` R-X with code+rodata, `.idata` R/W with
+IDT/ILT/IAT/Hint-Name/kernel32.dll, `.reloc` with DIR64 blocks per 4 KB page)
++ a `ParsePE` validator. `pkg/native/macho.go`: header + `LC_SEGMENT_64`
+(nsects=0) + zeroed `LC_DYLD_INFO_ONLY` + `LC_LOAD_DYLINKER` + `LC_MAIN` + a
+`ParseMachO` validator. OS-parameterized lowering (`CompileProgramForOS`,
+Linux default preserved by `CompileProgram`) with per-OS syscall numbers
+(Linux 1/60, macOS 0x2000004/0x2000001) and per-OS `_start` tails over one
+shared encoder/lowering. Win64 boundary (PE only): System V **inside** user
+functions, Win64 (RCX,RDX,R8,R9 + 32-byte caller shadow) at three kernel32
+call shapes, 16-byte alignment discipline (entry `and`, 16-rounded frames,
+48-byte WriteFile shadow), IAT slots reached by `movabs` + `call`.
+Loader-independent PEB bootstrap (PE only): PEB → Ldr → module walk (exact
+"kernel32.dll" match, 64-entry bound, Int3 on exhaustion) plus per-export
+table walks publishing ExitProcess/GetStdHandle/WriteFile into the IAT —
+required because the host loader maps minimal images and runs entry but never
+snaps the IAT. Five load-bearing root causes isolated and golden-pinned:
+CallReg ModRM (`FF D0` call r64 → `FF 10` call m64 — the one-byte execution
+blocker), `.idata` must be writable and MajorSubsystemVersion ≥ 6 (loader
+rejections, bisected empirically), `.reloc` DIR64 entries for every `movabs`
+site (the host ASLR-rebases regardless), 32-bit LDR offsets
+(+0x30/+0x58/+0x60) with uppercase BaseDllName folding and the PE32+ export
+directory at NT+136 (not +96), and an RAX-not-RDX store bug. New CI
+`native-windows` job (windows-latest) runs the full `pkg/native` suite where
+PE can execute. Boundaries (documented, NOT defects): Mach-O execution
+blocked (no runner; PIE/rebase opcodes are 150+ work), no PE
+delay-load/TLS/SEH/resources/codesigning, no arm64, console UTF-8 is byte
+passthrough, debuggers on native images stay on the C path, kcc native parity
+is 151, and `--target native-x86_64-windows/macos` CLI targets are the
+immediate follow-up. Report: `docs/audit/PHASE-149-FINAL-REPORT.md`.)
+
+**QUEUED next: 150 — Native Value Model + Windows/macOS native targets**
+(version **1.2.0** "Sovereignty I" opener; scope, gates and exit criteria in
+`docs/audit/KARKAIN-VERSION-PLAN.md`). No `phase15x` artifact exists in the
+tree — nothing has started.
 
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,

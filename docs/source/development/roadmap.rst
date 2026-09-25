@@ -8,11 +8,12 @@ root. This page summarizes the current state for documentation purposes.
    :local:
    :depth: 1
 
-Completed phases (50–127)
+Completed phases (50–149)
 -------------------------
 
-Phases 50–127 are complete and shipped as **Karkain 1.0.0 (Stable)**. A
-concise summary:
+Phases 50–149 are complete. Phases 128–142 shipped the **1.0.0 (Stable)**
+line and the **1.1.0** line (Phases 132–149) is complete in-tree, with only
+the owner tag/archive ceremony outstanding. A concise summary:
 
 * **50–106** — language core, semantic model (borrow checker, escape
   analysis), SSA optimization pipeline, HIR, stdlib foundation, self-hosted
@@ -60,6 +61,45 @@ concise summary:
   corpus 59/59 byte-identical.
 * **127** — bootstrap memory guard (``error[K127]`` on low-RAM hosts replaces
   the SEGFAULT class).
+* **128** — compiler independence foundation and **129** — 4 GB bootstrap
+  battle (progress heartbeats, CI memory cap, pagefile guidance).
+* **130** — closures / ``fn`` capture mutation (write-through on both engines).
+* **131** — reproducible self-host gate (stage-1 byte-reproducible; tamper
+  divergence detected).
+* **132** — standard-library freeze + SemVer and deprecation policy (10 modules
+  frozen).
+* **133** — first-class ``fn`` values (params, arrays, returns, error[K114]
+  escape rejection).
+* **134** — incremental compilation v2 (per-module translation units,
+  content-keyed objects, ≤100 ms no-op rebuilds).
+* **135** — local package registry (directory origin, immutable versions,
+  digest-verified fetch).
+* **136** — LSP v2 (semantic tokens, hover, go-to-definition, scoped +
+  member completion).
+* **137** — concurrency parity (``spawn``/``channel``/``actor`` byte-identical
+  on both engines — the Go-only boundary closed).
+* **138** — accelerator kernel surface (``@target(gpu)`` WGSL emission,
+  compile-only guarantee).
+* **139** — cross-compilation expansion + WASM components (``aarch64-windows``,
+  ``riscv64-linux``, ``*-macos``, ``karkain wit``).
+* **140** — debugger integration (``karkain dbg`` live gdb backtraces, VS Code
+  debug templates).
+* **141** — compiler performance & memory (SimplifyCFG; ``prof`` allocation
+  counts; measured RSS table).
+* **142** — **1.1.0** version identity, ``1.0.x`` LTS branch, release notes.
+* **143** — seed-binary bootstrap closure (stages 2–3 run Go-free).
+* **144** — toolchain sovereignty (manifest/workspace/registry resolution
+  inside ``kcc``).
+* **145** — native backend v1 (hand-encoded x86-64 + static ELF, no C
+  compiler).
+* **146** — generics v1 (explicit type args, monomorphization, ``std.generics``,
+  then ``kcc`` parity).
+* **147** — native execution P1 resolved (REX.W immediate misencoding;
+  quarantine lifted, Linux execution green).
+* **148** — ``--target native-x86_64-linux`` CLI path, control flow and the
+  integer/string calling convention.
+* **149** — PE + Mach-O writers, Win64 boundary and loader-independent PEB
+  bootstrap (PE images execute on windows/amd64).
 
 Key cross-cutting milestones
 ----------------------------
@@ -74,52 +114,75 @@ Key cross-cutting milestones
 Current status
 --------------
 
-The project is **Karkain 1.0.0 (Stable)** (label adopted at Phase 119). The
-versioned language specification lives in ``SPEC.md``; the authoritative
-status matrix for the released scope is :doc:`/status/scope`, and the
-compatibility guarantees are documented at :doc:`/status/compatibility`.
-Release notes are tracked at :doc:`/release-notes`.
+The project is **Karkain 1.1.0** (identity adopted at Phase 142; all 1.1.0 code
+in-tree with only the owner tag/archive ceremony outstanding). The versioned
+language specification lives in ``SPEC.md``; the authoritative status matrix
+for the released scope is :doc:`/status/scope`, and the compatibility
+guarantees are documented at :doc:`/status/compatibility`. Release notes are
+tracked at :doc:`/release-notes`. Forward planning is tracked version-wise in
+``docs/audit/KARKAIN-VERSION-PLAN.md``.
 
-What ships in 1.0.0 today
+What ships in 1.1.0 today
 -------------------------
 
 * Importable standard library modules (``std.string``, ``std.collections``,
   ``std.io``, ``std.encoding``, ``std.crypto``, ``std.testing``,
-  ``std.numerics``, ``std.net``, ``std.http``, ``std.db``) on both engines.
+  ``std.numerics``, ``std.net``, ``std.http``, ``std.db``, ``std.generics``)
+  on both engines, frozen under the SemVer policy.
+* First-class ``fn`` values (higher-order functions, arrays, factories,
+  recursion, safe escape rejection via ``error[K114]``).
+* Generics v1 (functions and structs, explicit type arguments, monomorphization,
+  both engines).
 * CLI surface: ``check``, ``build``, ``run``, ``test`` (``--filter``),
-  ``transpile``, ``fmt``, ``lint``, ``debug``, ``prof``, ``target``,
-  ``pkg``, ``workspace``, ``clean``, ``explain``, ``bench``, ``lsp``.
-* Cross-compilation via ``--target <triple>`` with deterministic failure
-  when a cross-linker is missing (never a silent host fallback).
+  ``transpile``, ``fmt``, ``lint``, ``dbg``, ``prof``, ``target``,
+  ``pkg`` (local registry init/add/publish/fetch), ``workspace``, ``clean``,
+  ``explain``, ``bench``, ``lsp`` (LSP v2 semantic tokens/hover/definition),
+  ``kir`` (intermediate representation text + structural verification),
+  ``wit`` (WASM component envelopes).
+* Cross-compilation via ``--target <triple>`` (10 triples + ``wasm32-wasi``)
+  with deterministic failure when a cross-linker is missing.
+* Native backend (C-free): ``--target native-x86_64-linux`` writes static ELF64
+  and executes green; PE32+ (Windows x86-64) and Mach-O writers in-tree with
+  PE execution verified.
+* Concurrency runtime (work-stealing scheduler, channels, actors) with full
+  ``kcc`` parity (Phase 137).
 * Runtime error model with source locations and stack traces.
-* Incremental compilation cache, DWARF debug sections, profiling.
-* Experimental surfaces (may change): concurrency runtime, SIMD/vector
-  types, profiling/trace — Go engine only, kcc parity deferred. The WASM
-  target graduated to a :production-candidate:`Production Candidate` in
-  Phase 123 (WASI exit codes, stderr, ``getArgs()``).
+* Incremental compilation v2 (per-module translation units, content-keyed
+  objects, ≤100 ms no-op rebuilds).
+* Accelerator kernel surface: ``@target(gpu)`` emits WGSL compute kernels with
+  a compile-only guarantee.
 
-Future
-------
+Future: Version-Wise Roadmap
+----------------------------
 
-Beyond 1.0.0, the milestone-based plan for the next General Availability is:
+Forward development is organized by **version** with per-increment execution
+(see ``docs/audit/KARKAIN-VERSION-PLAN.md`` for exit criteria and NFR targets):
 
-* **GA-1 — Ship & Harden (128–129):** release-cut runbook (Phase 128) and the
-  4 GB bootstrap battle (Phase 129 — memory guidance, CI caps, progress
-  watchdog, kcc build RSS reduction).
-* **GA-2 — Language & Tooling Completeness (130–137):** closures/``fn``
-  capture-mutation (130), reproducible self-host gate (131), stdlib freeze +
-  SemVer policy (132, shipped), first-class ``fn`` values (133, next),
-  incremental compilation v2 (134), local package registry (135), LSP v2
-  (136), concurrency + profiling + SIMD kcc parity (137).
-* **GA-3 — Platform Expansion → 1.1.0 (138–142):** GPU/NPU kernel surface,
-  cross-compilation + WASM GC, debugger integration, compiler performance &
-  memory, 1.1.0 release with an LTS ``1.0.x`` branch.
+* **1.2.0 "Sovereignty I" (open — next):** Native Value model (boxed Values,
+  arrays, ``for-in``, floats, structs) + ``native-x86_64-windows``/``macos`` CLI
+  targets (Increment 150), ``kcc`` native parity (151), native stdlib and no-C
+  closure (152), ``kcc`` builds ``kcc`` self-bootstrap (154), and multi-arch
+  Docker image on ``ghcr.io`` (165).
+* **1.3.0 "Libraries & Foundation":** Essential OS modules (``std.path``,
+  ``std.env``, ``std.time``, ``std.random``, ``std.json`` — Increment 155),
+  promote/cut verdicts for historical modules (156), stdlib expansion (158),
+  generics v2 (159), linear/move type enforcement (160), atomics + memory
+  ordering (161).
+* **1.4.0 "Tooling & Developer Experience":** DAP server (153), package
+  manager git/semver resolution (157), test framework v2 (163), CLI polish
+  (164), DWARF consumer (175), semantic analysis v2 (176).
+* **1.5.0 "Platform Reach & Packaging":** Native packages (.deb, .rpm, MSI,
+  Homebrew — 166–168), AArch64 native backend (169), freestanding / MCU target
+  (170), WASM GC + component model (171), BSD targets (172).
+* **1.6.0 "Performance & Polish":** Fast front-end / low-RAM kcc (162), native
+  SSA optimization pipeline (174), public package registry client (179).
+* **2.0.0 "Language Maturity":** Explicit struct layout control (the one
+  breaking ABI change — 177), trait/interface system (178), error-handling
+  idiom v2 (180).
 
-The full milestone document with per-phase gates lives at
-``docs/audit/GENERAL-AVAILABILITY-ROADMAP.md``; the versioned phase
-descriptions remain in ``ROADMAP.md`` at the repository root. Current status
-is a **Karkain 1.0.0 (Stable)** label with the public release cut pending the
-Phase 128 owner runbook.
+The versioned phase descriptions remain in ``AGENTS.md`` at the repository
+root. Current status is **Karkain 1.1.0 (in-tree complete)** with the public
+release ceremony pending.
 
 .. seealso::
 

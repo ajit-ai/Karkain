@@ -2,11 +2,12 @@
 Release-Candidate Scope
 =======================
 
-This page is the authoritative status matrix for the Karkain 1.0.0
-release-readiness work (Phase 119). It classifies every surface of Karkain
-into exactly one of the buckets below so an external contributor can tell
-at a glance what may be relied on, what may change, what does not exist
-yet, and what blocks a release candidate.
+This page is the authoritative status matrix for the Karkain release
+readiness. It classifies every surface of Karkain into exactly one of the
+buckets below so an external contributor can tell at a glance what may be
+relied on, what may change, what does not exist yet, and what blocks a
+release. Current status reflects the **1.1.0** line (Phases 128–149 complete
+in-tree).
 
 .. contents:: Sections
    :local:
@@ -75,7 +76,23 @@ gates.
        with stack traces, ``karkain-diagnostics-v1`` JSON contract.
    * - Standard library
      - ``std.string``, ``std.collections``, ``std.io``,
-       ``std.encoding``, ``std.crypto``, ``std.testing``.
+       ``std.encoding``, ``std.crypto``, ``std.testing``,
+       ``std.numerics``, ``std.net``, ``std.http``, ``std.db``,
+       ``std.generics``. Frozen under the SemVer policy.
+   * - Concurrency runtime
+     - ``spawn``, ``channel``, ``actor`` — work-stealing scheduler with
+       full ``kcc`` parity (Phase 137).
+   * - First-class functions
+     - First-class ``fn`` values, closures with capture-mutation,
+       higher-order functions, factory patterns, and ``error[K114]``
+       escape rejection (Phases 130, 133).
+   * - Generics
+     - Generics v1 with explicit type arguments on functions and structs,
+       monomorphization on both engines (Phase 146).
+   * - Native backend
+     - C-free native backend (Phases 145–149): ELF64 static binaries on
+       Linux (green execution), PE32+ (Windows x86-64, execution verified),
+       Mach-O structural writer.
    * - Engines
      - Go front end and self-hosted ``kcc`` produce byte-identical output
        on the gated corpus; ``kcc`` is the default engine for
@@ -114,24 +131,24 @@ may change between releases.
    :widths: 26 74
    :header-rows: 1
 
-   * - Concurrency runtime
-     - ``spawn``/``channel``/``actor`` — Go-engine only, ``kcc`` parity is a
-       documented post-Beta boundary.
+   * - Surface
+     - Scope
+   * - Accelerator kernels
+     - ``@target(gpu)`` WGSL compute kernels (Phase 138), compile-only
+       guarantee. NPU quantization pipeline (Phase 78).
    * - Profiling diagnostics
-     - ``karkain prof`` — Go-engine only.
+     - ``karkain prof`` — text/json/folded reports (Phase 110).
    * - Debug tracing
-     - Phase 112 debug-trace module — Go-engine only.
+     - Phase 112 debug-trace module and ``karkain dbg`` gdb backtraces (Phase 140).
    * - SIMD / vector types
-     - ``@simd_*`` lane types — Go-engine only, x86 + ARM via portable
-       helpers.
+     - ``@simd_*`` lane types (Phase 106) — x86 + ARM via portable helpers.
    * - Package manager
-     - Local/workspace resolution and lockfiles are real; there is no
-       public registry. Registry subcommands fail loudly with a clear
-       "not available" diagnostic.
-   * - Incremental compilation
-     - Content-addressed whole-assembly cache (``--incremental``).
-   * - Native object/linker pipeline
-     - ``--target native-link`` Phase 84 object/linker pipeline.
+     - Local directory registry (Phase 135) with immutable versions and
+       digest-verified fetch. Public registry is Planned.
+   * - Incremental compilation v2
+     - Per-module translation unit cache with content-keyed objects (Phase 134).
+   * - Intermediate representation
+     - KIR v1 text emitter and structural verifier (Phases 120–121).
 
 Planned
 =======
@@ -143,21 +160,26 @@ promised for the release candidate.
    :widths: 26 74
    :header-rows: 1
 
+   * - Surface
+     - Scope
    * - Pre-built binary distribution
      - The CI build matrix and tag-triggered release workflow are ready;
-       archives/sha-256 will be produced on GitHub Releases for the first
-       tagged release. Today installation is **from source**.
-   * - GPU / NPU / quantum kernels
-     - Backend abstractions exist (`pkg/backend`, `pkg/npu`); the language
-       surface is not released. Honest plan only.
-   * - Networking, databases, web, AI/ML frameworks
-     - ``std.net``/``std.ai``/etc. do **not** exist. Category examples are
-       computational demonstrations, never a framework claim.
-   * - Advanced package registry
-     - ``karkain pkg publish/search/login`` do not exist as services.
-   * - Closures / ``fn`` values
-     - Design exists; codegen is broken on both engines (documented Phase
-       101 boundary). No gate pretends otherwise.
+       archives/sha-256 will be produced on GitHub Releases for tagged
+       releases. Today installation is **from source**.
+   * - Public package registry
+     - ``karkain pkg publish/search/login`` against an operated central
+       registry. Local registry is implemented (Phase 135).
+   * - Full-platform native backends
+     - AArch64 native emitter, native macOS execution (Mach-O runner),
+       freestanding/MCU target (Phases 150–172).
+   * - Language features
+     - Trait/interface system, explicit struct layout, linear/move types,
+       advanced pattern matching with payload destructuring (Phases 159–180).
+   * - Async / await
+     - Syntax and event-loop runtime (post-2.0).
+   * - Standard library expansion
+     - OS modules (``std.path``, ``std.env``, ``std.time``, ``std.random``,
+       ``std.json``) planned for 1.3.0.
 
 Known Limitations
 =================
