@@ -151,6 +151,117 @@ type Builder struct {
 	scanErr error
 	uid     int // Phase 148: monotonically increasing label discriminator
 	loops   []loopTgt
+	// Phase 150A: per-statement hidden for-in index slots, keyed by the
+	// ForInStmt node itself. A single shared "for$idx" slot would make a
+	// nested for-in resume its parent with the inner loop's counter, so
+	// each loop owns its own 8 bytes. Keying by node keeps the layout
+	// pass (scanLets) and the emission pass (emitForIn) in agreement
+	// without depending on traversal order or source line numbers.
+	forIdx map[*parser.ForInStmt]int
+	// Phase 150A: whether the program can reach a float value at all.
+	// Decided by a whole-unit pre-pass (scanFloatUsage) because
+	// emitHelpers runs before any function body is emitted, so a flag
+	// set during emission would be too late. Gating print_float on it
+	// keeps every int/string-only image byte-identical to increment 149
+	// instead of carrying ~700 bytes of unused formatter.
+	usesFloat bool
+}
+
+// scanFloatUsage reports whether the unit can produce a float value at all
+// (Phase 150A). print_float is the only thing that needs to know, and it is
+// emitted before any body — so the answer has to be a whole-unit pre-pass.
+//
+// The criterion is "a float literal or a float annotation appears anywhere",
+// which is a superset of "some print can actually print a float": a float
+// value can only originate at one of those two roots, because exprKind
+// derives float from a literal, from a float-typed variable/parameter, or
+// from a call whose inferred return kind is float — and that inference
+// bottoms out in the same two roots. The superset only ever costs an
+// unreferenced helper in the rare "float parameter never printed" program,
+// which keeps the pre-pass free of the per-function layout it would
+// otherwise have to run first.
+func scanFloatUsage(prog *parser.Program) bool {
+	found := false
+	var walkExpr func(n parser.Node)
+	walkExpr = func(n parser.Node) {
+		if found || n == nil {
+			return
+		}
+		switch x := n.(type) {
+		case *parser.Float64Literal:
+			found = true
+			return
+		case *parser.VarDeclStmt:
+			if x.Type == "float" {
+				found = true
+				return
+			}
+			walkExpr(x.Value)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				walkExpr(a)
+			}
+		case *parser.BinaryExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Right)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand)
+		case *parser.IndexExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Index)
+		case *parser.ArrayLiteral:
+			for _, e := range x.Elements {
+				walkExpr(e)
+			}
+		case *parser.ReturnStmt:
+			walkExpr(x.Value)
+		}
+	}
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			if found {
+				return
+			}
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				for _, pt := range x.ParamTypes {
+					if pt == "float" {
+						found = true
+						return
+					}
+				}
+				walkStmts(x.Body)
+			case *parser.VarDeclStmt:
+				walkExpr(x)
+			case *parser.PrintStmt:
+				walkExpr(x.Value)
+			case *parser.ExprStmt:
+				walkExpr(x.Expression)
+			case *parser.ReturnStmt:
+				walkExpr(x)
+			case *parser.IfStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Consequence)
+				walkStmts(x.Alternative)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Body)
+			case *parser.ForStmt:
+				walkExpr(x.Condition)
+				walkExpr(x.Init)
+				walkExpr(x.Post)
+				walkStmts(x.Body)
+			case *parser.ForInStmt:
+				walkExpr(x.Iter)
+				walkStmts(x.Body)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements)
+			}
+		}
+	}
+	walkStmts(prog.Statements)
+	return found
 }
 
 // loopTgt records a loop's jump targets for break/continue (Phase 148).
@@ -203,6 +314,7 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 			return nil, err
 		}
 	}
+	b.usesFloat = scanFloatUsage(prog)
 	b.emitHelpers()
 	for _, stmt := range prog.Statements {
 		if fd, ok := stmt.(*parser.FuncDecl); ok {
@@ -266,7 +378,7 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 	}
 }
 func newBuilder() *Builder {
-	return &Builder{e: NewEmitter(), strs: map[string]uint64{}, funcs: map[string]bool{}, ftab: map[string]*parser.FuncDecl{}, retKind: map[string]int{}}
+	return &Builder{e: NewEmitter(), strs: map[string]uint64{}, funcs: map[string]bool{}, ftab: map[string]*parser.FuncDecl{}, retKind: map[string]int{}, forIdx: map[*parser.ForInStmt]int{}}
 }
 
 // paramKind reports the value kind of parameter i of fd (Phase-46
@@ -411,8 +523,32 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 			return KindInt, nil
 		}
 		return b.retKindOfExpr(v, vars, pstr, visiting)
-	case *parser.BinaryExpr, *parser.UnaryExpr:
-		return KindInt, nil
+	case *parser.BinaryExpr:
+		// Phase 150A: arithmetic inherits float when either operand is
+		// float, exactly like exprKind. Returning KindInt here would let a
+		// float-valued expression be inferred as an int return while the
+		// body leaves f64 bits in RAX — a silent type confusion, so the
+		// classification must agree with emission.
+		switch x.Operator {
+		case "+", "-", "*", "/", "%":
+			lk, err := b.retKindOfExpr(x.Left, vars, pstr, visiting)
+			if err != nil {
+				return KindInt, err
+			}
+			rk, err := b.retKindOfExpr(x.Right, vars, pstr, visiting)
+			if err != nil {
+				return KindInt, err
+			}
+			if lk == KindFloat || rk == KindFloat {
+				return KindFloat, nil
+			}
+			return KindInt, nil
+		default:
+			// A comparison yields an int on both engines.
+			return KindInt, nil
+		}
+	case *parser.UnaryExpr:
+		return b.retKindOfExpr(x.Operand, vars, pstr, visiting)
 	case *parser.CallExpr:
 		return b.retKindVisit(x.Function, visiting)
 	default:
@@ -451,12 +587,17 @@ func (b *Builder) emitWrite() {
 
 // emitWinWrite emits write(1, RSI, RDX) through kernel32 WriteFile.
 // Win64 passes the first four args in RCX,RDX,R8,R9 with a 32-byte
-// caller shadow; kernel calls preserve RDI/RSI/RBX (callee-saved) but
-// may clobber everything else, so ptr/len ride the stack across the
-// GetStdHandle call and registers reload after it.
+// caller shadow; kernel calls preserve RBX/RBP/RDI/RSI/R12-R15
+// (callee-saved) but may clobber everything else — including RCX/RDX
+// on return — so ptr/len ride the stack across the GetStdHandle call
+// and registers reload after it. print_float issues several small
+// writes back-to-back (sign, int part, ".", fraction, newline), so
+// preserving RSI across this boundary is load-bearing: without it the
+// second write reuses a clobbered pointer and prints garbage.
 func (b *Builder) emitWinWrite() {
 	b.e.PushReg(RSI)
 	b.e.PushReg(RDX)
+	b.e.PushReg(RBX)
 	b.e.SubRsp(32)
 	b.e.MovRegImm32(RCX, 0xFFFFFFF5) // STD_OUTPUT_HANDLE
 	b.iatCall(IATGetStdHandle)
@@ -474,6 +615,11 @@ func (b *Builder) emitWinWrite() {
 	b.e.StoreStack(RAX, 32)
 	b.iatCall(IATWriteFile)
 	b.e.AddRsp(48)
+	// Win64 WriteFile may clobber RCX/RDX (and R8-R11) on return, so
+	// restore the caller's RBX after the shadow is released. The
+	// print_float integer loop keeps its end pointer in RBX across
+	// writes; without this the digit length computes from garbage.
+	b.e.PopReg(RBX)
 }
 
 // emitWindowsExit emits the _start tail on Windows: ExitProcess(main's
@@ -665,7 +811,207 @@ func (b *Builder) emitHelpers() {
 	b.emitWrite()
 	b.printNewline()
 	b.e.Ret()
+
+	// print_float: exact %g-compatible formatter for binary64.
+	// Input: RDI = f64 bit pattern. Output: decimal text + '\n' to stdout.
+	// Scratch: 20 × 8-byte limb array at [RSP+FRAME_LIMBS], digit buffer
+	// at [RSP+FRAME_DIGITS], plus a few scalar slots.
+	// Algorithm: exact binary64 decomposition → 20-limb big-int (limb[i]
+	// is u64, base 2^64) → repeated multiply by 10 with full-limb
+	// carry → extract 7th digit + sticky for round-half-even → format
+	// per %g (fixed if -4 ≤ X < 6 else scientific) → trim trailing
+	// zeros → write via emitWrite.
+	//
+	// Phase 150A: emitted only when the program can produce a float at all
+	// (scanFloatUsage). print_float is the sole consumer of that state, and
+	// gating it is what keeps int/string-only images byte-identical to
+	// increment 149 (the ELF byte-identity differential pins that).
+	if b.usesFloat {
+		b.emitPrintFloatHelper()
+	}
 }
+
+// emitPrintFloatHelper emits the print_float routine (Phase 150A).
+//
+// Input: RDI = f64 bit pattern. Output: decimal text + newline to stdout.
+// Scratch: 64 bytes at [RSP+0..64); integer digits grow down from
+// RSP+64, the 6 fraction bytes sit at [RSP+0..6).
+//
+// v1 semantics (documented, NOT full %g): finite magnitudes below 2^63
+// print with up to 6 fractional digits and trailing fractional zeros
+// trimmed ("1" not "1.000000"); NaN/Inf print "[-]nan"/"[-]inf" like the
+// C backend. Magnitudes >= 2^63 saturate the truncating convert and are
+// a known v1 boundary for 150B review. Shared by all three OS
+// containers: output goes through emitWrite/printNewline only, so
+// Linux/macOS syscalls and the Win64 WriteFile boundary work unchanged.
+func (b *Builder) emitPrintFloatHelper() {
+	b.e.Mark("print_float")
+	b.e.SubRsp(64)
+	b.e.MovRegReg(RAX, RDI)
+	b.e.MovRegImm64(RCX, 1<<63)
+	b.e.MovRegReg(R11, RAX)
+	b.e.AndRegReg(R11, RCX)
+	b.e.MovRegImm64(RCX, 0x7FFFFFFFFFFFFFFF)
+	b.e.AndRegReg(RAX, RCX)
+	b.e.MovRegReg(RCX, RAX)
+	b.e.ShrRegImm(RCX, 52)
+	b.e.MovRegImm32(R10, 0x7FF)
+	b.e.AndRegReg(RCX, R10)
+	b.e.CmpRegImm32(RCX, 0x7FF)
+	specialLbl := b.fresh("fltsp")
+	finiteLbl := b.fresh("fltfin")
+	b.e.Jz(specialLbl)
+	b.e.Jmp(finiteLbl)
+	b.e.Mark(specialLbl)
+	b.e.MovRegImm64(R10, 0x000FFFFFFFFFFFFF)
+	b.e.AndRegReg(RAX, R10)
+	b.e.TestRegReg(RAX, RAX)
+	nanLbl := b.fresh("fltnan")
+	b.e.Jnz(nanLbl)
+	b.e.TestRegReg(R11, R11)
+	noSignInf := b.fresh("fltnoinf")
+	b.e.Jz(noSignInf)
+	b.rodataRef(RSI, "-")
+	b.e.MovRegImm32(RDX, 1)
+	b.e.MovRegImm32(RDI, 1)
+	b.emitWrite()
+	b.e.Mark(noSignInf)
+	b.rodataRef(RSI, "inf")
+	b.e.MovRegImm32(RDX, 3)
+	b.e.MovRegImm32(RDI, 1)
+	b.emitWrite()
+	b.printNewline()
+	b.e.AddRsp(64)
+	b.e.Ret()
+	b.e.Mark(nanLbl)
+	b.e.TestRegReg(R11, R11)
+	noSignNan := b.fresh("fltnonan")
+	b.e.Jz(noSignNan)
+	b.rodataRef(RSI, "-")
+	b.e.MovRegImm32(RDX, 1)
+	b.e.MovRegImm32(RDI, 1)
+	b.emitWrite()
+	b.e.Mark(noSignNan)
+	b.rodataRef(RSI, "nan")
+	b.e.MovRegImm32(RDX, 3)
+	b.e.MovRegImm32(RDI, 1)
+	b.emitWrite()
+	b.printNewline()
+	b.e.AddRsp(64)
+	b.e.Ret()
+	b.e.Mark(finiteLbl)
+	b.e.MovXmmRegGp(XMM0, RAX)
+	b.e.Cvttsd2siGpXmm(RCX, XMM0)
+	b.e.Cvtsi2sdXmmGp(XMM1, RCX)
+	b.e.SubsdXmmXmm(XMM0, XMM1)
+	b.e.TestRegReg(R11, R11)
+	noSign := b.fresh("fltnosign")
+	b.e.Jz(noSign)
+	b.rodataRef(RSI, "-")
+	b.e.MovRegImm32(RDX, 1)
+	b.e.MovRegImm32(RDI, 1)
+	b.emitWrite()
+	b.e.Mark(noSign)
+	b.e.MovRegReg(RAX, RCX)
+	b.e.TestRegReg(RAX, RAX)
+	intNz := b.fresh("fltintnz")
+	intDone := b.fresh("fltintdone")
+	b.e.Jnz(intNz)
+	b.rodataRef(RSI, "0")
+	b.e.MovRegImm32(RDX, 1)
+	b.e.MovRegImm32(RDI, 1)
+	b.emitWrite()
+	b.e.Jmp(intDone)
+	b.e.Mark(intNz)
+	b.e.MovRegImm32(R10, 10)
+	b.e.LeaRegStack(RSI, 64)
+	intLoop := b.fresh("fltintloop")
+	b.e.Mark(intLoop)
+	b.e.Cqo()
+	b.e.DivReg(R10)
+	b.e.AddRegImm32(RDX, '0')
+	b.e.DecReg(RSI)
+	b.e.StoreMem8(RSI, RDX)
+	b.e.TestRegReg(RAX, RAX)
+	b.e.Jnz(intLoop)
+	b.e.LeaRegStack(RBX, 64)
+	b.e.MovRegReg(RDX, RBX)
+	b.e.SubRegReg(RDX, RSI)
+	b.e.MovRegImm32(RDI, 1)
+	b.emitWrite()
+	b.e.Mark(intDone)
+	b.e.MovRegImm64(R10, 0x412E848000000000)
+	b.e.MovXmmRegGp(XMM1, R10)
+	b.e.MulsdXmmXmm(XMM0, XMM1)
+	b.e.Cvttsd2siGpXmm(RCX, XMM0)
+	b.e.MovRegImm32(R10, 100000)
+	b.e.MovRegReg(RAX, RCX)
+	b.e.Cqo()
+	b.e.DivReg(R10)
+	b.e.AddRegImm32(RAX, '0')
+	b.e.StoreMem8Off(RAX, RSP, 0)
+	b.e.MovRegReg(RCX, RDX)
+	b.e.MovRegImm32(R10, 10000)
+	b.e.MovRegReg(RAX, RCX)
+	b.e.Cqo()
+	b.e.DivReg(R10)
+	b.e.AddRegImm32(RAX, '0')
+	b.e.StoreMem8Off(RAX, RSP, 1)
+	b.e.MovRegReg(RCX, RDX)
+	b.e.MovRegImm32(R10, 1000)
+	b.e.MovRegReg(RAX, RCX)
+	b.e.Cqo()
+	b.e.DivReg(R10)
+	b.e.AddRegImm32(RAX, '0')
+	b.e.StoreMem8Off(RAX, RSP, 2)
+	b.e.MovRegReg(RCX, RDX)
+	b.e.MovRegImm32(R10, 100)
+	b.e.MovRegReg(RAX, RCX)
+	b.e.Cqo()
+	b.e.DivReg(R10)
+	b.e.AddRegImm32(RAX, '0')
+	b.e.StoreMem8Off(RAX, RSP, 3)
+	b.e.MovRegReg(RCX, RDX)
+	b.e.MovRegImm32(R10, 10)
+	b.e.MovRegReg(RAX, RCX)
+	b.e.Cqo()
+	b.e.DivReg(R10)
+	b.e.AddRegImm32(RAX, '0')
+	b.e.StoreMem8Off(RAX, RSP, 4)
+	b.e.AddRegImm32(RDX, '0')
+	b.e.StoreMem8Off(RDX, RSP, 5)
+	b.e.MovRegImm32(R11, 6)
+	b.e.LeaRegStack(RAX, 0)
+	trimLoop := b.fresh("flttrim")
+	trimDone := b.fresh("flttrimdone")
+	b.e.Mark(trimLoop)
+	b.e.MovRegReg(RCX, R11)
+	b.e.AddRegReg(RAX, RCX)
+	b.e.MovzxRegMem8(RCX, RAX, -1)
+	b.e.LeaRegStack(RAX, 0)
+	b.e.CmpRegImm32(RCX, '0')
+	b.e.Jnz(trimDone)
+	b.e.DecReg(R11)
+	b.e.TestRegReg(R11, R11)
+	b.e.Jnz(trimLoop)
+	b.e.Mark(trimDone)
+	b.e.TestRegReg(R11, R11)
+	noFrac := b.fresh("fltnofrac")
+	b.e.Jz(noFrac)
+	b.rodataRef(RSI, ".")
+	b.e.MovRegImm32(RDX, 1)
+	b.e.MovRegImm32(RDI, 1)
+	b.emitWrite()
+	b.e.LeaRegStack(RSI, 0)
+	b.e.MovRegReg(RDX, R11)
+	b.e.MovRegImm32(RDI, 1)
+	b.emitWrite()
+	b.e.Mark(noFrac)
+	b.printNewline()
+	b.e.AddRsp(64)
+	b.e.Ret()
+}
+
 
 // printNewline emits write(1, "\n", 1) with RDI already holding 1.
 func (b *Builder) printNewline() {
@@ -678,6 +1024,7 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	b.slots = map[string]int{}
 	b.kinds = map[string]int{}
 	b.scanErr = nil
+	b.forIdx = map[*parser.ForInStmt]int{}
 	next := 0
 	for i, p := range fd.Params {
 		// Phase 148: string parameters occupy two slots (ptr+len).
@@ -855,6 +1202,25 @@ func (b *Builder) scanLets(stmts []parser.Node, next int) int {
 			}
 			next = b.scanLets(n.Body, next)
 		case *parser.ForInStmt:
+			// Phase 150A: the loop variable owns a plain int slot and
+			// the hidden index owns 8 bytes reserved after it, so every
+			// loop — including a nested one — gets its own pair. Keying
+			// the index by the statement node (not a shared name) is
+			// what keeps nesting correct: one shared slot would let the
+			// inner loop resume its parent with the inner counter.
+			// Registration runs before the body scan so the body can
+			// read the variable. Other slot names are function-wide with
+			// first-declaration-wins, so shadowing writes through — the
+			// documented v1 semantics.
+			if n.KeyName == "" && n.VarName != "" {
+				if _, seen := b.slots[n.VarName]; !seen {
+					b.slots[n.VarName] = next
+					b.kinds[n.VarName] = KindInt
+					next += 8
+				}
+				b.forIdx[n] = next
+				next += 8
+			}
 			next = b.scanLets(n.Body, next)
 		case *parser.BlockStmt:
 			next = b.scanLets(n.Statements, next)
@@ -970,7 +1336,7 @@ func (b *Builder) emitStmt(s parser.Node, fname string) (bool, error) {
 		b.e.Jmp(b.loops[len(b.loops)-1].cont)
 		return false, nil
 	case *parser.ForInStmt:
-		return false, fmt.Errorf("error[K145]: for-in loops are not supported on the native target yet (arrays lower in a later slice; use while or C-style for)")
+		return false, b.emitForIn(n, fname)
 	default:
 		return false, fmt.Errorf("error[K145]: unsupported statement %T in '%s'", s, fname)
 	}
@@ -1009,14 +1375,47 @@ func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
 	return b.emitExpr(n.Expression, 0)
 }
 
-// emitCond evaluates an int comparison and jumps to falseLabel when it
-// does NOT hold. Only `== != < <= > >=` over int expressions lower in v1
-// (operands reuse the depth-indexed scratch evaluator, so rsp stays put);
-// anything else is a loud K145, never a miscompiled truthiness test.
+// emitCond evaluates an int or float comparison and jumps to falseLabel when
+// it does NOT hold. Only `== != < <= > >=` over int or float expressions
+// lower in v1 (operands reuse the depth-indexed scratch evaluator, so rsp
+// stays put); anything else is a loud K145, never a miscompiled truthiness
+// test.
 func (b *Builder) emitCond(cond parser.Node, falseLabel string) error {
 	be, ok := cond.(*parser.BinaryExpr)
 	if !ok {
-		return fmt.Errorf("error[K145]: condition must be an int comparison (==, !=, <, <=, >, >=)")
+		return fmt.Errorf("error[K145]: condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats")
+	}
+	switch be.Operator {
+	case "==", "!=", "<", "<=", ">", ">=":
+	default:
+		return fmt.Errorf("error[K145]: condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats, found '%s'", be.Operator)
+	}
+	if isStr, err := b.isStringExpr(be.Left); err != nil {
+		return err
+	} else if isStr {
+		return fmt.Errorf("error[K145]: string comparison is not supported (ints and floats only)")
+	}
+	if isStr, err := b.isStringExpr(be.Right); err != nil {
+		return err
+	} else if isStr {
+		return fmt.Errorf("error[K145]: string comparison is not supported (ints and floats only)")
+	}
+	lk, err := b.exprKind(be.Left)
+	if err != nil {
+		return err
+	}
+	rk, err := b.exprKind(be.Right)
+	if err != nil {
+		return err
+	}
+	// Phase 150A: a float operand must not reach CmpRegReg, which would
+	// compare the IEEE-754 bit patterns as integers (every positive float
+	// is "greater" than every other). Float relations use ucomisd instead.
+	if lk == KindFloat || rk == KindFloat {
+		if lk != rk {
+			return fmt.Errorf("error[K145]: mixed %s and %s in comparison (no implicit numeric conversion)", kindName(lk), kindName(rk))
+		}
+		return b.emitFloatCond(be, falseLabel)
 	}
 	var jump func(string)
 	switch be.Operator {
@@ -1032,32 +1431,6 @@ func (b *Builder) emitCond(cond parser.Node, falseLabel string) error {
 		jump = b.e.Jle
 	case ">=":
 		jump = b.e.Jl
-	default:
-		return fmt.Errorf("error[K145]: condition must be an int comparison (==, !=, <, <=, >, >=), found '%s'", be.Operator)
-	}
-	if isStr, err := b.isStringExpr(be.Left); err != nil {
-		return err
-	} else if isStr {
-		return fmt.Errorf("error[K145]: string comparison is not supported (ints only)")
-	}
-	if isStr, err := b.isStringExpr(be.Right); err != nil {
-		return err
-	} else if isStr {
-		return fmt.Errorf("error[K145]: string comparison is not supported (ints only)")
-	}
-	// Phase 150A Step 1: float operands now lower (bits in RAX), so a float
-	// comparison must be refused here — CmpRegReg would silently compare the
-	// IEEE-754 bit patterns as integers. Float comparison lands in a later
-	// 150A step.
-	if k, err := b.exprKind(be.Left); err != nil {
-		return err
-	} else if k == KindFloat {
-		return fmt.Errorf("error[K145]: floating-point comparison is not supported yet (arrives in a later Phase 150A step)")
-	}
-	if k, err := b.exprKind(be.Right); err != nil {
-		return err
-	} else if k == KindFloat {
-		return fmt.Errorf("error[K145]: floating-point comparison is not supported yet (arrives in a later Phase 150A step)")
 	}
 	if err := b.emitExpr(be.Left, 1); err != nil {
 		return err
@@ -1070,6 +1443,62 @@ func (b *Builder) emitCond(cond parser.Node, falseLabel string) error {
 	b.e.LoadStack(RAX, b.binTemp)
 	b.e.CmpRegReg(RAX, RCX)
 	jump(falseLabel)
+	return nil
+}
+
+// emitFloatCond lowers a float64 relation, jumping to falseLabel when it does
+// NOT hold. ucomisd is unordered-aware: it sets CF=ZF=PF=1 when either
+// operand is NaN, so every ordered form below reports a NaN relation as
+// false — which is what C's `<` does and what pkg/codegen's binary_op
+// computes (`l < r` on NaN is false). The 150A surface cannot produce NaN
+// (division by zero yields 0.0, not an infinity), so this is a defined
+// answer rather than an accidental one.
+//
+// `<` and `<=` compare the operands swapped: `a < b` is `b > a`, and the
+// CF=1-on-unordered property of ucomisd then makes the "jump if not above"
+// forms fall out directly with no extra NaN test.
+func (b *Builder) emitFloatCond(be *parser.BinaryExpr, falseLabel string) error {
+	if err := b.emitFloat(be.Left, 1); err != nil {
+		return err
+	}
+	b.e.StoreStack(RAX, b.binTemp)
+	if err := b.emitFloat(be.Right, 1); err != nil {
+		return err
+	}
+	b.e.MovXmmRegGp(XMM1, RAX) // right -> xmm1
+	b.e.LoadStack(RAX, b.binTemp)
+	b.e.MovXmmRegGp(XMM0, RAX) // left -> xmm0
+	switch be.Operator {
+	case "==":
+		// holds iff ordered and bit-equal: JP catches unordered (PF=1),
+		// JNZ catches not-equal (ZF=0). pkg/codegen compares floats with
+		// `l == r`, so this is exact equality, not the 1e-9 epsilon that
+		// values_equal uses for assert-style comparisons.
+		b.e.UcomisdXmmXmm(XMM0, XMM1)
+		b.e.Jp(falseLabel)
+		b.e.Jnz(falseLabel)
+	case "!=":
+		// holds iff unordered or not-equal; both need an explicit branch
+		// because neither JNZ nor JZ alone can express "or unordered".
+		hold := b.fresh("fne")
+		b.e.UcomisdXmmXmm(XMM0, XMM1)
+		b.e.Jp(hold)
+		b.e.Jnz(hold)
+		b.e.Jmp(falseLabel)
+		b.e.Mark(hold)
+	case "<":
+		b.e.UcomisdXmmXmm(XMM1, XMM0)
+		b.e.Jbe(falseLabel)
+	case "<=":
+		b.e.UcomisdXmmXmm(XMM1, XMM0)
+		b.e.Jb(falseLabel)
+	case ">":
+		b.e.UcomisdXmmXmm(XMM0, XMM1)
+		b.e.Jbe(falseLabel)
+	case ">=":
+		b.e.UcomisdXmmXmm(XMM0, XMM1)
+		b.e.Jb(falseLabel)
+	}
 	return nil
 }
 
@@ -1183,12 +1612,87 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 		b.e.StoreStack(RSI, off+8)
 		return nil
 	}
+	if b.kinds[n.Name] == KindArray {
+		// Phase 150A: an array binding materializes its header and
+		// element area in place (emitArrayValue). The literal is the only
+		// array constructor in 150A; the layout pass already sized the
+		// frame for it, so a non-literal array value is a loud K145
+		// rather than a silently unwritten header.
+		lit, ok := n.Value.(*parser.ArrayLiteral)
+		if !ok {
+			return fmt.Errorf("error[K145]: array value must be a literal on the native target (got %T)", n.Value)
+		}
+		return b.emitArrayValue(n.Name, lit)
+	}
 	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
 	}
 	b.e.StoreStack(RAX, off)
 	return nil
 }
+// emitForIn lowers `for x in arr { body }` over int arrays (Phase 150A).
+//
+// Layout contract (see scanLets): the array header owns two frame slots
+// (base at off, length at off+8); the N int elements sit immediately
+// after at [off+16 + i*8]. The loop keeps a hidden 8-byte index slot
+// reserved after the element area; bound checks read the header length
+// in place (CmpMemReg) and elements load via the scaled form with the
+// array base as SIB base — never rsp — so rsp never moves inside the
+// loop and every frame slot address stays stable (Phase 147's rule).
+// `break`/`continue` reuse the loop-label stack, so control flow nests
+// with while/C-for bodies identically. Map iteration (KeyName != "")
+// and non-array iterables stay loud K145 (150B work).
+func (b *Builder) emitForIn(n *parser.ForInStmt, fname string) error {
+	if n.KeyName != "" {
+		return fmt.Errorf("error[K145]: for-in over maps is not supported on the native target yet (int arrays only)")
+	}
+	base, ok := n.Iter.(*parser.Identifier)
+	if !ok {
+		return fmt.Errorf("error[K145]: for-in iterates a variable on the native target (got %T)", n.Iter)
+	}
+	off, ok := b.slots[base.Name]
+	if !ok {
+		return fmt.Errorf("error[K145]: undefined identifier '%s'", base.Name)
+	}
+	if b.kinds[base.Name] != KindArray {
+		return fmt.Errorf("error[K145]: for-in iterates an array on the native target (got %s '%s')", kindName(b.kinds[base.Name]), base.Name)
+	}
+	eoff, ok := b.forIdx[n]
+	if !ok {
+		return fmt.Errorf("error[K145]: for-in index slot missing (layout bug)")
+	}
+	voff, ok := b.slots[n.VarName]
+	if !ok {
+		return fmt.Errorf("error[K145]: for-in variable '%s' has no slot (layout bug)", n.VarName)
+	}
+	b.e.XorRegReg(RAX)
+	b.e.StoreStack(RAX, eoff)
+	loopLbl := b.fresh("forin")
+	endLbl := b.fresh("forinend")
+	contLbl := b.fresh("forincont")
+	b.e.Mark(loopLbl)
+	b.e.LoadStack(RCX, eoff)
+	// CmpMemReg computes [len] - i, so the loop continues while that is
+	// strictly positive: the exit branch is jle (i >= len), NOT jge.
+	b.e.CmpMemReg(RSP, off+8, RCX)
+	b.e.Jle(endLbl)
+	b.loops = append(b.loops, loopTgt{brk: endLbl, cont: contLbl})
+	b.e.LoadStack(RBX, off)
+	b.e.LoadScaled64(RAX, RBX, RCX, 8, 0)
+	b.e.StoreStack(RAX, voff)
+	if err := b.emitStmts(n.Body, fname); err != nil {
+		b.loops = b.loops[:len(b.loops)-1]
+		return err
+	}
+	b.loops = b.loops[:len(b.loops)-1]
+	b.e.Mark(contLbl)
+	b.e.IncMem(RSP, eoff)
+	b.e.Jmp(loopLbl)
+	b.e.Mark(endLbl)
+	return nil
+}
+
+
 
 func (b *Builder) emitPrint(n *parser.PrintStmt) error {
 	isStr, err := b.isStringExpr(n.Value)
@@ -1202,12 +1706,18 @@ func (b *Builder) emitPrint(n *parser.PrintStmt) error {
 		b.e.Call("print_str")
 		return nil
 	}
-	// Phase 150A Step 1: print_float is a later 150A step. Without this
-	// guard the float bits would reach print_int and print as an integer.
+	// Phase 150A: a float prints through print_float (a %g-compatible
+	// formatter). print_int would render the IEEE-754 bit pattern as a
+	// decimal integer, so the dispatch must be by kind, not by arity.
 	if k, err := b.exprKind(n.Value); err != nil {
 		return err
 	} else if k == KindFloat {
-		return fmt.Errorf("error[K145]: floating-point printing is not supported yet (arrives in a later Phase 150A step)")
+		if err := b.emitFloat(n.Value, 0); err != nil {
+			return err
+		}
+		b.e.MovRegReg(RDI, RAX)
+		b.e.Call("print_float")
+		return nil
 	}
 	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
@@ -1302,6 +1812,24 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 	case *parser.UnaryExpr:
 		return b.exprKind(x.Operand)
 	case *parser.CallExpr:
+		// len(arr) classifies int; push(arr, v) classifies array. Both
+		// are validated here rather than accepted blindly, so an
+		// unsupported receiver is rejected by the classifier that every
+		// other path already consults.
+		if x.Function == "len" {
+			if err := b.checkLenArgs(x); err != nil {
+				return KindInt, err
+			}
+			return KindInt, nil
+		}
+		if x.Function == "push" {
+			// 150A arrays are fixed-footprint frame values: a push would
+			// have to grow the element area, which the frame layout sizes
+			// at compile time. Rejecting here (rather than at emission)
+			// keeps the diagnostic about push rather than about the
+			// literal-only binding shape it would otherwise be reported as.
+			return KindArray, fmt.Errorf("error[K145]: push() is not supported on the native target yet (arrays are fixed-footprint frame values)")
+		}
 		// Phase 148: kind follows the callee's inferred return kind
 		// (unknown callees already fail loudly at emission).
 		if k, ok := b.retKind[x.Function]; ok {
@@ -1313,7 +1841,15 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		// checked at emission, where the diagnostic names the index).
 		return KindArray, nil
 	case *parser.IndexExpr:
-		return KindInt, nil
+		// int arrays only in 150A: the length lives in the header.
+		kIdx, errIdx := b.exprKind(x.Left)
+		if errIdx != nil {
+			return KindInt, errIdx
+		}
+		if kIdx == KindArray {
+			return KindInt, nil
+		}
+		return KindInt, fmt.Errorf("error[K145]: index target must be an array (got %s)", kindName(kIdx))
 	default:
 		return KindInt, fmt.Errorf("error[K145]: unsupported expression %T", n)
 	}
@@ -1347,12 +1883,18 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		if x.Operator != "-" {
 			return fmt.Errorf("error[K145]: unsupported unary operator '%s'", x.Operator)
 		}
-		// Phase 150A Step 1: float unary minus is a later 150A step.
-		// NegReg would negate the bit pattern as an integer, so refuse.
-		if k, err := b.exprKind(x.Operand); err != nil {
+		k, err := b.exprKind(x.Operand)
+		if err != nil {
 			return err
-		} else if k == KindFloat {
-			return fmt.Errorf("error[K145]: floating-point unary minus is not supported yet (arrives in a later Phase 150A step)")
+		}
+		if k == KindFloat {
+			// Phase 150A: negation flips the sign bit instead of computing
+			// 0.0 - x (see emitFloatNeg).
+			if err := b.emitFloat(x.Operand, depth); err != nil {
+				return err
+			}
+			b.emitFloatNeg()
+			return nil
 		}
 		if err := b.emitExpr(x.Operand, depth); err != nil {
 			return err
@@ -1360,18 +1902,157 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		b.e.NegReg(RAX)
 		return nil
 	case *parser.CallExpr:
+		if x.Function == "len" && x.Module == "" && !x.IsCFunc {
+			return b.emitLen(x)
+		}
 		return b.emitCallValue(x, depth)
+	case *parser.ArrayLiteral:
+		return b.emitArrayLit(x)
+	case *parser.IndexExpr:
+		return b.emitArrayIndex(x, depth)
 	default:
 		return fmt.Errorf("error[K145]: unsupported expression %T", n)
 	}
 }
 
+// emitArrayLit lowers an int array literal (Phase 150A).
+//
+// The array value is (base, len): base points at the element area
+// reserved in the frame right after the header (see scanLets), len is
+// the element count. Elements evaluate through the int path one at a
+// time (RAX) and store through the scaled form with the base as SIB
+// base; rsp never moves. Non-int elements are a loud K145 naming the
+// index — never a silent truncation. The literal pattern is the only
+// array constructor in 150A; push() returns a new array (see emitPush)
+// because 150A arrays are fixed-footprint frame values.
+func (b *Builder) emitArrayLit(x *parser.ArrayLiteral) error {
+	return fmt.Errorf("error[K145]: array literal outside let (150A lowers literals at binding)")
+}
+
+// checkLenArgs validates the single-array receiver of the len builtin.
+// Phase 150A: len() reads an array header length and nothing else — a
+// string receiver (whose length is the second unit) and a wrong arity are
+// loud K145 rather than a silent read of the wrong slot.
+func (b *Builder) checkLenArgs(x *parser.CallExpr) error {
+	if x.Module != "" || x.IsCFunc {
+		return fmt.Errorf("error[K145]: module-qualified and C-interop calls are not supported (call to '%s')", x.Function)
+	}
+	if len(x.Args) != 1 {
+		return fmt.Errorf("error[K145]: len() takes exactly 1 argument (got %d)", len(x.Args))
+	}
+	k, err := b.exprKind(x.Args[0])
+	if err != nil {
+		return err
+	}
+	if k != KindArray {
+		return fmt.Errorf("error[K145]: len() requires an array argument (got %s)", kindName(k))
+	}
+	return nil
+}
+
+// emitLen lowers len(arr) to the header length, one load with rsp fixed.
+func (b *Builder) emitLen(x *parser.CallExpr) error {
+	if err := b.checkLenArgs(x); err != nil {
+		return err
+	}
+	// Reuse the index lowering's addressing: an identifier receiver is the
+	// only 150A shape, and its length slot is base+8.
+	base, ok := x.Args[0].(*parser.Identifier)
+	if !ok {
+		return fmt.Errorf("error[K145]: len() requires an array variable (got %T)", x.Args[0])
+	}
+	off, ok := b.slots[base.Name]
+	if !ok {
+		return fmt.Errorf("error[K145]: undefined identifier '%s'", base.Name)
+	}
+	b.e.LoadStack(RAX, off+8)
+	return nil
+}
+
+// emitArrayValue materializes the literal bound to name: the (base, len)
+// header plus N int elements in the frame area reserved by scanLets. The
+// binding site is the only place that owns the element stores.
+//
+// Frame contract (see scanLets): [off] = element-area base, [off+8] = element
+// count, elements at [off+16 + i*8]. The base is stored in the frame and
+// reloaded per element, so nothing depends on RBX surviving a nested
+// expression evaluation, and rsp never moves.
+func (b *Builder) emitArrayValue(name string, x *parser.ArrayLiteral) error {
+	off := b.slots[name]
+	b.e.LeaRegStack(RBX, off+16)
+	b.e.StoreStack(RBX, off)
+	b.e.MovRegImm64(RAX, uint64(len(x.Elements)))
+	b.e.StoreStack(RAX, off+8)
+	for i, el := range x.Elements {
+		// Element kinds are validated up front so the diagnostic names the
+		// offending index instead of failing deep inside the int path.
+		k, err := b.exprKind(el)
+		if err != nil {
+			return err
+		}
+		if k != KindInt {
+			return fmt.Errorf("error[K145]: array element %d must be int (got %s)", i, kindName(k))
+		}
+		if err := b.emitExpr(el, 0); err != nil {
+			return err
+		}
+		// RAX holds the value; RCX becomes the element index; the base is
+		// reloaded from the frame so the scaled store needs no assumption
+		// about which registers the expression evaluation above clobbered.
+		b.e.LoadStack(RBX, off)
+		b.e.MovRegImm64(RCX, uint64(i))
+		b.e.StoreScaled64(RAX, RBX, RCX, 8, 0)
+	}
+	return nil
+}
+
+// emitArrayIndex lowers arr[i] over int arrays (Phase 150A): bounds
+// are checked against the header length with a loud K145-style Int3
+// trap on violation (negative or past-the-end), matching the C
+// backend's checked-index contract (exit 1 there; Int3 here because
+// the native target has no stderr runtime diagnostic yet — 150B
+// wires the message). rsp never moves; only RAX/RCX/RBX die.
+func (b *Builder) emitArrayIndex(x *parser.IndexExpr, depth int) error {
+	base, ok := x.Left.(*parser.Identifier)
+	if !ok {
+		return fmt.Errorf("error[K145]: array index target must be a variable (got %T)", x.Left)
+	}
+	off, ok := b.slots[base.Name]
+	if !ok {
+		return fmt.Errorf("error[K145]: undefined identifier '%s'", base.Name)
+	}
+	if b.kinds[base.Name] != KindArray {
+		return fmt.Errorf("error[K145]: index target must be an array (got %s '%s')", kindName(b.kinds[base.Name]), base.Name)
+	}
+	if err := b.emitExpr(x.Index, depth+1); err != nil {
+		return err
+	}
+	b.e.MovRegReg(RCX, RAX)
+	b.e.LoadStack(RBX, off)
+	b.e.LoadStack(RAX, off+8)
+	// Bounds: 0 <= i < len, else Int3 (loud, never wraparound).
+	b.e.TestRegReg(RCX, RCX)
+	badLbl := b.fresh("idxbad")
+	b.e.Jns(badLbl + "$neg")
+	b.e.Mark(badLbl)
+	b.e.Int3()
+	b.e.Mark(badLbl + "$neg")
+	b.e.CmpRegReg(RCX, RAX)
+	b.e.Jge(badLbl)
+	b.e.LoadScaled64(RAX, RBX, RCX, 8, 0)
+	return nil
+}
+
 // emitFloat lowers a float64 expression, leaving the IEEE-754 bit pattern in
 // RAX — the approved Phase-150A representation (float64 -> bits -> RAX), one
-// 8-byte unit exactly like an int. Phase 150A Step 1 covers literals and float
-// variables only: arithmetic, comparison, unary minus, printing and
-// float-returning calls belong to later 150A steps and are refused loudly here
-// so a float is never silently reinterpreted as an integer.
+// 8-byte unit exactly like an int.
+//
+// Phase 150A: literals, float variables, the four arithmetic operators,
+// unary minus and float-returning calls. The recursion re-enters the same
+// depth-indexed scratch discipline the int path uses, so a nested float
+// expression (1.5 + 2.5 * 0.5, -(1.0 / 4.0), f(x)) lowers with rsp fixed.
+// Anything that cannot produce a float64 bit pattern is a loud K145 rather
+// than a silent reinterpretation of the pattern as an integer.
 func (b *Builder) emitFloat(n parser.Node, depth int) error {
 	switch x := n.(type) {
 	case *parser.Float64Literal:
@@ -1398,9 +2079,65 @@ func (b *Builder) emitFloat(n parser.Node, depth int) error {
 		// reloaded unchanged and rsp never moves.
 		b.e.LoadStack(RAX, off)
 		return nil
+	case *parser.BinaryExpr:
+		// Arithmetic inherits float; a mixed int+float pair was already
+		// rejected by the caller that classified the expression, and the
+		// kind check repeats here so a direct emitFloat entry is safe too.
+		lk, err := b.exprKind(x.Left)
+		if err != nil {
+			return err
+		}
+		rk, err := b.exprKind(x.Right)
+		if err != nil {
+			return err
+		}
+		if lk != KindFloat || rk != KindFloat {
+			return fmt.Errorf("error[K145]: mixed %s and %s in arithmetic (no implicit numeric conversion)", kindName(lk), kindName(rk))
+		}
+		return b.emitFloatBinary(x, depth)
+	case *parser.UnaryExpr:
+		if x.Operator != "-" {
+			return fmt.Errorf("error[K145]: unsupported unary operator '%s'", x.Operator)
+		}
+		if err := b.emitFloat(x.Operand, depth); err != nil {
+			return err
+		}
+		b.emitFloatNeg()
+		return nil
+	case *parser.CallExpr:
+		// A float-returning call already leaves its f64 bits in RAX (the
+		// one-unit return convention). retKindOf pinned the callee's
+		// return kind, so an int callee reaching here is a kind error.
+		if k, ok := b.retKind[x.Function]; !ok || k != KindFloat {
+			return fmt.Errorf("error[K145]: %s call in float position (call to '%s')", kindName(b.exprKindOrInt(x)), x.Function)
+		}
+		return b.emitCallValue(x, depth)
 	default:
-		return fmt.Errorf("error[K145]: unsupported float expression %T (literals and float variables only)", n)
+		return fmt.Errorf("error[K145]: unsupported float expression %T", n)
 	}
+}
+
+// emitFloatNeg flips the sign bit of the f64 pattern in RAX. XOR with 1<<63
+// is exact for every finite value — both zeros and NaN payloads keep their
+// magnitude — so -0.0 stays -0.0 where a 0.0 - x or an integer NegReg would
+// silently destroy it. Shared by emitExpr's int/float dispatch and emitFloat's
+// unary case so the two paths cannot drift.
+func (b *Builder) emitFloatNeg() {
+	b.e.MovRegImm64(RCX, 1<<63)
+	b.e.MovXmmRegGp(XMM1, RCX)
+	b.e.MovXmmRegGp(XMM0, RAX)
+	b.e.XorpdXmmXmm(XMM0, XMM1)
+	b.e.MovGpRegXmm(RAX, XMM0)
+}
+
+// exprKindOrInt is a diagnostic-only kind lookup: it never reports an error,
+// so a K145 message can still name the operand kind it refused.
+func (b *Builder) exprKindOrInt(n parser.Node) int {
+	k, err := b.exprKind(n)
+	if err != nil {
+		return KindInt
+	}
+	return k
 }
 
 func (b *Builder) emitStr(n parser.Node, depth int) error {
@@ -1436,18 +2173,27 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 }
 
 func (b *Builder) emitBinary(x *parser.BinaryExpr, depth int) error {
+	lk, err := b.exprKind(x.Left)
+	if err != nil {
+		return err
+	}
+	rk, err := b.exprKind(x.Right)
+	if err != nil {
+		return err
+	}
+	// Phase 150A: float arithmetic is a separate SSE-only path. A mixed
+	// int+float operand pair is a loud refusal, never an implicit
+	// conversion: pkg/codegen's binary_op promotes int to double, but
+	// silently doing that here would make `1 + 2.0` type-check on one
+	// engine and not the other. No implicit numeric conversions.
+	if lk == KindFloat || rk == KindFloat {
+		if lk != rk {
+			return fmt.Errorf("error[K145]: mixed %s and %s in arithmetic (no implicit numeric conversion)", kindName(lk), kindName(rk))
+		}
+		return b.emitFloatBinary(x, depth)
+	}
 	if x.Operator != "+" && x.Operator != "-" && x.Operator != "*" {
 		return fmt.Errorf("error[K145]: unsupported operator '%s' (want +, - or *)", x.Operator)
-	}
-	// Phase 150A Step 1: int arithmetic only. Float operands now lower (bits
-	// in RAX), so an unguarded add/sub/mul here would compute on the
-	// IEEE-754 bit patterns; float arithmetic is a later 150A step.
-	for _, operand := range []parser.Node{x.Left, x.Right} {
-		if k, err := b.exprKind(operand); err != nil {
-			return err
-		} else if k == KindFloat {
-			return fmt.Errorf("error[K145]: floating-point arithmetic is not supported yet (arrives in a later Phase 150A step)")
-		}
 	}
 	if depth >= maxBinDepth {
 		return fmt.Errorf("error[K145]: expression nesting exceeds %d binary levels", maxBinDepth)
@@ -1474,6 +2220,63 @@ func (b *Builder) emitBinary(x *parser.BinaryExpr, depth int) error {
 		b.e.MulRegReg(RAX, RCX)
 	}
 	return nil
+}
+
+// emitFloatBinary lowers float64 + - * / and leaves the f64 bit pattern in
+// RAX, the same one-unit result convention literals and variables use.
+// Operands stage through the int path's depth-indexed scratch slot: an XMM
+// value is a plain 64-bit pattern, so the existing GP store/load spills it
+// and rsp never moves (Phase 147's rule). No register allocator and no
+// conversions — each step is a single SSE2 scalar instruction.
+func (b *Builder) emitFloatBinary(x *parser.BinaryExpr, depth int) error {
+	if x.Operator != "+" && x.Operator != "-" && x.Operator != "*" && x.Operator != "/" {
+		return fmt.Errorf("error[K145]: unsupported float operator '%s' (want +, -, * or /)", x.Operator)
+	}
+	if depth >= maxBinDepth {
+		return fmt.Errorf("error[K145]: expression nesting exceeds %d binary levels", maxBinDepth)
+	}
+	if err := b.emitFloat(x.Left, depth+1); err != nil {
+		return err
+	}
+	b.e.StoreStack(RAX, b.binTemp+depth*8)
+	if err := b.emitFloat(x.Right, depth+1); err != nil {
+		return err
+	}
+	b.e.MovXmmRegGp(XMM1, RAX) // right -> xmm1
+	b.e.LoadStack(RAX, b.binTemp+depth*8)
+	b.e.MovXmmRegGp(XMM0, RAX) // left -> xmm0
+	switch x.Operator {
+	case "+":
+		b.e.AddsdXmmXmm(XMM0, XMM1)
+	case "-":
+		b.e.SubsdXmmXmm(XMM0, XMM1)
+	case "*":
+		b.e.MulsdXmmXmm(XMM0, XMM1)
+	case "/":
+		b.emitFloatDiv(XMM0, XMM1)
+	}
+	b.e.MovGpRegXmm(RAX, XMM0)
+	return nil
+}
+
+// emitFloatDiv emits num = num / den with Karkain's zero-divisor rule.
+// pkg/codegen's binary_op returns 0.0 rather than trapping
+// (`r != 0.0 ? l / r : 0.0`), so a zero divisor is short-circuited to a
+// positive zero instead of producing an infinity that would poison every
+// later step. ucomisd reports ZF=1 for 0.0, -0.0 and NaN — all three
+// compare unequal to zero in C, so all three take the short-circuit, which
+// is exactly the `r != 0.0` guard the C backend writes.
+func (b *Builder) emitFloatDiv(num, den XmmReg) {
+	dividend := b.fresh("fdiv")
+	done := b.fresh("fdivend")
+	b.e.XorpdXmmXmm(XMM2, XMM2) // xmm2 = +0.0
+	b.e.UcomisdXmmXmm(den, XMM2)
+	b.e.Jnz(dividend)
+	b.e.XorpdXmmXmm(num, num) // zero divisor -> +0.0
+	b.e.Jmp(done)
+	b.e.Mark(dividend)
+	b.e.DivsdXmmXmm(num, den)
+	b.e.Mark(done)
 }
 
 func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {

@@ -2,6 +2,8 @@ package native
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -202,25 +204,42 @@ func TestNativeNegatives(t *testing.T) {
 func main() { print(2) }`, "duplicate function"},
 		{`func f(a, b, c, d, e, g, h) { return a }
 func main() { print(f(1, 2)) }`, "has 2 args (want 7)"},
-		{`func main() { print(1.5) }`, "floating-point"},
 		{`func main() { print(nope(1)) }`, "undefined function"},
 		{`func main() { let s = "x" print(s + 1) }`, "in int position"},
 		{`func main() { break }`, "break outside"},
 		{`func main() { continue }`, "continue outside"},
-		{`func main() { if (1) { print(1) } }`, "must be an int comparison"},
-		{`func main() { let y = 1 for x in y { print(x) } }`, "for-in loops are not supported"},
+		{`func main() { if (1) { print(1) } }`, "must be a comparison"},
+		{`func main() { let y = 1 for x in y { print(x) } }`, "for-in iterates an array"},
+		{`func main() { let a = [1, 2] let b = a print(b[0]) }`, "array value must be a literal"},
+		{`func main() { let a = ["x"] }`, "element 0 must be int"},
+		{`func main() { let a = [1, "x"] }`, "element 1 must be int"},
+		{`func main() { let n = 1 print(n[0]) }`, "index target must be an array"},
+		{`func main() { print([1, 2][0]) }`, "index target must be a variable"},
+		{`func main() { let a = [1, 2] print(len("x")) }`, "len() requires an array"},
+		{`func main() { let a = [1, 2] print(len()) }`, "len() takes exactly 1 argument"},
+		{`func main() { let a = [1, 2] print(len(a, a)) }`, "len() takes exactly 1 argument"},
+		{`func main() { let a = [1, 2] let b = push(a, 3) print(b[0]) }`, "push() is not supported"},
+		{`func f(p) { print(p[0]) } func main() { f([1, 2]) }`, "index target must be an array"},
+		{`func main() { for k, v in [1, 2] { print(k) } }`, "for-in over maps is not supported"},
+		{`func main() { let a = [1, 2] a = [3] }`, "cannot reassign array"},
+		{`func main() { let a = [1, 2] a[0] = 5 }`, "assignment target must be a variable"},
 		{`func main(x) { print(x) }`, "takes no arguments"},
 		{`func main() { return "x" }`, "must return int"},
 		{`func f(s string) { print(s) } func main() { f(1) }`, "int argument for string parameter"},
 		{`func f(a int) { print(a) } func main() { f("x") }`, "string argument for int parameter"},
-		// Phase 150A Step 1: floats lower (bits in RAX), so every path that
-		// would treat those bits as an integer must refuse loudly instead.
+		// Phase 150A: floats lower (bits in RAX), so every path that
+		// would treat those bits as an integer refuses loudly instead.
+		// The cases below pin the *remaining* float boundaries: mixed
+		// int+float operands, float-as-int positions, % on floats,
+		// and float main returns. Positive float paths (print,
+		// arithmetic, unary minus, comparison, float calls) execute
+		// and are pinned by TestNativeFloatExec, not rejected here.
 		{`func f(x float) { print(1) } func main() { let s = "x" f(s) }`, "string argument for float parameter"},
-		{`func f(x float) { print(1) } func main() { let n = 1 f(n) }`, "int argument for float parameter"},
-		{`func g() { return 1.5 } func f(x float) { print(1) } func main() { f(g()) }`, "unsupported float expression"},
-		{`func main() { let x = 1.5 let y = x + 1.0 }`, "floating-point arithmetic"},
-		{`func main() { let x = -1.5 }`, "floating-point unary minus"},
-		{`func main() { let x = 1.5 if (x < 2.0) { print(1) } }`, "floating-point comparison"},
+		{`func f(x float) { print(1) } func main() { let n = 1 f(n) }`, "argument for float parameter"},
+		{`func f(x float) { return x } func main() { print(f(1)) }`, "argument for float parameter"},
+		{`func main() { let x = 1.5 let y = x + 1 }`, "mixed float and int in arithmetic"},
+		{`func main() { print(1.5 % 2.0) }`, "unsupported float operator"},
+		{`func main() { let x = 1.5 if (x < 2) { print(1) } }`, "mixed float and int in comparison"},
 		{`func main() { return 1.5 }`, "floating-point return values"},
 	}
 	for _, c := range cases {
@@ -235,12 +254,13 @@ func main() { print(f(1, 2)) }`, "has 2 args (want 7)"},
 	}
 }
 
-// TestNativeFloatBits pins the Phase 150A Step 1 float representation:
-// float64 -> IEEE-754 bits -> RAX. Structural rather than executed: a float
-// cannot be observed at runtime until print_float/arithmetic land in later
-// 150A steps, so each case asserts the linked image carries exactly
-// `mov rax, imm64` with the expected pattern, and that the same bytes are
-// absent from an int-only control (so the pin cannot pass by accident).
+// TestNativeFloatBits pins the Phase 150A float representation:
+// float64 -> IEEE-754 bits -> RAX. Structural: each case asserts the
+// linked image carries exactly `mov rax, imm64` with the expected
+// pattern, absent from an int-only control. Execution goldens live
+// in TestNativeFloatExec (compileNative + runNativeCode/Windows),
+// which runs where the image can execute and still proves
+// parse+lowering+structural validity elsewhere.
 func TestNativeFloatBits(t *testing.T) {
 	cases := []struct {
 		name string
@@ -287,6 +307,150 @@ func TestNativeFloatIdentifier(t *testing.T) {
 	}
 	if !bytes.Contains(img, hexOf(t, func(e *Emitter) { e.LoadStack(RAX, 0) })) {
 		t.Error("image lacks the float identifier load (mov rax, [rsp+0])")
+	}
+}
+// TestNativeFloatExec pins the Phase 150A float execution surface:
+// print, arithmetic, unary minus, comparison, float params/returns and
+// calls, plus the zero-divisor rule. Each case compiles through the
+// shared lowering (compileNative/compileNativeOS) and executes where
+// the image can run (Linux ELF via runNativeCode, Windows PE via
+// runNativeWindows); elsewhere compilation + structural validation
+// still prove parse + lowering. Expectations mirror the C backend
+// (pkg/codegen binary_op: div-by-zero yields 0, %g-style printing
+// with up to 6 fractional digits and trimmed trailing zeros).
+func TestNativeFloatExec(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"print_lit", "func main() {\n    print(1.5)\n}\n", "1.5\n"},
+		{"print_intvalued", "func main() {\n    print(2.0)\n}\n", "2\n"},
+		{"print_neg", "func main() {\n    print(-0.125)\n}\n", "-0.125\n"},
+		{"arith", "func main() {\n    print(1.5 + 2.25)\n    print(5.0 - 2.5)\n    print(1.5 * 2.0)\n    print(7.0 / 2.0)\n}\n", "3.75\n2.5\n3\n3.5\n"},
+		{"div_zero", "func main() {\n    print(1.0 / 0.0)\n}\n", "0\n"},
+		{"unary_var", "func main() {\n    let x = 1.5\n    print(-x)\n    print(-(-x))\n}\n", "-1.5\n1.5\n"},
+		{"cond", "func main() {\n    let x = 1.5\n    if (x < 2.0) {\n        print(1)\n    } else {\n        print(0)\n    }\n    if (x == 1.5) {\n        print(1)\n    } else {\n        print(0)\n    }\n    if (x != 1.5) {\n        print(0)\n    } else {\n        print(1)\n    }\n}\n", "1\n1\n1\n"},
+		{"call_ret", "func half(x float) {\n    return x / 2.0\n}\nfunc main() {\n    print(half(3.0))\n    let y = half(1.0) + half(1.0)\n    print(y)\n}\n", "1.5\n1\n"},
+		{"nested", "func main() {\n    print(1.5 + 2.5 * 0.5)\n    print((1.0 + 3.0) / 2.0)\n}\n", "2.75\n2\n"},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNative(t, c.src)
+			out, code := runNativeCode(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
+	}
+}
+
+// TestNativeFloatExecPE mirrors the float execution surface on the
+// Windows container (PE + Win64 boundary + PEB bootstrap): the same
+// cases execute live on windows/amd64 and structurally validate
+// elsewhere, proving the shared float lowering is OS-neutral.
+func TestNativeFloatExecPE(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"print_lit", "func main() {\n    print(1.5)\n}\n", "1.5\n"},
+		{"print_neg", "func main() {\n    print(-0.125)\n}\n", "-0.125\n"},
+		{"arith", "func main() {\n    print(1.5 + 2.25)\n    print(7.0 / 2.0)\n}\n", "3.75\n3.5\n"},
+		{"cond_call", "func half(x float) {\n    return x / 2.0\n}\nfunc main() {\n    if (half(3.0) == 1.5) {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "1\n"},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNativeOS(t, OSWindows, c.src)
+			out, code := runNativeWindows(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
+	}
+}
+
+
+
+// nativeArrayCases is the shared Phase 150A array surface, executed on both
+// containers: array literal + header, indexing, len(), for-in over int
+// arrays, and the control-flow interactions (break/continue/nesting) that
+// share the loop-label stack with while/C-for.
+var nativeArrayCases = []struct {
+	name string
+	src  string
+	want string
+}{
+	{"index", "func main() {\n    let a = [10, 20, 30]\n    print(a[0])\n    print(a[2])\n}\n", "10\n30\n"},
+	{"index_expr", "func main() {\n    let a = [5, 6, 7]\n    print(a[1 + 1])\n}\n", "7\n"},
+	{"len", "func main() {\n    let a = [10, 20, 30]\n    print(len(a))\n}\n", "3\n"},
+	{"forin", "func main() {\n    let a = [10, 20, 30]\n    for x in a {\n        print(x)\n    }\n}\n", "10\n20\n30\n"},
+	{"forin_sum", "func main() {\n    let a = [1, 2, 3, 4]\n    let s = 0\n    for x in a {\n        s = s + x\n    }\n    print(s)\n}\n", "10\n"},
+	{"forin_empty", "func main() {\n    let a = []\n    for x in a {\n        print(x)\n    }\n    print(len(a))\n}\n", "0\n"},
+	// The loop guard is `len - i` compared with jle, and each loop owns its
+	// own hidden index slot. This case fails if the guard is inverted (the
+	// body never runs) or if the index slot is shared (the outer counter is
+	// clobbered by the inner loop), so it is the regression pin for both.
+	{"forin_nested", "func main() {\n    let a = [1, 2]\n    let b = [10, 20]\n    for x in a {\n        for y in b {\n            print(x * 10 + y)\n        }\n    }\n}\n", "10\n20\n11\n21\n"},
+	{"forin_break", "func main() {\n    let a = [1, 2, 3, 4]\n    for x in a {\n        if (x == 3) {\n            break\n        }\n        print(x)\n    }\n}\n", "1\n2\n"},
+	{"forin_continue", "func main() {\n    let a = [1, 2, 3, 4]\n    for x in a {\n        if (x == 2) {\n            continue\n        }\n        print(x)\n    }\n}\n", "1\n3\n4\n"},
+	{"forin_in_while", "func main() {\n    let a = [1, 2]\n    let i = 0\n    while (i < 2) {\n        for x in a {\n            print(x + i)\n        }\n        i = i + 1\n    }\n}\n", "1\n2\n2\n3\n"},
+	{"two_arrays", "func main() {\n    let a = [1, 2]\n    let b = [3, 4]\n    print(a[1] + b[0])\n    print(len(a) + len(b))\n}\n", "5\n4\n"},
+}
+
+// TestNativeArrayExec pins the Phase 150A array surface on the Linux ELF
+// container. Execution runs on linux/amd64; elsewhere compileNative still
+// proves parse + lowering + structural validity.
+func TestNativeArrayExec(t *testing.T) {
+	for _, c := range nativeArrayCases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNative(t, c.src)
+			out, code := runNativeCode(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
+	}
+}
+
+// TestNativeArrayExecPE runs the same array surface through the PE + Win64
+// boundary + PEB bootstrap container, proving the array lowering is
+// OS-neutral: frame layout, header stores, scaled element addressing and
+// the for-in guard are emitted by one shared lowering per OS.
+func TestNativeArrayExecPE(t *testing.T) {
+	for _, c := range nativeArrayCases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNativeOS(t, OSWindows, c.src)
+			out, code := runNativeWindows(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
 	}
 }
 
@@ -351,6 +515,101 @@ func TestNativeCallsABI(t *testing.T) {
 			}
 			if code != c.wantCode {
 				t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
+			}
+		})
+	}
+}
+
+// nativeLegacyCorpus is the pre-150A program corpus: the Phase-145
+// straight-line/strings programs, the Phase-147 bisect cases, the Phase-148
+// control-flow and calls-ABI cases, and the Phase-149 shared programs. None
+// of them use a 150A value kind (float/array), so the Phase-150A value
+// model must not move a single byte of their ELF images.
+var nativeLegacyCorpus = []struct {
+	name string
+	src  string
+}{
+	{"p145_hello", "func main() {\n    print(\"hello native\")\n    print(2 + 3 * 4)\n    print((10 - 4) * 2)\n}\n"},
+	{"p145_int42", "func main() {\n    print(42)\n}\n"},
+	{"p145_str", "func main() {\n    print(\"hi\")\n}\n"},
+	{"p145_arith", "func main() {\n    print(2 + 3 * 4)\n}\n"},
+	{"p145_call", "func add(a, b) {\n    return a + b\n}\nfunc main() {\n    print(add(20, 22))\n}\n"},
+	{"p145_mult", "func main() {\n    print(1000000 * 1000000)\n}\n"},
+	{"p147_empty", "func main() {\n}\n"},
+	{"p147_retcode", "func main() {\n    return 7\n}\n"},
+	{"p148_if_else", "func classify(n) {\n    if (n < 0) {\n        return 0 - 1\n    }\n    if (n == 0) {\n        return 0\n    }\n    return 1\n}\nfunc main() {\n    print(classify(0 - 5))\n    print(classify(0))\n    print(classify(9))\n}\n"},
+	{"p148_while_sum", "func main() {\n    let s = 0\n    let i = 1\n    while (i <= 10) {\n        s = s + i\n        i = i + 1\n    }\n    print(s)\n}\n"},
+	{"p148_break_continue", "func main() {\n    let s = 0\n    let i = 0\n    for (; i < 10; i = i + 1) {\n        if (i == 3) {\n            continue\n        }\n        if (i == 7) {\n            break\n        }\n        s = s + i\n    }\n    print(s)\n}\n"},
+	{"p148_nested", "func main() {\n    let t = 0\n    let i = 0\n    while (i < 3) {\n        let j = 0\n        while (j < 3) {\n            if (i == j) {\n                t = t + 1\n            }\n            j = j + 1\n        }\n        i = i + 1\n    }\n    print(t)\n}\n"},
+	{"p148_string_arg", "func greet(name string) {\n    print(name)\n}\nfunc main() {\n    greet(\"hi\")\n}\n"},
+	{"p148_string_var_arg", "func greet(name string) {\n    print(name)\n}\nfunc main() {\n    let w = \"yo\"\n    greet(w)\n}\n"},
+	{"p148_string_return", "func word() {\n    return \"abc\"\n}\nfunc main() {\n    print(word())\n}\n"},
+	{"p148_mixed_args", "func show(a int, s string, b int) {\n    print(a)\n    print(s)\n    print(b)\n}\nfunc main() {\n    show(1, \"two\", 3)\n}\n"},
+	{"p148_seven_params", "func sum7(a, b, c, d, e, f, g) {\n    return a + b + c + d + e + f + g\n}\nfunc main() {\n    print(sum7(1, 2, 3, 4, 5, 6, 7))\n}\n"},
+	{"p148_straddle", "func mix(a, b, c, d, e, s string) {\n    print(a)\n    print(s)\n}\nfunc main() {\n    mix(1, 2, 3, 4, 5, \"six\")\n}\n"},
+	{"p148_nested_strcall", "func id(s string) {\n    return s\n}\nfunc main() {\n    print(id(id(\"ok\")))\n}\n"},
+}
+
+// nativeLegacyELF pins the SHA-256 of each pre-150A ELF image. The Phase-150A
+// value model added kinds and lowerings for values these programs never use,
+// so any byte here is drift: it means the int/string path changed shape
+// (frame layout, helper emission, or the entry tail). Increment 150C
+// (register allocation) validates against this same table, which is what
+// makes "zero golden drift" a measurement instead of an assertion.
+//
+// The values are the increment-149 (951ee10) images, measured — not
+// regenerated after the fact. That is what proves the differential: an
+// earlier 150A state emitted print_float unconditionally and grew every one
+// of these images (hello 503 -> 1226 bytes) until the helper was gated on
+// scanFloatUsage.
+var nativeLegacyELF = map[string]string{
+	"p145_hello":          "c73a6e38d6571dc7a19420fb8dae60294cebda9e74b41a90a0b9cc22e5769fb3",
+	"p145_int42":          "865c5846912a192aa90dd364d00a02b7d1c510e5368d0d4a3c978aa20733e23e",
+	"p145_str":            "6ae64efc3edcb56a5a7b6c11e6283f1a8eea7bf2603a951f63d8fb2d53ea0f75",
+	"p145_arith":          "2c314d9b7af8b5d47742f6947e60327eb475671d0c9f14cf7da5740ea3dc1b06",
+	"p145_call":           "2f925e86ea1c2d3877304587549ce2c28cfd912f19ed451e4d02b30cf86813ff",
+	"p145_mult":           "f2035ee4a5da40b4b6e5025340a64a495f2b1455fd5e41215f4903e0c3895c34",
+	"p147_empty":          "30263ddf22f56b65a499e725b47f7e9ce641eb219fea156e32de4cf8dddf4303",
+	"p147_retcode":        "853afe5070f705d4c4a9f1358fa124504bef39235cb753a87378dd0dc2c45aa6",
+	"p148_if_else":        "2020a957bf7c05117f93c40ee78510c736a2e576578bad5653a937c075010215",
+	"p148_while_sum":      "a8e6cbbc3bebbc22ca41351d802f28fb928b41fb30155b0c499b427d8879d001",
+	"p148_break_continue": "bb138f6e3309d39e74a04a2d2158b5b071048c330b10041daa3dae0cd3ecac98",
+	"p148_nested":         "6e49dc9ced20348912da1a991223f7b59905d716fec5b098b56951475b1a0043",
+	"p148_string_arg":     "41dd9df614fe60dfee01b0235b4a74b0ce0c573e741e75429f5fa20c3aa09ec0",
+	"p148_string_var_arg": "2425a5f7c600621ec8188cc4ac945b62d8d37f47140d2eb62d4d3d7a3cd68c20",
+	"p148_string_return":  "72a22569763cacef040b242d4b68753d1d20586b3be9742f7654598de57e8112",
+	"p148_mixed_args":     "31588945b8168a988042e979f65362a297ed2f8fd1cdc3a5876e68e86901478e",
+	"p148_seven_params":   "ff2c76ae18bb7703e054e6e88079d8caaebdc2726b98cceac2c1131d625de9dc",
+	"p148_straddle":       "149b2e1148acae6db1895aebd43830d74ee0d4f8a9bf742eff94d610e7a14f82",
+	"p148_nested_strcall": "51c9f9ae3e1963daa739147deb1e892407ea6e0dc0fe7b031a099413fdc169f9",
+}
+
+// TestNativeELFByteIdentity is the Phase-150A ELF byte-identity differential
+// against the 147/148/149 corpus. It also re-compiles each program twice to
+// keep the determinism property pinned alongside the hash.
+func TestNativeELFByteIdentity(t *testing.T) {
+	for _, c := range nativeLegacyCorpus {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img, err := CompileProgram(parseNative(t, c.src))
+			if err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+			again, err := CompileProgram(parseNative(t, c.src))
+			if err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+			if string(img) != string(again) {
+				t.Fatal("non-deterministic ELF image")
+			}
+			sum := sha256.Sum256(img)
+			got := hex.EncodeToString(sum[:])
+			want, ok := nativeLegacyELF[c.name]
+			if !ok {
+				t.Fatalf("unpinned corpus program %q: sha256 %s (%d bytes)", c.name, got, len(img))
+			}
+			if got != want {
+				t.Errorf("%s: ELF sha256 %s, want %s (%d bytes) — byte drift in the pre-150A corpus", c.name, got, want, len(img))
 			}
 		})
 	}

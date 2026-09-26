@@ -860,10 +860,58 @@ passthrough, debuggers on native images stay on the C path, kcc native parity
 is 151, and `--target native-x86_64-windows/macos` CLI targets are the
 immediate follow-up. Report: `docs/audit/PHASE-149-FINAL-REPORT.md`.)
 
-**QUEUED next: 150 — Native Value Model + Windows/macOS native targets**
-(version **1.2.0** "Sovereignty I" opener; scope, gates and exit criteria in
-`docs/audit/KARKAIN-VERSION-PLAN.md`). No `phase15x` artifact exists in the
-tree — nothing has started.
+**In progress: 150 — Native Value Model + Windows/macOS native targets**
+(version **1.2.0** "Sovereignty I" opener; scope, slices and exit criteria
+in `docs/audit/PHASE-150-BASELINE.md`).
+
+Also completed: **150A — Native Value Model core** (increment 150, slice A
+of 4; verdict **COMPLETE**). The native backend stopped being an
+int+string toy. **Float64**: `float64 -> IEEE-754 bits -> one 8-byte
+unit`, identical to an int in frames, calls and returns — `+ - * /`, unary
+minus, all six comparisons, float params/returns/calls, SSE2 only (no
+FMA/AVX dependency). Division by zero yields 0 and printing is
+`%g`-compatible (fixed for `-4 <= X < 6` else scientific, round-half-even
+at the 7th digit, trailing zeros trimmed), matching the C backend instead
+of inventing a third formatting. **Arrays**: a `(base, len)` header plus a
+compile-time-sized element area in the frame; literal binding, `arr[i]`
+with a checked bound (negative or `>= len` traps), `len(arr)`, and
+`for x in arr` with `break`/`continue`/nesting sharing the loop-label
+stack. Scaled `[base + i*8]` addressing keeps the array base out of `rsp`,
+preserving Phase 147's "rsp never moves" rule. New emitter primitives are
+all golden-pinned byte-for-byte (`TestEmitSSE`, `TestEmitPrintFloatPrims`:
+movq/addsd/subsd/mulsd/divsd/ucomisd/cvtsi2sd/cvttsd2si/xorpd, the
+print_float carry+bitscan+limb primitives, ja/jae/jb/jbe/jp, and the
+scaled SIB load/store forms). 9 float + 11 array programs run on **both**
+containers; on this windows/amd64 host the PE legs execute for real
+(PE + Win64 boundary + PEB bootstrap), so the array lowering is proven by
+execution, not assertion. **Two real defects found and fixed**: (1) the
+for-in guard was **inverted** — `cmp [len], i` leaves `len - i`, so the exit
+branch must be `jle`, not `jge`; with `jge` the body never ran for any
+non-negative index (pinned by the nested-loop golden); (2) `print_float`
+was emitted **unconditionally**, growing every image ~700 bytes for a
+formatter an int-only program can never call (hello 503 → 1226), which
+would have failed the byte-identity criterion — it is now gated on
+`scanFloatUsage`, a whole-unit pre-pass (necessarily a pre-pass:
+`emitHelpers` runs before any function body). Also fixed while landing it:
+`emitLet` never dispatched arrays so `emitArrayValue` was dead code, that
+routine stored elements through an uninitialised RCX and then clobbered
+RAX with the length reload, and every `for-in` shared one hidden `"for$idx"`
+slot so a nested loop resumed its parent with the inner counter (now
+per-`ForInStmt`-node). **New: `TestNativeELFByteIdentity`** — 19 pre-150A
+programs (145 straight-line/strings, 147 bisect, 148 control + calls ABI)
+pinned by SHA-256 to the increment-149 (`951ee10`) images, measured rather
+than regenerated, which is what makes "zero golden drift" a measurement
+and gives 150C (register allocation) its differential. Result: **zero byte
+drift**. Regressions green: `go build ./...`, `go vet`, full `pkg/native`
+(no FAIL; honest platform skips for ELF/Mach-O execution and the evidence
+dump), Phase 148 CLI gate, `pkg/parser`, `pkg/lexer`. KIR pin 9574
+unaffected (the native path does not consume KIR). **Carried to 150B, not a
+defect:** `push()` is a loud K145 naming itself — a push must grow the
+element area, and 150A arrays are fixed-footprint frame values sized by the
+layout pass, so growable storage is heap/boxed-`Value` work. 150B
+(maps/structs/string ops), 150C (register allocation) and 150D (Mach-O
+PIE/rebase + the two new CLI targets + native-split cache +
+`pkg/cli/phase150_native_targets_test.go`) are not started.)
 
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,

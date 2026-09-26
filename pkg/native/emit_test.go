@@ -129,3 +129,46 @@ func TestEmitFrameAddr(t *testing.T) {
 	want(t, "or r8,0x20", hexOf(t, func(e *Emitter) { e.OrRegImm8(R8, 0x20) }),
 		0x49, 0x83, 0xC8, 0x20)
 }
+
+// Phase 150A: SSE2 float instruction pins.
+func TestEmitSSE(t *testing.T) {
+	want(t, "movq xmm0,rax", hexOf(t, func(e *Emitter) { e.MovXmmRegGp(XMM0, RAX) }), 0x66, 0x48, 0x0F, 0x6E, 0xC0)
+	want(t, "movq rax,xmm0", hexOf(t, func(e *Emitter) { e.MovGpRegXmm(RAX, XMM0) }), 0x66, 0x48, 0x0F, 0x7E, 0xC0)
+	want(t, "addsd xmm0,xmm1", hexOf(t, func(e *Emitter) { e.AddsdXmmXmm(XMM0, XMM1) }), 0xF2, 0x0F, 0x58, 0xC1)
+	want(t, "subsd xmm0,xmm1", hexOf(t, func(e *Emitter) { e.SubsdXmmXmm(XMM0, XMM1) }), 0xF2, 0x0F, 0x5C, 0xC1)
+	want(t, "mulsd xmm0,xmm1", hexOf(t, func(e *Emitter) { e.MulsdXmmXmm(XMM0, XMM1) }), 0xF2, 0x0F, 0x59, 0xC1)
+	want(t, "divsd xmm0,xmm1", hexOf(t, func(e *Emitter) { e.DivsdXmmXmm(XMM0, XMM1) }), 0xF2, 0x0F, 0x5E, 0xC1)
+	want(t, "ucomisd xmm0,xmm1", hexOf(t, func(e *Emitter) { e.UcomisdXmmXmm(XMM0, XMM1) }), 0x66, 0x0F, 0x2E, 0xC1)
+	want(t, "cvtsi2sd xmm0,rax", hexOf(t, func(e *Emitter) { e.Cvtsi2sdXmmGp(XMM0, RAX) }), 0xF2, 0x48, 0x0F, 0x2A, 0xC0)
+	want(t, "cvttsd2si rax,xmm0", hexOf(t, func(e *Emitter) { e.Cvttsd2siGpXmm(RAX, XMM0) }), 0xF2, 0x48, 0x0F, 0x2C, 0xC0)
+	want(t, "xorpd xmm0,xmm0", hexOf(t, func(e *Emitter) { e.XorpdXmmXmm(XMM0, XMM0) }), 0x66, 0x0F, 0x57, 0xC0)
+
+	back := func(build func(e *Emitter)) []byte {
+		e := NewEmitter()
+		e.Mark("here")
+		build(e)
+		return e.Bytes()
+	}
+	want(t, "ja", back(func(e *Emitter) { e.Ja("here") }), 0x0F, 0x87, 0xFA, 0xFF, 0xFF, 0xFF)
+	want(t, "jae", back(func(e *Emitter) { e.Jae("here") }), 0x0F, 0x83, 0xFA, 0xFF, 0xFF, 0xFF)
+	want(t, "jb", back(func(e *Emitter) { e.Jb("here") }), 0x0F, 0x82, 0xFA, 0xFF, 0xFF, 0xFF)
+	want(t, "jbe", back(func(e *Emitter) { e.Jbe("here") }), 0x0F, 0x86, 0xFA, 0xFF, 0xFF, 0xFF)
+	want(t, "jp", back(func(e *Emitter) { e.Jp("here") }), 0x0F, 0x8A, 0xFA, 0xFF, 0xFF, 0xFF)
+}
+
+// Phase 150A: exact print_float primitives. Every encoding below is
+// hand-checked against the Intel SDM because the bounded decimal routine
+// depends on carry handling, bit scans, byte loads, and indexed limbs.
+func TestEmitPrintFloatPrims(t *testing.T) {
+	want(t, "adc rax,rcx", hexOf(t, func(e *Emitter) { e.AdcRegReg(RAX, RCX) }), 0x48, 0x11, 0xC8)
+	want(t, "sbb rdx,r8", hexOf(t, func(e *Emitter) { e.SbbRegReg(RDX, R8) }), 0x4C, 0x19, 0xC2)
+	want(t, "or rax,rbx", hexOf(t, func(e *Emitter) { e.OrRegReg(RAX, RBX) }), 0x48, 0x09, 0xD8)
+	want(t, "bsr rax,rcx", hexOf(t, func(e *Emitter) { e.BsrReg(RAX, RCX) }), 0x48, 0x0F, 0xBD, 0xC1)
+	want(t, "rol rax,1", hexOf(t, func(e *Emitter) { e.RolRegImm(RAX, 1) }), 0x48, 0xC1, 0xC0, 0x01)
+	want(t, "movzx rax,[rbx+8]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RAX, RBX, 8) }),
+		0x48, 0x0F, 0xB6, 0x44, 0x23, 0x08)
+	want(t, "mov rax,[rbx+rcx*8+16]", hexOf(t, func(e *Emitter) { e.LoadScaled64(RAX, RBX, RCX, 8, 16) }),
+		0x48, 0x8B, 0x44, 0xCB, 0x10)
+	want(t, "mov [r10+r11*8],r9", hexOf(t, func(e *Emitter) { e.StoreScaled64(R9, R10, R11, 8, 0) }),
+		0x4F, 0x89, 0x0C, 0xDA)
+}
