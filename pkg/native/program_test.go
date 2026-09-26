@@ -223,6 +223,17 @@ func main() { print(f(1, 2)) }`, "has 2 args (want 7)"},
 		{`func main() { for k, v in [1, 2] { print(k) } }`, "for-in over maps is not supported"},
 		{`func main() { let a = [1, 2] a = [3] }`, "cannot reassign array"},
 		{`func main() { let a = [1, 2] a[0] = 5 }`, "assignment target must be a variable"},
+		// Phase 150B string view/concat boundaries.
+		{`func main() { let s = "ab" if (s < "ac") { print(1) } }`, "string ordering"},
+		{`func main() { let s = "ab" if (1 == s) { print(1) } }`, "int operand in string comparison"},
+		{`func main() { let s = "ab" if (s == 1) { print(1) } }`, "int operand in string comparison"},
+		{`func main() { let n = 1 print(n[0:1]) }`, "slice target must be a string"},
+		{`func main() { let a = [1, 2] print(a[0:1]) }`, "slice target must be a string"},
+		{`func main() { let s = "ab" print(s - "c") }`, "unsupported string operator"},
+		{`func main() { let s = "ab" print(s * "c") }`, "unsupported string operator"},
+		{`func main() { let s = "ab" let t = s + 1 }`, "in int position"},
+		{`func main() { print("a" + 1) }`, "unsupported expression"},
+		{`func main() { let s = "ab" let t = "a" + "b" + 1 }`, "unsupported expression"},
 		{`func main(x) { print(x) }`, "takes no arguments"},
 		{`func main() { return "x" }`, "must return int"},
 		{`func f(s string) { print(s) } func main() { f(1) }`, "int argument for string parameter"},
@@ -527,6 +538,74 @@ func TestNativeStrConcatExecPE(t *testing.T) {
 				}
 				if code != 0 {
 					t.Errorf("pe %s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
+	}
+}
+
+// TestNativeStrViewExec covers the Phase-150B string operations that only
+// read bytes and therefore need no heap: slicing (a view, not a copy) and
+// equality/inequality by content. Equality runs its own length check first,
+// so the cases below pin both the length-mismatch path and the byte path.
+var nativeStrViewCases = []struct {
+	name string
+	src  string
+	want string
+}{
+	// Slicing.
+	{"slice_mid", "func main() {\n    print(\"hello world\"[6:11])\n}\n", "world\n"},
+	{"slice_prefix", "func main() {\n    print(\"abcdef\"[0:3])\n}\n", "abc\n"},
+	{"slice_empty", "func main() {\n    print(\"abcdef\"[2:2])\n}\n", "\n"},
+	{"slice_var_bounds", "func main() {\n    let s = \"abcdefgh\"\n    let a = 2\n    let b = 5\n    print(s[a:b])\n}\n", "cde\n"},
+	{"slice_of_concat", "func main() {\n    let s = \"ab\" + \"cdef\"\n    print(s[0:2])\n    print(s[2:6])\n}\n", "ab\ncdef\n"},
+	{"slice_whole", "func main() {\n    print(\"xyz\"[0:3])\n}\n", "xyz\n"},
+	// Equality.
+	{"eq_same_literal", "func main() {\n    if (\"ab\" == \"ab\") {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "1\n"},
+	{"eq_diff_literal", "func main() {\n    if (\"ab\" == \"ac\") {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "0\n"},
+	{"eq_len_mismatch", "func main() {\n    if (\"ab\" == \"abc\") {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "0\n"},
+	{"ne_diff", "func main() {\n    if (\"ab\" != \"cd\") {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "1\n"},
+	{"ne_same", "func main() {\n    if (\"ab\" != \"ab\") {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "0\n"},
+	{"eq_both_empty", "func main() {\n    if (\"\" == \"\") {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "1\n"},
+	// Combined: a slice compared against a literal decides a branch.
+	{"slice_eq_gates", "func main() {\n    let s = \"prefix-body-suffix\"\n    if (s[7:11] == \"body\") {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "1\n"},
+	{"slice_in_while", "func main() {\n    let s = \"abcdef\"\n    let i = 0\n    while (i < 3) {\n        print(s[i:2])\n        i = i + 1\n    }\n}\n", "ab\nbc\ncd\n"},
+	{"eq_in_while", "func main() {\n    let s = \"ab\"\n    let i = 0\n    while (i < 2) {\n        if (s == \"ab\") {\n            print(7)\n        }\n        i = i + 1\n    }\n}\n", "7\n7\n"},
+}
+
+// TestNativeStrViewExecPE runs the string-view surface on the PE container,
+// where slicing and comparison execute for real on windows/amd64.
+func TestNativeStrViewExecPE(t *testing.T) {
+	for _, c := range nativeStrViewCases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNativeOS(t, OSWindows, c.src)
+			out, code := runNativeWindows(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
+	}
+}
+
+// TestNativeStrViewExec mirrors the same surface on the Linux ELF container.
+func TestNativeStrViewExec(t *testing.T) {
+	for _, c := range nativeStrViewCases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNative(t, c.src)
+			out, code := runNativeCode(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
 				}
 			}
 		})

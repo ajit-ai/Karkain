@@ -174,6 +174,13 @@ type Builder struct {
 	// (scanValueUsage) so the allocator, the frame layout and the emission
 	// all agree without re-deriving anything.
 	usesConcat bool
+	// usesStrEq: the program compares two strings for equality, which also
+	// needs the string scratch area. Kept apart from usesConcat because only
+	// concatenation needs the heap — comparison reads bytes in place.
+	usesStrEq bool
+	// usesStrSlice: the program slices a string, which also needs the string
+	// staging area (and, like comparison, no heap).
+	usesStrSlice bool
 	// Phase 150B: the bump arena. Layout is a 16-byte header followed by
 	// heapSize usable bytes: [cursor][limit][data...]. cursor and limit
 	// are ABSOLUTE addresses held in the arena itself, so the allocator
@@ -224,11 +231,14 @@ const (
 // literal byte count: every string value in such a program is either a
 // literal or a concatenation of literals, so no value can be longer than
 // all the literal bytes put together.
-func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat bool, heapSize int) {
+func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, usesStrSlice bool, heapSize int) {
 	var concatSites, concatHeap int
 	concatSites, concatHeap = scanConcatSites(prog)
 	usesConcat = concatSites > 0
 	heapSize = concatHeap
+	usesStrEq = false
+	strNames := collectStringNames(prog)
+	usesStrEq, usesStrSlice = scanStringViewOps(prog, strNames)
 
 	// A separate, float-only walk: unlike the concat search it has no
 	// type inference to do, and keeping the two concerns apart means a
@@ -306,7 +316,7 @@ func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat bool, heapSize 
 		}
 	}
 	walkStmts(prog.Statements)
-	return usesFloat, usesConcat, heapSize
+	return usesFloat, usesConcat, usesStrEq, usesStrSlice, heapSize
 }
 
 // scanConcatSites finds every string-concatenation site and returns how many
@@ -443,6 +453,152 @@ func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
 	}
 	return sites, heapSize
 }
+// collectStringNames returns every name bound to a string value, so the
+// pre-passes can classify a `+` or a `==` by operand type. It seeds from
+// `x string` parameters, then learns bindings, repeating until the set stops
+// growing so ordering between bindings never affects the answer.
+func collectStringNames(prog *parser.Program) map[string]bool {
+	strNames := map[string]bool{}
+	var strKind func(n parser.Node) bool
+	strKind = func(n parser.Node) bool {
+		switch x := n.(type) {
+		case *parser.StringLiteral:
+			return true
+		case *parser.Identifier:
+			return strNames[x.Name]
+		case *parser.BinaryExpr:
+			return x.Operator == "+" && strKind(x.Left) && strKind(x.Right)
+		case *parser.CallExpr:
+			// A call counts as a string when any string is passed to it: in
+			// v1 the only such shape is a string-returning helper. The
+			// dangerous direction (missing a site) is covered by the loud
+			// guards in emitStrConcat and emitStrEqCond.
+			for _, a := range x.Args {
+				if strKind(a) {
+					return true
+				}
+			}
+			return false
+		}
+		return false
+	}
+	// Only *statements* matter here: a `let` binding is a statement, so no
+	// expression position can introduce a new string name and the walk does
+	// not need to descend into expressions at all.
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				for i, pt := range x.ParamTypes {
+					if pt == "string" && i < len(x.Params) {
+						strNames[x.Params[i]] = true
+					}
+				}
+				walkStmts(x.Body)
+			case *parser.VarDeclStmt:
+				if strKind(x.Value) {
+					strNames[x.Name] = true
+				}
+			case *parser.IfStmt:
+				walkStmts(x.Consequence)
+				walkStmts(x.Alternative)
+			case *parser.WhileStmt:
+				walkStmts(x.Body)
+			case *parser.ForStmt:
+				walkStmts(x.Body)
+			case *parser.ForInStmt:
+				walkStmts(x.Body)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements)
+			}
+		}
+	}
+	for pass := 0; pass < 8; pass++ {
+		before := len(strNames)
+		walkStmts(prog.Statements)
+		if len(strNames) == before {
+			break
+		}
+	}
+	return strNames
+}
+
+// scanStringViewOps reports which string operations that only *read* bytes
+// (and so need the string staging area but no heap) the program uses: string
+// equality/inequality, and string slicing.
+func scanStringViewOps(prog *parser.Program, strNames map[string]bool) (eq, slice bool) {
+	var strKind func(n parser.Node) bool
+	strKind = func(n parser.Node) bool {
+		switch x := n.(type) {
+		case *parser.StringLiteral:
+			return true
+		case *parser.Identifier:
+			return strNames[x.Name]
+		case *parser.BinaryExpr:
+			return x.Operator == "+" && strKind(x.Left) && strKind(x.Right)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				if strKind(a) {
+					return true
+				}
+			}
+			return false
+		}
+		return false
+	}
+	var walkExpr func(n parser.Node)
+	walkExpr = func(n parser.Node) {
+		if n == nil || (eq && slice) {
+			return
+		}
+		switch x := n.(type) {
+		case *parser.SliceExpr:
+			if strKind(x.Target) {
+				slice = true
+			}
+		case *parser.BinaryExpr:
+			if (x.Operator == "==" || x.Operator == "!=") && strKind(x.Left) && strKind(x.Right) {
+				eq = true
+			}
+		}
+	}
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.VarDeclStmt:
+				walkExpr(x.Value)
+			case *parser.PrintStmt:
+				walkExpr(x.Value)
+			case *parser.ExprStmt:
+				walkExpr(x.Expression)
+			case *parser.ReturnStmt:
+				walkExpr(x.Value)
+			case *parser.IfStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Consequence)
+				walkStmts(x.Alternative)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Body)
+			case *parser.ForStmt:
+				walkExpr(x.Condition)
+				walkExpr(x.Init)
+				walkExpr(x.Post)
+				walkStmts(x.Body)
+			case *parser.ForInStmt:
+				walkExpr(x.Iter)
+				walkStmts(x.Body)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements)
+			}
+		}
+	}
+	walkStmts(prog.Statements)
+	return eq, slice
+}
+
 // loopTgt records a loop's jump targets for break/continue (Phase 148).
 type loopTgt struct {
 	brk  string // break jumps here (past the loop)
@@ -493,7 +649,7 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 			return nil, err
 		}
 	}
-	b.usesFloat, b.usesConcat, b.heapSize = scanValueUsage(prog)
+	b.usesFloat, b.usesConcat, b.usesStrEq, b.usesStrSlice, b.heapSize = scanValueUsage(prog)
 	b.emitHelpers()
 	for _, stmt := range prog.Statements {
 		if fd, ok := stmt.(*parser.FuncDecl); ok {
@@ -1322,12 +1478,13 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	// moves during expression evaluation, so slot addresses stay stable.
 	b.binTemp = next
 	next += 8 * maxBinDepth
-	// Phase 150B: string-concat staging, five 8-byte units per nesting level
-	// (see emitStrConcat). Reserved only when the program concatenates, so a
-	// program that does not keeps its exact increment-149 frame shape (and
+	// Phase 150B: string staging (concat operands, string-comparison
+	// operands), five 8-byte units per nesting level (see emitStrConcat).
+	// Reserved only when the program has a string operation that needs it, so
+	// a program that does not keeps its exact increment-149 frame shape (and
 	// therefore its exact bytes). The decision is program-wide and taken
 	// once in a pre-pass, so layout and emission can never disagree.
-	if b.usesConcat {
+	if b.usesConcat || b.usesStrEq || b.usesStrSlice {
 		b.strTemp = next
 		next += 8 * 5 * maxBinDepth
 	}
@@ -1668,6 +1825,75 @@ func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
 // lower in v1 (operands reuse the depth-indexed scratch evaluator, so rsp
 // stays put); anything else is a loud K145, never a miscompiled truthiness
 // test.
+// emitStrEqCond lowers `a == b` / `a != b` over two strings by comparing
+// bytes, and jumps to falseLabel when the comparison does not hold.
+//
+// Length first (a different length is decisively unequal, with no byte
+// reads at all), then a byte loop. Both operands stage through the concat
+// scratch area so the second evaluation cannot disturb the first, and rsp
+// never moves. RDX and R8 die; no other scratch is touched.
+func (b *Builder) emitStrEqCond(be *parser.BinaryExpr, falseLabel string) error {
+	lk, err := b.exprKind(be.Left)
+	if err != nil {
+		return err
+	}
+	if lk != KindString {
+		return fmt.Errorf("error[K145]: %s operand in string comparison (no implicit conversion)", kindName(lk))
+	}
+	rk, err := b.exprKind(be.Right)
+	if err != nil {
+		return err
+	}
+	if rk != KindString {
+		return fmt.Errorf("error[K145]: %s operand in string comparison (no implicit conversion)", kindName(rk))
+	}
+	base := b.strTemp
+	if err := b.emitStr(be.Left, 0); err != nil {
+		return err
+	}
+	b.e.StoreStack(RDI, base)
+	b.e.StoreStack(RSI, base+8)
+	if err := b.emitStr(be.Right, 0); err != nil {
+		return err
+	}
+	b.e.StoreStack(RDI, base+16)
+	b.e.StoreStack(RSI, base+24)
+	neLbl := b.fresh("streq$ne")
+	eqLbl := b.fresh("streq$eq")
+	// Unequal lengths decide it immediately.
+	b.e.LoadStack(RAX, base+8)
+	b.e.CmpRegReg(RAX, RSI) // RSI still holds the right length
+	b.e.Jnz(neLbl)
+	// Byte loop: compare one byte at a time through the scaled 8-bit loads.
+	b.e.LoadStack(R8, base)    // left ptr
+	b.e.LoadStack(R9, base+16) // right ptr
+	b.e.MovRegReg(RCX, RAX)    // count
+	b.e.XorRegReg(RDX)
+	loopLbl := b.fresh("streq$loop")
+	b.e.Mark(loopLbl)
+	b.e.CmpRegReg(RDX, RCX)
+	b.e.Jae(eqLbl)
+	b.e.LoadScaled8(R10, R8, RDX, 1, 0)
+	b.e.LoadScaled8(R11, R9, RDX, 1, 0)
+	b.e.CmpRegReg(R10, R11)
+	b.e.Jnz(neLbl)
+	b.e.IncReg(RDX)
+	b.e.Jmp(loopLbl)
+	// Two outcomes, and the operator only decides which one continues into
+	// the then-branch. Falling through is "condition holds"; the caller
+	// emits the falseLabel immediately after this returns, so the false side
+	// is always the explicit jump and the true side is the fall-through.
+	b.e.Mark(neLbl)
+	if be.Operator == "==" {
+		b.e.Jmp(falseLabel)
+	}
+	b.e.Mark(eqLbl)
+	if be.Operator == "!=" {
+		b.e.Jmp(falseLabel)
+	}
+	return nil
+}
+
 func (b *Builder) emitCond(cond parser.Node, falseLabel string) error {
 	be, ok := cond.(*parser.BinaryExpr)
 	if !ok {
@@ -1681,12 +1907,24 @@ func (b *Builder) emitCond(cond parser.Node, falseLabel string) error {
 	if isStr, err := b.isStringExpr(be.Left); err != nil {
 		return err
 	} else if isStr {
-		return fmt.Errorf("error[K145]: string comparison is not supported (ints and floats only)")
+		// Phase 150B: strings compare by content. Only equality and
+		// inequality exist in v1 — ordering needs a lexicographic helper
+		// that lands with the map work, and a loud refusal is better than
+		// a silent pointer comparison.
+		if be.Operator != "==" && be.Operator != "!=" {
+			return fmt.Errorf("error[K145]: string ordering ('%s') is not supported; == and != compare content", be.Operator)
+		}
+		return b.emitStrEqCond(be, falseLabel)
 	}
 	if isStr, err := b.isStringExpr(be.Right); err != nil {
 		return err
 	} else if isStr {
-		return fmt.Errorf("error[K145]: string comparison is not supported (ints and floats only)")
+		// Either side being a string makes this a string comparison; the
+		// handler names whichever operand is not one.
+		if be.Operator != "==" && be.Operator != "!=" {
+			return fmt.Errorf("error[K145]: string ordering ('%s') is not supported; == and != compare content", be.Operator)
+		}
+		return b.emitStrEqCond(be, falseLabel)
 	}
 	lk, err := b.exprKind(be.Left)
 	if err != nil {
@@ -2077,8 +2315,8 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		}
 		return k, nil
 	case *parser.BinaryExpr:
-		// Phase 150A: arithmetic inherits float when either operand
-		// is float (mixed int+float is rejected loudly at emission);
+		// Phase 150A: arithmetic inherits float when either operand is
+		// float (mixed int+float is rejected loudly at emission);
 		// comparisons always yield int.
 		switch x.Operator {
 		case "+", "-", "*", "/", "%":
@@ -2090,10 +2328,13 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 			if err != nil {
 				return KindInt, err
 			}
-			// Phase 150B: `+` over two strings is concatenation, not
-			// arithmetic. Checked before the float rule so a string pair
-			// can never be mistaken for a numeric one.
-			if x.Operator == "+" && lk == KindString && rk == KindString {
+			// Phase 150B: an operator over two strings is a string operation
+			// whichever it is, so emitStr owns the decision: `+` concatenates
+			// and every other operator gets the precise
+			// "unsupported string operator" message. Classifying only `+` here
+			// would route `s - "c"` into the int path, which reports the far
+			// less helpful "string 's' in int position".
+			if lk == KindString && rk == KindString {
 				return KindString, nil
 			}
 			if lk == KindFloat || rk == KindFloat {
@@ -2130,6 +2371,19 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 			return k, nil
 		}
 		return KindInt, nil
+	case *parser.SliceExpr:
+		// Phase 150B: s[a:b] over a string yields a string (a view into the
+		// same bytes — no copy, and no allocation). Slicing an array or an
+		// int stays a loud refusal: the element-size and bounds rules differ
+		// and deserve their own executed goldens rather than a shared path.
+		tk, err := b.exprKind(x.Target)
+		if err != nil {
+			return KindInt, err
+		}
+		if tk != KindString {
+			return KindInt, fmt.Errorf("error[K145]: slice target must be a string (got %s)", kindName(tk))
+		}
+		return KindString, nil
 	case *parser.ArrayLiteral:
 		// Phase 150A: int-element literals only (element kinds are
 		// checked at emission, where the diagnostic names the index).
@@ -2461,6 +2715,8 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 		b.e.MovRegReg(RDI, RAX)
 		b.e.MovRegReg(RSI, RDX)
 		return nil
+	case *parser.SliceExpr:
+		return b.emitStrSlice(x)
 	case *parser.BinaryExpr:
 		// Phase 150B: `a + b` on two strings allocates a result in the heap
 		// arena and concatenates. Any other operator is a loud K145 — there
@@ -2472,6 +2728,61 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 	default:
 		return fmt.Errorf("error[K145]: unsupported string expression %T (literals, variables, concatenation and string calls only)", n)
 	}
+}
+
+// emitStrSlice lowers `s[a:b]` over a string into a *view*: the result is
+// (s.ptr + a, b - a), so no copy and no allocation happen. A missing `b`
+// (open-ended `s[a:]`) means "to the end of the string".
+//
+// Bounds are 0 <= a <= b <= len, checked with a loud Int3 on violation —
+// the same contract as the array index, rather than a silent clamp.
+func (b *Builder) emitStrSlice(x *parser.SliceExpr) error {
+	if err := b.emitStr(x.Target, 0); err != nil {
+		return err
+	}
+	// RDI = base, RSI = len. Stage them, then evaluate the bounds.
+	base := b.strTemp
+	b.e.StoreStack(RDI, base)
+	b.e.StoreStack(RSI, base+8)
+	// start
+	if x.Start == nil {
+		b.e.XorRegReg(RAX)
+	} else {
+		if err := b.emitExpr(x.Start, 0); err != nil {
+			return err
+		}
+	}
+	b.e.StoreStack(RAX, base+16)
+	// end: absent means len
+	if x.End == nil {
+		b.e.LoadStack(RAX, base+8)
+	} else {
+		if err := b.emitExpr(x.End, 0); err != nil {
+			return err
+		}
+	}
+	b.e.StoreStack(RAX, base+24)
+	badLbl := b.fresh("sl$bad")
+	chkLbl := b.fresh("sl$chk")
+	// start < 0 -> bad
+	b.e.LoadStack(RCX, base+16)
+	b.e.TestRegReg(RCX, RCX)
+	b.e.Jns(chkLbl)
+	b.e.Mark(badLbl)
+	b.e.Int3()
+	// end > len -> bad
+	b.e.Mark(chkLbl)
+	b.e.LoadStack(RAX, base+24)
+	b.e.CmpRegReg(RAX, RSI) // RSI is still the string length
+	b.e.Ja(badLbl)
+	// start > end -> bad
+	b.e.CmpRegReg(RAX, RCX) // RCX is still the start
+	b.e.Jl(badLbl)
+	// Result: (base + start, end - start).
+	b.e.LoadStack(RDI, base)
+	b.e.AddRegReg(RDI, RCX)
+	b.e.SubRegReg(RSI, RCX)
+	return nil
 }
 
 // emitStrConcat lowers `left + right` over two strings: allocate

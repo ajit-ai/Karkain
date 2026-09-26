@@ -186,10 +186,47 @@ structs) sits on, plus one real consumer so the arena is not dead code.
    the program concatenates (reserving it unconditionally would have grown
    every frame and broken byte-identity).
 
-## 8. Not yet started
+## 8. 150B2 — String slice + string comparison (DONE)
 
-- **150B2** — `push()` (now unblocked by the arena), string slice/compare,
-  maps, structs.
+The two string operations that only *read* bytes, so they need the staging
+area but no heap.
+
+* **Slice** `s[a:b]` is a **view**, not a copy: the result is
+  `(s.ptr + a, b - a)`, so no allocation and no copy happen. Bounds are
+  `0 <= a <= b <= len` with a loud `Int3` on violation, matching the array
+  index contract rather than silently clamping. A missing `b` means "to the
+  end".
+* **Equality/inequality** compares by content: a length check first (a
+  different length is decisively unequal, with no byte reads at all), then a
+  byte loop. Only `==` and `!=` exist; ordering is a loud K145 rather than a
+  pointer comparison or an invented lexicographic helper.
+* The pre-pass that reserves the string staging area was generalised: the
+  area is now shared by concat, comparison and slice, so a program that only
+  compares or only slices still gets correctly-sized scratch, and a program
+  that does none of them keeps its exact increment-149 frame. The string
+  classifier was also factored into one `collectStringNames` +
+  `strKindOf` pair instead of being duplicated per scanner.
+* `emitStrEqCond` validates **both** operand kinds, so `1 == s` names the
+  offending int side whichever way round the operands appear.
+
+**One imprecise diagnostic found and fixed while landing it:** classifying
+only `+` as a string operation routed `s - "c"` into the int path, which
+reported the far less helpful "string 's' in int position". Any operator
+over two string operands is now classified as a string operation, so
+`emitStr` owns the decision and names the operator precisely.
+
+**Executed**: 15 string-view programs (slicing with literal and variable
+bounds, empty slices, slices of a concat result, equality over equal/unequal
+content, the length-mismatch path, both-empty, a slice compared against a
+literal to gate a branch, and both operations inside a loop). All 15 execute
+for real on this Windows host through the PE container. Ten new negative
+cases pin the boundaries (string ordering, int operand in a string
+comparison, slicing a non-string, `-`/`*` on strings, mixed string+int
+concat).
+
+## 9. Not yet started
+
+- **150B3** — `push()` (unblocked by the arena), maps, structs.
 - **150C** — register allocation, validated against the `nativeLegacyELF`
   table landed in 150A.
 - **150D** — Mach-O PIE/rebase (and the writable `__DATA` the heap refusal

@@ -959,8 +959,40 @@ bytes/depth) with 40 bytes of staging needed — it now has its own
 unconditionally would have grown every frame and broken byte-identity).
 Regressions green: `go build ./...`, `go vet`, full `pkg/native` (no FAIL;
 honest platform skips), Phase 148 CLI gate, `pkg/parser`, `pkg/lexer`.
-**Still open in 150B:** `push()` (now unblocked by the arena), string
-slice/compare, maps, structs.
+**Still open in 150B:** `push()` (now unblocked by the arena), maps, structs.
+
+Also completed: **150B2 — String slice + string comparison** (increment
+150, slice B2; verdict **COMPLETE**). The two string operations that only
+*read* bytes, so they need the staging area but no heap. **Slice**
+`s[a:b]` is a **view**, not a copy — the result is `(s.ptr + a, b - a)`,
+so no allocation and no copy happen; bounds are `0 <= a <= b <= len` with
+a loud `Int3` on violation, matching the array-index contract rather than
+silently clamping, and a missing `b` means "to the end". **Equality and
+inequality** compare by content: a length check first (a different length
+is decisively unequal, with no byte reads at all), then a byte loop. Only
+`==`/`!=` exist; ordering is a loud K145 rather than a pointer comparison
+or an invented lexicographic helper. The string staging pre-pass was
+generalised so the area is shared by concat, comparison and slice — a
+program that only compares or only slices still gets correctly-sized
+scratch, and one that does none of them keeps its exact increment-149
+frame — and the string classifier was factored into a single
+`collectStringNames` + `strKindOf` pair instead of being duplicated per
+scanner. `emitStrEqCond` validates **both** operand kinds so `1 == s`
+names the offending int side whichever way round the operands appear.
+**One imprecise diagnostic found and fixed:** classifying only `+` as a
+string operation routed `s - "c"` into the int path, which reported the far
+less helpful "string 's' in int position"; any operator over two string
+operands is now a string operation, so `emitStr` owns the decision and
+names the operator precisely. **Executed**: 15 string-view programs
+(slicing with literal and variable bounds, empty slices, slices of a
+concat result, equality over equal/unequal content, the length-mismatch
+path, both-empty, a slice compared against a literal to gate a branch, and
+both operations inside a loop) — all 15 run for real on this Windows host
+through the PE container — plus 10 new negative cases. Regressions green:
+`go build ./...`, `go vet`, full `pkg/native` (27 tests, no FAIL; honest
+platform skips), byte-identity still zero drift, Phase 148 CLI gate,
+`pkg/parser`, `pkg/lexer`. **Still open in 150B:** `push()`, maps,
+structs.
 
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
