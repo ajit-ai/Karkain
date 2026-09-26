@@ -112,6 +112,11 @@ const (
 	// record. That is what makes field assignment (`p.x = 1`) and passing a
 	// record to a function work without copying any bytes.
 	KindStruct
+	// KindMap is a pointer to a map header in the heap arena (Phase 150B3c).
+	// One 8-byte unit, like a record: the value IS the address of the header,
+	// so passing a map to a function copies no bytes and both sides see the
+	// same entries.
+	KindMap
 )
 
 // kindUnits returns the 8-byte frame/call slots a value kind occupies.
@@ -133,10 +138,46 @@ func kindName(k int) string {
 		return "array"
 	case KindStruct:
 		return "struct"
+	case KindMap:
+		return "map"
 	default:
 		return "int"
 	}
 }
+
+// Map layout (Phase 150B3c). A map value is the ADDRESS of a header allocated
+// in the heap arena, with the entries stored inline after the header, so a map
+// is one self-contained arena region with nothing to keep in sync.
+//
+//	header: [count][capacity]
+//	entry:  [key][value0][value1][pad]
+//
+// Entries are scanned LINEARLY, matching the C runtime's map_get/map_set
+// (which walk parallel key/value arrays). Matching the oracle is deliberate:
+// a hash table here would give the two engines different iteration order for
+// no v1 benefit. The stride is 32 bytes (4 units) so an index scales with a
+// shift rather than a multiply.
+//
+// v1 key and value kinds are static in the source, so no runtime tag is
+// needed: an int value occupies value0 with value1 zero, a string value is
+// (value0=ptr, value1=len), and the reader knows which from the expression it
+// is lowering. Keys are ints in v1.
+const (
+	mapHeaderUnits = 2
+	mapEntryUnits  = 4
+	mapEntryBytes  = mapEntryUnits * 8
+	// mapEntryShift turns an entry index into a byte offset for the 32-byte
+	// entry stride (32 = 1 << 5), so the scan never multiplies.
+	mapEntryShift  = 5
+	mapHeaderBytes = mapHeaderUnits * 8
+	// Header field offsets, in bytes from the map address.
+	mapCountOff = 0
+	mapCapOff   = 8
+	// Entry field offsets, in bytes from the entry address.
+	mapKeyOff  = 0
+	mapVal0Off = 8
+	mapVal1Off = 16
+)
 
 // structInfo is the compile-time layout of one `type X struct {...}`
 // declaration (Phase 150B3b).
@@ -311,6 +352,152 @@ type Builder struct {
 	// Keyed by the literal node so a call with several record arguments gets
 	// a distinct area for each.
 	recArgArea map[*parser.StructLiteral]int
+	// Phase 150B3c: whether the program uses a map anywhere (gates the map
+	// helpers) and how large the arena must be to hold every map it creates.
+	// Both come from scanMapUsage.
+	usesMap bool
+	// mapInLoop: a map INSERTION reached from inside a loop body. The number
+	// of insertions is then unbounded at compile time, so no capacity bound
+	// can cover it and it is refused with a loud K145 -- the same honest
+	// bound push() uses.
+	mapInLoop bool
+	// mapCap is the capacity written into every map header: the largest
+	// entry count any single map can reach (its literal entries plus every
+	// insert site that could target it). Sizing every map to the global
+	// maximum is deliberately generous -- it costs arena bytes but removes
+	// any need to prove which map an insert targets.
+	mapCap int
+	// prog is the program being lowered, retained so the value-kind lookup
+	// for a map (which must inspect the literal's entries) can walk it
+	// without threading the AST through every classifier signature.
+	prog *parser.Program
+}
+
+// mapValueKind returns the kind of the values in map `name` (Phase 150B3c).
+//
+// The value kind is not stored in the map: entries are untyped at runtime (the
+// same entry could be read as either unit pair), and the reader already knows
+// from the source what it expects. So the kind is recovered from the map's
+// literal entries and must AGREE across them. A map whose entries disagree is
+// a loud K145 rather than a silent pick-one, because the two reads would
+// return different types for the same map.
+func (b *Builder) mapValueKind(name string) (int, error) {
+	kind, seen, err := KindInt, false, error(nil)
+	if b.prog == nil {
+		return KindInt, fmt.Errorf("error[K145]: cannot determine the value kind of map '%s'", name)
+	}
+	var visit func(n parser.Node, inMap bool)
+	visit = func(n parser.Node, inMap bool) {
+		if n == nil {
+			return
+		}
+		switch x := n.(type) {
+		case *parser.VarDeclStmt:
+			if x.Name == name {
+				if ml, ok := x.Value.(*parser.MapLiteral); ok {
+					for _, v := range ml.Values {
+						k := KindInt
+						if b.isStringNode(v) {
+							k = KindString
+						}
+						if !seen {
+							kind, seen = k, true
+						} else if kind != k {
+							err = fmt.Errorf("error[K145]: map '%s' mixes %s and %s values", name, kindName(kind), kindName(k))
+						}
+					}
+				}
+			}
+			// A nested map literal (or an expression containing one) must be
+			// walked too, or a map defined only in an inner scope is never
+			// seen at all.
+			visit(x.Value, false)
+		case *parser.MapLiteral:
+			for _, v := range x.Values {
+				visit(v, false)
+			}
+		case *parser.FuncDecl:
+			for _, s := range x.Body {
+				visit(s, false)
+			}
+		case *parser.PrintStmt:
+			visit(x.Value, false)
+		case *parser.ExprStmt:
+			if be, ok := x.Expression.(*parser.BinaryExpr); ok && be.Operator == "=" {
+				if ix, ok := be.Left.(*parser.IndexExpr); ok {
+					if id, ok := ix.Left.(*parser.Identifier); ok && id.Name == name {
+						k := KindInt
+						if b.isStringNode(be.Right) {
+							k = KindString
+						}
+						if !seen {
+							kind, seen = k, true
+						} else if kind != k {
+							err = fmt.Errorf("error[K145]: map '%s' mixes %s and %s values", name, kindName(kind), kindName(k))
+						}
+					}
+				}
+			}
+			visit(x.Expression, false)
+		case *parser.ReturnStmt:
+			visit(x.Value, false)
+		case *parser.IfStmt:
+			visit(x.Condition, false)
+			for _, s := range x.Consequence {
+				visit(s, false)
+			}
+			for _, s := range x.Alternative {
+				visit(s, false)
+			}
+		case *parser.WhileStmt:
+			visit(x.Condition, false)
+			for _, s := range x.Body {
+				visit(s, false)
+			}
+		case *parser.ForStmt:
+			visit(x.Condition, false)
+			visit(x.Init, false)
+			visit(x.Post, false)
+			for _, s := range x.Body {
+				visit(s, false)
+			}
+		case *parser.ForInStmt:
+			visit(x.Iter, false)
+			for _, s := range x.Body {
+				visit(s, false)
+			}
+		case *parser.BlockStmt:
+			for _, s := range x.Statements {
+				visit(s, false)
+			}
+		}
+	}
+	// b.prog is a *parser.Program, not a Node, so the walk starts from its
+	// top-level statements (the same entry every other pre-pass uses).
+	for _, s := range b.prog.Statements {
+		visit(s, false)
+	}
+	if err != nil {
+		return KindInt, err
+	}
+	// An EMPTY map has no entries to learn from. Its values default to int,
+	// which is exactly right: map_get returns 0 for any key, and the C
+	// runtime's default for an absent key is make_int(0). So an empty map
+	// read yields int 0 on both engines rather than being refused.
+	return kind, nil
+}
+
+// isStringNode reports whether n is syntactically a string value, which is
+// all a map's value kind needs in v1 (a literal, a string variable, or a
+// concatenation of them). Anything else is an int.
+func (b *Builder) isStringNode(n parser.Node) bool {
+	switch x := n.(type) {
+	case *parser.StringLiteral:
+		return true
+	case *parser.BinaryExpr:
+		return x.Operator == "+" && b.isStringNode(x.Left) && b.isStringNode(x.Right)
+	}
+	return false
 }
 
 // Arena header layout (Phase 150B). Offsets are into the arena image.
@@ -449,6 +636,172 @@ func scanStructUsage(prog *parser.Program) (usesStrField bool) {
 	}
 	walkStmts(prog.Statements)
 	return usesStrField
+}
+
+// scanMapUsage is the Phase-150B3c map pre-pass. It answers two questions the
+// layout and emission passes must not guess at:
+//
+//   - does the program use a map at all? (gates the map helpers)
+//   - how large must the arena be, and what capacity must each map header
+//     carry, so that no insertion can ever exceed a map's capacity?
+//
+// The capacity bound is a PROOF, not an estimate. A map literal creates
+// `len(keys)` entries, and each distinct `m[k] = v` site in the program can add
+// at most one more. So no single map can ever exceed
+//
+//	max(literal entries) + (number of insert sites)
+//
+// entries, and sizing EVERY map to that maximum is sufficient. It over-allocates
+// when a program has many small maps, which costs arena bytes but removes any
+// need to prove which map a given insert targets -- the same deliberate
+// over-approximation the concat arena bound makes.
+//
+// Insertion inside a loop is the one shape this cannot bound: the same site
+// executes an unbounded number of times. Like push(), that is refused loudly
+// (mapInLoop) rather than allowed to exhaust the arena mid-run.
+func scanMapUsage(prog *parser.Program) (usesMap bool, inLoop bool, capacity, heapBytes int) {
+	maxLit, insertSites := 0, 0
+	isMapIndex := func(n parser.Node) bool {
+		ix, ok := n.(*parser.IndexExpr)
+		if !ok {
+			return false
+		}
+		_, isVar := ix.Left.(*parser.Identifier)
+		return isVar
+	}
+	var walkExpr func(n parser.Node, depth int)
+	walkExpr = func(n parser.Node, depth int) {
+		if n == nil {
+			return
+		}
+		if ml, ok := n.(*parser.MapLiteral); ok {
+			usesMap = true
+			if len(ml.Keys) > maxLit {
+				maxLit = len(ml.Keys)
+			}
+			for _, k := range ml.Keys {
+				walkExpr(k, depth)
+			}
+			for _, v := range ml.Values {
+				walkExpr(v, depth)
+			}
+			return
+		}
+		if ix, ok := n.(*parser.IndexExpr); ok && isMapIndex(ix) {
+			usesMap = true
+			walkExpr(ix.Left, depth)
+			walkExpr(ix.Index, depth)
+			return
+		}
+		switch x := n.(type) {
+		case *parser.BinaryExpr:
+			walkExpr(x.Left, depth)
+			walkExpr(x.Right, depth)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand, depth)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				walkExpr(a, depth)
+			}
+		case *parser.SliceExpr:
+			walkExpr(x.Target, depth)
+			walkExpr(x.Start, depth)
+			walkExpr(x.End, depth)
+		case *parser.DotExpr:
+			walkExpr(x.Left, depth)
+		}
+	}
+	var walkStmts func(stmts []parser.Node, depth int)
+	walkStmts = func(stmts []parser.Node, depth int) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				walkStmts(x.Body, depth)
+			case *parser.VarDeclStmt:
+				walkExpr(x.Value, depth)
+			case *parser.PrintStmt:
+				walkExpr(x.Value, depth)
+			case *parser.ExprStmt:
+				// `m[k] = v` is an insertion; in a loop it is unbounded.
+				if be, ok := x.Expression.(*parser.BinaryExpr); ok && be.Operator == "=" {
+					if isMapIndex(be.Left) {
+						usesMap = true
+						insertSites++
+						if depth > 0 {
+							inLoop = true
+						}
+					}
+				}
+				walkExpr(x.Expression, depth)
+			case *parser.ReturnStmt:
+				walkExpr(x.Value, depth)
+			case *parser.IfStmt:
+				walkExpr(x.Condition, depth)
+				walkStmts(x.Consequence, depth)
+				walkStmts(x.Alternative, depth)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition, depth)
+				walkStmts(x.Body, depth+1)
+			case *parser.ForStmt:
+				walkExpr(x.Condition, depth)
+				walkExpr(x.Init, depth)
+				walkExpr(x.Post, depth)
+				walkStmts(x.Body, depth+1)
+			case *parser.ForInStmt:
+				walkExpr(x.Iter, depth)
+				walkStmts(x.Body, depth+1)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements, depth)
+			}
+		}
+	}
+	walkStmts(prog.Statements, 0)
+	if !usesMap {
+		return false, false, 0, 0
+	}
+	// Every map gets the global maximum, so no insert can ever overflow one.
+	capacity = maxLit + insertSites
+	// Arena bytes: every map literal allocates a header plus `capacity`
+	// entries. Counting each literal site separately is an upper bound (a
+	// literal executes at most once per entry to the enclosing function).
+	literals := 0
+	var countLits func(n parser.Node)
+	countLits = func(n parser.Node) {
+		if _, ok := n.(*parser.MapLiteral); ok {
+			literals++
+		}
+	}
+	var walkCount func(stmts []parser.Node)
+	walkCount = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				walkCount(x.Body)
+			case *parser.VarDeclStmt:
+				countLits(x.Value)
+			case *parser.PrintStmt:
+				countLits(x.Value)
+			case *parser.ExprStmt:
+				countLits(x.Expression)
+			case *parser.ReturnStmt:
+				countLits(x.Value)
+			case *parser.IfStmt:
+				walkCount(x.Consequence)
+				walkCount(x.Alternative)
+			case *parser.WhileStmt:
+				walkCount(x.Body)
+			case *parser.ForStmt:
+				walkCount(x.Body)
+			case *parser.ForInStmt:
+				walkCount(x.Body)
+			case *parser.BlockStmt:
+				walkCount(x.Statements)
+			}
+		}
+	}
+	walkCount(prog.Statements)
+	heapBytes = literals * (mapHeaderBytes + capacity*mapEntryBytes)
+	return true, inLoop, capacity, heapBytes
 }
 
 func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, usesStrSlice, usesPush, pushInLoop bool, heapSize int) {
@@ -1071,6 +1424,15 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 	// (and no heap). Kept as its own pre-pass so the record path cannot
 	// silently depend on a string flag some other feature happened to set.
 	b.usesStrField = scanStructUsage(prog)
+	// Phase 150B3c: maps. The map arena requirement is ADDITIVE with the
+	// string one, so it is added rather than replacing it.
+	mapUses, mapLoop, mapCap, mapHeap := scanMapUsage(prog)
+	if mapUses {
+		b.usesMap = true
+		b.mapInLoop = mapLoop
+		b.mapCap = mapCap
+		b.heapSize += mapHeap
+	}
 	b.emitHelpers()
 	for _, stmt := range prog.Statements {
 		if fd, ok := stmt.(*parser.FuncDecl); ok {
@@ -1185,6 +1547,9 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 // loud K145. Guessing would be worse than refusing: an unrecognised annotation
 // would silently fall through to KindInt and read a record address as a number.
 func (b *Builder) collectStructs(prog *parser.Program) error {
+	// Retained for the map value-kind lookup (mapValueKind), which has to
+	// walk the whole program to find a map's entries.
+	b.prog = prog
 	for _, stmt := range prog.Statements {
 		sd, ok := stmt.(*parser.StructDeclStmt)
 		if !ok {
@@ -1805,6 +2170,13 @@ func (b *Builder) emitHelpers() {
 	if b.heapSize > 0 {
 		b.emitAllocHelper()
 	}
+
+	// Phase 150B3c: the map runtime, emitted only when the program uses a
+	// map. The helpers call alloc, so they must come after it in the text
+	// (a forward call would patch to a label that does not exist yet).
+	if b.usesMap {
+		b.emitMapHelpers()
+	}
 }
 
 // emitAllocHelper emits the Phase-150B bump allocator.
@@ -1854,6 +2226,314 @@ func (b *Builder) emitAllocHelper() {
 	b.e.Int3()
 	b.e.Mark(doneLbl)
 	b.e.Ret()
+}
+
+// emitMapHelpers emits the map runtime routines (Phase 150B3c). They are
+// gated on usesMap, so a program without a map never grows a byte.
+//
+// The three routines share one calling convention (System V, matching every
+// other helper in this file): arguments in RDI/RSI/RDX/RCX, result in RAX, and
+// the caller's rsp is untouched throughout.
+//
+//	map_find(map, key)      -> RAX = entry address, or 0 when absent
+//	map_set(map, key, v0, v1) -> stores the pair, appending if needed
+//	map_get(map, key)       -> RAX = value0, RDX = value1
+func (b *Builder) emitMapHelpers() {
+	if !b.usesMap {
+		return
+	}
+	b.emitMapFind()
+	b.emitMapSet()
+	b.emitMapGet()
+}
+
+// emitMapFind scans the entries and returns the address of the one whose key
+// matches, or 0. RDI = map address, RSI = key. RAX = result.
+//
+// RAX already holds the entry address at the moment the key matches, so there
+// is no recompute and no second path to keep in agreement. RDI and RSI are
+// never written, so a caller can rely on them surviving (map_set depends on
+// this to keep the map address across the call).
+func (b *Builder) emitMapFind() {
+	loop := b.fresh("mapfind")
+	found := b.fresh("mapfind$found")
+	notFound := b.fresh("mapfind$miss")
+	b.e.Mark("map_find")
+	// R8 = map, RCX = index, R9 = count.
+	b.e.MovRegReg(R8, RDI)
+	b.e.XorRegReg(RCX)
+	b.e.LoadBaseOff(R9, R8, mapCountOff)
+	b.e.Mark(loop)
+	b.e.CmpRegReg(RCX, R9)
+	b.e.Jge(notFound)
+	// entry = map + mapHeaderBytes + index*mapEntryBytes
+	b.e.MovRegReg(RAX, RCX)
+	b.e.ShlRegImm(RAX, mapEntryShift)
+	b.e.AddRegReg(RAX, R8)
+	b.e.AddRegImm32(RAX, mapHeaderBytes)
+	b.e.LoadBaseOff(RDX, RAX, 0) // candidate key
+	b.e.CmpRegReg(RDX, RSI)
+	b.e.Jz(found)
+	b.e.IncReg(RCX)
+	b.e.Jmp(loop)
+	b.e.Mark(found)
+	b.e.Ret()
+	b.e.Mark(notFound)
+	b.e.XorRegReg(RAX)
+	b.e.Ret()
+}
+
+// emitMapSet stores key -> (v0, v1), appending when the key is absent.
+// RDI = map, RSI = key, RDX = value0, RCX = value1.
+//
+// map_find clobbers RDX and RCX, so the value pair is staged in a 16-byte
+// helper frame first. That frame is entirely internal: the helper restores rsp
+// on every path, so the caller's frame-relative slots are never disturbed (the
+// Phase-147 rsp rule holds for helpers as well as for expressions).
+//
+// The append path checks CAPACITY before writing, and traps with a loud Int3 on
+// overflow rather than overwriting another entry. The arena bound sizes every
+// map's capacity to cover each reachable insertion (see scanMapUsage), so for a
+// program that compiles this trap is unreachable.
+func (b *Builder) emitMapSet() {
+	full := b.fresh("mapset$full")
+	appended := b.fresh("mapset$appended")
+	b.e.Mark("map_set")
+	b.e.SubRsp(16)
+	b.e.StoreStack(RDX, 0)
+	b.e.StoreStack(RCX, 8)
+	b.e.Call("map_find")
+	b.e.TestRegReg(RAX, RAX)
+	b.e.Jz(appended)
+	// Existing entry: overwrite key and both value units.
+	b.e.StoreBaseOff(RSI, RAX, mapKeyOff)
+	b.e.LoadStack(RDX, 0)
+	b.e.StoreBaseOff(RDX, RAX, mapVal0Off)
+	b.e.LoadStack(RDX, 8)
+	b.e.StoreBaseOff(RDX, RAX, mapVal1Off)
+	b.e.AddRsp(16)
+	b.e.Ret()
+	b.e.Mark(appended)
+	// RDI still holds the map (map_find never writes it).
+	b.e.LoadBaseOff(R8, RDI, mapCountOff)
+	b.e.LoadBaseOff(R9, RDI, mapCapOff)
+	b.e.CmpRegReg(R8, R9)
+	b.e.Jae(full)
+	// entry = map + mapHeaderBytes + count*mapEntryBytes
+	b.e.MovRegReg(RCX, R8)
+	b.e.ShlRegImm(RCX, mapEntryShift)
+	b.e.AddRegReg(RCX, RDI)
+	b.e.AddRegImm32(RCX, mapHeaderBytes)
+	b.e.StoreBaseOff(RSI, RCX, mapKeyOff)
+	b.e.LoadStack(RDX, 0)
+	b.e.StoreBaseOff(RDX, RCX, mapVal0Off)
+	b.e.LoadStack(RDX, 8)
+	b.e.StoreBaseOff(RDX, RCX, mapVal1Off)
+	b.e.IncReg(R8)
+	b.e.StoreBaseOff(R8, RDI, mapCountOff)
+	b.e.AddRsp(16)
+	b.e.Ret()
+	b.e.Mark(full)
+	b.e.Int3()
+	b.e.AddRsp(16)
+	b.e.Ret()
+}
+
+// emitMapGet returns the value pair for a key. RDI = map, RSI = key.
+// RAX = value0, RDX = value1.
+//
+// A miss yields (0, 0), matching the C runtime's make_int(0) default for an
+// absent key, so a read of a missing key behaves identically on both engines.
+func (b *Builder) emitMapGet() {
+	miss := b.fresh("mapget$miss")
+	have := b.fresh("mapget$have")
+	b.e.Mark("map_get")
+	b.e.Call("map_find")
+	b.e.TestRegReg(RAX, RAX)
+	b.e.Jz(miss)
+	// R8 = entry, so loading into RAX cannot destroy the base.
+	b.e.MovRegReg(R8, RAX)
+	b.e.LoadBaseOff(RAX, R8, mapVal0Off)
+	b.e.LoadBaseOff(RDX, R8, mapVal1Off)
+	b.e.Mark(have)
+	b.e.Ret()
+	b.e.Mark(miss)
+	b.e.XorRegReg(RAX)
+	b.e.XorRegReg(RDX)
+	b.e.Ret()
+}
+
+// emitMapLiteral materializes a map literal bound to name (Phase 150B3c).
+//
+// The arena block is one allocation: a 2-unit header followed by mapCap
+// entries, where mapCap is the GLOBAL maximum over the program (see
+// scanMapUsage). Allocating the maximum for every map is what removes the need
+// to prove which map a later insert targets; the cost is arena bytes, never
+// correctness.
+//
+// The header's capacity is written here once. `count` starts at zero, and the
+// arena is a fresh zeroed region, so it is stored explicitly rather than
+// assumed.
+func (b *Builder) emitMapLiteral(name string, x *parser.MapLiteral) error {
+	if len(x.Keys) != len(x.Values) {
+		return fmt.Errorf("error[K145]: map literal has %d keys but %d values", len(x.Keys), len(x.Values))
+	}
+	if b.mapCap < len(x.Keys) {
+		return fmt.Errorf("error[K145]: map literal has %d entries but the computed capacity is %d", len(x.Keys), b.mapCap)
+	}
+	// Validate every entry BEFORE allocating, so a rejected map never
+	// consumes arena space.
+	vk, err := b.mapValueKind(name)
+	if err != nil {
+		return err
+	}
+	for i := range x.Keys {
+		kk, err := b.exprKind(x.Keys[i])
+		if err != nil {
+			return err
+		}
+		if kk != KindInt {
+			return fmt.Errorf("error[K145]: map key %d must be an int (got %s)", i, kindName(kk))
+		}
+		vkk, err := b.exprKind(x.Values[i])
+		if err != nil {
+			return err
+		}
+		if vkk != vk {
+			return fmt.Errorf("error[K145]: map value %d is %s but the map's values are %s", i, kindName(vkk), kindName(vk))
+		}
+	}
+	off := b.slots[name]
+	// size = mapHeaderBytes + mapCap*mapEntryBytes
+	b.e.MovRegImm64(RDI, uint64(mapHeaderBytes+b.mapCap*mapEntryBytes))
+	b.e.Call("alloc")
+	b.e.StoreStack(RAX, off)
+	// capacity = mapCap. The map address is reloaded before each store
+	// because evaluating a value can clobber RAX.
+	b.e.LoadStack(RBX, off)
+	b.e.MovRegImm64(RCX, uint64(b.mapCap))
+	b.e.StoreBaseOff(RCX, RBX, mapCapOff)
+	for i := range x.Keys {
+		if err := b.emitMapInsertEntry(x.Keys[i], x.Values[i], vk, off); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// emitMapSet stores one entry into the map bound at slot `off`. It is shared by
+// the literal (which inserts every pair) and by `m[k] = v`, so both paths get
+// the same key comparison, the same capacity check and the same diagnostics.
+func (b *Builder) emitMapInsertEntry(key, val parser.Node, vk, off int) error {
+	// The key is an int, evaluated into RSI; the value goes in the pair.
+	if err := b.emitExpr(key, 0); err != nil {
+		return err
+	}
+	if vk == KindString {
+		if err := b.emitStr(val, 0); err != nil {
+			return err
+		}
+		// RDI/RSI/RSI/RSI are the map/key/value0/value1 registers, but the
+		// map address must be loaded into RDI without losing the value pair,
+		// so both are staged in the frame first.
+		base := b.strTemp
+		if base == 0 && !b.usesConcat && !b.usesStrEq && !b.usesStrSlice && !b.usesPush && !b.usesStrField {
+			return fmt.Errorf("error[K145]: internal: map string value reached without the string staging area")
+		}
+		b.e.StoreStack(RDI, base)
+		b.e.StoreStack(RSI, base+8)
+		b.e.LoadStack(RDI, off)
+		b.e.LoadStack(RSI, base)
+		b.e.LoadStack(RDX, base+8)
+		b.e.XorRegReg(RCX)
+		b.e.Call("map_set")
+		return nil
+	}
+	if err := b.emitExpr(val, 0); err != nil {
+		return err
+	}
+	b.e.MovRegReg(RDX, RAX)
+	// RDI = map address. Load it after the value is in RDX.
+	b.e.LoadStack(RDI, off)
+	b.e.XorRegReg(RCX)
+	b.e.Call("map_set")
+	return nil
+}
+
+// emitMapIndex lowers `m[k]` over a map (Phase 150B3c) to the entry's value.
+//
+// The result convention depends on the value kind: an int value is the single
+// unit in RAX, a string value is the (RAX, RDX) pair that map_get returns.
+// A miss yields 0 (or an empty string) exactly as the C runtime does.
+func (b *Builder) emitMapIndex(x *parser.IndexExpr, depth int) error {
+	id, ok := x.Left.(*parser.Identifier)
+	if !ok {
+		return fmt.Errorf("error[K145]: map index target must be a variable (got %T)", x.Left)
+	}
+	kk, err := b.exprKind(x.Index)
+	if err != nil {
+		return err
+	}
+	if kk != KindInt {
+		return fmt.Errorf("error[K145]: map key must be an int (got %s)", kindName(kk))
+	}
+	vk, err := b.mapValueKind(id.Name)
+	if err != nil {
+		return err
+	}
+	if err := b.emitExpr(x.Index, depth); err != nil {
+		return err
+	}
+	b.e.MovRegReg(RSI, RAX)
+	off, ok := b.slots[id.Name]
+	if !ok {
+		return fmt.Errorf("error[K145]: undefined identifier '%s'", id.Name)
+	}
+	b.e.LoadStack(RDI, off)
+	b.e.Call("map_get")
+	// map_get leaves value0 in RAX and value1 in RDX. For an int value the
+	// contract is the single RAX unit, which is already correct; a string
+	// value is the (RAX, RDX) pair, which the string paths move into their
+	// own (RDI, RSI) convention.
+	if vk == KindString {
+		b.e.MovRegReg(RDI, RAX)
+		b.e.MovRegReg(RSI, RDX)
+	}
+	return nil
+}
+
+// emitMapInsert lowers `m[k] = v` (Phase 150B3c).
+func (b *Builder) emitMapInsert(x *parser.IndexExpr, val parser.Node) error {
+	if b.mapInLoop {
+		return fmt.Errorf("error[K145]: map insertion inside a loop is not supported on the native target (map capacity is sized at compile time, so a repeated insert cannot be bounded)")
+	}
+	id, ok := x.Left.(*parser.Identifier)
+	if !ok {
+		return fmt.Errorf("error[K145]: map index target must be a variable (got %T)", x.Left)
+	}
+	kk, err := b.exprKind(x.Index)
+	if err != nil {
+		return err
+	}
+	if kk != KindInt {
+		return fmt.Errorf("error[K145]: map key must be an int (got %s)", kindName(kk))
+	}
+	vk, err := b.mapValueKind(id.Name)
+	if err != nil {
+		return err
+	}
+	got, err := b.exprKind(val)
+	if err != nil {
+		return err
+	}
+	if got != vk {
+		return fmt.Errorf("error[K145]: map value is %s but the map's values are %s", kindName(got), kindName(vk))
+	}
+	off, ok := b.slots[id.Name]
+	if !ok {
+		return fmt.Errorf("error[K145]: undefined identifier '%s'", id.Name)
+	}
+	return b.emitMapInsertEntry(x.Index, val, got, off)
 }
 
 // heapRef records an imm64 site to be resolved to arenaBase+off at link time.
@@ -2559,6 +3239,13 @@ func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
 		if dot, ok := be.Left.(*parser.DotExpr); ok {
 			return b.emitFieldWrite(dot, be.Right)
 		}
+		// Phase 150B3c: `m[k] = v` inserts a map entry. A plain variable
+		// target is handled below; an index target is a map write.
+		if ix, ok := be.Left.(*parser.IndexExpr); ok {
+			if id, ok := ix.Left.(*parser.Identifier); ok && b.kinds[id.Name] == KindMap {
+				return b.emitMapInsert(ix, be.Right)
+			}
+		}
 		id, ok := be.Left.(*parser.Identifier)
 		if !ok {
 			return fmt.Errorf("error[K145]: assignment target must be a variable or a record field")
@@ -2919,6 +3606,16 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 			return fmt.Errorf("error[K145]: array value must be a literal or a push() on the native target (got %T)", n.Value)
 		}
 	}
+	if b.kinds[n.Name] == KindMap {
+		// Phase 150B3c: a map binding allocates its header plus entry area
+		// in the arena and stores the ADDRESS in the slot, exactly like a
+		// record stores its field-area address.
+		lit, ok := n.Value.(*parser.MapLiteral)
+		if !ok {
+			return fmt.Errorf("error[K145]: map value must be a map literal on the native target (got %T)", n.Value)
+		}
+		return b.emitMapLiteral(n.Name, lit)
+	}
 	if b.kinds[n.Name] == KindStruct {
 		// Phase 150B3b: a record binding materializes the literal's field area
 		// in this frame and stores its address in the slot. A record-returning
@@ -2941,6 +3638,59 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 	b.e.StoreStack(RAX, off)
 	return nil
 }
+// emitForInMap lowers `for k in m { body }` over a map (Phase 150B3c),
+// binding each KEY in turn.
+//
+// The loop reads the entry count from the header on every iteration rather
+// than caching it, so a body that inserts (refused in a loop) or that reads
+// other keys still sees a consistent state. The hidden index slot is the same
+// per-node slot the array for-in uses, so nesting works identically.
+func (b *Builder) emitForInMap(n *parser.ForInStmt, base *parser.Identifier, fname string) error {
+	off, ok := b.slots[base.Name]
+	if !ok {
+		return fmt.Errorf("error[K145]: undefined identifier '%s'", base.Name)
+	}
+	eoff, ok := b.forIdx[n]
+	if !ok {
+		return fmt.Errorf("error[K145]: for-in index slot missing (layout bug)")
+	}
+	voff, ok := b.slots[n.VarName]
+	if !ok {
+		return fmt.Errorf("error[K145]: for-in variable '%s' has no slot (layout bug)", n.VarName)
+	}
+	b.e.XorRegReg(RAX)
+	b.e.StoreStack(RAX, eoff)
+	loopLbl := b.fresh("formap")
+	endLbl := b.fresh("formap$end")
+	contLbl := b.fresh("formap$cont")
+	b.e.Mark(loopLbl)
+	b.e.LoadStack(RCX, eoff)
+	// R8 = map address; count is its first unit.
+	b.e.LoadStack(R8, off)
+	b.e.LoadBaseOff(R9, R8, mapCountOff)
+	// Exit when i >= count.
+	b.e.CmpRegReg(RCX, R9)
+	b.e.Jge(endLbl)
+	b.loops = append(b.loops, loopTgt{brk: endLbl, cont: contLbl})
+	// key = entry[i].key
+	b.e.MovRegReg(RAX, RCX)
+	b.e.ShlRegImm(RAX, mapEntryShift)
+	b.e.AddRegReg(RAX, R8)
+	b.e.AddRegImm32(RAX, mapHeaderBytes)
+	b.e.LoadBaseOff(RAX, RAX, mapKeyOff)
+	b.e.StoreStack(RAX, voff)
+	if err := b.emitStmts(n.Body, fname); err != nil {
+		b.loops = b.loops[:len(b.loops)-1]
+		return err
+	}
+	b.loops = b.loops[:len(b.loops)-1]
+	b.e.Mark(contLbl)
+	b.e.IncMem(RSP, eoff)
+	b.e.Jmp(loopLbl)
+	b.e.Mark(endLbl)
+	return nil
+}
+
 // emitForIn lowers `for x in arr { body }` over int arrays (Phase 150A).
 //
 // Layout contract (see scanLets): the array header owns two frame slots
@@ -3060,12 +3810,20 @@ func (b *Builder) emitPush(name string, x *parser.CallExpr) error {
 }
 
 func (b *Builder) emitForIn(n *parser.ForInStmt, fname string) error {
+	// The key/value form (`for k, v in m`) is checked FIRST so it keeps its
+	// own precise diagnostic even when the iterable is not a variable. Only
+	// the single-binding form is lowered, over an array or a map.
 	if n.KeyName != "" {
 		return fmt.Errorf("error[K145]: for-in over maps is not supported on the native target yet (int arrays only)")
 	}
 	base, ok := n.Iter.(*parser.Identifier)
 	if !ok {
 		return fmt.Errorf("error[K145]: for-in iterates a variable on the native target (got %T)", n.Iter)
+	}
+	// Phase 150B3c: a map iterates its KEYS, in insertion order, which is
+	// exactly the linear-scan order the C runtime's map iteration uses.
+	if b.kinds[base.Name] == KindMap {
+		return b.emitForInMap(n, base, fname)
 	}
 	off, ok := b.slots[base.Name]
 	if !ok {
@@ -3307,6 +4065,11 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		// Phase 150A: int-element literals only (element kinds are
 		// checked at emission, where the diagnostic names the index).
 		return KindArray, nil
+	case *parser.MapLiteral:
+		// Phase 150B3c: a map is one unit (the header address in the
+		// arena). Key and value kinds are checked at emission, where the
+		// diagnostic can name the offending entry.
+		return KindMap, nil
 	case *parser.StructLiteral:
 		// Phase 150B3b: a record literal is one unit (the area address).
 		// The field kinds are checked at emission, where the diagnostic can
@@ -3321,7 +4084,14 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		// receiver is a loud refusal rather than a guess.
 		return b.fieldKind(x)
 	case *parser.IndexExpr:
-		// int arrays only in 150A: the length lives in the header.
+		// A map read yields the kind of its VALUES, so a program can print
+		// m[k] directly. An array read yields int (the length lives in the
+		// header). Any other receiver is a loud refusal.
+		if id, ok := x.Left.(*parser.Identifier); ok {
+			if b.kinds[id.Name] == KindMap {
+				return b.mapValueKind(id.Name)
+			}
+		}
 		kIdx, errIdx := b.exprKind(x.Left)
 		if errIdx != nil {
 			return KindInt, errIdx
@@ -3329,7 +4099,7 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		if kIdx == KindArray {
 			return KindInt, nil
 		}
-		return KindInt, fmt.Errorf("error[K145]: index target must be an array (got %s)", kindName(kIdx))
+		return KindInt, fmt.Errorf("error[K145]: index target must be an array or a map (got %s)", kindName(kIdx))
 	default:
 		return KindInt, fmt.Errorf("error[K145]: unsupported expression %T", n)
 	}
@@ -3381,7 +4151,7 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		// is exactly what the slot already holds. Reusing the int load keeps
 		// one lowering for both "the record" and "the number" without a
 		// separate path that could drift.
-		if b.kinds[x.Name] == KindStruct {
+		if b.kinds[x.Name] == KindStruct || b.kinds[x.Name] == KindMap {
 			off, ok := b.slots[x.Name]
 			if !ok {
 				return fmt.Errorf("error[K145]: undefined identifier '%s'", x.Name)
@@ -3432,6 +4202,11 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 	case *parser.ArrayLiteral:
 		return b.emitArrayLit(x)
 	case *parser.IndexExpr:
+		// A map read dispatches to the map path; an array read keeps the
+		// checked-index lowering.
+		if id, ok := x.Left.(*parser.Identifier); ok && b.kinds[id.Name] == KindMap {
+			return b.emitMapIndex(x, depth)
+		}
 		return b.emitArrayIndex(x, depth)
 	case *parser.DotExpr:
 		// Phase 150B3b: a field read is one load at a constant displacement
@@ -3479,8 +4254,11 @@ func (b *Builder) checkLenArgs(x *parser.CallExpr) error {
 	if err != nil {
 		return err
 	}
-	if k != KindArray {
-		return fmt.Errorf("error[K145]: len() requires an array argument (got %s)", kindName(k))
+	// Phase 150B3c: len() works on a map too, returning its entry count --
+	// the header's first unit, the same load the array path uses for its
+	// length slot.
+	if k != KindArray && k != KindMap {
+		return fmt.Errorf("error[K145]: len() requires an array or a map argument (got %s)", kindName(k))
 	}
 	return nil
 }
@@ -3491,14 +4269,22 @@ func (b *Builder) emitLen(x *parser.CallExpr) error {
 		return err
 	}
 	// Reuse the index lowering's addressing: an identifier receiver is the
-	// only 150A shape, and its length slot is base+8.
+	// only shape both containers have, and the count is the first unit of
+	// the header in each.
 	base, ok := x.Args[0].(*parser.Identifier)
 	if !ok {
-		return fmt.Errorf("error[K145]: len() requires an array variable (got %T)", x.Args[0])
+		return fmt.Errorf("error[K145]: len() requires an array or map variable (got %T)", x.Args[0])
 	}
 	off, ok := b.slots[base.Name]
 	if !ok {
 		return fmt.Errorf("error[K145]: undefined identifier '%s'", base.Name)
+	}
+	if b.kinds[base.Name] == KindMap {
+		// The map address lives in the slot, so the count needs one
+		// indirection more than an array's inline length.
+		b.e.LoadStack(RBX, off)
+		b.e.LoadBaseOff(RAX, RBX, mapCountOff)
+		return nil
 	}
 	b.e.LoadStack(RAX, off+8)
 	return nil
