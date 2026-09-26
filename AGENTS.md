@@ -1077,6 +1077,58 @@ Regressions green: `go build ./...`, `go vet ./pkg/native`, full `pkg/native`
 documented ~4GB-host OOM flake class (passes in isolation; this slice touches
 only `pkg/native`). **Still open in 150B:** maps.
 
+Also completed: **150B3c — maps on the native target** (increment 150, slice
+B3c; verdict **COMPLETE — 150B VALUE MODEL NOW CLOSED**). A map is **one**
+8-byte unit whose value is the address of a header allocated in the heap
+arena, with entries stored inline after the header, so a map is a single
+self-contained arena region. Entries are scanned **linearly**, deliberately
+matching the C runtime's `map_get`/`map_set` (which walk parallel key/value
+arrays): the C backend is the language's semantic oracle, so matching it keeps
+a hit and a miss meaning the same thing on both engines and keeps iteration
+order identical — a hash table would buy nothing for v1. Layout: header
+`[count][capacity]`, entry `[key][value0][value1][pad]` (32-byte stride, so
+the index scales with a shift). Surface: map literals (int keys in v1), `m[k]`
+reads, `m[k] = v` insertion and overwrite, `len(m)`, and `for k in m` key
+iteration in insertion order; a missing key yields 0, exactly as the C
+runtime's `make_int(0)` default does. Three emitted helpers, gated on
+`usesMap` so a map-free program never grows a byte: `map_find` (linear scan
+returning the entry address or 0), `map_set` (overwrite-or-append, with a
+loud `Int3` on capacity overflow), `map_get` (the value pair, `(0,0)` on a
+miss). **The capacity bound is a PROOF, not an estimate**: a literal creates
+`len(keys)` entries and each distinct `m[k] = v` site can add at most one
+more, so no map can exceed `max(literal entries) + (insert sites)`. Every map
+is sized to that global maximum — deliberate over-allocation that removes any
+need to prove which map a given insert targets. Insertion **inside a loop** is
+the one shape this cannot bound, so it is refused loudly (`mapInLoop`) — the
+same honest bound `push()` uses. **Three real defects found and fixed, all
+gate-pinned**: (1) `mapValueKind` passed the `*parser.Program` straight into a
+`parser.Node` walk, which has no `Program` case, so **every** map was rejected
+as having an underivable value kind — it now starts from the top-level
+statements; (2) the walk did not descend into a map literal's values, so a map
+defined only in an inner scope was never seen; (3) an **empty** map has no
+entries to learn a value kind from and was refused, when `int` is exactly
+right (an absent key is 0 on both engines), so it now defaults to int.
+**Executed**: 26 map programs — literal reads, empty map, missing key, len,
+negative/zero keys, insert, insert-many, overwrite, insert-existing-and-new,
+key iteration (order, empty, `break`, `continue`), iteration summing values,
+computed keys and values, two independent maps, map under `if`, map read in
+an expression, map read as a condition — **all 26 run for real on this
+Windows host through the PE container, zero skipped**, plus the same set on
+Linux ELF, structural validation for ELF and PE, and a 7-case K145 reject
+table (string key, string key read, insert in `while`/`for`/`for-in`, `len`
+of an int, indexing a string). The macOS leg **asserts the documented
+no-writable-segment refusal** rather than pretending the image is valid.
+Regressions green: `go build ./...`, `go vet`, full `pkg/native` (no FAIL),
+**byte-identity still zero drift across all 19 legacy ELF images**, Phase 148
+native CLI gate, `pkg/parser`, `pkg/lexer`, `pkg/sema`, `pkg/ir/...`,
+`pkg/target`, `pkg/wasm`, `pkg/compiler`.
+
+**Increment 150 status:** 150A, 150B1, 150B2, 150B3a, 150B3b and 150B3c are
+complete, so the **boxed Value model is done** — arrays, `for-in`, floats,
+maps, structs and string ops all have executed goldens (ELF live, PE live).
+**Next: 150C — register allocation**, validated against the `nativeLegacyELF`
+byte-identity table this increment has kept green through every slice.
+
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
 six new examples, unconditional net-runtime emission on BOTH engines, and the
