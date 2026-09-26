@@ -218,7 +218,14 @@ func main() { print(f(1, 2)) }`, "has 2 args (want 7)"},
 		{`func main() { let a = [1, 2] print(len("x")) }`, "len() requires an array"},
 		{`func main() { let a = [1, 2] print(len()) }`, "len() takes exactly 1 argument"},
 		{`func main() { let a = [1, 2] print(len(a, a)) }`, "len() takes exactly 1 argument"},
-		{`func main() { let a = [1, 2] let b = push(a, 3) print(b[0]) }`, "push() is not supported"},
+		{`func main() { let a = [1, 2] let b = push(a, "x") }`, "push() element must be int"},
+		{`func main() { let a = [1, 2] let b = push(a) }`, "push() takes exactly 2 arguments"},
+		{`func main() { let a = [1, 2] let b = push(a, 1, 2) }`, "push() takes exactly 2 arguments"},
+		{`func main() { let n = 1 let b = push(n, 2) }`, "push() requires an array receiver"},
+		{`func main() { let a = [1, 2] let b = push([3, 4], 5) }`, "push() requires an array variable"},
+		{`func main() { let a = [1, 2] let i = 0 while (i < 3) { let b = push(a, i) i = i + 1 } }`, "push() inside a loop"},
+		{`func main() { let a = [1, 2] for x in a { let b = push(a, x) } }`, "push() inside a loop"},
+		{`func main() { let a = [1, 2] let b = push(a, 3) b = [1] }`, "cannot reassign array"},
 		{`func f(p) { print(p[0]) } func main() { f([1, 2]) }`, "index target must be an array"},
 		{`func main() { for k, v in [1, 2] { print(k) } }`, "for-in over maps is not supported"},
 		{`func main() { let a = [1, 2] a = [3] }`, "cannot reassign array"},
@@ -596,6 +603,68 @@ func TestNativeStrViewExecPE(t *testing.T) {
 // TestNativeStrViewExec mirrors the same surface on the Linux ELF container.
 func TestNativeStrViewExec(t *testing.T) {
 	for _, c := range nativeStrViewCases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNative(t, c.src)
+			out, code := runNativeCode(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
+	}
+}
+
+// nativePushCases exercises push() end to end: the functional copy into the
+// arena, the appended element, and the fact that the two-slot header means
+// indexing, len and for-in keep working on a pushed array unchanged.
+var nativePushCases = []struct {
+	name string
+	src  string
+	want string
+}{
+	{"single", "func main() {\n    let a = [1, 2]\n    let b = push(a, 3)\n    print(b[2])\n    print(len(b))\n}\n", "3\n3\n"},
+	{"to_empty", "func main() {\n    let a = []\n    let b = push(a, 7)\n    print(b[0])\n    print(len(b))\n}\n", "7\n1\n"},
+	{"source_unchanged", "func main() {\n    let a = [1, 2]\n    let b = push(a, 3)\n    print(len(a))\n    print(len(b))\n    print(a[1])\n}\n", "2\n3\n2\n"},
+	{"chain_two", "func main() {\n    let a = [1]\n    let b = push(a, 2)\n    let c = push(b, 3)\n    print(c[0])\n    print(c[1])\n    print(c[2])\n    print(len(c))\n}\n", "1\n2\n3\n3\n"},
+	{"chain_three", "func main() {\n    let a = [0]\n    let b = push(a, 1)\n    let c = push(b, 2)\n    let d = push(c, 3)\n    print(len(d))\n    print(d[3])\n}\n", "4\n3\n"},
+	{"iterate_result", "func main() {\n    let a = [1, 2]\n    let b = push(a, 3)\n    for x in b {\n        print(x)\n    }\n}\n", "1\n2\n3\n"},
+	{"sum_result", "func main() {\n    let a = [1, 2, 3]\n    let b = push(a, 4)\n    let s = 0\n    for x in b {\n        s = s + x\n    }\n    print(s)\n}\n", "10\n"},
+	{"from_literal_each_time", "func main() {\n    let a = [5]\n    let b = push(a, 6)\n    let c = push(a, 7)\n    print(b[1])\n    print(c[1])\n    print(len(b))\n    print(len(c))\n}\n", "6\n7\n2\n2\n"},
+	{"negative_and_large", "func main() {\n    let a = [0 - 1]\n    let b = push(a, 1000000)\n    print(b[0])\n    print(b[1])\n}\n", "-1\n1000000\n"},
+	{"many_pushes", "func main() {\n    let a = [0]\n    let b = push(a, 1)\n    let c = push(b, 2)\n    let d = push(c, 3)\n    let e = push(d, 4)\n    let f = push(e, 5)\n    let g = push(f, 6)\n    let h = push(g, 7)\n    print(len(h))\n    print(h[7])\n}\n", "8\n7\n"},
+	{"computed_value", "func main() {\n    let a = [10, 20]\n    let n = 3\n    let b = push(a, n * 2)\n    print(b[2])\n}\n", "6\n"},
+	{"push_then_string", "func main() {\n    let a = [1]\n    let b = push(a, 2)\n    print(\"n\" + \"b\")\n    print(len(b))\n}\n", "nb\n2\n"},
+}
+
+// TestNativePushExecPE runs the push surface through the PE container, where
+// the arena lives in the R/W .idata and the copies execute for real on
+// windows/amd64.
+func TestNativePushExecPE(t *testing.T) {
+	for _, c := range nativePushCases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNativeOS(t, OSWindows, c.src)
+			out, code := runNativeWindows(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
+	}
+}
+
+// TestNativePushExec mirrors the push surface on the Linux ELF container.
+func TestNativePushExec(t *testing.T) {
+	for _, c := range nativePushCases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)

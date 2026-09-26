@@ -181,6 +181,13 @@ type Builder struct {
 	// usesStrSlice: the program slices a string, which also needs the string
 	// staging area (and, like comparison, no heap).
 	usesStrSlice bool
+	// usesPush: the program calls push(), which needs the heap arena (and,
+	// unlike the string operations, the string staging area for its copy).
+	usesPush bool
+	// pushInLoop: a push() reached from inside a loop body. Its runtime count
+	// is not bounded at compile time, so the arena bound cannot cover it and
+	// it is refused with a loud K145 instead.
+	pushInLoop bool
 	// Phase 150B: the bump arena. Layout is a 16-byte header followed by
 	// heapSize usable bytes: [cursor][limit][data...]. cursor and limit
 	// are ABSOLUTE addresses held in the arena itself, so the allocator
@@ -231,7 +238,7 @@ const (
 // literal byte count: every string value in such a program is either a
 // literal or a concatenation of literals, so no value can be longer than
 // all the literal bytes put together.
-func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, usesStrSlice bool, heapSize int) {
+func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, usesStrSlice, usesPush, pushInLoop bool, heapSize int) {
 	var concatSites, concatHeap int
 	concatSites, concatHeap = scanConcatSites(prog)
 	usesConcat = concatSites > 0
@@ -239,6 +246,19 @@ func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, use
 	usesStrEq = false
 	strNames := collectStringNames(prog)
 	usesStrEq, usesStrSlice = scanStringViewOps(prog, strNames)
+	pushSites, maxArrLit, pushInLoop := scanPushSites(prog)
+	usesPush = pushSites > 0
+	if usesPush {
+		// Arena bound for pushes: site i of a chain sees at most
+		// (largest literal length + i) elements, so the sum over all sites is
+		// bounded by pushSites * (maxArrLit + pushSites) 8-byte elements. A
+		// push inside a loop is refused outright, so no site can execute more
+		// than once and the bound holds.
+		heapSize = pushSites * (maxArrLit + pushSites) * 8
+		if heapSize < heapMinSize {
+			heapSize = heapMinSize
+		}
+	}
 
 	// A separate, float-only walk: unlike the concat search it has no
 	// type inference to do, and keeping the two concerns apart means a
@@ -316,7 +336,98 @@ func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, use
 		}
 	}
 	walkStmts(prog.Statements)
-	return usesFloat, usesConcat, usesStrEq, usesStrSlice, heapSize
+	return usesFloat, usesConcat, usesStrEq, usesStrSlice, usesPush, pushInLoop, heapSize
+}
+
+// scanPushSites counts push() call sites, records the largest array-literal
+// length in the program, and flags any push reached from inside a loop.
+//
+// The loop flag is the honest bound: a push inside a `while`/`for`/`for-in`
+// body can execute an unbounded number of times, so no compile-time arena
+// size can cover it. Rather than let a program run out of arena and trap, the
+// caller turns the flag into a precise K145 (checkPushLoop).
+func scanPushSites(prog *parser.Program) (sites, maxLit int, inLoop bool) {
+	isPush := func(n parser.Node) bool {
+		c, ok := n.(*parser.CallExpr)
+		return ok && c.Function == "push"
+	}
+	var walkExpr func(n parser.Node, depth int)
+	walkExpr = func(n parser.Node, depth int) {
+		if n == nil {
+			return
+		}
+		if isPush(n) {
+			sites++
+			if depth > 0 {
+				inLoop = true
+			}
+		}
+		if lit, ok := n.(*parser.ArrayLiteral); ok {
+			if len(lit.Elements) > maxLit {
+				maxLit = len(lit.Elements)
+			}
+			for _, e := range lit.Elements {
+				walkExpr(e, depth)
+			}
+			return
+		}
+		switch x := n.(type) {
+		case *parser.BinaryExpr:
+			walkExpr(x.Left, depth)
+			walkExpr(x.Right, depth)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand, depth)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				walkExpr(a, depth)
+			}
+		case *parser.IndexExpr:
+			walkExpr(x.Left, depth)
+			walkExpr(x.Index, depth)
+		case *parser.SliceExpr:
+			walkExpr(x.Target, depth)
+			walkExpr(x.Start, depth)
+			walkExpr(x.End, depth)
+		}
+	}
+	var walkStmts func(stmts []parser.Node, depth int)
+	walkStmts = func(stmts []parser.Node, depth int) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				walkStmts(x.Body, depth)
+			case *parser.VarDeclStmt:
+				walkExpr(x.Value, depth)
+			case *parser.PrintStmt:
+				walkExpr(x.Value, depth)
+			case *parser.ExprStmt:
+				walkExpr(x.Expression, depth)
+			case *parser.ReturnStmt:
+				walkExpr(x.Value, depth)
+			case *parser.IfStmt:
+				walkExpr(x.Condition, depth)
+				// A conditional body is not a loop: a push there runs at most
+				// once per entry, which the site count already covers.
+				walkStmts(x.Consequence, depth)
+				walkStmts(x.Alternative, depth)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition, depth)
+				walkStmts(x.Body, depth+1)
+			case *parser.ForStmt:
+				walkExpr(x.Condition, depth)
+				walkExpr(x.Init, depth)
+				walkExpr(x.Post, depth)
+				walkStmts(x.Body, depth+1)
+			case *parser.ForInStmt:
+				walkExpr(x.Iter, depth)
+				walkStmts(x.Body, depth+1)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements, depth)
+			}
+		}
+	}
+	walkStmts(prog.Statements, 0)
+	return sites, maxLit, inLoop
 }
 
 // scanConcatSites finds every string-concatenation site and returns how many
@@ -649,7 +760,7 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 			return nil, err
 		}
 	}
-	b.usesFloat, b.usesConcat, b.usesStrEq, b.usesStrSlice, b.heapSize = scanValueUsage(prog)
+	b.usesFloat, b.usesConcat, b.usesStrEq, b.usesStrSlice, b.usesPush, b.pushInLoop, b.heapSize = scanValueUsage(prog)
 	b.emitHelpers()
 	for _, stmt := range prog.Statements {
 		if fd, ok := stmt.(*parser.FuncDecl); ok {
@@ -1484,7 +1595,7 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	// a program that does not keeps its exact increment-149 frame shape (and
 	// therefore its exact bytes). The decision is program-wide and taken
 	// once in a pre-pass, so layout and emission can never disagree.
-	if b.usesConcat || b.usesStrEq || b.usesStrSlice {
+	if b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush {
 		b.strTemp = next
 		next += 8 * 5 * maxBinDepth
 	}
@@ -2139,16 +2250,19 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 		return nil
 	}
 	if b.kinds[n.Name] == KindArray {
-		// Phase 150A: an array binding materializes its header and
-		// element area in place (emitArrayValue). The literal is the only
-		// array constructor in 150A; the layout pass already sized the
-		// frame for it, so a non-literal array value is a loud K145
-		// rather than a silently unwritten header.
-		lit, ok := n.Value.(*parser.ArrayLiteral)
-		if !ok {
-			return fmt.Errorf("error[K145]: array value must be a literal on the native target (got %T)", n.Value)
+		// Phase 150A/150B: an array binding is either a literal (elements
+		// materialized in the frame, emitArrayValue) or a push (a fresh array
+		// allocated in the arena, emitPush). Both write the same two-slot
+		// (base, len) header, so indexing, len and for-in work unchanged
+		// over a pushed array.
+		switch av := n.Value.(type) {
+		case *parser.ArrayLiteral:
+			return b.emitArrayValue(n.Name, av)
+		case *parser.CallExpr:
+			return b.emitPush(n.Name, av)
+		default:
+			return fmt.Errorf("error[K145]: array value must be a literal or a push() on the native target (got %T)", n.Value)
 		}
-		return b.emitArrayValue(n.Name, lit)
 	}
 	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
@@ -2168,6 +2282,112 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 // `break`/`continue` reuse the loop-label stack, so control flow nests
 // with while/C-for bodies identically. Map iteration (KeyName != "")
 // and non-array iterables stay loud K145 (150B work).
+// checkPushArgs validates push(arr, v): an array receiver (a variable, since
+// the header is a frame pair) and an int element. Phase 150B v1 keeps push
+// to int arrays; a float or string element is a loud refusal rather than a
+// silent truncation.
+func (b *Builder) checkPushArgs(x *parser.CallExpr) error {
+	if x.Module != "" || x.IsCFunc {
+		return fmt.Errorf("error[K145]: module-qualified and C-interop calls are not supported (call to '%s')", x.Function)
+	}
+	if len(x.Args) != 2 {
+		return fmt.Errorf("error[K145]: push() takes exactly 2 arguments (got %d)", len(x.Args))
+	}
+	if _, ok := x.Args[0].(*parser.Identifier); !ok {
+		return fmt.Errorf("error[K145]: push() requires an array variable (got %T)", x.Args[0])
+	}
+	rk, err := b.exprKind(x.Args[0])
+	if err != nil {
+		return err
+	}
+	if rk != KindArray {
+		return fmt.Errorf("error[K145]: push() requires an array receiver (got %s)", kindName(rk))
+	}
+	vk, err := b.exprKind(x.Args[1])
+	if err != nil {
+		return err
+	}
+	if vk != KindInt {
+		return fmt.Errorf("error[K145]: push() element must be int (got %s)", kindName(vk))
+	}
+	return nil
+}
+
+// emitPush lowers `let name = push(arr, v)`.
+//
+// push is functional: it allocates a *new* (base, len+1) array in the arena,
+// copies the old elements, and appends v. The old array is untouched (the
+// arena is bump-only, so nothing is freed or moved) — which means indexing,
+// len and for-in all keep working on the result through the unchanged
+// two-slot header, and the pre-existing source array is still readable.
+//
+// Elements are 8-byte ints, so the copy uses the scaled 64-bit load/store
+// forms; rsp never moves (the whole frame stays at fixed offsets).
+func (b *Builder) emitPush(name string, x *parser.CallExpr) error {
+	if err := b.checkPushArgs(x); err != nil {
+		return err
+	}
+	if b.heapSize <= 0 {
+		return fmt.Errorf("error[K145]: internal: push() reached emission with no heap arena (the push pre-pass missed this site)")
+	}
+	// A push inside a loop can run an unbounded number of times, which the
+	// compile-time arena size cannot cover. Refuse it by name rather than let
+	// the program exhaust the arena and trap at an arbitrary iteration.
+	if b.pushInLoop {
+		return fmt.Errorf("error[K145]: push() inside a loop is not supported on the native target (the heap arena is sized at compile time, so a repeated push cannot be bounded)")
+	}
+	src := x.Args[0].(*parser.Identifier)
+	off := b.slots[src.Name]
+	// Everything the post-allocation work needs is staged in the frame first,
+	// so the alloc call cannot be relied on to preserve anything: it uses
+	// RAX/RCX/R10/R11 and takes RDI, and relying on R8/R9 surviving would be
+	// exactly the kind of implicit contract that broke in Phase 147.
+	stage := b.strTemp
+	// value
+	if err := b.emitExpr(x.Args[1], 0); err != nil {
+		return err
+	}
+	b.e.StoreStack(RAX, stage)
+	// old base / old len
+	b.e.LoadStack(RAX, off)
+	b.e.StoreStack(RAX, stage+8)
+	b.e.LoadStack(RAX, off+8)
+	b.e.StoreStack(RAX, stage+16)
+	// bytes = (old len + 1) * 8
+	b.e.LoadStack(RDI, stage+16)
+	b.e.AddRegImm32(RDI, 8)
+	b.e.ShlRegImm(RDI, 3)
+	b.e.Call("alloc") // RAX = new base
+	b.e.StoreStack(RAX, stage+24)
+	// Copy the old elements: [oldbase + i*8] -> [newbase + i*8], i < old len.
+	b.e.LoadStack(R8, stage+8)  // old base
+	b.e.LoadStack(R9, stage+16) // old len
+	b.e.LoadStack(R10, stage+24) // new base
+	loop := b.fresh("push$cp")
+	done := b.fresh("push$done")
+	b.e.XorRegReg(RDX)
+	b.e.Mark(loop)
+	b.e.CmpRegReg(RDX, R9)
+	b.e.Jae(done)
+	b.e.LoadScaled64(RAX, R8, RDX, 8, 0)
+	b.e.StoreScaled64(RAX, R10, RDX, 8, 0)
+	b.e.IncReg(RDX)
+	b.e.Jmp(loop)
+	b.e.Mark(done)
+	// Append v at [newbase + oldlen*8] — a scaled store with the old length
+	// as the index, so no separate address computation is needed.
+	b.e.LoadStack(RAX, stage)
+	b.e.StoreScaled64(RAX, R10, R9, 8, 0)
+	// Header: base = newbase, len = old len + 1.
+	dst := b.slots[name]
+	b.e.LoadStack(RAX, stage+24)
+	b.e.StoreStack(RAX, dst)
+	b.e.LoadStack(RAX, stage+16)
+	b.e.AddRegImm32(RAX, 8)
+	b.e.StoreStack(RAX, dst+8)
+	return nil
+}
+
 func (b *Builder) emitForIn(n *parser.ForInStmt, fname string) error {
 	if n.KeyName != "" {
 		return fmt.Errorf("error[K145]: for-in over maps is not supported on the native target yet (int arrays only)")
@@ -2358,12 +2578,14 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 			return KindInt, nil
 		}
 		if x.Function == "push" {
-			// 150A arrays are fixed-footprint frame values: a push would
-			// have to grow the element area, which the frame layout sizes
-			// at compile time. Rejecting here (rather than at emission)
-			// keeps the diagnostic about push rather than about the
-			// literal-only binding shape it would otherwise be reported as.
-			return KindArray, fmt.Errorf("error[K145]: push() is not supported on the native target yet (arrays are fixed-footprint frame values)")
+			// Phase 150B: push allocates a new (base, len+1) array in the
+			// arena, so it is a real array constructor now. Validated here
+			// rather than blindly, so the receiver/value kinds are checked by
+			// the classifier every other path already consults.
+			if err := b.checkPushArgs(x); err != nil {
+				return KindInt, err
+			}
+			return KindArray, nil
 		}
 		// Phase 148: kind follows the callee's inferred return kind
 		// (unknown callees already fail loudly at emission).

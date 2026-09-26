@@ -224,9 +224,48 @@ cases pin the boundaries (string ordering, int operand in a string
 comparison, slicing a non-string, `-`/`*` on strings, mixed string+int
 concat).
 
-## 9. Not yet started
+## 9. 150B3a — `push()` (DONE)
 
-- **150B3** — `push()` (unblocked by the arena), maps, structs.
+`push()` was the one 150A item explicitly carried over, and the arena
+unblocks it.
+
+* **push is functional.** `let b = push(a, v)` allocates a *new*
+  `(base, len+1)` array in the arena, copies the old elements, and appends
+  `v`. The source array is untouched (the arena is bump-only, so nothing is
+  moved or freed), which is what makes the two-slot header keep working:
+  indexing, `len` and `for-in` all operate on a pushed array through exactly
+  the same code as a literal one.
+* **The copy uses the scaled 64-bit load/store forms** (elements are 8-byte
+  ints) and the appended value is a single `StoreScaled64` with the old
+  length as the index — no separate address arithmetic needed.
+* **Everything is staged through the frame before the `alloc` call.** This
+  is deliberate: `alloc` uses RAX/RCX/R10/R11 and takes RDI, so keeping the
+  old base and length in R8/R9 across the call would have been exactly the
+  kind of implicit register contract that produced the Phase-147
+  `add(20,22) = 40` bug.
+* **A push inside a loop is a loud K145.** That is the honest bound: a push
+  in a `while`/`for`/`for-in` body can run an unbounded number of times, so
+  no compile-time arena size can cover it. The alternative was a program
+  that exhausts the arena and traps at an arbitrary iteration, so the
+  pre-pass (`scanPushSites`, which tracks loop nesting depth) refuses it by
+  name instead.
+* **The arena bound is still a proof.** Outside loops, site *i* of a push
+  chain sees at most `maxArrayLiteralLength + i` elements, so the sum over
+  all sites is bounded by `pushSites × (maxLit + pushSites) × 8` bytes — and
+  with the loop case refused, no site can execute more than once.
+
+**Executed**: 12 push programs — single push, push onto an empty array, the
+source array provably unchanged, two- and three-deep chains, iteration and
+summing over a pushed array, two pushes off the same source, negative and
+large values, an eight-element chain, a computed value, and a program mixing
+a push with a string concat. All 12 execute for real on this Windows host
+through the PE container. Nine negative cases pin the boundaries (non-int
+element, wrong arity, non-array receiver, a literal receiver, and push inside
+`while` and inside `for-in`).
+
+## 10. Not yet started
+
+- **150B3b** — maps, structs.
 - **150C** — register allocation, validated against the `nativeLegacyELF`
   table landed in 150A.
 - **150D** — Mach-O PIE/rebase (and the writable `__DATA` the heap refusal

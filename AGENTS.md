@@ -991,8 +991,42 @@ both operations inside a loop) — all 15 run for real on this Windows host
 through the PE container — plus 10 new negative cases. Regressions green:
 `go build ./...`, `go vet`, full `pkg/native` (27 tests, no FAIL; honest
 platform skips), byte-identity still zero drift, Phase 148 CLI gate,
-`pkg/parser`, `pkg/lexer`. **Still open in 150B:** `push()`, maps,
-structs.
+`pkg/parser`, `pkg/lexer`. **Still open in 150B:** maps, structs.
+
+Also completed: **150B3a — `push()`** (increment 150, slice B3a; verdict
+**COMPLETE**). `push()` was the one 150A item explicitly carried over, and
+the arena unblocks it. **push is functional**: `let b = push(a, v)`
+allocates a *new* `(base, len+1)` array in the arena, copies the old
+elements, and appends `v`. The source array is untouched (bump-only arena,
+nothing moved or freed), which is what makes the two-slot header keep
+working — indexing, `len` and `for-in` all operate on a pushed array
+through exactly the same code as a literal one. The copy uses the scaled
+64-bit load/store forms (elements are 8-byte ints) and the appended value is
+a single `StoreScaled64` with the old length as the index, so no separate
+address arithmetic is needed. **Everything is staged through the frame
+before the `alloc` call** — deliberately, because `alloc` uses
+RAX/RCX/R10/R11 and takes RDI, so keeping the old base and length in R8/R9
+across the call would have been exactly the kind of implicit register
+contract that produced the Phase-147 `add(20,22) = 40` bug. **A push inside
+a loop is a loud K145**: that is the honest bound, since a push in a
+`while`/`for`/`for-in` body can run an unbounded number of times and no
+compile-time arena size can cover it — the alternative was a program that
+exhausts the arena and traps at an arbitrary iteration, so the pre-pass
+(`scanPushSites`, which tracks loop nesting depth) refuses it by name. **The
+arena bound is still a proof**: outside loops, site *i* of a push chain sees
+at most `maxArrayLiteralLength + i` elements, so the sum over all sites is
+bounded by `pushSites × (maxLit + pushSites) × 8` bytes — and with the loop
+case refused, no site executes more than once. **Executed**: 12 push
+programs (single push, push onto empty, source provably unchanged, two- and
+three-deep chains, iteration and summing over a pushed array, two pushes off
+the same source, negative and large values, an eight-element chain, a
+computed value, and a program mixing a push with a string concat) — all 12
+run for real on this Windows host through the PE container — plus 9 negative
+cases (non-int element, wrong arity, non-array receiver, literal receiver,
+push inside `while` and inside `for-in`). Regressions green: `go build
+./...`, `go vet`, full `pkg/native` (31 tests, no FAIL; honest platform
+skips), byte-identity still zero drift, Phase 148 CLI gate, `pkg/parser`,
+`pkg/lexer`. **Still open in 150B:** maps, structs.
 
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
