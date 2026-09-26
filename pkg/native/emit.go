@@ -951,6 +951,29 @@ func (e *Emitter) MovzxRegMem8(dst, base Reg, off int) {
 // opcode selects 0x8B (load) or 0x89 (store). rsp cannot be an index
 // register; callers use a separate frame pointer for limb arrays.
 func (e *Emitter) scaledSIB(dst Reg, opcode byte, base, index Reg, scale int, disp int) {
+	if index.low() == 4 {
+		panic("native backend: rsp cannot be a SIB index register")
+	}
+	r := byte(0x48)
+	if dst.ext() {
+		r |= 0x04
+	}
+	if index.ext() {
+		r |= 0x02
+	}
+	if base.ext() {
+		r |= 0x01
+	}
+	e.byte(r)
+	e.byte(opcode)
+	e.sibTail(dst.low(), base, index, scale, disp)
+}
+
+// sibTail emits the ModRM+SIB+disp tail shared by every SIB-addressed form.
+// split from scaledSIB so the 8-bit and two-byte-opcode variants (movzx
+// 0F B6, mov 88) can reuse the register/displacement encoding without
+// re-deriving the REX bits.
+func (e *Emitter) sibTail(reg byte, base, index Reg, scale int, disp int) {
 	var sc byte
 	switch scale {
 	case 1:
@@ -967,24 +990,12 @@ func (e *Emitter) scaledSIB(dst Reg, opcode byte, base, index Reg, scale int, di
 	if index.low() == 4 {
 		panic("native backend: rsp cannot be a SIB index register")
 	}
-	r := byte(0x48)
-	if dst.ext() {
-		r |= 0x04
-	}
-	if index.ext() {
-		r |= 0x02
-	}
-	if base.ext() {
-		r |= 0x01
-	}
-	e.byte(r)
-	e.byte(opcode)
 	if disp == 0 && base.low() != 5 {
-		e.modrm(0, dst.low(), 4)
+		e.modrm(0, reg, 4)
 	} else if disp >= -128 && disp <= 127 {
-		e.modrm(1, dst.low(), 4)
+		e.modrm(1, reg, 4)
 	} else {
-		e.modrm(2, dst.low(), 4)
+		e.modrm(2, reg, 4)
 	}
 	e.byte(sc<<6 | index.low()<<3 | base.low())
 	if disp == 0 && base.low() != 5 {
@@ -993,6 +1004,31 @@ func (e *Emitter) scaledSIB(dst Reg, opcode byte, base, index Reg, scale int, di
 	} else {
 		e.u32(uint32(int32(disp)))
 	}
+}
+
+// IncReg emits inc r64 (REX.W + FF /0): the byte-copy index step.
+func (e *Emitter) IncReg(r Reg) {
+	e.rex(true, 0, r)
+	e.byte(0xFF)
+	e.modrm(0, 0, r.low())
+}
+
+// LoadScaled8 emits movzx r64, byte [base+index*scale+disp]: REX.W + 0F B6
+// /r + SIB. Phase 150B: the byte-wise copy behind string concatenation,
+// where the length is a runtime value so a constant-offset load cannot work.
+func (e *Emitter) LoadScaled8(dst, base, index Reg, scale int, disp int) {
+	e.rex(true, dst, base)
+	e.byte(0x0F)
+	e.byte(0xB6)
+	e.sibTail(dst.low(), base, index, scale, disp)
+}
+
+// StoreScaled8 emits mov [base+index*scale+disp], r8: REX + 88 /r + SIB.
+// The mirror of LoadScaled8, for the destination half of the same copy.
+func (e *Emitter) StoreScaled8(src, base, index Reg, scale int, disp int) {
+	e.rex(false, src, base)
+	e.byte(0x88)
+	e.sibTail(src.low(), base, index, scale, disp)
 }
 
 // LoadScaled64 emits mov r64, [base+index*scale+disp]: REX.W + 8B /r.

@@ -454,6 +454,85 @@ func TestNativeArrayExecPE(t *testing.T) {
 	}
 }
 
+// TestNativeStrConcatExec executes Phase-150B string concatenation. These
+// cases are the first consumers of the heap arena, so they are what proves
+// the whole path: the writable data segment (ELF second PT_LOAD, PE inside
+// the R/W .idata), the bump allocator, its link-time arena addresses, and
+// the byte-wise copy. Run live on both containers where each can execute.
+func TestNativeStrConcatExec(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"literal_pair", "func main() {\n    print(\"ab\" + \"cd\")\n}\n", "abcd\n"},
+		{"empty_operands", "func main() {\n    print(\"\" + \"x\")\n}\n", "x\n"},
+		{"both_empty", "func main() {\n    print(\"\" + \"\")\n}\n", "\n"},
+		{"chained", "func main() {\n    print(\"a\" + \"b\" + \"c\")\n}\n", "abc\n"},
+		{"chained_grouped", "func main() {\n    print(\"a\" + (\"b\" + \"c\"))\n}\n", "abc\n"},
+		{"assigned", "func main() {\n    let s = \"hello\" + \" \" + \"world\"\n    print(s)\n}\n", "hello world\n"},
+		{"variable_operand", "func main() {\n    let a = \"foo\"\n    print(a + \"bar\")\n}\n", "foobar\n"},
+		{"two_variables", "func main() {\n    let a = \"x\"\n    let b = \"y\"\n    let c = a + b\n    print(c)\n}\n", "xy\n"},
+		{"in_branch", "func main() {\n    let i = 0\n    if (i == 0) {\n        print(\"a\" + \"0\")\n    } else {\n        print(\"b\" + \"1\")\n    }\n}\n", "a0\n"},
+		{"call_arg", "func show(t string) {\n    print(t)\n}\nfunc main() {\n    show(\"na\" + \"me\")\n}\n", "name\n"},
+		{"returned", "func join() {\n    return \"re\" + \"turn\"\n}\nfunc main() {\n    print(join())\n}\n", "return\n"},
+		{"many_sites", "func main() {\n    print(\"1\" + \"2\")\n    print(\"3\" + \"4\")\n    print(\"5\" + \"6\")\n    print(\"7\" + \"8\")\n}\n", "12\n34\n56\n78\n"},
+		{"long_operand", "func main() {\n    let a = \"abcdefghijklmnopqrstuvwxyz0123456789\"\n    print(a + a)\n}\n", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789\n"},
+		{"in_loop", "func main() {\n    let i = 0\n    while (i < 3) {\n        print(\"it\" + \"er\")\n        i = i + 1\n    }\n}\n", "iter\niter\niter\n"},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNative(t, c.src)
+			out, code := runNativeCode(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("elf %s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("elf %s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
+	}
+}
+
+// TestNativeStrConcatExecPE runs the concat surface on the PE container, where
+// it executes for real on windows/amd64. The arena lives inside the R/W
+// .idata there, so this is what proves the PE-specific placement, the
+// bootstrap's IAT publication coexisting with arena addresses, and the
+// DIR64 fixups for those addresses.
+func TestNativeStrConcatExecPE(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want string
+	}{
+		{"literal_pair", "func main() {\n    print(\"ab\" + \"cd\")\n}\n", "abcd\n"},
+		{"chained", "func main() {\n    print(\"a\" + \"b\" + \"c\")\n}\n", "abc\n"},
+		{"assigned", "func main() {\n    let s = \"hello\" + \" \" + \"world\"\n    print(s)\n}\n", "hello world\n"},
+		{"variable_operand", "func main() {\n    let a = \"foo\"\n    print(a + \"bar\")\n}\n", "foobar\n"},
+		{"call_arg", "func show(t string) {\n    print(t)\n}\nfunc main() {\n    show(\"na\" + \"me\")\n}\n", "name\n"},
+		{"many_sites", "func main() {\n    print(\"1\" + \"2\")\n    print(\"3\" + \"4\")\n}\n", "12\n34\n"},
+		{"long_operand", "func main() {\n    let a = \"abcdefghijklmnopqrstuvwxyz0123456789\"\n    print(a + a)\n}\n", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789\n"},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNativeOS(t, OSWindows, c.src)
+			out, code := runNativeWindows(t, img)
+			if out != "" {
+				if out != c.want {
+					t.Errorf("pe %s: output %q, want %q", c.name, out, c.want)
+				}
+				if code != 0 {
+					t.Errorf("pe %s: exit %d, want 0 (out=%q)", c.name, code, out)
+				}
+			}
+		})
+	}
+}
+
 func TestNativeControl(t *testing.T) {
 	// Phase 148: control-flow execution goldens. Each program exercises
 	// one more construct, so a failure pins the responsible lowering.

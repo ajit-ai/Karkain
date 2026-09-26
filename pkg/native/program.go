@@ -147,6 +147,10 @@ type Builder struct {
 	kinds   map[string]int // Phase 150A: name -> value kind (was bool string-ness)
 	frame   int
 	binTemp int // Phase 147: base offset of the binary-operand scratch stack
+	// Phase 150B: base offset of the string-concat staging area. Separate
+	// from binTemp because a concat needs five units per nesting level
+	// (left ptr/len, right ptr/len, block) where an int binary needs one.
+	strTemp   int
 	extrasBase int // Phase 148: base offset of the caller-frame extras area
 	scanErr error
 	uid     int // Phase 148: monotonically increasing label discriminator
@@ -165,35 +169,82 @@ type Builder struct {
 	// keeps every int/string-only image byte-identical to increment 149
 	// instead of carrying ~700 bytes of unused formatter.
 	usesFloat bool
+	// Phase 150B: whether the program concatenates strings anywhere, and the
+	// arena size that provably suffices. Both come from one pre-pass
+	// (scanValueUsage) so the allocator, the frame layout and the emission
+	// all agree without re-deriving anything.
+	usesConcat bool
+	// Phase 150B: the bump arena. Layout is a 16-byte header followed by
+	// heapSize usable bytes: [cursor][limit][data...]. cursor and limit
+	// are ABSOLUTE addresses held in the arena itself, so the allocator
+	// needs no globals and no writable image text; they are initialised
+	// lazily on the first alloc (a zero cursor means "not yet started").
+	// `heap` is nil for any program that never allocates, which is what
+	// keeps every pre-150B image byte-identical.
+	heap     []byte
+	heapSize int
+	// hpatches resolve to absolute addresses inside the arena, exactly as
+	// patches do for .rodata. PE needs them in the DIR64 fixup list (the
+	// host loader rebases), so buildReloc joins this list.
+	hpatches []addrPatch
 }
 
-// scanFloatUsage reports whether the unit can produce a float value at all
-// (Phase 150A). print_float is the only thing that needs to know, and it is
-// emitted before any body — so the answer has to be a whole-unit pre-pass.
+// Arena header layout (Phase 150B). Offsets are into the arena image.
+const (
+	heapCursorOff = 0 // absolute bump cursor
+	heapLimitOff  = 8 // absolute end of the arena
+	heapHeaderLen = 16
+	// heapMinSize floors the computed arena bound so trivial programs get a
+	// usable arena without the bound arithmetic having to be exact.
+	heapMinSize = 1024
+)
+
+// scanValueUsage is the Phase-150A/150B whole-unit pre-pass. It answers the
+// two questions that must be settled before any code is emitted:
 //
-// The criterion is "a float literal or a float annotation appears anywhere",
-// which is a superset of "some print can actually print a float": a float
+//   - may a float value exist? (gates print_float)
+//   - does the program concatenate strings, and how large must the heap
+//     arena be so no allocation can ever exhaust it? (gates alloc, the
+//     string-concat frame area, and the writable data segment)
+//
+// Both have to be pre-passes because emitHelpers runs before any body, and
+// because the frame layout needs the answer before it can assign offsets.
+//
+// The float criterion is "a float literal or a float annotation appears
+// anywhere", a superset of "some print can actually print a float": a float
 // value can only originate at one of those two roots, because exprKind
 // derives float from a literal, from a float-typed variable/parameter, or
 // from a call whose inferred return kind is float — and that inference
-// bottoms out in the same two roots. The superset only ever costs an
-// unreferenced helper in the rare "float parameter never printed" program,
-// which keeps the pre-pass free of the per-function layout it would
-// otherwise have to run first.
-func scanFloatUsage(prog *parser.Program) bool {
-	found := false
+// bottoms out in the same two roots.
+//
+// The arena bound is a true upper bound on every runtime allocation, which is
+// what makes the Int3-on-exhaustion path unreachable for any program that
+// compiles. A site whose operands are both string literals needs exactly
+// len(l)+len(r) bytes. Any other site is bounded by the program's total
+// literal byte count: every string value in such a program is either a
+// literal or a concatenation of literals, so no value can be longer than
+// all the literal bytes put together.
+func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat bool, heapSize int) {
+	var concatSites, concatHeap int
+	concatSites, concatHeap = scanConcatSites(prog)
+	usesConcat = concatSites > 0
+	heapSize = concatHeap
+
+	// A separate, float-only walk: unlike the concat search it has no
+	// type inference to do, and keeping the two concerns apart means a
+	// bug in string classification can never suppress float detection.
 	var walkExpr func(n parser.Node)
 	walkExpr = func(n parser.Node) {
-		if found || n == nil {
+		if n == nil {
 			return
 		}
 		switch x := n.(type) {
 		case *parser.Float64Literal:
-			found = true
+			usesFloat = true
 			return
 		case *parser.VarDeclStmt:
 			if x.Type == "float" {
-				found = true
+				usesFloat = true
 				return
 			}
 			walkExpr(x.Value)
@@ -213,22 +264,16 @@ func scanFloatUsage(prog *parser.Program) bool {
 			for _, e := range x.Elements {
 				walkExpr(e)
 			}
-		case *parser.ReturnStmt:
-			walkExpr(x.Value)
 		}
 	}
 	var walkStmts func(stmts []parser.Node)
 	walkStmts = func(stmts []parser.Node) {
 		for _, s := range stmts {
-			if found {
-				return
-			}
 			switch x := s.(type) {
 			case *parser.FuncDecl:
 				for _, pt := range x.ParamTypes {
 					if pt == "float" {
-						found = true
-						return
+						usesFloat = true
 					}
 				}
 				walkStmts(x.Body)
@@ -239,7 +284,7 @@ func scanFloatUsage(prog *parser.Program) bool {
 			case *parser.ExprStmt:
 				walkExpr(x.Expression)
 			case *parser.ReturnStmt:
-				walkExpr(x)
+				walkExpr(x.Value)
 			case *parser.IfStmt:
 				walkExpr(x.Condition)
 				walkStmts(x.Consequence)
@@ -261,9 +306,143 @@ func scanFloatUsage(prog *parser.Program) bool {
 		}
 	}
 	walkStmts(prog.Statements)
-	return found
+	return usesFloat, usesConcat, heapSize
 }
 
+// scanConcatSites finds every string-concatenation site and returns how many
+// there are plus a provably sufficient arena size.
+//
+// A site is a `+` whose two operands are both strings, so the pre-pass needs
+// a (syntactic) string classifier. It is deliberately conservative in the
+// *safe* direction: anything it cannot prove is a string is treated as not a
+// string, so it never invents a concat site that emission would not make —
+// which would cost a needless writable segment. A missed site is the
+// dangerous direction, so emitStrConcat also refuses loudly if it is ever
+// reached with no arena (see its heapSize guard).
+func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
+	strNames := map[string]bool{}
+	// strKind reports whether n is a string-typed expression, using the
+	// names gathered so far.
+	var strKind func(n parser.Node) bool
+	strKind = func(n parser.Node) bool {
+		switch x := n.(type) {
+		case *parser.StringLiteral:
+			return true
+		case *parser.Identifier:
+			return strNames[x.Name]
+		case *parser.BinaryExpr:
+			return x.Operator == "+" && strKind(x.Left) && strKind(x.Right)
+		case *parser.CallExpr:
+			// A call is treated as a string when any string is passed to
+			// it: in v1 the only such shape is a string-returning helper,
+			// and misclassifying the other way round would be the loud,
+			// detected case (emitStrConcat's own kind check).
+			for _, a := range x.Args {
+				if strKind(a) {
+					return true
+				}
+			}
+			return false
+		}
+		return false
+	}
+	// Seed from `x string` parameters, then learn bindings, repeating until
+	// stable so a binding used by a later binding resolves regardless of
+	// ordering.
+	seeded := false
+	totalLit := 0
+	var countExpr func(n parser.Node)
+	countExpr = func(n parser.Node) {
+		switch x := n.(type) {
+		case *parser.StringLiteral:
+			totalLit += len(x.Value)
+		case *parser.BinaryExpr:
+			if x.Operator == "+" && strKind(x.Left) && strKind(x.Right) {
+				sites++
+			}
+			countExpr(x.Left)
+			countExpr(x.Right)
+		case *parser.UnaryExpr:
+			countExpr(x.Operand)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				countExpr(a)
+			}
+		case *parser.IndexExpr:
+			countExpr(x.Left)
+			countExpr(x.Index)
+		case *parser.ArrayLiteral:
+			for _, e := range x.Elements {
+				countExpr(e)
+			}
+		case *parser.VarDeclStmt:
+			if strKind(x.Value) {
+				strNames[x.Name] = true
+			}
+			countExpr(x.Value)
+		}
+	}
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				for i, pt := range x.ParamTypes {
+					if pt == "string" && i < len(x.Params) {
+						strNames[x.Params[i]] = true
+					}
+				}
+				walkStmts(x.Body)
+			case *parser.VarDeclStmt:
+				countExpr(x)
+			case *parser.PrintStmt:
+				countExpr(x.Value)
+			case *parser.ExprStmt:
+				countExpr(x.Expression)
+			case *parser.ReturnStmt:
+				countExpr(x.Value)
+			case *parser.IfStmt:
+				countExpr(x.Condition)
+				walkStmts(x.Consequence)
+				walkStmts(x.Alternative)
+			case *parser.WhileStmt:
+				countExpr(x.Condition)
+				walkStmts(x.Body)
+			case *parser.ForStmt:
+				countExpr(x.Condition)
+				countExpr(x.Init)
+				countExpr(x.Post)
+				walkStmts(x.Body)
+			case *parser.ForInStmt:
+				countExpr(x.Iter)
+				walkStmts(x.Body)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements)
+			}
+		}
+	}
+	for pass := 0; pass < 8; pass++ {
+		before := len(strNames)
+		walkStmts(prog.Statements)
+		if seeded && len(strNames) == before {
+			break
+		}
+		seeded = true
+	}
+	if sites > 0 {
+		// Every string value in a concatenating program is a literal or a
+		// concatenation of literals, so no value can be longer than the
+		// program's total literal bytes. sites * totalLit therefore bounds
+		// the sum of all runtime allocations, which is what makes the
+		// allocator's exhaustion trap unreachable for a program that
+		// compiles.
+		heapSize = sites * totalLit
+		if heapSize < heapMinSize {
+			heapSize = heapMinSize
+		}
+	}
+	return sites, heapSize
+}
 // loopTgt records a loop's jump targets for break/continue (Phase 148).
 type loopTgt struct {
 	brk  string // break jumps here (past the loop)
@@ -314,7 +493,7 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 			return nil, err
 		}
 	}
-	b.usesFloat = scanFloatUsage(prog)
+	b.usesFloat, b.usesConcat, b.heapSize = scanValueUsage(prog)
 	b.emitHelpers()
 	for _, stmt := range prog.Statements {
 		if fd, ok := stmt.(*parser.FuncDecl); ok {
@@ -350,17 +529,51 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 		textOff = peTextOff
 		base = PEBaseAddr
 	}
+	// Phase 150B: the arena. ELF and PE carry it in a writable segment
+	// (a second R+W PT_LOAD; and the already-writable .idata on PE).
+	// Mach-O has a single R+X __TEXT and no writable segment, and
+	// increment 150D owns that container — so a program that allocates
+	// gets a loud, specific refusal here instead of an image whose first
+	// bump-cursor store would fault.
+	arenaLen := heapHeaderLen + b.heapSize
+	var data []byte
+	if b.heapSize > 0 {
+		if b.goos == OSMacOS {
+			return nil, fmt.Errorf("error[K145]: heap allocation is not supported on the macos native container yet (a writable __DATA segment lands with 150D)")
+		}
+		// The arena image: a zeroed header (the cursor self-initialises on
+		// first alloc) followed by heapSize usable bytes. PE's linker reads
+		// it straight off the Builder; ELF gets it as the data segment.
+		b.heap = make([]byte, arenaLen)
+		data = b.heap
+	}
+	// ELF's header count depends on whether a data segment follows, so the
+	// .text offset is only known now.
+	if b.goos == OSLinux && len(data) > 0 {
+		textOff = elfHeaderSize + progHeaderSize*2
+		base = uint64(BaseAddr)
+	}
 	entry := textOff + b.e.labels["_start"]
-	// Windows resolves both patch kinds inside LinkPE (rodata against
-	// the .text base, IAT slots against .idata); ELF/Mach-O share the
-	// rodata-only loop here.
+	// The arena's absolute address, needed to resolve hpatches. For ELF it
+	// is the page-aligned file offset the linker will place it at; for PE it
+	// sits immediately after the import structures inside .idata.
+	heapBase := uint64(0)
+	switch b.goos {
+	case OSWindows:
+		heapBase = uint64(PEBaseAddr+peIdataRVA) + uint64(len(buildIdata()))
+	default:
+		heapBase = uint64(BaseAddr) + uint64(peAlignUp(textOff+len(text)+len(b.rodata), 0x1000))
+	}
+	// Windows resolves all three patch kinds inside LinkPE (rodata against
+	// the .text base, IAT slots and arena addresses against .idata);
+	// ELF resolves rodata and arena here.
 	if b.goos == OSWindows {
 		return LinkPE(b, text, b.rodata, textOff, entry)
 	}
 	roBase := base + uint64(textOff) + uint64(len(text))
 	out := append([]byte{}, text...)
-	for _, p := range b.patches {
-		v := roBase + p.roOff
+	resolve := func(p addrPatch, bse uint64) {
+		v := bse + p.roOff
 		out[p.pos] = byte(v)
 		out[p.pos+1] = byte(v >> 8)
 		out[p.pos+2] = byte(v >> 16)
@@ -370,11 +583,17 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 		out[p.pos+6] = byte(v >> 48)
 		out[p.pos+7] = byte(v >> 56)
 	}
+	for _, p := range b.patches {
+		resolve(p, roBase)
+	}
+	for _, p := range b.hpatches {
+		resolve(p, heapBase)
+	}
 	switch b.goos {
 	case OSMacOS:
 		return LinkMachO(out, b.rodata, textOff, entry)
 	default:
-		return Link(out, b.rodata, textOff, entry)
+		return Link(out, b.rodata, data, textOff, entry)
 	}
 }
 func newBuilder() *Builder {
@@ -829,6 +1048,66 @@ func (b *Builder) emitHelpers() {
 	if b.usesFloat {
 		b.emitPrintFloatHelper()
 	}
+
+	// Phase 150B: the bump allocator, emitted only when the program
+	// allocates (heapSize > 0). Same gating rationale as print_float.
+	if b.heapSize > 0 {
+		b.emitAllocHelper()
+	}
+}
+
+// emitAllocHelper emits the Phase-150B bump allocator.
+//
+//	alloc(n)  ; RDI = n -> RAX = block of n bytes, or Int3 on exhaustion
+//
+// The arena is a 16-byte header ([cursor][limit]) followed by the data
+// area, carried in a writable segment. Both addresses are absolute, and
+// both are re-materialised here from link-time constants on every call, so
+// nothing depends on caller-saved registers surviving the call. There is no
+// free(): the arena is bump-only, which is sufficient for the compile-time
+// bounded allocations 150B performs (string concat results, push results)
+// and keeps the invariant "total live bytes <= arena size" checkable at
+// compile time. Exhaustion is an Int3 — loud, never a silent overlap.
+func (b *Builder) emitAllocHelper() {
+	haveLbl := b.fresh("alloc$have")
+	oomLbl := b.fresh("alloc$oom")
+	doneLbl := b.fresh("alloc$done")
+	b.e.Mark("alloc")
+	// R10 = arena base, R11 = arena end: both from link-time imm64 patches
+	// that the container resolves (and, on PE, that the DIR64 fixups cover).
+	b.heapRef(R10, 0)
+	b.heapRef(R11, heapHeaderLen+b.heapSize)
+	b.e.LoadBaseOff(RAX, R10, heapCursorOff)
+	b.e.TestRegReg(RAX, RAX)
+	b.e.Jnz(haveLbl)
+	// First call: the cursor is zero in the image, so start it after the
+	// header. No separate init step, and no re-initialisation after that
+	// because the stored cursor is non-zero from here on.
+	b.e.MovRegReg(RAX, R10)
+	b.e.AddRegImm32(RAX, heapHeaderLen)
+	b.e.StoreBaseOff(RAX, R10, heapCursorOff)
+	b.e.Mark(haveLbl)
+	// new = cursor + n, rejected if it passes the limit. `ja` (unsigned
+	// above) also catches the wraparound when n is absurd.
+	b.e.MovRegReg(RCX, RDI)
+	b.e.AddRegReg(RCX, RAX)
+	b.e.CmpRegReg(RCX, R11)
+	b.e.Ja(oomLbl)
+	b.e.StoreBaseOff(RCX, R10, heapCursorOff)
+	// RAX already holds the block start (the pre-bump cursor) on both paths
+	// through here: the loaded cursor, or arena+16 on the first call. The
+	// bumped cursor lives in RCX and goes to the arena, so the return value
+	// is untouched.
+	b.e.Jmp(doneLbl)
+	b.e.Mark(oomLbl)
+	b.e.Int3()
+	b.e.Mark(doneLbl)
+	b.e.Ret()
+}
+
+// heapRef records an imm64 site to be resolved to arenaBase+off at link time.
+func (b *Builder) heapRef(r Reg, off int) {
+	b.hpatches = append(b.hpatches, addrPatch{pos: b.e.imm64Patch(r), roOff: uint64(off)})
 }
 
 // emitPrintFloatHelper emits the print_float routine (Phase 150A).
@@ -1043,6 +1322,15 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	// moves during expression evaluation, so slot addresses stay stable.
 	b.binTemp = next
 	next += 8 * maxBinDepth
+	// Phase 150B: string-concat staging, five 8-byte units per nesting level
+	// (see emitStrConcat). Reserved only when the program concatenates, so a
+	// program that does not keeps its exact increment-149 frame shape (and
+	// therefore its exact bytes). The decision is program-wide and taken
+	// once in a pre-pass, so layout and emission can never disagree.
+	if b.usesConcat {
+		b.strTemp = next
+		next += 8 * 5 * maxBinDepth
+	}
 	// Phase 148: caller-frame extras area for argument units past the six
 	// register units (sized by the hungriest call site in this function).
 	maxExtra := b.scanMaxExtras(fd.Body)
@@ -1802,6 +2090,12 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 			if err != nil {
 				return KindInt, err
 			}
+			// Phase 150B: `+` over two strings is concatenation, not
+			// arithmetic. Checked before the float rule so a string pair
+			// can never be mistaken for a numeric one.
+			if x.Operator == "+" && lk == KindString && rk == KindString {
+				return KindString, nil
+			}
 			if lk == KindFloat || rk == KindFloat {
 				return KindFloat, nil
 			}
@@ -2167,9 +2461,108 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 		b.e.MovRegReg(RDI, RAX)
 		b.e.MovRegReg(RSI, RDX)
 		return nil
+	case *parser.BinaryExpr:
+		// Phase 150B: `a + b` on two strings allocates a result in the heap
+		// arena and concatenates. Any other operator is a loud K145 — there
+		// is no implicit int conversion, same rule as the numeric paths.
+		if x.Operator != "+" {
+			return fmt.Errorf("error[K145]: unsupported string operator '%s' (only + concatenates)", x.Operator)
+		}
+		return b.emitStrConcat(x, depth)
 	default:
-		return fmt.Errorf("error[K145]: unsupported string expression %T (literals, variables and string calls only)", n)
+		return fmt.Errorf("error[K145]: unsupported string expression %T (literals, variables, concatenation and string calls only)", n)
 	}
+}
+
+// emitStrConcat lowers `left + right` over two strings: allocate
+// len(left)+len(right) bytes, copy the left bytes then the right bytes, and
+// return the pair in the (RDI, RSI) string convention.
+//
+// Both operands are evaluated and staged into depth-indexed frame scratch
+// slots before the allocation, for the same reason the int path stages its
+// operands (Phase 147): the second operand's evaluation must not disturb the
+// first, and rsp never moves. The copy is byte-wise because the lengths are
+// runtime values — a constant-offset load cannot address them. The second
+// copy's destination is reached by advancing the destination *pointer* by the
+// left length rather than by an indexed displacement, since the SIB disp is a
+// compile-time field in every x86-64 memory form.
+func (b *Builder) emitStrConcat(x *parser.BinaryExpr, depth int) error {
+	lk, err := b.exprKind(x.Left)
+	if err != nil {
+		return err
+	}
+	rk, err := b.exprKind(x.Right)
+	if err != nil {
+		return err
+	}
+	if lk != KindString || rk != KindString {
+		return fmt.Errorf("error[K145]: + needs two strings (got %s and %s)", kindName(lk), kindName(rk))
+	}
+	if depth >= maxBinDepth {
+		return fmt.Errorf("error[K145]: expression nesting exceeds %d binary levels", maxBinDepth)
+	}
+	// The arena, the alloc helper and this path are all gated on the same
+	// pre-pass, so reaching emission without one is an internal
+	// inconsistency (a concat site the pre-pass failed to classify). Fail
+	// with a real diagnostic rather than emitting a call to an undefined
+	// label, which would panic at link time.
+	if b.heapSize <= 0 {
+		return fmt.Errorf("error[K145]: internal: string concatenation reached emission with no heap arena (the concat pre-pass missed this site)")
+	}
+	// Five staging units per depth: left ptr/len, right ptr/len, and the
+	// allocated block. This is a dedicated area (strTemp), not the int
+	// path's 8-byte-per-depth bin scratch, which would be overrun.
+	base := b.strTemp + depth*5*8
+	if err := b.emitStr(x.Left, depth+1); err != nil {
+		return err
+	}
+	b.e.StoreStack(RDI, base)
+	b.e.StoreStack(RSI, base+8)
+	if err := b.emitStr(x.Right, depth+1); err != nil {
+		return err
+	}
+	b.e.StoreStack(RDI, base+16)
+	b.e.StoreStack(RSI, base+24)
+	// total = llen + rlen, then alloc(total).
+	b.e.LoadStack(RDI, base+8)
+	b.e.LoadStack(RSI, base+24)
+	b.e.AddRegReg(RDI, RSI)
+	b.e.Call("alloc")
+	b.e.StoreStack(RAX, base+32)
+	// Left half: dst = block.
+	b.e.LoadStack(R9, base+32)
+	b.e.LoadStack(R8, base)
+	b.e.LoadStack(RCX, base+8)
+	b.emitByteCopy(R9, R8, RCX)
+	// Right half: dst = block + llen, which is the run-time offset the SIB
+	// disp field cannot carry.
+	b.e.LoadStack(R9, base+32)
+	b.e.LoadStack(R8, base+8)
+	b.e.AddRegReg(R9, R8)
+	b.e.LoadStack(R8, base+16)
+	b.e.LoadStack(RCX, base+24)
+	b.emitByteCopy(R9, R8, RCX)
+	// Result: (RDI = block, RSI = total).
+	b.e.LoadStack(RDI, base+32)
+	b.e.LoadStack(RSI, base+8)
+	b.e.AddRegReg(RSI, RCX)
+	return nil
+}
+
+// emitByteCopy copies n bytes from [src] to [dst]. RDX is the index and R8
+// the byte shuttle, so callers must not hold live values in either.
+func (b *Builder) emitByteCopy(dst, src, n Reg) {
+	loop := b.fresh("cp")
+	done := b.fresh("cp$done")
+	b.e.XorRegReg(RDX)
+	b.e.Mark(loop)
+	b.e.CmpRegReg(RDX, n)
+	b.e.Jae(done)
+	b.e.LoadScaled8(R8, src, RDX, 1, 0)
+	b.e.StoreScaled8(R8, dst, RDX, 1, 0)
+	b.e.IncReg(RDX)
+	b.e.Jmp(loop)
+	b.e.Mark(done)
 }
 
 func (b *Builder) emitBinary(x *parser.BinaryExpr, depth int) error {

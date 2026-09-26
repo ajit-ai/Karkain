@@ -126,11 +126,72 @@ sized by the layout pass; making them growable is heap/boxed-`Value` work,
 which is exactly 150B. Reporting it here rather than shipping a
 half-semantics version.
 
-## 7. Not yet started
+### 150B1 — Heap arena + string concat (see §7 for the full note)
 
-- **150B** — maps, structs, string ops (concat/slice/compare) in the boxed
-  model; `push()` (above); whole K145 reject table re-pinned.
+The memory substrate 150B needs, with string concat as its first real
+consumer. Details and the two defects fixed are in §7.
+
+## 7. Progress (continued)
+
+### 150B1 — Heap arena + string concat (DONE)
+
+The first 150B slice: the memory substrate the rest of 150B (push, maps,
+structs) sits on, plus one real consumer so the arena is not dead code.
+
+* **Arena.** A bump allocator over a static region: a 16-byte header
+  (`[cursor][limit]`, both *absolute* addresses) followed by the data area.
+  Holding the bookkeeping inside the arena itself means no globals and no
+  writable image text, and the cursor self-initialises on the first `alloc`
+  (a zero cursor means "not started"). No `free()`: bump-only is sufficient
+  because every allocation 150B makes is compile-time bounded, which is what
+  keeps the invariant checkable and the exhaustion `Int3` unreachable.
+* **Writable storage, two ways, both gated.** ELF gets a second R+W `PT_LOAD`
+  (page-aligned, `p_offset ≡ p_vaddr`); PE puts the arena inside `.idata`,
+  which is already R/W and loader-proven writable — so no fourth section and
+  no extra import. macOS has a single R+X `__TEXT`, so a program that
+  allocates gets a loud K145 naming 150D rather than an image whose first
+  cursor store would fault.
+* **Gating.** The arena, the `alloc` helper and the concat frame area are all
+  emitted only when the program actually concatenates. This is what keeps the
+  increment-149 byte-identity pins green: `TestNativeELFByteIdentity` still
+  measures zero drift across all 19 legacy programs after the ELF header
+  count, the `.idata` sizing and the frame layout all changed.
+* **String concat.** `a + b` on two strings allocates `len(a)+len(b)` and
+  copies byte-wise (the lengths are runtime values, so a constant-offset load
+  cannot address them). Operands stage through a dedicated 5-unit-per-depth
+  frame area, not the int path's 8-byte `binTemp` scratch. The second copy
+  reaches its offset by advancing the destination *pointer*, because the SIB
+  `disp` field is a compile-time immediate in every x86-64 memory form.
+* **The arena bound is a proof, not a guess.** Every string value in a
+  concatenating program is a literal or a concatenation of literals, so
+  `sites × totalLiteralBytes` bounds the sum of all runtime allocations. That
+  is why the exhaustion trap cannot fire for a program that compiles.
+* **Executed**: 14 concat programs (chained, grouped, variable operands, call
+  arguments, returns, branches, loops, multi-site, long operands). The 7 PE
+  cases execute for real on this Windows host; the ELF cases execute on the
+  Linux CI leg and structurally validate everywhere.
+
+**Two real defects found and fixed while landing it:**
+
+1. **The concat pre-pass missed sites with no literal operand.** `a + a`
+   (two variables) was not recognised, so no arena was emitted while emission
+   still called `alloc` — an undefined-label panic. The pre-pass now
+   classifies string-ness syntactically (with a fixpoint over `let` bindings
+   and `string` parameters) instead of pattern-matching for a literal, and
+   `emitStrConcat` refuses loudly if it is ever reached with no arena, so a
+   future gap is a diagnostic rather than a panic.
+2. **The concat scratch area would have overrun the int scratch.** It was
+   first written against `binTemp` (8 bytes per depth) with 40 bytes of
+   staging needed; it now has its own `strTemp` region, reserved only when
+   the program concatenates (reserving it unconditionally would have grown
+   every frame and broken byte-identity).
+
+## 8. Not yet started
+
+- **150B2** — `push()` (now unblocked by the arena), string slice/compare,
+  maps, structs.
 - **150C** — register allocation, validated against the `nativeLegacyELF`
   table landed in 150A.
-- **150D** — Mach-O PIE/rebase, the two new CLI targets, the native-split
-  cache, and `pkg/cli/phase150_native_targets_test.go`.
+- **150D** — Mach-O PIE/rebase (and the writable `__DATA` the heap refusal
+  above names), the two new CLI targets, the native-split cache, and
+  `pkg/cli/phase150_native_targets_test.go`.

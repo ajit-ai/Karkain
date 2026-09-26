@@ -78,7 +78,16 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 	textRaw := peAlignUp(codeLen, peFileAlign)
 	idata := buildIdata()
 	idataFileOff := peTextOff + textRaw
-	idataRaw := peAlignUp(len(idata), peFileAlign)
+	// Phase 150B: the heap arena rides inside .idata, which is already
+	// R/W (0xC0000040) and proven writable at load time. No fourth section,
+	// no extra import, and the import/IAT data directories keep pointing at
+	// the import structures only — the loader never sees the arena.
+	arenaLen := 0
+	if b.heap != nil {
+		arenaLen = len(b.heap)
+	}
+	idataTotal := len(idata) + arenaLen
+	idataRaw := peAlignUp(idataTotal, peFileAlign)
 	reloc, relocBlocks := buildReloc(b)
 	relocFileOff := idataFileOff + idataRaw
 	relocRaw := peAlignUp(len(reloc), peFileAlign)
@@ -104,7 +113,7 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 	opt := make([]byte, peOptSize)
 	put16(opt[0:], 0x20B) // PE32+
 	put32(opt[4:], uint32(peAlignUp(codeLen, peFileAlign)))
-	put32(opt[8:], uint32(peAlignUp(len(idata), peFileAlign)+relocRaw))
+	put32(opt[8:], uint32(idataRaw+relocRaw))
 	put32(opt[16:], uint32(peTextRVA+(entryOffset-textOffset))) // entry RVA
 	put32(opt[20:], peTextRVA)                                  // BaseOfCode
 	put64(opt[24:], PEBaseAddr)
@@ -144,7 +153,7 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 		out = append(out, s...)
 	}
 	sect(".text", codeLen, peTextRVA, textRaw, peTextOff, 0x60000020)
-	sect(".idata", len(idata), peIdataRVA, idataRaw, idataFileOff, 0xC0000040)
+	sect(".idata", idataTotal, peIdataRVA, idataRaw, idataFileOff, 0xC0000040)
 	sect(".reloc", relocBlocks, peRelocRVA, relocRaw, relocFileOff, 0x42000040)
 	if len(out) > peTextOff {
 		return nil, fmt.Errorf("native backend: headers overflow .text start (%d > %d)", len(out), peTextOff)
@@ -191,8 +200,24 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 		img[peTextOff+p.pos+6] = byte(v >> 48)
 		img[peTextOff+p.pos+7] = byte(v >> 56)
 	}
+	// Phase 150B: arena addresses are position-dependent exactly like
+	// rodata pointers, so they join the DIR64 fixup list.
+	for _, p := range b.hpatches {
+		v := idataBase + uint64(len(idata)) + p.roOff
+		img[peTextOff+p.pos] = byte(v)
+		img[peTextOff+p.pos+1] = byte(v >> 8)
+		img[peTextOff+p.pos+2] = byte(v >> 16)
+		img[peTextOff+p.pos+3] = byte(v >> 24)
+		img[peTextOff+p.pos+4] = byte(v >> 32)
+		img[peTextOff+p.pos+5] = byte(v >> 40)
+		img[peTextOff+p.pos+6] = byte(v >> 48)
+		img[peTextOff+p.pos+7] = byte(v >> 56)
+	}
 	img = append(img, idata...)
-	img = append(img, make([]byte, idataRaw-len(idata))...)
+	if arenaLen > 0 {
+		img = append(img, b.heap...)
+	}
+	img = append(img, make([]byte, idataRaw-idataTotal)...)
 	img = append(img, reloc...)
 	img = append(img, make([]byte, relocRaw-len(reloc))...)
 	return img, nil
@@ -254,6 +279,10 @@ func buildReloc(b *Builder) (padded []byte, blocksSize int) {
 	// Phase 149 bootstrap publishes: absolute store addresses are
 	// position-dependent too, so they join the fixup list.
 	for _, p := range b.apatches {
+		rvas = append(rvas, peTextRVA+p.pos)
+	}
+	// Phase 150B: arena addresses, for the same reason.
+	for _, p := range b.hpatches {
 		rvas = append(rvas, peTextRVA+p.pos)
 	}
 	sortInts(rvas)

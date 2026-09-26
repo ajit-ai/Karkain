@@ -913,6 +913,55 @@ layout pass, so growable storage is heap/boxed-`Value` work. 150B
 PIE/rebase + the two new CLI targets + native-split cache +
 `pkg/cli/phase150_native_targets_test.go`) are not started.)
 
+Also completed: **150B1 — Heap arena + string concat** (increment 150,
+slice B1; verdict **COMPLETE**). The memory substrate the rest of 150B
+sits on, plus one real consumer so it is not dead code. **Arena**: a bump
+allocator over a static region with a 16-byte header
+(`[cursor][limit]`, both *absolute* addresses) followed by the data area —
+holding the bookkeeping inside the arena itself means no globals and no
+writable image text, and the cursor self-initialises on the first `alloc`
+(zero cursor = "not started"). No `free()`: bump-only suffices because
+every 150B allocation is compile-time bounded, which keeps the invariant
+checkable and the exhaustion `Int3` unreachable. **Writable storage, two
+ways, both gated**: ELF gets a second R+W `PT_LOAD` (page-aligned,
+`p_offset ≡ p_vaddr`); PE puts the arena inside `.idata`, which is already
+R/W and loader-proven writable — no fourth section, no extra import. macOS
+has a single R+X `__TEXT`, so an allocating program gets a loud K145
+naming 150D instead of an image whose first cursor store would fault.
+**Gating** is what keeps the increment-149 byte-identity pins green: the
+arena, the `alloc` helper and the concat frame area are emitted only when
+the program actually concatenates, and `TestNativeELFByteIdentity` still
+measures **zero drift** across all 19 legacy programs after the ELF header
+count, `.idata` sizing and frame layout all changed. **String concat**:
+`a + b` allocates `len(a)+len(b)` and copies byte-wise (the lengths are
+runtime values, so a constant-offset load cannot address them); operands
+stage through a dedicated 5-unit-per-depth frame area rather than the int
+path's 8-byte `binTemp` scratch; the second copy reaches its offset by
+advancing the destination *pointer*, because the SIB `disp` field is a
+compile-time immediate in every x86-64 memory form. New emitter
+primitives: `sibTail` (factored out of `scaledSIB` so the 8-bit and
+two-byte-opcode forms reuse the register/disp encoding), `LoadScaled8`
+(`REX.W 0F B6`), `StoreScaled8` (`REX 88`), `IncReg`. The arena bound is a
+**proof, not a guess**: every string value in a concatenating program is a
+literal or a concatenation of literals, so `sites × totalLiteralBytes`
+bounds the sum of all runtime allocations. **Executed**: 14 concat programs
+(chained, grouped, variable operands, call args, returns, branches, loops,
+multi-site, long operands); the 7 PE cases execute for real on this Windows
+host. **Two real defects found and fixed**: (1) the concat pre-pass missed
+sites with **no literal operand** (`a + a`, two variables), so no arena was
+emitted while emission still called `alloc` — an undefined-label panic; the
+pre-pass now classifies string-ness syntactically with a fixpoint over
+`let` bindings and `string` parameters, and `emitStrConcat` refuses loudly
+if ever reached with no arena so a future gap is a diagnostic, not a panic;
+(2) the concat scratch area was first written against `binTemp` (8
+bytes/depth) with 40 bytes of staging needed — it now has its own
+`strTemp`, reserved only when the program concatenates (reserving it
+unconditionally would have grown every frame and broken byte-identity).
+Regressions green: `go build ./...`, `go vet`, full `pkg/native` (no FAIL;
+honest platform skips), Phase 148 CLI gate, `pkg/parser`, `pkg/lexer`.
+**Still open in 150B:** `push()` (now unblocked by the arena), string
+slice/compare, maps, structs.
+
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
 six new examples, unconditional net-runtime emission on BOTH engines, and the
