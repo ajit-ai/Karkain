@@ -107,6 +107,11 @@ const (
 	KindString
 	KindFloat
 	KindArray
+	// KindStruct is a pointer to a field area (Phase 150B3b). It occupies
+	// ONE 8-byte unit, exactly like an int: the value IS the address of the
+	// record. That is what makes field assignment (`p.x = 1`) and passing a
+	// record to a function work without copying any bytes.
+	KindStruct
 )
 
 // kindUnits returns the 8-byte frame/call slots a value kind occupies.
@@ -126,9 +131,71 @@ func kindName(k int) string {
 		return "float"
 	case KindArray:
 		return "array"
+	case KindStruct:
+		return "struct"
 	default:
 		return "int"
 	}
+}
+
+// structInfo is the compile-time layout of one `type X struct {...}`
+// declaration (Phase 150B3b).
+//
+// Because the layout is fixed when the field area is reserved in the frame,
+// reading or writing a field is a single load or store at a constant
+// displacement from the record address -- there is no descriptor lookup and no
+// per-field tag at runtime. Field order is declaration order; every field
+// starts on an 8-byte boundary, which is the only granularity the 150B value
+// model uses, so no padding rules are needed.
+type structInfo struct {
+	name    string
+	fields  []parser.StructField
+	offs    []int // byte offset of each field within the record
+	kinds   []int // value kind of each field
+	size    int   // total bytes of the field area
+	fieldIx map[string]int
+}
+
+// structField resolves a field name to its byte offset and value kind.
+func (s *structInfo) structField(name string) (off, kind int, ok bool) {
+	ix, ok := s.fieldIx[name]
+	if !ok {
+		return 0, 0, false
+	}
+	return s.offs[ix], s.kinds[ix], true
+}
+
+// newStructInfo lays a declaration out in declaration order. A string field
+// occupies two units (ptr+len) exactly as a standalone string value does; an
+// int or float field occupies one.
+func newStructInfo(name string, fields []parser.StructField) (*structInfo, error) {
+	si := &structInfo{name: name, fields: fields, fieldIx: map[string]int{}}
+	for _, f := range fields {
+		if _, dup := si.fieldIx[f.Name]; dup {
+			return nil, fmt.Errorf("error[K145]: duplicate field '%s' in struct '%s'", f.Name, name)
+		}
+		k := KindInt
+		switch f.Type {
+		case "int", "":
+			// An int field. The parser records the explicit `int`
+			// annotation and omits the type for a bare `x` field.
+			k = KindInt
+		case "string":
+			k = KindString
+		case "float":
+			k = KindFloat
+		default:
+			// Anything that is not a known scalar is a loud refusal rather
+			// than a silently mis-sized record: nested records, arrays and
+			// maps inside a struct are not part of 150B3b.
+			return nil, fmt.Errorf("error[K145]: unsupported field type '%s' for field '%s' in struct '%s' (int, string and float fields only)", f.Type, f.Name, name)
+		}
+		si.fieldIx[f.Name] = len(si.offs)
+		si.offs = append(si.offs, si.size)
+		si.kinds = append(si.kinds, k)
+		si.size += 8 * kindUnits(k)
+	}
+	return si, nil
 }
 
 // Builder lowers one program to .text+.rodata.
@@ -181,6 +248,11 @@ type Builder struct {
 	// usesStrSlice: the program slices a string, which also needs the string
 	// staging area (and, like comparison, no heap).
 	usesStrSlice bool
+	// usesStrField: the program assigns a string FIELD of a record. The
+	// value must be staged in the frame between the two stores, so it needs
+	// the same staging area -- and, like the other string operations, no
+	// heap. Phase 150B3b.
+	usesStrField bool
 	// usesPush: the program calls push(), which needs the heap arena (and,
 	// unlike the string operations, the string staging area for its copy).
 	usesPush bool
@@ -201,6 +273,44 @@ type Builder struct {
 	// patches do for .rodata. PE needs them in the DIR64 fixup list (the
 	// host loader rebases), so buildReloc joins this list.
 	hpatches []addrPatch
+	// Phase 150B3b: struct declarations by name, with their compile-time
+	// field layout. Collected before any function is laid out, because a
+	// parameter annotation (`p Point`) and a literal (`Point { x: 1 }`) both
+	// have to resolve to a layout before the frame is sized.
+	structs map[string]*structInfo
+	// structParam records, per function, which parameters are records and of
+	// which declared type. Karkain has no receiver syntax, so the record
+	// idiom is a free function taking the record as an argument; the
+	// annotation names the type. Without an annotation a record parameter is
+	// a loud K145 rather than an inferred guess.
+	structParam map[string]string
+	// retStruct names the struct type a function returns ("" when it returns
+	// no record). A record return is a single unit -- the address -- so it
+	// travels in RAX exactly like an int.
+	retStruct map[string]string
+	// structNames maps a variable name to the struct type it holds, so a
+	// field access knows which layout to read. Filled by the layout pass.
+	structNames map[string]string
+	// fname is the function currently being laid out or emitted. The layout
+	// pass needs it to resolve a record parameter's type ("func.param"), and
+	// several diagnostics name it.
+	fname string
+	// retRec holds, per ReturnStmt, the frame offset of the field area
+	// reserved for a returned record literal. A returned record has no name
+	// to key a slot by, so the area is reserved by the layout pass and
+	// looked up here by node -- the same keying rule the for-in index uses,
+	// so nested returns cannot collide.
+	retRec map[*parser.ReturnStmt]int
+	// recArgArea holds, per StructLiteral, the frame offset of the field area
+	// reserved for a record literal that appears DIRECTLY as a call argument
+	// (`f(P { x: 1 })`). Such a literal has no `let` to own its area, but
+	// the callee receives only the address, so the record must live
+	// somewhere until the call -- and the only correct place is this
+	// function's frame, reserved by the layout pass (the arena cannot be
+	// used because its bound counts only string concatenations).
+	// Keyed by the literal node so a call with several record arguments gets
+	// a distinct area for each.
+	recArgArea map[*parser.StructLiteral]int
 }
 
 // Arena header layout (Phase 150B). Offsets are into the arena image.
@@ -238,6 +348,109 @@ const (
 // literal byte count: every string value in such a program is either a
 // literal or a concatenation of literals, so no value can be longer than
 // all the literal bytes put together.
+// scanStructUsage reports whether the program assigns a string FIELD of a
+// record (Phase 150B3b). Such a program needs the string staging area so the
+// (ptr, len) pair survives the record-base reload between the two stores.
+//
+// It is a syntactic pre-pass on purpose. A field assignment is
+// `rec.field = <string expr>`, and a StringLiteral on the right of a `.`
+// assignment is unambiguous without any type inference -- the string fields of
+// a record are the only thing that shape can mean. Any OTHER right-hand side
+// reaches the same path only when the field really is a string, and that
+// program's own string operations (concatenation, comparison) already reserve
+// the area.
+func scanStructUsage(prog *parser.Program) (usesStrField bool) {
+	// Declared first because the literal test recurses into `a + "b"`.
+	var hasStrLiteral func(n parser.Node) bool
+	hasStrLiteral = func(n parser.Node) bool {
+		if n == nil {
+			return false
+		}
+		if _, ok := n.(*parser.StringLiteral); ok {
+			return true
+		}
+		be, ok := n.(*parser.BinaryExpr)
+		if !ok || be.Operator != "+" {
+			return false
+		}
+		return hasStrLiteral(be.Left) || hasStrLiteral(be.Right)
+	}
+	var walkExpr func(n parser.Node)
+	walkExpr = func(n parser.Node) {
+		if n == nil || usesStrField {
+			return
+		}
+		switch x := n.(type) {
+		case *parser.ExprStmt:
+			if be, ok := x.Expression.(*parser.BinaryExpr); ok && be.Operator == "=" {
+				if _, isDot := be.Left.(*parser.DotExpr); isDot && hasStrLiteral(be.Right) {
+					usesStrField = true
+					return
+				}
+			}
+			walkExpr(x.Expression)
+		case *parser.VarDeclStmt:
+			walkExpr(x.Value)
+		case *parser.PrintStmt:
+			walkExpr(x.Value)
+		case *parser.ReturnStmt:
+			walkExpr(x.Value)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				walkExpr(a)
+			}
+		case *parser.BinaryExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Right)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand)
+		case *parser.IndexExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Index)
+		case *parser.DotExpr:
+			walkExpr(x.Left)
+		case *parser.ArrayLiteral:
+			for _, e := range x.Elements {
+				walkExpr(e)
+			}
+		case *parser.StructLiteral:
+			for _, f := range x.Fields {
+				walkExpr(f)
+			}
+		}
+	}
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				walkStmts(x.Body)
+			case *parser.IfStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Consequence)
+				walkStmts(x.Alternative)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Body)
+			case *parser.ForStmt:
+				walkExpr(x.Condition)
+				walkExpr(x.Init)
+				walkExpr(x.Post)
+				walkStmts(x.Body)
+			case *parser.ForInStmt:
+				walkExpr(x.Iter)
+				walkStmts(x.Body)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements)
+			default:
+				walkExpr(s)
+			}
+		}
+	}
+	walkStmts(prog.Statements)
+	return usesStrField
+}
+
 func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, usesStrSlice, usesPush, pushInLoop bool, heapSize int) {
 	var concatSites, concatHeap int
 	concatSites, concatHeap = scanConcatSites(prog)
@@ -263,6 +476,16 @@ func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, use
 	// A separate, float-only walk: unlike the concat search it has no
 	// type inference to do, and keeping the two concerns apart means a
 	// bug in string classification can never suppress float detection.
+	//
+	// Phase 150B3b: a declared `float` FIELD is a float root too. A record
+	// holding one can be printed or read without any float literal ever
+	// appearing in a statement (`let r = R { x: p.y }` and then `print(p.y)`),
+	// so without this the program would call an un-emitted print_float.
+	// Any declaration is enough: this gate only decides whether to EMIT the
+	// formatter, and an unused formatter costs bytes, never correctness.
+	if hasFloatField(prog) {
+		usesFloat = true
+	}
 	var walkExpr func(n parser.Node)
 	walkExpr = func(n parser.Node) {
 		if n == nil {
@@ -440,8 +663,73 @@ func scanPushSites(prog *parser.Program) (sites, maxLit int, inLoop bool) {
 // which would cost a needless writable segment. A missed site is the
 // dangerous direction, so emitStrConcat also refuses loudly if it is ever
 // reached with no arena (see its heapSize guard).
+// stringFieldNames returns every field name that is declared `string` in any
+// struct in the program (Phase 150B3b).
+//
+// The three syntactic string classifiers (scanConcatSites, collectStringNames,
+// scanStringViewOps) all need to answer "is `rec.label` a string?" and none of
+// them resolves record types -- deliberately, because they run BEFORE layout
+// and must never depend on it. They are documented as conservative in the safe
+// direction: anything they cannot prove is a string is treated as not-a-string,
+// so they never invent a site emission would not make. This helper supplies a
+// SUPERSET (a field name that is a string field of ANY declared struct counts
+// as a string), which keeps that direction safe: over-detection only reserves an
+// arena or a staging area that the program may not end up needing, while a
+// missed site would reach emission with no arena and is caught loudly there.
+func stringFieldNames(prog *parser.Program) map[string]bool {
+	names := map[string]bool{}
+	for _, stmt := range prog.Statements {
+		sd, ok := stmt.(*parser.StructDeclStmt)
+		if !ok {
+			continue
+		}
+		for _, f := range sd.Fields {
+			if f.Type == "string" {
+				names[f.Name] = true
+			}
+		}
+	}
+	return names
+}
+
+// hasFloatField reports whether any struct in the program declares a `float`
+// field (Phase 150B3b). It is the float-gate counterpart of
+// stringFieldNames: a float value can originate in a float literal, a float
+// annotation, OR a float field, and the pre-pass that decides whether to emit
+// print_float must see all three roots or a record program would call an
+// un-emitted helper.
+func hasFloatField(prog *parser.Program) bool {
+	for _, stmt := range prog.Statements {
+		sd, ok := stmt.(*parser.StructDeclStmt)
+		if !ok {
+			continue
+		}
+		for _, f := range sd.Fields {
+			if f.Type == "float" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isStrFieldDot reports whether a `x.y` expression reads a string field, using
+// the superset above. A non-identifier receiver can never be a record in
+// 150B3b, so it is not a string field.
+func isStrFieldDot(strFields map[string]bool, n parser.Node) bool {
+	d, ok := n.(*parser.DotExpr)
+	if !ok {
+		return false
+	}
+	if _, ok := d.Left.(*parser.Identifier); !ok {
+		return false
+	}
+	return strFields[d.Right]
+}
+
 func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
 	strNames := map[string]bool{}
+	strFields := stringFieldNames(prog)
 	// strKind reports whether n is a string-typed expression, using the
 	// names gathered so far.
 	var strKind func(n parser.Node) bool
@@ -451,6 +739,9 @@ func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
 			return true
 		case *parser.Identifier:
 			return strNames[x.Name]
+		case *parser.DotExpr:
+			// Phase 150B3b: a string FIELD is a string value.
+			return isStrFieldDot(strFields, x)
 		case *parser.BinaryExpr:
 			return x.Operator == "+" && strKind(x.Left) && strKind(x.Right)
 		case *parser.CallExpr:
@@ -570,6 +861,7 @@ func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
 // growing so ordering between bindings never affects the answer.
 func collectStringNames(prog *parser.Program) map[string]bool {
 	strNames := map[string]bool{}
+	strFields := stringFieldNames(prog)
 	var strKind func(n parser.Node) bool
 	strKind = func(n parser.Node) bool {
 		switch x := n.(type) {
@@ -577,6 +869,9 @@ func collectStringNames(prog *parser.Program) map[string]bool {
 			return true
 		case *parser.Identifier:
 			return strNames[x.Name]
+		case *parser.DotExpr:
+			// Phase 150B3b: a string FIELD is a string value.
+			return isStrFieldDot(strFields, x)
 		case *parser.BinaryExpr:
 			return x.Operator == "+" && strKind(x.Left) && strKind(x.Right)
 		case *parser.CallExpr:
@@ -639,6 +934,7 @@ func collectStringNames(prog *parser.Program) map[string]bool {
 // (and so need the string staging area but no heap) the program uses: string
 // equality/inequality, and string slicing.
 func scanStringViewOps(prog *parser.Program, strNames map[string]bool) (eq, slice bool) {
+	strFields := stringFieldNames(prog)
 	var strKind func(n parser.Node) bool
 	strKind = func(n parser.Node) bool {
 		switch x := n.(type) {
@@ -646,6 +942,10 @@ func scanStringViewOps(prog *parser.Program, strNames map[string]bool) (eq, slic
 			return true
 		case *parser.Identifier:
 			return strNames[x.Name]
+		case *parser.DotExpr:
+			// Phase 150B3b: a string FIELD is a string value, so comparing
+			// or slicing one needs the same staging area.
+			return isStrFieldDot(strFields, x)
 		case *parser.BinaryExpr:
 			return x.Operator == "+" && strKind(x.Left) && strKind(x.Right)
 		case *parser.CallExpr:
@@ -753,6 +1053,12 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 	if !b.funcs["main"] {
 		return nil, fmt.Errorf("error[K145]: no 'main' function for native target")
 	}
+	// Phase 150B3b: collect `type X struct {...}` declarations and lay each one
+	// out before anything else, because a parameter annotation and a struct
+	// literal both have to resolve to a layout before a frame is sized.
+	if err := b.collectStructs(prog); err != nil {
+		return nil, err
+	}
 	// Phase 148: string-return inference for the whole unit before any
 	// emission (callers need callee kinds; see retKindOf).
 	for name := range b.ftab {
@@ -761,6 +1067,10 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 		}
 	}
 	b.usesFloat, b.usesConcat, b.usesStrEq, b.usesStrSlice, b.usesPush, b.pushInLoop, b.heapSize = scanValueUsage(prog)
+	// Phase 150B3b: a string-field assignment needs the string staging area
+	// (and no heap). Kept as its own pre-pass so the record path cannot
+	// silently depend on a string flag some other feature happened to set.
+	b.usesStrField = scanStructUsage(prog)
 	b.emitHelpers()
 	for _, stmt := range prog.Statements {
 		if fd, ok := stmt.(*parser.FuncDecl); ok {
@@ -863,21 +1173,115 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 		return Link(out, b.rodata, data, textOff, entry)
 	}
 }
+// collectStructs gathers every `type X struct {...}` declaration and lays it
+// out, then validates the parameter annotations that name a type.
+//
+// This runs before any function is laid out because both the layout pass (a
+// record parameter needs no extra frame area, but its FIELD AREA is owned by
+// whoever constructed the record) and the call ABI (a record argument is one
+// unit) depend on knowing which parameter names a record.
+//
+// A parameter type that is neither `string`/`float` nor a declared struct is a
+// loud K145. Guessing would be worse than refusing: an unrecognised annotation
+// would silently fall through to KindInt and read a record address as a number.
+func (b *Builder) collectStructs(prog *parser.Program) error {
+	for _, stmt := range prog.Statements {
+		sd, ok := stmt.(*parser.StructDeclStmt)
+		if !ok {
+			continue
+		}
+		if len(sd.GenericParams) > 0 {
+			return fmt.Errorf("error[K145]: generic struct '%s' is not supported on the native target", sd.Name)
+		}
+		if _, dup := b.structs[sd.Name]; dup {
+			return fmt.Errorf("error[K145]: duplicate struct type '%s'", sd.Name)
+		}
+		si, err := newStructInfo(sd.Name, sd.Fields)
+		if err != nil {
+			return err
+		}
+		b.structs[sd.Name] = si
+	}
+	for _, stmt := range prog.Statements {
+		fd, ok := stmt.(*parser.FuncDecl)
+		if !ok {
+			continue
+		}
+		for i, pt := range fd.ParamTypes {
+			// An untyped parameter is an int; the parser records its type
+			// as the empty string, so there is nothing to validate.
+			if pt == "" {
+				continue
+			}
+			switch pt {
+			case "int", "string", "float":
+				continue
+			}
+			if _, ok := b.structs[pt]; !ok {
+				return fmt.Errorf("error[K145]: unknown parameter type '%s' for parameter '%s' in '%s' (want int, string, float or a declared struct type)", pt, fd.Params[i], fd.Name)
+			}
+			// Remember the record type per function+parameter so field
+			// accesses inside the body resolve to the right layout.
+			key := fd.Name + "." + fd.Params[i]
+			b.structParam[key] = pt
+		}
+	}
+	return nil
+}
+
+// structTypeOf returns the declared struct type a name holds, or "" when the
+// name is not a record. It covers both a record parameter and a local bound to
+// a struct literal.
+func (b *Builder) structTypeOf(fname, name string) string {
+	if t, ok := b.structParam[fname+"."+name]; ok {
+		return t
+	}
+	return b.structNames[name]
+}
+
+// structOfExpr returns the declared struct type a value expression produces:
+// a struct literal names its own type, and an identifier or record-returning
+// call carries the type already inferred.
+func (b *Builder) structOfExpr(fname string, n parser.Node) string {
+	switch x := n.(type) {
+	case *parser.StructLiteral:
+		if _, ok := b.structs[x.TypeName]; ok {
+			return x.TypeName
+		}
+		return ""
+	case *parser.Identifier:
+		return b.structTypeOf(fname, x.Name)
+	case *parser.CallExpr:
+		if t := b.retStruct[x.Function]; t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
 func newBuilder() *Builder {
-	return &Builder{e: NewEmitter(), strs: map[string]uint64{}, funcs: map[string]bool{}, ftab: map[string]*parser.FuncDecl{}, retKind: map[string]int{}, forIdx: map[*parser.ForInStmt]int{}}
+	return &Builder{e: NewEmitter(), strs: map[string]uint64{}, funcs: map[string]bool{}, ftab: map[string]*parser.FuncDecl{}, retKind: map[string]int{}, forIdx: map[*parser.ForInStmt]int{}, structs: map[string]*structInfo{}, structParam: map[string]string{}, retStruct: map[string]string{}, structNames: map[string]string{}}
 }
 
 // paramKind reports the value kind of parameter i of fd (Phase-46
 // annotations `name string` / `name float`; untyped parameters are ints.
 // Array parameters have no annotation syntax in 150A: a function whose
 // body indexes a parameter is rejected loudly at layout (150B work).
-func paramKind(fd *parser.FuncDecl, i int) int {
+//
+// Phase 150B3b: an annotation naming a declared struct type makes the
+// parameter a record (KindStruct, one unit). The struct registry lives on
+// the Builder, so this is a method; a type name that is neither a builtin
+// annotation nor a declared struct is reported by checkParamTypes.
+func (b *Builder) paramKind(fd *parser.FuncDecl, i int) int {
 	if i < len(fd.ParamTypes) {
 		switch fd.ParamTypes[i] {
 		case "string":
 			return KindString
 		case "float":
 			return KindFloat
+		}
+		if _, ok := b.structs[fd.ParamTypes[i]]; ok {
+			return KindStruct
 		}
 	}
 	return KindInt
@@ -911,7 +1315,17 @@ func (b *Builder) retKindVisit(name string, visiting map[string]bool) (int, erro
 	vars := map[string]parser.Node{}
 	pstr := map[string]int{}
 	for i, p := range fd.Params {
-		pstr[p] = paramKind(fd, i)
+		pstr[p] = b.paramKind(fd, i)
+	}
+	// Phase 150B3b: a returned record needs its TYPE, not just "some record",
+	// because a call site has to know the layout to read a field through the
+	// returned value. Record parameters contribute their annotated type and a
+	// `return <record param>` forwards it unchanged.
+	rsn := map[string]string{}
+	for _, p := range fd.Params {
+		if t := b.structParam[fd.Name+"."+p]; t != "" {
+			rsn[p] = t
+		}
 	}
 	var collectVars func(stmts []parser.Node)
 	collectVars = func(stmts []parser.Node) {
@@ -919,6 +1333,13 @@ func (b *Builder) retKindVisit(name string, visiting map[string]bool) (int, erro
 			switch n := s.(type) {
 			case *parser.VarDeclStmt:
 				vars[n.Name] = n.Value
+				// Phase 150B3b: a local bound to a struct literal carries
+				// that type, so `return p` and `p.x` both resolve it.
+				if lit, ok := n.Value.(*parser.StructLiteral); ok {
+					if _, known := b.structs[lit.TypeName]; known {
+						rsn[n.Name] = lit.TypeName
+					}
+				}
 			case *parser.IfStmt:
 				collectVars(n.Consequence)
 				collectVars(n.Alternative)
@@ -936,6 +1357,8 @@ func (b *Builder) retKindVisit(name string, visiting map[string]bool) (int, erro
 	collectVars(fd.Body)
 	seen := false
 	kind := KindInt
+	// Phase 150B3b: the struct type this function returns ("" for none).
+	retType := ""
 	var walkReturns func(stmts []parser.Node) error
 	walkReturns = func(stmts []parser.Node) error {
 		for _, s := range stmts {
@@ -944,14 +1367,25 @@ func (b *Builder) retKindVisit(name string, visiting map[string]bool) (int, erro
 				if n.Value == nil {
 					continue
 				}
-				k, err := b.retKindOfExpr(n.Value, vars, pstr, visiting)
+				k, err := b.retKindOfExpr(n.Value, vars, pstr, rsn, visiting)
 				if err != nil {
 					return err
 				}
 				if !seen {
 					seen, kind = true, k
+					if k == KindStruct {
+						retType = b.structTypeOfRet(name, n.Value, rsn)
+					}
 				} else if kind != k {
 					return fmt.Errorf("error[K145]: function '%s' mixes %s and %s returns", name, kindName(kind), kindName(k))
+				} else if k == KindStruct {
+					// Two record returns of DIFFERENT types would make the
+					// caller's field read ambiguous, so the disagreement is
+					// an error rather than a silent first-wins.
+					t := b.structTypeOfRet(name, n.Value, rsn)
+					if t != retType {
+						return fmt.Errorf("error[K145]: function '%s' returns both '%s' and '%s' records", name, retType, t)
+					}
 				}
 			case *parser.IfStmt:
 				if err := walkReturns(n.Consequence); err != nil {
@@ -985,11 +1419,41 @@ func (b *Builder) retKindVisit(name string, visiting map[string]bool) (int, erro
 	}
 	delete(visiting, name)
 	b.retKind[name] = kind
+	// Phase 150B3b: publish the record type so a call site can read a field
+	// through the returned value. Recorded only for a genuine record return;
+	// every other function leaves the entry absent.
+	if kind == KindStruct {
+		if retType == "" {
+			return KindInt, fmt.Errorf("error[K145]: cannot determine the record type returned by '%s' (annotate the record parameter, or return a struct literal)", name)
+		}
+		b.retStruct[name] = retType
+	}
 	return kind, nil
 }
 
+// structTypeOfRet resolves the declared struct type of a returned record
+// expression: a struct literal names its own type, and an identifier carries
+// the type recorded for a record parameter or a literal-bound local.
+func (b *Builder) structTypeOfRet(fname string, n parser.Node, rsn map[string]string) string {
+	switch x := n.(type) {
+	case *parser.StructLiteral:
+		if _, ok := b.structs[x.TypeName]; ok {
+			return x.TypeName
+		}
+	case *parser.Identifier:
+		return rsn[x.Name]
+	case *parser.CallExpr:
+		return b.retStruct[x.Function]
+	}
+	return ""
+}
+
 // retKindOfExpr classifies a returned value expression.
-func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr map[string]int, visiting map[string]bool) (int, error) {
+//
+// rsn maps a name to the record type it holds, so a `return p` of a record
+// parameter or a literal-bound local classifies as a record (and the caller
+// learns its concrete type from structTypeOfRet).
+func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr map[string]int, rsn map[string]string, visiting map[string]bool) (int, error) {
 	switch x := n.(type) {
 	case *parser.StringLiteral:
 		return KindString, nil
@@ -997,9 +1461,29 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 		return KindInt, nil
 	case *parser.Float64Literal:
 		return KindFloat, nil
+	case *parser.StructLiteral:
+		if _, ok := b.structs[x.TypeName]; ok {
+			return KindStruct, nil
+		}
+		return KindInt, fmt.Errorf("error[K145]: unknown struct type '%s' in return", x.TypeName)
+	case *parser.DotExpr:
+		// A field read has the FIELD's kind, never the record's.
+		if id, ok := x.Left.(*parser.Identifier); ok {
+			if t := rsn[id.Name]; t != "" {
+				si := b.structs[t]
+				if _, kind, ok := si.structField(x.Right); ok {
+					return kind, nil
+				}
+				return KindInt, fmt.Errorf("error[K145]: unknown field '%s' in struct '%s'", x.Right, t)
+			}
+		}
+		return KindInt, fmt.Errorf("error[K145]: unsupported record field access in return (%T)", n)
 	case *parser.Identifier:
 		if k, isParam := pstr[x.Name]; isParam {
 			return k, nil
+		}
+		if t := rsn[x.Name]; t != "" {
+			return KindStruct, nil
 		}
 		v, ok := vars[x.Name]
 		if !ok {
@@ -1008,7 +1492,7 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 		if v == nil {
 			return KindInt, nil
 		}
-		return b.retKindOfExpr(v, vars, pstr, visiting)
+		return b.retKindOfExpr(v, vars, pstr, rsn, visiting)
 	case *parser.BinaryExpr:
 		// Phase 150A: arithmetic inherits float when either operand is
 		// float, exactly like exprKind. Returning KindInt here would let a
@@ -1017,11 +1501,11 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 		// classification must agree with emission.
 		switch x.Operator {
 		case "+", "-", "*", "/", "%":
-			lk, err := b.retKindOfExpr(x.Left, vars, pstr, visiting)
+			lk, err := b.retKindOfExpr(x.Left, vars, pstr, rsn, visiting)
 			if err != nil {
 				return KindInt, err
 			}
-			rk, err := b.retKindOfExpr(x.Right, vars, pstr, visiting)
+			rk, err := b.retKindOfExpr(x.Right, vars, pstr, rsn, visiting)
 			if err != nil {
 				return KindInt, err
 			}
@@ -1034,7 +1518,7 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 			return KindInt, nil
 		}
 	case *parser.UnaryExpr:
-		return b.retKindOfExpr(x.Operand, vars, pstr, visiting)
+		return b.retKindOfExpr(x.Operand, vars, pstr, rsn, visiting)
 	case *parser.CallExpr:
 		return b.retKindVisit(x.Function, visiting)
 	default:
@@ -1571,6 +2055,12 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	b.kinds = map[string]int{}
 	b.scanErr = nil
 	b.forIdx = map[*parser.ForInStmt]int{}
+	b.retRec = map[*parser.ReturnStmt]int{}
+	b.recArgArea = map[*parser.StructLiteral]int{}
+	b.fname = fd.Name
+	// Phase 150B3b: name -> record type, per function (a name is only a
+	// record inside the function that binds it).
+	b.structNames = map[string]string{}
 	next := 0
 	for i, p := range fd.Params {
 		// Phase 148: string parameters occupy two slots (ptr+len).
@@ -1578,13 +2068,26 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 		// well, but no annotation syntax names them yet — a body that
 		// indexes a parameter is a loud K145 (150B work).
 		b.slots[p] = next
-		b.kinds[p] = paramKind(fd, i)
+		b.kinds[p] = b.paramKind(fd, i)
+		// Phase 150B3b: a record parameter's type is available to field
+		// accesses in the body through the same name -> type map a literal
+		// binding uses, so fieldOf needs only one lookup path.
+		if t := b.paramKind(fd, i); t == KindStruct {
+			if tn := b.structParam[fd.Name+"."+p]; tn != "" {
+				b.structNames[p] = tn
+			}
+		}
 		next += 8 * kindUnits(b.kinds[p])
 	}
 	next = b.scanLets(fd.Body, next)
 	if b.scanErr != nil {
 		return b.scanErr
 	}
+	// Phase 150B3b: a record literal passed straight to a call
+	// (`f(P { x: 1 })`) has no `let` of its own, so reserve a field area per
+	// such call site. Keyed by the call node, and reserved in a fixed walk
+	// order, so layout and emission agree on the offsets.
+	next = b.scanRecArgAreas(fd.Body, next)
 	// Phase 147: binary-operand scratch stack (see maxBinDepth). rsp never
 	// moves during expression evaluation, so slot addresses stay stable.
 	b.binTemp = next
@@ -1595,7 +2098,7 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	// a program that does not keeps its exact increment-149 frame shape (and
 	// therefore its exact bytes). The decision is program-wide and taken
 	// once in a pre-pass, so layout and emission can never disagree.
-	if b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush {
+	if b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush || b.usesStrField {
 		b.strTemp = next
 		next += 8 * 5 * maxBinDepth
 	}
@@ -1628,7 +2131,12 @@ func (b *Builder) scanMaxExtras(stmts []parser.Node) int {
 		case *parser.CallExpr:
 			units := 0
 			for _, a := range x.Args {
-				if isStr, err := b.isStringExpr(a); err == nil && isStr {
+				// A record argument is ONE unit (its address); a string is
+				// two (ptr+len). Everything else is one. Sizing a record as
+				// two would over-reserve the extras area, which is harmless
+				// for correctness but grows every frame that passes a
+				// record, so it is sized exactly.
+				if k, err := b.exprKind(a); err == nil && k == KindString {
 					units += 2
 				} else {
 					units++
@@ -1733,6 +2241,16 @@ func (b *Builder) scanLets(stmts []parser.Node, next int) int {
 				}
 				return next
 			}
+			// Phase 150B3b: a record bound from a record-returning call or
+			// forwarded from another record has no area of its own, but its
+			// TYPE still has to be known so `p.x` resolves a layout. The
+			// initializer is resolved here because exprKind has already
+			// proved the kind.
+			if k == KindStruct {
+				if t := b.structOfExpr(b.fname, n.Value); t != "" {
+					b.structNames[n.Name] = t
+				}
+			}
 			if kindUnits(k) == 2 {
 				next += 8
 			}
@@ -1745,8 +2263,45 @@ func (b *Builder) scanLets(stmts []parser.Node, next int) int {
 					next += 8 * len(lit.Elements)
 				}
 			}
+			if k == KindStruct {
+				// Phase 150B3b: a record is ONE unit (its address) plus the
+				// field area it owns. The area is reserved in the frame
+				// immediately after the slot, so a field access is a
+				// constant-displacement load/store and no allocation ever
+				// happens. That is what keeps a struct program out of the
+				// heap arena entirely -- and therefore byte-identical to
+				// every pre-150B3b image.
+				if lit, ok := n.Value.(*parser.StructLiteral); ok {
+					si, known := b.structs[lit.TypeName]
+					if !known {
+						b.scanErr = fmt.Errorf("error[K145]: unknown struct type '%s'", lit.TypeName)
+						return next
+					}
+					b.structNames[n.Name] = lit.TypeName
+					next += si.size
+				}
+				// A record-returning CALL owns no area of its own: the
+				// callee built the record (in its own frame, or it is a
+				// forwarded record), and the binding is just the returned
+				// address. That is the same reason a literal below a call
+				// needs no extra storage.
+			}
 			b.slots[n.Name] = off
 			b.kinds[n.Name] = k
+		case *parser.ReturnStmt:
+			// Phase 150B3b: a RETURNED record literal is built in this
+			// frame, so it needs a field area exactly like a `let` binding --
+			// there is no name to key a slot by, so the area is recorded
+			// against the return node itself.
+			if lit, ok := n.Value.(*parser.StructLiteral); ok {
+				if si, known := b.structs[lit.TypeName]; known {
+					b.retRec[n] = next
+					next += si.size
+				} else if b.scanErr == nil {
+					b.scanErr = fmt.Errorf("error[K145]: unknown struct type '%s'", lit.TypeName)
+					return next
+				}
+			}
 		case *parser.IfStmt:
 			next = b.scanLets(n.Consequence, next)
 			next = b.scanLets(n.Alternative, next)
@@ -1781,6 +2336,99 @@ func (b *Builder) scanLets(stmts []parser.Node, next int) int {
 		case *parser.BlockStmt:
 			next = b.scanLets(n.Statements, next)
 		}
+	}
+	return next
+}
+
+// scanRecArgAreas reserves a field area for every record literal passed
+// directly as a call argument (Phase 150B3b).
+//
+// A record is passed BY ADDRESS, so a temporary record needs storage that
+// outlives the call. The arena cannot serve here: its compile-time bound only
+// accounts for string concatenations and pushes, so allocating a record from
+// it would break the exhaustion proof. The frame is the right owner, exactly
+// as it is for a `let`-bound record -- the area is reserved once per call site
+// and reused if the call is reached again (a loop), which is correct because
+// the callee only ever reads or writes the fields within the call.
+func (b *Builder) scanRecArgAreas(stmts []parser.Node, next int) int {
+	// Collect the literals FIRST, then allocate, so the offsets follow a
+	// single deterministic order that emission reproduces exactly.
+	var sites []*parser.StructLiteral
+	seen := map[*parser.StructLiteral]bool{}
+	var walkExpr func(n parser.Node)
+	walkExpr = func(n parser.Node) {
+		if n == nil {
+			return
+		}
+		switch x := n.(type) {
+		case *parser.StructLiteral:
+			// Only a literal in ARGUMENT position needs an area; one bound
+			// by `let` or returned is already reserved elsewhere. The
+			// distinction is made by the call-site walk below, which is why
+			// this case only records and never allocates.
+			return
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				if lit, ok := a.(*parser.StructLiteral); ok {
+					if _, known := b.structs[lit.TypeName]; known && !seen[lit] {
+						seen[lit] = true
+						sites = append(sites, lit)
+					}
+				}
+				walkExpr(a)
+			}
+		case *parser.BinaryExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Right)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand)
+		case *parser.IndexExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Index)
+		case *parser.DotExpr:
+			walkExpr(x.Left)
+		}
+	}
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.VarDeclStmt:
+				walkExpr(x.Value)
+			case *parser.PrintStmt:
+				walkExpr(x.Value)
+			case *parser.ExprStmt:
+				walkExpr(x.Expression)
+			case *parser.ReturnStmt:
+				walkExpr(x.Value)
+			case *parser.IfStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Consequence)
+				walkStmts(x.Alternative)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Body)
+			case *parser.ForStmt:
+				walkExpr(x.Condition)
+				walkExpr(x.Init)
+				walkExpr(x.Post)
+				walkStmts(x.Body)
+			case *parser.ForInStmt:
+				walkExpr(x.Iter)
+				walkStmts(x.Body)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements)
+			}
+		}
+	}
+	walkStmts(stmts)
+	for _, lit := range sites {
+		si, known := b.structs[lit.TypeName]
+		if !known {
+			continue
+		}
+		b.recArgArea[lit] = next
+		next += si.size
 	}
 	return next
 }
@@ -1904,9 +2552,16 @@ func (b *Builder) emitStmt(s parser.Node, fname string) (bool, error) {
 // through this form — declare a fresh variable instead).
 func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
 	if be, ok := n.Expression.(*parser.BinaryExpr); ok && be.Operator == "=" {
+		// Phase 150B3b: `rec.field = value` is an assignment through the
+		// record address, which is a store rather than a slot write. It is
+		// dispatched first because a DotExpr target can never be a plain
+		// variable, so the two paths cannot be confused.
+		if dot, ok := be.Left.(*parser.DotExpr); ok {
+			return b.emitFieldWrite(dot, be.Right)
+		}
 		id, ok := be.Left.(*parser.Identifier)
 		if !ok {
-			return fmt.Errorf("error[K145]: assignment target must be a variable")
+			return fmt.Errorf("error[K145]: assignment target must be a variable or a record field")
 		}
 		off, ok := b.slots[id.Name]
 		if !ok {
@@ -2264,6 +2919,22 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 			return fmt.Errorf("error[K145]: array value must be a literal or a push() on the native target (got %T)", n.Value)
 		}
 	}
+	if b.kinds[n.Name] == KindStruct {
+		// Phase 150B3b: a record binding materializes the literal's field area
+		// in this frame and stores its address in the slot. A record-returning
+		// call binds the returned address instead, so a `let` of one is a
+		// plain load with no area of its own.
+		switch sv := n.Value.(type) {
+		case *parser.StructLiteral:
+			return b.emitStructValue(n.Name, sv)
+		default:
+			if err := b.emitExpr(n.Value, 0); err != nil {
+				return err
+			}
+			b.e.StoreStack(RAX, off)
+			return nil
+		}
+	}
 	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
 	}
@@ -2464,6 +3135,12 @@ func (b *Builder) emitPrint(n *parser.PrintStmt) error {
 		b.e.MovRegReg(RDI, RAX)
 		b.e.Call("print_float")
 		return nil
+	} else if k == KindStruct {
+		// Phase 150B3b: a record has no printable form. Printing one would
+		// render its ADDRESS as a decimal, which is technically what the
+		// int path would do and is never what the program meant, so it is
+		// refused by name instead.
+		return fmt.Errorf("error[K145]: cannot print a struct value (print one of its fields)")
 	}
 	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
@@ -2502,7 +3179,27 @@ func (b *Builder) emitReturn(n *parser.ReturnStmt, isMain bool) error {
 			return err
 		} else if k == KindFloat {
 			return fmt.Errorf("error[K145]: floating-point return values are not supported (function must return int)")
+		} else if k == KindStruct {
+			// Phase 150B3b: main's value becomes the process exit code, and
+			// a record address truncated to an exit code would be meaningless.
+			return fmt.Errorf("error[K145]: struct return values are not supported (main must return int)")
 		}
+	}
+	// Phase 150B3b: a record return is the address in RAX -- the same one-unit
+	// convention an int uses, so emitExpr's record load is already correct.
+	// A returned LITERAL is the one case that must build a record here: the
+	// area it writes into was reserved by the layout pass against this exact
+	// return node, and the address of that area is the return value.
+	if lit, ok := n.Value.(*parser.StructLiteral); ok {
+		off, reserved := b.retRec[n]
+		if !reserved {
+			return fmt.Errorf("error[K145]: internal: returned record literal has no reserved field area")
+		}
+		if err := b.emitStructArea(off, lit); err != nil {
+			return err
+		}
+		b.e.LeaRegStack(RAX, off+8)
+		return nil
 	}
 	return b.emitExpr(n.Value, 0)
 }
@@ -2610,6 +3307,19 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		// Phase 150A: int-element literals only (element kinds are
 		// checked at emission, where the diagnostic names the index).
 		return KindArray, nil
+	case *parser.StructLiteral:
+		// Phase 150B3b: a record literal is one unit (the area address).
+		// The field kinds are checked at emission, where the diagnostic can
+		// name the offending field.
+		if _, ok := b.structs[x.TypeName]; !ok {
+			return KindInt, fmt.Errorf("error[K145]: unknown struct type '%s'", x.TypeName)
+		}
+		return KindStruct, nil
+	case *parser.DotExpr:
+		// Phase 150B3b: a field read has the FIELD's kind. The record's
+		// type comes from the receiver name, so a chained or computed
+		// receiver is a loud refusal rather than a guess.
+		return b.fieldKind(x)
 	case *parser.IndexExpr:
 		// int arrays only in 150A: the length lives in the header.
 		kIdx, errIdx := b.exprKind(x.Left)
@@ -2625,6 +3335,37 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 	}
 }
 
+// fieldOf resolves a `rec.field` access to the record's declared type, the
+// field's byte offset within the area, and the field's value kind.
+//
+// The receiver must be a plain identifier bound to a record: a record
+// parameter (annotated) or a local bound to a literal. A chained access
+// (`a.b.c`) or a computed receiver is a loud K145, because resolving it would
+// need an expression-level type that 150B3b deliberately does not track -- and
+// guessing a layout is exactly the miscompile this design refuses to allow.
+func (b *Builder) fieldOf(x *parser.DotExpr) (typeName string, off, kind int, err error) {
+	id, ok := x.Left.(*parser.Identifier)
+	if !ok {
+		return "", 0, 0, fmt.Errorf("error[K145]: record field access needs a record variable (got %T)", x.Left)
+	}
+	t := b.structNames[id.Name]
+	if t == "" {
+		return "", 0, 0, fmt.Errorf("error[K145]: '%s' is not a record (annotate the parameter with a struct type, or bind a struct literal)", id.Name)
+	}
+	si := b.structs[t]
+	off, kind, ok = si.structField(x.Right)
+	if !ok {
+		return "", 0, 0, fmt.Errorf("error[K145]: unknown field '%s' in struct '%s'", x.Right, t)
+	}
+	return t, off, kind, nil
+}
+
+// fieldKind is the exprKind entry point for `rec.field`.
+func (b *Builder) fieldKind(x *parser.DotExpr) (int, error) {
+	_, _, kind, err := b.fieldOf(x)
+	return kind, err
+}
+
 func (b *Builder) emitExpr(n parser.Node, depth int) error {
 	switch x := n.(type) {
 	case *parser.IntLiteral:
@@ -2635,6 +3376,18 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		// in its single slot; a string identifier is two units.
 		if b.kinds[x.Name] == KindFloat {
 			return b.emitFloat(x, depth)
+		}
+		// Phase 150B3b: a record identifier evaluates to its ADDRESS, which
+		// is exactly what the slot already holds. Reusing the int load keeps
+		// one lowering for both "the record" and "the number" without a
+		// separate path that could drift.
+		if b.kinds[x.Name] == KindStruct {
+			off, ok := b.slots[x.Name]
+			if !ok {
+				return fmt.Errorf("error[K145]: undefined identifier '%s'", x.Name)
+			}
+			b.e.LoadStack(RAX, off)
+			return nil
 		}
 		if b.kinds[x.Name] != KindInt {
 			return fmt.Errorf("error[K145]: %s '%s' in int position", kindName(b.kinds[x.Name]), x.Name)
@@ -2680,6 +3433,18 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		return b.emitArrayLit(x)
 	case *parser.IndexExpr:
 		return b.emitArrayIndex(x, depth)
+	case *parser.DotExpr:
+		// Phase 150B3b: a field read is one load at a constant displacement
+		// from the record address. A string field is TWO loads (ptr at the
+		// offset, len at offset+8) and lands in the (RDI, RSI) string
+		// convention; every other field is a single unit in RAX.
+		return b.emitFieldRead(x)
+	case *parser.StructLiteral:
+		// A record literal lowers at its `let` binding, where the field area
+		// is reserved in this frame (see scanLets). Anywhere else there is
+		// no area to build into, so it is a loud refusal rather than a
+		// silent allocation the layout pass never sized.
+		return fmt.Errorf("error[K145]: struct literal outside let (records are built at their binding)")
 	default:
 		return fmt.Errorf("error[K145]: unsupported expression %T", n)
 	}
@@ -2773,6 +3538,189 @@ func (b *Builder) emitArrayValue(name string, x *parser.ArrayLiteral) error {
 		b.e.MovRegImm64(RCX, uint64(i))
 		b.e.StoreScaled64(RAX, RBX, RCX, 8, 0)
 	}
+	return nil
+}
+
+// emitStructValue materializes the record literal bound to name.
+//
+// Frame contract (see scanLets): [off] holds the ADDRESS of the field area,
+// and the area itself occupies [off+8, off+8+si.size). The slot therefore
+// stores a pointer computed once with an LEA, and every field store is a
+// constant-displacement store through that pointer.
+//
+// The pointer is RELOADED from the frame before each field store, for the same
+// reason emitArrayValue reloads the element-area base: evaluating a field
+// initialiser (an arbitrary expression, possibly a call) may clobber RBX, and
+// a stale base would write the field into the wrong record. Nothing is
+// allocated, so this path never touches the heap arena.
+func (b *Builder) emitStructValue(name string, x *parser.StructLiteral) error {
+	return b.emitStructArea(b.slots[name], x)
+}
+
+// emitStructArea is emitStructValue at an explicit slot offset.
+//
+// It is factored out because a record literal can be materialised in two
+// places: a `let` binding and a `return`. Both need the same
+// address-plus-field-area contract, and the return site has no name to look
+// the slot up by, so the offset is passed in directly (scanLets records it in
+// retRec, keyed by the ReturnStmt node).
+func (b *Builder) emitStructArea(off int, x *parser.StructLiteral) error {
+	si, ok := b.structs[x.TypeName]
+	if !ok {
+		return fmt.Errorf("error[K145]: unknown struct type '%s'", x.TypeName)
+	}
+	b.e.LeaRegStack(RBX, off+8)
+	b.e.StoreStack(RBX, off)
+	// Every declared field must be initialised exactly once. A missing or a
+	// duplicate field is a loud K145: leaving a field uninitialised would
+	// read whatever the frame happened to contain, which is precisely the
+	// silent-garbage failure a fixed layout invites.
+	seen := map[string]bool{}
+	for _, f := range x.Fields {
+		be, ok := f.(*parser.BinaryExpr)
+		if !ok || be.Operator != "=" {
+			return fmt.Errorf("error[K145]: struct field initialiser must be 'name: value' (got %T)", f)
+		}
+		id, ok := be.Left.(*parser.Identifier)
+		if !ok {
+			return fmt.Errorf("error[K145]: struct field name must be an identifier (got %T)", be.Left)
+		}
+		foff, fkind, ok := si.structField(id.Name)
+		if !ok {
+			return fmt.Errorf("error[K145]: unknown field '%s' in struct '%s'", id.Name, x.TypeName)
+		}
+		if seen[id.Name] {
+			return fmt.Errorf("error[K145]: field '%s' initialised twice in struct '%s'", id.Name, x.TypeName)
+		}
+		seen[id.Name] = true
+		got, err := b.exprKind(be.Right)
+		if err != nil {
+			return err
+		}
+		if got != fkind {
+			return fmt.Errorf("error[K145]: field '%s' expects %s (got %s)", id.Name, kindName(fkind), kindName(got))
+		}
+		if fkind == KindString {
+			if err := b.emitStr(be.Right, 0); err != nil {
+				return err
+			}
+			// Reload the area base, then store ptr and len at the two
+			// consecutive units of the string field.
+			b.e.LoadStack(RBX, off)
+			b.e.StoreBaseOff(RDI, RBX, foff)
+			b.e.StoreBaseOff(RSI, RBX, foff+8)
+			continue
+		}
+		if fkind == KindFloat {
+			if err := b.emitFloat(be.Right, 0); err != nil {
+				return err
+			}
+		} else if err := b.emitExpr(be.Right, 0); err != nil {
+			return err
+		}
+		b.e.LoadStack(RBX, off)
+		b.e.StoreBaseOff(RAX, RBX, foff)
+	}
+	if len(seen) != len(si.fields) {
+		for _, f := range si.fields {
+			if !seen[f.Name] {
+				return fmt.Errorf("error[K145]: field '%s' of struct '%s' is not initialised", f.Name, x.TypeName)
+			}
+		}
+	}
+	return nil
+}
+
+// emitFieldRead lowers `rec.field` (Phase 150B3b).
+//
+// The record address is loaded from the receiver's slot, then a single load
+// (two for a string field) at the field's constant displacement produces the
+// value. rsp never moves and only RAX/RCX/RBX die, so this composes with every
+// surrounding expression without disturbing staged operands.
+func (b *Builder) emitFieldRead(x *parser.DotExpr) error {
+	_, off, kind, err := b.fieldOf(x)
+	if err != nil {
+		return err
+	}
+	id := x.Left.(*parser.Identifier)
+	slot, ok := b.slots[id.Name]
+	if !ok {
+		return fmt.Errorf("error[K145]: undefined identifier '%s'", id.Name)
+	}
+	b.e.LoadStack(RBX, slot)
+	if kind == KindString {
+		b.e.LoadBaseOff(RDI, RBX, off)
+		b.e.LoadBaseOff(RSI, RBX, off+8)
+		return nil
+	}
+	b.e.LoadBaseOff(RAX, RBX, off)
+	return nil
+}
+
+// emitFieldWrite lowers `rec.field = value` (Phase 150B3b): one store at the
+// field's constant displacement from the record address.
+//
+// A string field writes both units (ptr then len). The value is evaluated
+// BEFORE the record base is loaded, because that evaluation may clobber RBX --
+// the same discipline the array element store follows.
+func (b *Builder) emitFieldWrite(x *parser.DotExpr, val parser.Node) error {
+	_, off, kind, err := b.fieldOf(x)
+	if err != nil {
+		return err
+	}
+	// Check the assigned kind BEFORE evaluating, so `p.x = "s"` on an int
+	// field names the field and both types instead of failing later inside
+	// the int path with a message about the expression shape.
+	got, err := b.exprKind(val)
+	if err != nil {
+		return err
+	}
+	if got != kind {
+		return fmt.Errorf("error[K145]: field '%s' expects %s (got %s)", x.Right, kindName(kind), kindName(got))
+	}
+	if kind == KindString {
+		if err := b.emitStr(val, 0); err != nil {
+			return err
+		}
+		// Stage the pair in the frame: the record base must be loaded into
+		// RBX between the two stores, and RDI/RSI have to survive it.
+		// scanValueUsage counts a string-field assignment as a string
+		// operation, so the staging area is reserved whenever this path is
+		// reachable; the guard turns any future gap into a diagnostic
+		// instead of a store into the wrong frame offset.
+		base := b.strTemp
+		if base == 0 && !b.usesConcat && !b.usesStrEq && !b.usesStrSlice && !b.usesPush && !b.usesStrField {
+			return fmt.Errorf("error[K145]: internal: string field assignment reached without the string staging area")
+		}
+		b.e.StoreStack(RDI, base)
+		b.e.StoreStack(RSI, base+8)
+		id := x.Left.(*parser.Identifier)
+		slot, ok := b.slots[id.Name]
+		if !ok {
+			return fmt.Errorf("error[K145]: undefined identifier '%s'", id.Name)
+		}
+		b.e.LoadStack(RBX, slot)
+		b.e.LoadStack(RDI, base)
+		b.e.LoadStack(RSI, base+8)
+		b.e.StoreBaseOff(RDI, RBX, off)
+		b.e.StoreBaseOff(RSI, RBX, off+8)
+		return nil
+	}
+	if kind == KindFloat {
+		if err := b.emitFloat(val, 0); err != nil {
+			return err
+		}
+	} else if err := b.emitExpr(val, 0); err != nil {
+		return err
+	}
+	id := x.Left.(*parser.Identifier)
+	slot, ok := b.slots[id.Name]
+	if !ok {
+		return fmt.Errorf("error[K145]: undefined identifier '%s'", id.Name)
+	}
+	// The value is in RAX; load the record base into RBX without touching RAX.
+	b.e.LoadStack(RBX, slot)
+	b.e.StoreBaseOff(RAX, RBX, off)
 	return nil
 }
 
@@ -2882,6 +3830,16 @@ func (b *Builder) emitFloat(n parser.Node, depth int) error {
 			return fmt.Errorf("error[K145]: %s call in float position (call to '%s')", kindName(b.exprKindOrInt(x)), x.Function)
 		}
 		return b.emitCallValue(x, depth)
+	case *parser.DotExpr:
+		// Phase 150B3b: a float FIELD is a float value. emitFieldRead loads
+		// the IEEE-754 bits into RAX, which is exactly the float contract,
+		// so the kind check is the only thing needed here.
+		if _, _, kind, err := b.fieldOf(x); err != nil {
+			return err
+		} else if kind != KindFloat {
+			return fmt.Errorf("error[K145]: field '%s' is %s, not a float", x.Right, kindName(kind))
+		}
+		return b.emitFieldRead(x)
 	default:
 		return fmt.Errorf("error[K145]: unsupported float expression %T", n)
 	}
@@ -2937,6 +3895,17 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 		b.e.MovRegReg(RDI, RAX)
 		b.e.MovRegReg(RSI, RDX)
 		return nil
+	case *parser.DotExpr:
+		// Phase 150B3b: a string FIELD read is the same (RDI, RSI) pair,
+		// loaded from the record area. emitFieldRead owns the kind check, so
+		// an int field reaching here is a precise diagnostic rather than a
+		// misread pointer pair.
+		if _, _, kind, err := b.fieldOf(x); err != nil {
+			return err
+		} else if kind != KindString {
+			return fmt.Errorf("error[K145]: field '%s' is %s, not a string", x.Right, kindName(kind))
+		}
+		return b.emitFieldRead(x)
 	case *parser.SliceExpr:
 		return b.emitStrSlice(x)
 	case *parser.BinaryExpr:
@@ -3220,8 +4189,11 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 	}
 	// Kind check + unit plan: ints and floats take one unit, strings
 	// take two; units 0-5 ride argRegs, further units ride the extras
-	// area via R10. Arrays are not passable in 150A (no annotation
-	// syntax names them; 150B work) — a loud K145, never a miscompile.
+	// area via R10. Phase 150B3b: a record takes ONE unit -- its
+	// address -- and passes through the same staging path as an int,
+	// so passing a record copies no bytes. Arrays are still not
+	// passable (no annotation syntax names them) -- a loud K145, never
+	// a miscompile.
 	argKind := make([]int, len(x.Args))
 	for i, a := range x.Args {
 		got, err := b.exprKind(a)
@@ -3231,7 +4203,7 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 		if got == KindArray {
 			return fmt.Errorf("error[K145]: array argument for parameter '%s' is not supported (call to '%s')", fd.Params[i], x.Function)
 		}
-		want := paramKind(fd, i)
+		want := b.paramKind(fd, i)
 		if got != want {
 			return fmt.Errorf("error[K145]: %s argument for %s parameter '%s' (call to '%s')", kindName(got), kindName(want), fd.Params[i], x.Function)
 		}
@@ -3255,6 +4227,18 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 			if err := b.emitFloat(a, depth); err != nil {
 				return err
 			}
+		} else if lit, ok := a.(*parser.StructLiteral); ok && argKind[i] == KindStruct {
+			// Phase 150B3b: a record literal built directly for this call.
+			// Its field area was reserved by the layout pass against this
+			// literal node; the argument value is the area's ADDRESS.
+			off, reserved := b.recArgArea[lit]
+			if !reserved {
+				return fmt.Errorf("error[K145]: internal: record literal argument has no reserved field area (call to '%s')", x.Function)
+			}
+			if err := b.emitStructArea(off, lit); err != nil {
+				return err
+			}
+			b.e.LeaRegStack(RAX, off+8)
 		} else if err := b.emitExpr(a, depth); err != nil {
 			return err
 		}
