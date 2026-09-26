@@ -1028,6 +1028,55 @@ push inside `while` and inside `for-in`). Regressions green: `go build
 skips), byte-identity still zero drift, Phase 148 CLI gate, `pkg/parser`,
 `pkg/lexer`. **Still open in 150B:** maps, structs.
 
+Also completed: **150B3b — records (structs) on the native target** (increment
+150, slice B3b; verdict **COMPLETE**). The native value model's last big gap:
+a record. `KindStruct` is **one** 8-byte unit whose value **IS** the address of
+a compile-time-sized field area reserved in the frame, so field assignment and
+by-pointer record passing work without copying a byte and **nothing is
+allocated** — records stay out of the heap arena entirely, which is exactly
+what keeps every pre-150B3b image byte-identical. Surface: `type X struct
+{a int; label string; r float}` with a fixed layout (int/float one unit,
+string two, `newStructInfo` + a `TestNativeStructLayout` pin); struct literals
+bound at `let`, **returned**, or **passed straight to a call** (each with its
+own reserved area — `retRec` keyed by the `ReturnStmt` node, `recArgArea` keyed
+by the literal node, following the existing for-in node-keying rule); field
+reads and `rec.field = v` writes; the **record idiom** (a free function taking
+the record, annotated `func deposit(a Acct)`, whose field writes are visible to
+the caller); and record returns (the address in RAX, the int convention).
+Record params are named by annotation — the untyped record idiom is a loud
+K145 rather than an inferred guess. **Six real defects found and fixed, all
+gate-pinned**: (1) `newStructInfo` rejected the explicit `int` field
+annotation (the parser records `int`, not only the bare form) so *every* int
+field was refused; (2) `emitStr` had no `DotExpr` case, so a string field could
+not be read/concatenated/compared; (3) `emitFloat` had no `DotExpr` case either
+and a float field **panicked the emitter** on an undefined `print_float`
+label — root cause: the float pre-pass did not treat a declared float FIELD as
+a float root (`hasFloatField`); (4) returned and call-argument record literals
+had no field area at all; (5) the three syntactic string classifiers could not
+see a string field, so `s.label + "rk"` reached emission with no arena
+(`stringFieldNames`/`isStrFieldDot`, a deliberate safe-direction superset since
+over-detection only reserves bytes while a miss reaches emission uncaught);
+(6) assigning a string to an int field failed deep in the int path with a
+message about expression shape, so `emitFieldWrite` now checks the assigned
+kind first and names the field and both types. **Executed**: 31 record
+programs — construction, field-in-expression, cumulative/expression/loop
+field writes, mixed int+string+float layouts, string-field
+concat/compare/write-through-a-parameter, the record idiom (mutation visible
+to the caller, two records, record+scalar), record returns (literal,
+computed, forwarded), computed initialisers, record independence, and the
+aliasing rule (`let b = a` shares ONE field area — pinned as an executed
+golden because it is the one place a reader expects a copy) — **all 31 run
+for real on this Windows host through the PE container, zero skipped**, plus
+the same set on Linux ELF and a structural pass over all three containers
+(ELF/PE/Mach-O), a 17-case K145 reject table, and the layout pin.
+Regressions green: `go build ./...`, `go vet ./pkg/native`, full `pkg/native`
+(no FAIL; honest platform skips), **byte-identity still zero drift across all
+19 legacy ELF images**, Phase 148 native CLI gate, `pkg/parser`, `pkg/lexer`,
+`pkg/sema`, `pkg/ir/...`, `pkg/target`, `pkg/wasm`, `pkg/compiler`. The
+`pkg/codegen` `TestPhase107_CodegenSpawnJoin` failure in a combined run is the
+documented ~4GB-host OOM flake class (passes in isolation; this slice touches
+only `pkg/native`). **Still open in 150B:** maps.
+
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,
 six new examples, unconditional net-runtime emission on BOTH engines, and the
