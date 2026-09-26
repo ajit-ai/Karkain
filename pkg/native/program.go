@@ -2,6 +2,7 @@ package native
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 
 	"karkain/pkg/parser"
@@ -96,6 +97,40 @@ type absPatch struct {
 	index int
 }
 
+// Value kinds (Phase 150A): the native Value model. KindInt is zero so
+// every pre-150 default (untyped parameters, missing returns, unknown
+// slots) keeps meaning int without touching its logic. Strings and arrays
+// occupy two frame slots (ptr+len); ints and floats occupy one slot
+// (floats carry f64 bits, converted to XMM only inside arithmetic).
+const (
+	KindInt = iota
+	KindString
+	KindFloat
+	KindArray
+)
+
+// kindUnits returns the 8-byte frame/call slots a value kind occupies.
+func kindUnits(k int) int {
+	if k == KindString || k == KindArray {
+		return 2
+	}
+	return 1
+}
+
+// kindName renders a kind for K145 diagnostics.
+func kindName(k int) string {
+	switch k {
+	case KindString:
+		return "string"
+	case KindFloat:
+		return "float"
+	case KindArray:
+		return "array"
+	default:
+		return "int"
+	}
+}
+
 // Builder lowers one program to .text+.rodata.
 type Builder struct {
 	e       *Emitter
@@ -107,9 +142,9 @@ type Builder struct {
 	apatches []absPatch // Phase 149: bootstrap IAT publishes
 	funcs   map[string]bool
 	ftab    map[string]*parser.FuncDecl // Phase 148: name -> declaration (arity, param kinds)
-	retKind map[string]bool             // Phase 148: name -> true if the function returns a string
+	retKind map[string]int              // Phase 150A: name -> value kind (was bool string-ness)
 	slots   map[string]int
-	kinds   map[string]bool
+	kinds   map[string]int // Phase 150A: name -> value kind (was bool string-ness)
 	frame   int
 	binTemp int // Phase 147: base offset of the binary-operand scratch stack
 	extrasBase int // Phase 148: base offset of the caller-frame extras area
@@ -231,44 +266,54 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 	}
 }
 func newBuilder() *Builder {
-	return &Builder{e: NewEmitter(), strs: map[string]uint64{}, funcs: map[string]bool{}, ftab: map[string]*parser.FuncDecl{}, retKind: map[string]bool{}}
+	return &Builder{e: NewEmitter(), strs: map[string]uint64{}, funcs: map[string]bool{}, ftab: map[string]*parser.FuncDecl{}, retKind: map[string]int{}}
 }
 
-// paramIsString reports whether parameter i of fd is a string (Phase-46
-// annotation `name string`; untyped parameters are ints in v1).
-func paramIsString(fd *parser.FuncDecl, i int) bool {
-	return i < len(fd.ParamTypes) && fd.ParamTypes[i] == "string"
+// paramKind reports the value kind of parameter i of fd (Phase-46
+// annotations `name string` / `name float`; untyped parameters are ints.
+// Array parameters have no annotation syntax in 150A: a function whose
+// body indexes a parameter is rejected loudly at layout (150B work).
+func paramKind(fd *parser.FuncDecl, i int) int {
+	if i < len(fd.ParamTypes) {
+		switch fd.ParamTypes[i] {
+		case "string":
+			return KindString
+		case "float":
+			return KindFloat
+		}
+	}
+	return KindInt
 }
 
-// retKindOf infers whether a function returns a string (true) or an int
-// (false): every `return` in its body (descending into control flow)
-// must agree; no returns means int (the missing-return-yields-0 rule).
-// Cyclic call graphs that never ground out are a loud K145.
-func (b *Builder) retKindOf(name string) (bool, error) {
+// retKindOf infers the value kind a function returns: every `return` in
+// its body (descending into control flow) must agree; no returns means
+// int (the missing-return-yields-0 rule). Cyclic call graphs that never
+// ground out are a loud K145.
+func (b *Builder) retKindOf(name string) (int, error) {
 	if k, done := b.retKind[name]; done {
 		return k, nil
 	}
 	return b.retKindVisit(name, map[string]bool{})
 }
 
-func (b *Builder) retKindVisit(name string, visiting map[string]bool) (bool, error) {
+func (b *Builder) retKindVisit(name string, visiting map[string]bool) (int, error) {
 	if k, done := b.retKind[name]; done {
 		return k, nil
 	}
 	if visiting[name] {
-		return false, fmt.Errorf("error[K145]: cannot determine return kind of recursive function '%s'", name)
+		return KindInt, fmt.Errorf("error[K145]: cannot determine return kind of recursive function '%s'", name)
 	}
 	fd, ok := b.ftab[name]
 	if !ok {
-		return false, fmt.Errorf("error[K145]: undefined function '%s'", name)
+		return KindInt, fmt.Errorf("error[K145]: undefined function '%s'", name)
 	}
 	visiting[name] = true
 	// Local varDecl map for resolving returned identifiers, seeded with
 	// the parameter kinds (untyped parameters are ints).
 	vars := map[string]parser.Node{}
-	pstr := map[string]bool{}
+	pstr := map[string]int{}
 	for i, p := range fd.Params {
-		pstr[p] = paramIsString(fd, i)
+		pstr[p] = paramKind(fd, i)
 	}
 	var collectVars func(stmts []parser.Node)
 	collectVars = func(stmts []parser.Node) {
@@ -292,7 +337,7 @@ func (b *Builder) retKindVisit(name string, visiting map[string]bool) (bool, err
 	}
 	collectVars(fd.Body)
 	seen := false
-	isStr := false
+	kind := KindInt
 	var walkReturns func(stmts []parser.Node) error
 	walkReturns = func(stmts []parser.Node) error {
 		for _, s := range stmts {
@@ -306,9 +351,9 @@ func (b *Builder) retKindVisit(name string, visiting map[string]bool) (bool, err
 					return err
 				}
 				if !seen {
-					seen, isStr = true, k
-				} else if isStr != k {
-					return fmt.Errorf("error[K145]: function '%s' mixes int and string returns", name)
+					seen, kind = true, k
+				} else if kind != k {
+					return fmt.Errorf("error[K145]: function '%s' mixes %s and %s returns", name, kindName(kind), kindName(k))
 				}
 			case *parser.IfStmt:
 				if err := walkReturns(n.Consequence); err != nil {
@@ -338,40 +383,40 @@ func (b *Builder) retKindVisit(name string, visiting map[string]bool) (bool, err
 		return nil
 	}
 	if err := walkReturns(fd.Body); err != nil {
-		return false, err
+		return KindInt, err
 	}
 	delete(visiting, name)
-	b.retKind[name] = isStr
-	return isStr, nil
+	b.retKind[name] = kind
+	return kind, nil
 }
 
 // retKindOfExpr classifies a returned value expression.
-func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr map[string]bool, visiting map[string]bool) (bool, error) {
+func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr map[string]int, visiting map[string]bool) (int, error) {
 	switch x := n.(type) {
 	case *parser.StringLiteral:
-		return true, nil
+		return KindString, nil
 	case *parser.IntLiteral:
-		return false, nil
+		return KindInt, nil
 	case *parser.Float64Literal:
-		return false, fmt.Errorf("error[K145]: floating-point numbers are not supported (ints and strings only)")
+		return KindFloat, nil
 	case *parser.Identifier:
 		if k, isParam := pstr[x.Name]; isParam {
 			return k, nil
 		}
 		v, ok := vars[x.Name]
 		if !ok {
-			return false, fmt.Errorf("error[K145]: undefined identifier '%s'", x.Name)
+			return KindInt, fmt.Errorf("error[K145]: undefined identifier '%s'", x.Name)
 		}
 		if v == nil {
-			return false, nil
+			return KindInt, nil
 		}
 		return b.retKindOfExpr(v, vars, pstr, visiting)
 	case *parser.BinaryExpr, *parser.UnaryExpr:
-		return false, nil
+		return KindInt, nil
 	case *parser.CallExpr:
 		return b.retKindVisit(x.Function, visiting)
 	default:
-		return false, fmt.Errorf("error[K145]: unsupported return expression %T", n)
+		return KindInt, fmt.Errorf("error[K145]: unsupported return expression %T", n)
 	}
 }
 
@@ -631,17 +676,17 @@ func (b *Builder) printNewline() {
 
 func (b *Builder) layout(fd *parser.FuncDecl) error {
 	b.slots = map[string]int{}
-	b.kinds = map[string]bool{}
+	b.kinds = map[string]int{}
 	b.scanErr = nil
 	next := 0
 	for i, p := range fd.Params {
 		// Phase 148: string parameters occupy two slots (ptr+len).
+		// Phase 150A: array parameters occupy two slots (ptr+len) as
+		// well, but no annotation syntax names them yet — a body that
+		// indexes a parameter is a loud K145 (150B work).
 		b.slots[p] = next
-		b.kinds[p] = paramIsString(fd, i)
-		next += 8
-		if b.kinds[p] {
-			next += 8
-		}
+		b.kinds[p] = paramKind(fd, i)
+		next += 8 * kindUnits(b.kinds[p])
 	}
 	next = b.scanLets(fd.Body, next)
 	if b.scanErr != nil {
@@ -778,18 +823,27 @@ func (b *Builder) scanLets(stmts []parser.Node, next int) int {
 			}
 			off := next
 			next += 8
-			isStr, err := b.isStringExpr(n.Value)
+			k, err := b.exprKind(n.Value)
 			if err != nil {
 				if b.scanErr == nil {
 					b.scanErr = err
 				}
 				return next
 			}
-			if isStr {
+			if kindUnits(k) == 2 {
 				next += 8
 			}
+			if k == KindArray {
+				// Phase 150A: array element storage lives in the frame
+				// right after the (ptr,len) header, so every array has
+				// a fixed compile-time footprint: header + N int slots.
+				// Only int-element literals lower in 150A (see exprKind).
+				if lit, ok := n.Value.(*parser.ArrayLiteral); ok {
+					next += 8 * len(lit.Elements)
+				}
+			}
 			b.slots[n.Name] = off
-			b.kinds[n.Name] = isStr
+			b.kinds[n.Name] = k
 		case *parser.IfStmt:
 			next = b.scanLets(n.Consequence, next)
 			next = b.scanLets(n.Alternative, next)
@@ -833,10 +887,7 @@ func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
 	// here at entry, before anything else.
 	unit := 0
 	for _, p := range fd.Params {
-		units := 1
-		if b.kinds[p] {
-			units = 2
-		}
+		units := kindUnits(b.kinds[p])
 		for k := 0; k < units; k++ {
 			if unit < len(argRegs) {
 				b.e.StoreStack(argRegs[unit], b.slots[p]+k*8)
@@ -939,13 +990,15 @@ func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
 		if !ok {
 			return fmt.Errorf("error[K145]: undefined identifier '%s'", id.Name)
 		}
-		if b.kinds[id.Name] {
-			return fmt.Errorf("error[K145]: cannot reassign string '%s' (declare a fresh variable)", id.Name)
+		if b.kinds[id.Name] == KindString || b.kinds[id.Name] == KindArray {
+			return fmt.Errorf("error[K145]: cannot reassign %s '%s' (declare a fresh variable)", kindName(b.kinds[id.Name]), id.Name)
 		}
-		if isStr, err := b.isStringExpr(be.Right); err != nil {
+		rk, err := b.exprKind(be.Right)
+		if err != nil {
 			return err
-		} else if isStr {
-			return fmt.Errorf("error[K145]: cannot assign a string to int variable '%s'", id.Name)
+		}
+		if rk != b.kinds[id.Name] {
+			return fmt.Errorf("error[K145]: cannot assign a %s to %s variable '%s'", kindName(rk), kindName(b.kinds[id.Name]), id.Name)
 		}
 		if err := b.emitExpr(be.Right, 0); err != nil {
 			return err
@@ -991,6 +1044,20 @@ func (b *Builder) emitCond(cond parser.Node, falseLabel string) error {
 		return err
 	} else if isStr {
 		return fmt.Errorf("error[K145]: string comparison is not supported (ints only)")
+	}
+	// Phase 150A Step 1: float operands now lower (bits in RAX), so a float
+	// comparison must be refused here — CmpRegReg would silently compare the
+	// IEEE-754 bit patterns as integers. Float comparison lands in a later
+	// 150A step.
+	if k, err := b.exprKind(be.Left); err != nil {
+		return err
+	} else if k == KindFloat {
+		return fmt.Errorf("error[K145]: floating-point comparison is not supported yet (arrives in a later Phase 150A step)")
+	}
+	if k, err := b.exprKind(be.Right); err != nil {
+		return err
+	} else if k == KindFloat {
+		return fmt.Errorf("error[K145]: floating-point comparison is not supported yet (arrives in a later Phase 150A step)")
 	}
 	if err := b.emitExpr(be.Left, 1); err != nil {
 		return err
@@ -1135,6 +1202,13 @@ func (b *Builder) emitPrint(n *parser.PrintStmt) error {
 		b.e.Call("print_str")
 		return nil
 	}
+	// Phase 150A Step 1: print_float is a later 150A step. Without this
+	// guard the float bits would reach print_int and print as an integer.
+	if k, err := b.exprKind(n.Value); err != nil {
+		return err
+	} else if k == KindFloat {
+		return fmt.Errorf("error[K145]: floating-point printing is not supported yet (arrives in a later Phase 150A step)")
+	}
 	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
 	}
@@ -1163,36 +1237,85 @@ func (b *Builder) emitReturn(n *parser.ReturnStmt, isMain bool) error {
 		b.e.MovRegReg(RDX, RSI)
 		return nil
 	}
+	// Phase 150A Step 1: a non-main float return already leaves the bits in
+	// RAX (emitExpr -> emitFloat), which is the one-unit float return
+	// convention; main keeps the int-only rule because its value becomes the
+	// process exit code.
+	if isMain {
+		if k, err := b.exprKind(n.Value); err != nil {
+			return err
+		} else if k == KindFloat {
+			return fmt.Errorf("error[K145]: floating-point return values are not supported (function must return int)")
+		}
+	}
 	return b.emitExpr(n.Value, 0)
 }
 
 func (b *Builder) isStringExpr(n parser.Node) (bool, error) {
+	k, err := b.exprKind(n)
+	if err != nil {
+		return false, err
+	}
+	return k == KindString, nil
+}
+
+// exprKind classifies a value expression (Phase 150A). Ints and floats
+// are distinguished so float arithmetic never silently truncates; arrays
+// are fat (ptr+len) values. Binary/unary operators inherit int (float
+// operators are checked at emission); calls follow the callee's inferred
+// return kind. Anything else is a loud K145.
+func (b *Builder) exprKind(n parser.Node) (int, error) {
 	switch x := n.(type) {
 	case *parser.StringLiteral:
-		return true, nil
+		return KindString, nil
 	case *parser.IntLiteral:
-		return false, nil
+		return KindInt, nil
 	case *parser.Float64Literal:
-		return false, fmt.Errorf("error[K145]: floating-point numbers are not supported (ints and strings only)")
+		return KindFloat, nil
 	case *parser.Identifier:
-		isStr, ok := b.kinds[x.Name]
+		k, ok := b.kinds[x.Name]
 		if !ok {
-			return false, fmt.Errorf("error[K145]: undefined identifier '%s'", x.Name)
+			return KindInt, fmt.Errorf("error[K145]: undefined identifier '%s'", x.Name)
 		}
-		return isStr, nil
+		return k, nil
 	case *parser.BinaryExpr:
-		return false, nil
+		// Phase 150A: arithmetic inherits float when either operand
+		// is float (mixed int+float is rejected loudly at emission);
+		// comparisons always yield int.
+		switch x.Operator {
+		case "+", "-", "*", "/", "%":
+			lk, err := b.exprKind(x.Left)
+			if err != nil {
+				return KindInt, err
+			}
+			rk, err := b.exprKind(x.Right)
+			if err != nil {
+				return KindInt, err
+			}
+			if lk == KindFloat || rk == KindFloat {
+				return KindFloat, nil
+			}
+			return KindInt, nil
+		default:
+			return KindInt, nil
+		}
 	case *parser.UnaryExpr:
-		return false, nil
+		return b.exprKind(x.Operand)
 	case *parser.CallExpr:
-		// Phase 148: string-ness follows the callee's inferred return
-		// kind (unknown callees already fail loudly at emission).
+		// Phase 148: kind follows the callee's inferred return kind
+		// (unknown callees already fail loudly at emission).
 		if k, ok := b.retKind[x.Function]; ok {
 			return k, nil
 		}
-		return false, nil
+		return KindInt, nil
+	case *parser.ArrayLiteral:
+		// Phase 150A: int-element literals only (element kinds are
+		// checked at emission, where the diagnostic names the index).
+		return KindArray, nil
+	case *parser.IndexExpr:
+		return KindInt, nil
 	default:
-		return false, fmt.Errorf("error[K145]: unsupported expression %T", n)
+		return KindInt, fmt.Errorf("error[K145]: unsupported expression %T", n)
 	}
 }
 
@@ -1202,8 +1325,13 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		b.e.MovRegImm64(RAX, uint64(parseIntLit(x.Value)))
 		return nil
 	case *parser.Identifier:
-		if b.kinds[x.Name] {
-			return fmt.Errorf("error[K145]: string '%s' in int position", x.Name)
+		// Phase 150A Step 1: a float identifier carries its IEEE-754 bits
+		// in its single slot; a string identifier is two units.
+		if b.kinds[x.Name] == KindFloat {
+			return b.emitFloat(x, depth)
+		}
+		if b.kinds[x.Name] != KindInt {
+			return fmt.Errorf("error[K145]: %s '%s' in int position", kindName(b.kinds[x.Name]), x.Name)
 		}
 		off, ok := b.slots[x.Name]
 		if !ok {
@@ -1211,11 +1339,20 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		}
 		b.e.LoadStack(RAX, off)
 		return nil
+	case *parser.Float64Literal:
+		return b.emitFloat(x, depth)
 	case *parser.BinaryExpr:
 		return b.emitBinary(x, depth)
 	case *parser.UnaryExpr:
 		if x.Operator != "-" {
 			return fmt.Errorf("error[K145]: unsupported unary operator '%s'", x.Operator)
+		}
+		// Phase 150A Step 1: float unary minus is a later 150A step.
+		// NegReg would negate the bit pattern as an integer, so refuse.
+		if k, err := b.exprKind(x.Operand); err != nil {
+			return err
+		} else if k == KindFloat {
+			return fmt.Errorf("error[K145]: floating-point unary minus is not supported yet (arrives in a later Phase 150A step)")
 		}
 		if err := b.emitExpr(x.Operand, depth); err != nil {
 			return err
@@ -1229,6 +1366,43 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 	}
 }
 
+// emitFloat lowers a float64 expression, leaving the IEEE-754 bit pattern in
+// RAX — the approved Phase-150A representation (float64 -> bits -> RAX), one
+// 8-byte unit exactly like an int. Phase 150A Step 1 covers literals and float
+// variables only: arithmetic, comparison, unary minus, printing and
+// float-returning calls belong to later 150A steps and are refused loudly here
+// so a float is never silently reinterpreted as an integer.
+func (b *Builder) emitFloat(n parser.Node, depth int) error {
+	switch x := n.(type) {
+	case *parser.Float64Literal:
+		v, err := strconv.ParseFloat(x.Value, 64)
+		if err != nil {
+			return fmt.Errorf("error[K145]: invalid float literal '%s'", x.Value)
+		}
+		// The parsed pattern is materialized verbatim — no rounding and no
+		// sign-bit normalization — so the bits of 0.0 and -0.0 stay
+		// distinct (the parser lexes a leading '-' as TokenMinus, so a
+		// negative literal arrives here without its sign; see the
+		// unary-minus guard in emitExpr).
+		b.e.MovRegImm64(RAX, math.Float64bits(v))
+		return nil
+	case *parser.Identifier:
+		if b.kinds[x.Name] != KindFloat {
+			return fmt.Errorf("error[K145]: %s '%s' in float position", kindName(b.kinds[x.Name]), x.Name)
+		}
+		off, ok := b.slots[x.Name]
+		if !ok {
+			return fmt.Errorf("error[K145]: undefined identifier '%s'", x.Name)
+		}
+		// One unit, like the int path: the stored 64-bit pattern is
+		// reloaded unchanged and rsp never moves.
+		b.e.LoadStack(RAX, off)
+		return nil
+	default:
+		return fmt.Errorf("error[K145]: unsupported float expression %T (literals and float variables only)", n)
+	}
+}
+
 func (b *Builder) emitStr(n parser.Node, depth int) error {
 	switch x := n.(type) {
 	case *parser.StringLiteral:
@@ -1237,8 +1411,8 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 		b.e.MovRegImm32(RSI, uint32(len(x.Value)))
 		return nil
 	case *parser.Identifier:
-		if !b.kinds[x.Name] {
-			return fmt.Errorf("error[K145]: int '%s' in string position", x.Name)
+		if b.kinds[x.Name] != KindString {
+			return fmt.Errorf("error[K145]: %s '%s' in string position", kindName(b.kinds[x.Name]), x.Name)
 		}
 		off, ok := b.slots[x.Name]
 		if !ok {
@@ -1264,6 +1438,16 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 func (b *Builder) emitBinary(x *parser.BinaryExpr, depth int) error {
 	if x.Operator != "+" && x.Operator != "-" && x.Operator != "*" {
 		return fmt.Errorf("error[K145]: unsupported operator '%s' (want +, - or *)", x.Operator)
+	}
+	// Phase 150A Step 1: int arithmetic only. Float operands now lower (bits
+	// in RAX), so an unguarded add/sub/mul here would compute on the
+	// IEEE-754 bit patterns; float arithmetic is a later 150A step.
+	for _, operand := range []parser.Node{x.Left, x.Right} {
+		if k, err := b.exprKind(operand); err != nil {
+			return err
+		} else if k == KindFloat {
+			return fmt.Errorf("error[K145]: floating-point arithmetic is not supported yet (arrives in a later Phase 150A step)")
+		}
 	}
 	if depth >= maxBinDepth {
 		return fmt.Errorf("error[K145]: expression nesting exceeds %d binary levels", maxBinDepth)
@@ -1305,28 +1489,31 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 	if len(x.Args) != len(fd.Params) {
 		return fmt.Errorf("error[K145]: call to '%s' has %d args (want %d)", x.Function, len(x.Args), len(fd.Params))
 	}
-	// Kind check + unit plan: int args take one unit, string args two;
-	// units 0-5 ride argRegs, further units ride the extras area via R10.
-	argStr := make([]bool, len(x.Args))
+	// Kind check + unit plan: ints and floats take one unit, strings
+	// take two; units 0-5 ride argRegs, further units ride the extras
+	// area via R10. Arrays are not passable in 150A (no annotation
+	// syntax names them; 150B work) — a loud K145, never a miscompile.
+	argKind := make([]int, len(x.Args))
 	for i, a := range x.Args {
-		gotStr, err := b.isStringExpr(a)
+		got, err := b.exprKind(a)
 		if err != nil {
 			return err
 		}
-		wantStr := paramIsString(fd, i)
-		if gotStr != wantStr {
-			if wantStr {
-				return fmt.Errorf("error[K145]: int argument for string parameter '%s' (call to '%s')", fd.Params[i], x.Function)
-			}
-			return fmt.Errorf("error[K145]: string argument for int parameter '%s' (call to '%s')", fd.Params[i], x.Function)
+		if got == KindArray {
+			return fmt.Errorf("error[K145]: array argument for parameter '%s' is not supported (call to '%s')", fd.Params[i], x.Function)
 		}
-		argStr[i] = gotStr
+		want := paramKind(fd, i)
+		if got != want {
+			return fmt.Errorf("error[K145]: %s argument for %s parameter '%s' (call to '%s')", kindName(got), kindName(want), fd.Params[i], x.Function)
+		}
+		argKind[i] = got
 	}
 	// Evaluate + stage: register units to the per-arg spill, extras units
 	// to the caller-frame extras area. rsp never moves (147's rule).
+	// Floats ride RAX as f64 bits, exactly like ints.
 	unit := 0
 	for i, a := range x.Args {
-		if argStr[i] {
+		if argKind[i] == KindString {
 			if err := b.emitStr(a, depth); err != nil {
 				return err
 			}
@@ -1335,7 +1522,11 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 			unit += 2
 			continue
 		}
-		if err := b.emitExpr(a, depth); err != nil {
+		if argKind[i] == KindFloat {
+			if err := b.emitFloat(a, depth); err != nil {
+				return err
+			}
+		} else if err := b.emitExpr(a, depth); err != nil {
 			return err
 		}
 		b.stageUnit(i, unit, RAX)
@@ -1344,10 +1535,7 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 	// Load the register units back (extras are already home).
 	unit = 0
 	for i := range x.Args {
-		units := 1
-		if argStr[i] {
-			units = 2
-		}
+		units := kindUnits(argKind[i])
 		for k := 0; k < units; k++ {
 			if unit < len(argRegs) {
 				b.e.LoadStack(argRegs[unit], b.argTemp(i)+k*8)

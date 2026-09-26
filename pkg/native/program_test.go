@@ -1,6 +1,7 @@
 package native
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -212,6 +213,15 @@ func main() { print(f(1, 2)) }`, "has 2 args (want 7)"},
 		{`func main() { return "x" }`, "must return int"},
 		{`func f(s string) { print(s) } func main() { f(1) }`, "int argument for string parameter"},
 		{`func f(a int) { print(a) } func main() { f("x") }`, "string argument for int parameter"},
+		// Phase 150A Step 1: floats lower (bits in RAX), so every path that
+		// would treat those bits as an integer must refuse loudly instead.
+		{`func f(x float) { print(1) } func main() { let s = "x" f(s) }`, "string argument for float parameter"},
+		{`func f(x float) { print(1) } func main() { let n = 1 f(n) }`, "int argument for float parameter"},
+		{`func g() { return 1.5 } func f(x float) { print(1) } func main() { f(g()) }`, "unsupported float expression"},
+		{`func main() { let x = 1.5 let y = x + 1.0 }`, "floating-point arithmetic"},
+		{`func main() { let x = -1.5 }`, "floating-point unary minus"},
+		{`func main() { let x = 1.5 if (x < 2.0) { print(1) } }`, "floating-point comparison"},
+		{`func main() { return 1.5 }`, "floating-point return values"},
 	}
 	for _, c := range cases {
 		_, err := CompileProgram(parseNative(t, c.src))
@@ -222,6 +232,61 @@ func main() { print(f(1, 2)) }`, "has 2 args (want 7)"},
 		if !strings.Contains(err.Error(), "error[K145]") || !strings.Contains(err.Error(), c.feature) {
 			t.Errorf("bad diagnostic for %s: %v", c.feature, err)
 		}
+	}
+}
+
+// TestNativeFloatBits pins the Phase 150A Step 1 float representation:
+// float64 -> IEEE-754 bits -> RAX. Structural rather than executed: a float
+// cannot be observed at runtime until print_float/arithmetic land in later
+// 150A steps, so each case asserts the linked image carries exactly
+// `mov rax, imm64` with the expected pattern, and that the same bytes are
+// absent from an int-only control (so the pin cannot pass by accident).
+func TestNativeFloatBits(t *testing.T) {
+	cases := []struct {
+		name string
+		lit  string
+		bits uint64
+	}{
+		{"zero", "0.0", 0x0000000000000000},
+		{"one", "1.0", 0x3FF0000000000000},
+		{"pi", "3.141592653589793", 0x400921FB54442D18},
+		{"half", "0.5", 0x3FE0000000000000},
+		{"eighth", "0.125", 0x3FC0000000000000},
+		{"large", "1000.25", 0x408F420000000000},
+		{"big", "1234567.5", 0x4132D68780000000},
+		{"small", "0.0009765625", 0x3F50000000000000}, // 2^-10
+	}
+	control := compileNative(t, "func main() {\n    let x = 7\n}\n")
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			// Negative literals are NOT float literals in Karkain: the
+			// lexer always emits TokenMinus, so `-1.0`, `-0.125` and
+			// `-0.0` parse as UnaryExpr("-", literal) and are covered by
+			// the unary-minus K145 row until that later 150A step.
+			img := compileNative(t, "func main() {\n    let x = "+c.lit+"\n}\n")
+			want := hexOf(t, func(e *Emitter) { e.MovRegImm64(RAX, c.bits) })
+			if !bytes.Contains(img, want) {
+				t.Errorf("%s: image lacks mov rax, %#016x", c.lit, c.bits)
+			}
+			if bytes.Contains(control, want) {
+				t.Errorf("%s: %#016x also appears in the int-only control image", c.lit, c.bits)
+			}
+		})
+	}
+}
+
+// TestNativeFloatIdentifier pins the identifier half of emitFloat: a float
+// variable resolves through the slot map (kind-checked) and its stored 64-bit
+// pattern is reloaded into RAX unchanged, with no conversion in between. main
+// takes no parameters, so the first `let` owns slot 0 (see layout).
+func TestNativeFloatIdentifier(t *testing.T) {
+	img := compileNative(t, "func main() {\n    let x = 1000.25\n    let y = x\n}\n")
+	if !bytes.Contains(img, hexOf(t, func(e *Emitter) { e.MovRegImm64(RAX, 0x408F420000000000) })) {
+		t.Error("image lacks the 1000.25 bit pattern from the literal")
+	}
+	if !bytes.Contains(img, hexOf(t, func(e *Emitter) { e.LoadStack(RAX, 0) })) {
+		t.Error("image lacks the float identifier load (mov rax, [rsp+0])")
 	}
 }
 
