@@ -93,6 +93,10 @@ func aliasTargetNote(name string) string {
 		return "(WebAssembly WASI module)"
 	case NativeLinuxTarget:
 		return "(C-free x86-64 Linux executable; run needs linux/amd64)"
+	case NativeWindowsTarget:
+		return "(C-free x86-64 Windows PE32+ executable; run needs windows/amd64)"
+	case NativeMacOSTarget:
+		return "(C-free x86-64 macOS Mach-O executable; run needs darwin/amd64)"
 	}
 	return ""
 }
