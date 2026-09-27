@@ -241,28 +241,28 @@ func newStructInfo(name string, fields []parser.StructField) (*structInfo, error
 
 // Builder lowers one program to .text+.rodata.
 type Builder struct {
-	e       *Emitter
-	goos    string // Phase 149: OSLinux, OSWindows or OSMacOS
-	rodata  []byte
-	strs    map[string]uint64
-	patches []addrPatch
+	e        *Emitter
+	goos     string // Phase 149: OSLinux, OSWindows or OSMacOS
+	rodata   []byte
+	strs     map[string]uint64
+	patches  []addrPatch
 	ipatches []iatPatch // Phase 149: PE import-slot placeholders
 	apatches []absPatch // Phase 149: bootstrap IAT publishes
-	funcs   map[string]bool
-	ftab    map[string]*parser.FuncDecl // Phase 148: name -> declaration (arity, param kinds)
-	retKind map[string]int              // Phase 150A: name -> value kind (was bool string-ness)
-	slots   map[string]int
-	kinds   map[string]int // Phase 150A: name -> value kind (was bool string-ness)
-	frame   int
-	binTemp int // Phase 147: base offset of the binary-operand scratch stack
+	funcs    map[string]bool
+	ftab     map[string]*parser.FuncDecl // Phase 148: name -> declaration (arity, param kinds)
+	retKind  map[string]int              // Phase 150A: name -> value kind (was bool string-ness)
+	slots    map[string]int
+	kinds    map[string]int // Phase 150A: name -> value kind (was bool string-ness)
+	frame    int
+	binTemp  int // Phase 147: base offset of the binary-operand scratch stack
 	// Phase 150B: base offset of the string-concat staging area. Separate
 	// from binTemp because a concat needs five units per nesting level
 	// (left ptr/len, right ptr/len, block) where an int binary needs one.
-	strTemp   int
+	strTemp    int
 	extrasBase int // Phase 148: base offset of the caller-frame extras area
-	scanErr error
-	uid     int // Phase 148: monotonically increasing label discriminator
-	loops   []loopTgt
+	scanErr    error
+	uid        int // Phase 148: monotonically increasing label discriminator
+	loops      []loopTgt
 	// Phase 150A: per-statement hidden for-in index slots, keyed by the
 	// ForInStmt node itself. A single shared "for$idx" slot would make a
 	// nested for-in resume its parent with the inner loop's counter, so
@@ -1227,6 +1227,7 @@ func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
 	}
 	return sites, heapSize
 }
+
 // collectStringNames returns every name bound to a string value, so the
 // pre-passes can classify a `+` or a `==` by operand type. It seeds from
 // `x string` parameters, then learns bindings, repeating until the set stops
@@ -1568,6 +1569,7 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 		return Link(out, b.rodata, data, textOff, entry)
 	}
 }
+
 // collectStructs gathers every `type X struct {...}` declaration and lays it
 // out, then validates the parameter annotations that name a type.
 //
@@ -1897,16 +1899,37 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 		// float-valued expression be inferred as an int return while the
 		// body leaves f64 bits in RAX — a silent type confusion, so the
 		// classification must agree with emission.
+		// Phase 150B: `a + b` over two STRINGS is concatenation and yields
+		// a string, exactly as it does in emitStr. Without this the function
+		// is inferred as an int return, the call site classifies the call as
+		// KindInt, and print(join()) takes the print_int path with the
+		// string's POINTER in RAX -- printing a heap address as a decimal
+		// instead of the text. Same class of bug as the float case below,
+		// which is why both operand kinds are classified before choosing.
+		lk, err := b.retKindOfExpr(x.Left, vars, pstr, rsn, visiting)
+		if err != nil {
+			return KindInt, err
+		}
+		rk, err := b.retKindOfExpr(x.Right, vars, pstr, rsn, visiting)
+		if err != nil {
+			return KindInt, err
+		}
+		if lk == KindString && rk == KindString {
+			// Only `+` concatenates; any other operator over two strings is
+			// a loud refusal at emission (emitStr), so it is not a string
+			// result here either.
+			if x.Operator != "+" {
+				return KindInt, fmt.Errorf("error[K145]: unsupported string operator '%s' (only + concatenates)", x.Operator)
+			}
+			return KindString, nil
+		}
 		switch x.Operator {
 		case "+", "-", "*", "/", "%":
-			lk, err := b.retKindOfExpr(x.Left, vars, pstr, rsn, visiting)
-			if err != nil {
-				return KindInt, err
-			}
-			rk, err := b.retKindOfExpr(x.Right, vars, pstr, rsn, visiting)
-			if err != nil {
-				return KindInt, err
-			}
+			// Phase 150A: arithmetic inherits float when either operand is
+			// float, exactly like exprKind. Returning KindInt here would let a
+			// float-valued expression be inferred as an int return while the
+			// body leaves f64 bits in RAX — a silent type confusion, so the
+			// classification must agree with emission.
 			if lk == KindFloat || rk == KindFloat {
 				return KindFloat, nil
 			}
@@ -2026,7 +2049,7 @@ func (b *Builder) emitWindowsExit() {
 // RSP is never moved. A missing module or export hits Int3: loud,
 // never silent wrong-code.
 func (b *Builder) emitWinBootstrap() {
-	b.e.MovRegGsMem(RAX, 0x60)     // PEB
+	b.e.MovRegGsMem(RAX, 0x60)      // PEB
 	b.e.LoadBaseOff(RAX, RAX, 0x18) // PEB->Ldr
 	b.e.LoadBaseOff(RAX, RAX, 0x20) // InMemoryOrder head
 	b.e.MovRegImm32(R11, 64)        // walk bound (every process has kernel32)
@@ -2082,14 +2105,14 @@ func (b *Builder) emitWinResolve(name string, slot int) {
 	// read garbage and faulted the first namesPtr load.
 	b.e.LoadBaseOff32(RCX, RDX, 136) // export directory RVA
 	b.e.MovRegReg(RDX, R10)
-	b.e.AddRegReg(RDX, RCX) // RDX = export directory
+	b.e.AddRegReg(RDX, RCX)         // RDX = export directory
 	b.e.LoadBaseOff32(R9, RDX, 24)  // NumberOfNames
 	b.e.LoadBaseOff32(RCX, RDX, 32) // AddressOfNames
 	b.e.MovRegReg(RSI, R10)
-	b.e.AddRegReg(RSI, RCX) // RSI = namesPtr
+	b.e.AddRegReg(RSI, RCX)         // RSI = namesPtr
 	b.e.LoadBaseOff32(RCX, RDX, 36) // AddressOfNameOrdinals
 	b.e.MovRegReg(RDI, R10)
-	b.e.AddRegReg(RDI, RCX) // RDI = ordPtr
+	b.e.AddRegReg(RDI, RCX)         // RDI = ordPtr
 	b.e.LoadBaseOff32(RCX, RDX, 28) // AddressOfFunctions
 	b.e.MovRegReg(RBP, R10)
 	b.e.AddRegReg(RBP, RCX) // RBP = funcsPtr
@@ -2835,7 +2858,6 @@ func (b *Builder) emitPrintFloatHelper() {
 	b.e.Ret()
 }
 
-
 // printNewline emits write(1, "\n", 1) with RDI already holding 1.
 func (b *Builder) printNewline() {
 	b.rodataRef(RSI, "\n")
@@ -3027,6 +3049,7 @@ func (b *Builder) scanMaxExtras(stmts []parser.Node) int {
 	walkStmts(stmts)
 	return max
 }
+
 // into control-flow bodies and C-for initializers (Phase 148: loop bodies
 // may declare variables; slots are function-wide, first declaration wins
 // a slot and shadowing writes through — v1 semantics, documented). The
@@ -3804,6 +3827,7 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 	b.e.StoreStack(RAX, off)
 	return nil
 }
+
 // emitForInMap lowers `for k in m { body }` over a map (Phase 150B3c),
 // binding each KEY in turn.
 //
@@ -3953,8 +3977,8 @@ func (b *Builder) emitPush(name string, x *parser.CallExpr) error {
 	b.e.Call("alloc") // RAX = new base
 	b.e.StoreStack(RAX, stage+24)
 	// Copy the old elements: [oldbase + i*8] -> [newbase + i*8], i < old len.
-	b.e.LoadStack(R8, stage+8)  // old base
-	b.e.LoadStack(R9, stage+16) // old len
+	b.e.LoadStack(R8, stage+8)   // old base
+	b.e.LoadStack(R9, stage+16)  // old len
 	b.e.LoadStack(R10, stage+24) // new base
 	loop := b.fresh("push$cp")
 	done := b.fresh("push$done")
@@ -4040,8 +4064,6 @@ func (b *Builder) emitForIn(n *parser.ForInStmt, fname string) error {
 	b.e.Mark(endLbl)
 	return nil
 }
-
-
 
 func (b *Builder) emitPrint(n *parser.PrintStmt) error {
 	isStr, err := b.isStringExpr(n.Value)
