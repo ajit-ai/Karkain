@@ -80,6 +80,10 @@ bytes, never on "both ran without error".
 * **No new native features.** Anything 150 could not do, 151 cannot add. A
   151 "improvement" only kcc can do is a parity break, not a parity fix.
 * **No silent Go fallback.** If kcc cannot lower a construct it must be a
+  **loud** refusal naming the construct, never a quiet hand-off to the Go
+  engine. An invisible fallback is worse than an error.
+* **No C-path change.** `--target c23` behaviour is byte-frozen by this
+  increment; kcc's C23 output must not move while native is added.
 
 ## 4. Slice plan (proposed)
 
@@ -172,10 +176,70 @@ forcing the branch makes the test FAIL with the real digests
 (`elf=237f5f1a…`, `pe=64916445…`), proving the gate is live rather than
 vacuously green.
 
-### 151A–151D — NOT STARTED
+### 151A–151C — NOT STARTED (151D's dispatch half is done, see §10)
 
+## 10. 151D-first — the silent fallback is closed (DONE)
 
-  **loud** refusal naming the construct, never a quiet hand-off to the Go
-  engine. An invisible fallback is worse than an error.
-* **No C-path change.** `--target c23` behaviour is byte-frozen by this
-  increment; kcc's C23 output must not move while native is added.
+The slice plan in §4 ordered 151A (value model) first. That was the wrong
+order, and this entry records why. §3's "Must not" list makes **no silent Go
+fallback** a contract term, and it is **independent of 151A**: the fallback is
+a *dispatch* bug in Go (`cmd/karkain/main.go`), not a missing feature in kcc.
+151A is a multi-thousand-line port of a 396 KB oracle; until it lands, the
+dishonesty is live on every native build. Closing it first is small,
+independently valuable, and makes the parity harness meaningful instead of
+vacuous.
+
+**What changed** (`f228d31`). `main.go`'s `else { result = cli.BuildCommand(...) }`
+became a seam in `pkg/cli/kcc_native.go` that refuses: **K116, exit 6**, naming
+the target, the reason, and the fix.
+
+```
+$ KARKAIN_ENGINE=kcc karkain build hello.kark --target native-x86_64-linux
+error[K116]: the self-hosted engine (kcc) has no machine-code backend, so it
+cannot emit --target native-x86_64-linux.
+  kcc currently emits C23 only; the native-x86_64-linux C-free targets are
+  implemented by the Go backend alone.
+  ...
+  To build with the Go engine, ask for it explicitly: --engine go
+  kcc native codegen is increment 151A.
+exit 6, no image written
+```
+
+The same holds for `run` and for all three targets.
+
+**The one design decision worth recording.** The not-yet-implemented arm of
+`KCCNativeBuildCommand` is *not* a call into `cfreeBuildForOS`. That call would
+compile, would pass every parity test (the bytes would match!), and would
+reintroduce precisely the dishonesty this slice deletes. So the arm raises a
+loud internal guard instead, and flipping `kccOwnsNativeTargets` without
+landing 151A fails loudly. This is the trap: a "temporary" fallback inside the
+seam that closes the fallback.
+
+**Evidence.**
+
+| Gate | Result |
+|---|---|
+| `TestPhase151_NoSilentGoFallback` (3 targets, build) | PASS — refuses, K116, no image |
+| `TestPhase151_NativeGoBackendUnaffected` (3 targets) | PASS — Go still builds all three |
+| `TestPhase151_KccNativeRefusalIsNotAFallback` | PASS — seam refuses at unit level |
+| `TestPhase151_HarnessDetectsNonParity` | PASS — "CONFIRMED NO FALLBACK" |
+| `TestPhase151_HarnessComparesBytes` (positive control) | PASS |
+| mutation: constant flipped to `true` | FAILS with the internal-guard diagnosis |
+| mutation: refusal weakened | FAILS |
+| `go build ./...`, `go vet ./...`, `GOARCH=386` vet | clean |
+| `pkg/native`, `pkg/cli` 148/150/151 gates | green |
+
+**The harness self-test was reformulated**, because it asserted the *old* state
+(it required the kcc leg to write an image, which is the fallback). It is now
+the invariant that holds across the whole increment:
+
+> AN IMAGE MUST NEVER EXIST WITHOUT kcc PROVENANCE.
+
+It passes in the refusal state (today) and in the kcc-owned state (after 151A),
+and it fails if an image ever appears without provenance. The byte comparison,
+which was previously vacuous, becomes load-bearing only once provenance holds.
+
+**What 151A still owes.** Nothing about the dispatch is finished: the seam
+refuses, and 151A must make it emit. The remaining slices are unchanged —
+151A value model, 151B encoder, 151C three containers byte-exact, then flip
+`kccOwnsNativeTargets` and re-point this seam at kcc.

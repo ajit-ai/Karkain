@@ -1162,12 +1162,52 @@ int locals from frame slots to callee-saved registers with spilling proven to be
 the pre-150C path; 150D makes the macOS container a position-independent
 executable with a writable `__DATA` arena, and closes the last open scope item
 (the native-split cache) with a measured decision rather than an assumption.
-**Next increment: 151 — kcc native parity** (the self-hosted engine emits the
-same native targets), per `docs/audit/KARKAIN-VERSION-PLAN.md` §3–§4; 150D's
+**In progress: increment 151 — kcc native parity** (the self-hosted engine emits
+the same native targets), per `docs/audit/KARKAIN-VERSION-PLAN.md` §3–§4; 150D's
 scope and record are `docs/audit/PHASE-150-BASELINE.md` §11 and §13, and the
 v1.2.0 scope freeze is `docs/release/v1.2.0-CHECKLIST.md`.
 **150A–150D are frozen** unless a directly demonstrated regression requires an
 explicit corrective change, recorded per the Governance rule below.
+
+**151D-first — the silent Go fallback is CLOSED** (verdict **COMPLETE**). Measured
+defect, not inferred: increment 150 implemented the three C-free native targets in
+Go while making kcc the default engine, and `cmd/karkain/main.go` combined the two
+into a silent hand-off — `KARKAIN_ENGINE=kcc karkain build --target
+native-x86_64-linux` printed the **Go** lexer's verbose banner and the **Go**
+dispatch banner, and produced an image byte-identical to the Go one (SHA
+`237f5f1a…4b13`). The kcc run *was* the go run. Consequence: "parity" was
+untestable, because a byte comparison passed with zero lines of kcc native code
+and every later parity claim would have been vacuous. Fix (`pkg/cli/kcc_native.go`,
+new): the hand-off is replaced by a seam that **refuses** — `error[K116]`, exit 6,
+naming the target, the reason and the fix. kcc has no machine-code backend (it
+emits C23 only; verified: no elf/pe/macho/x86 tokens in `src/compiler/*.kark`), so
+a native target under kcc now exits 6 and **writes no image**. Load-bearing design
+decision: the not-yet-implemented arm of the seam is *not* a call into
+`cfreeBuildForOS` — that would compile, would pass every parity test (the bytes
+would match!), and would reintroduce the exact dishonesty being deleted, so the arm
+raises a loud internal guard and `kccOwnsNativeTargets` is a single named constant
+so 151A is one reviewed edit. Gates `pkg/cli/phase151_kcc_native_test.go` (new, 3
+tests): all three targets refuse with K116 and write no image; the Go backend still
+builds all three from any host; the seam refuses at unit level. **Mutation-verified**
+both ways — weakening the refusal fails, and flipping `kccOwnsNativeTargets` early
+fails with the internal-guard diagnosis. The 151 parity harness self-test was
+**reformulated** because it asserted the old fallback state: it is now the invariant
+that holds for the whole increment, *an image must never exist without kcc
+provenance* — satisfied by today's refusal and by 151A's real emission, and failing
+if the fallback returns. K116 registered in `karkain explain` + `stable-api.rst`. Two
+pre-existing defects fixed in passing: `pkg/native` did not compile for
+`GOARCH=386`/`arm` (both in the release matrix) because the untyped `MachoBase`
+constant `0x100000000` overflowed a 32-bit `int` in `MachoBase+fileOffset` — the
+build jobs only ever compiled `./cmd/karkain`, so the leaf package broke the 32-bit
+archives invisibly; fixed by a `uint64` constant + `machoAddr()`, and a
+`GOARCH=386`/`arm` `go vet ./...` step now gates it (**mutation-verified**: the
+reintroduced overflow fails with `MachoBase (untyped int constant 4294967296)
+overflows int`). Also repaired a truncated "Must not" bullet in
+`PHASE-151-BASELINE.md` §3 whose text had been orphaned to the end of the file.
+**Next: 151A — the native value model in kcc** (frame layout, boxed kinds, arrays/
+`for-in`, floats, arena, string ops, `push`, records, maps), gated byte-identical
+Go↔kcc through the existing harness; then 151B (encoder) and 151C (three
+containers), then flip `kccOwnsNativeTargets` and re-point the seam at kcc.
 
 Also completed: **150D — Mach-O PIE + native OS targets + incremental decision**
 (increment 150, slice D of 8; verdict **COMPLETE**). Increment 149's Mach-O was
