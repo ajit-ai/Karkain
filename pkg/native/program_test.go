@@ -162,7 +162,8 @@ func runNativeMacOS(t *testing.T, img []byte) (string, int) {
 	return "", -1
 }
 
-func TestNativeHello(t *testing.T) {	img := compileNative(t, `func main() {
+func TestNativeHello(t *testing.T) {
+	img := compileNative(t, `func main() {
     print("hello native")
     print(2 + 3 * 4)
     print((10 - 4) * 2)
@@ -352,6 +353,7 @@ func TestNativeFloatIdentifier(t *testing.T) {
 		t.Error("image lacks the float identifier load (mov rax, [rsp+0])")
 	}
 }
+
 // TestNativeFloatExec pins the Phase 150A float execution surface:
 // print, arithmetic, unary minus, comparison, float params/returns and
 // calls, plus the zero-divisor rule. Each case compiles through the
@@ -411,8 +413,6 @@ func TestNativeFloatExecPE(t *testing.T) {
 		})
 	}
 }
-
-
 
 // nativeNegIntCases pins integer sign handling on the Windows container.
 //
@@ -600,6 +600,20 @@ func TestNativeStrConcatExecPE(t *testing.T) {
 		{"assigned", "func main() {\n    let s = \"hello\" + \" \" + \"world\"\n    print(s)\n}\n", "hello world\n"},
 		{"variable_operand", "func main() {\n    let a = \"foo\"\n    print(a + \"bar\")\n}\n", "foobar\n"},
 		{"call_arg", "func show(t string) {\n    print(t)\n}\nfunc main() {\n    show(\"na\" + \"me\")\n}\n", "name\n"},
+		// A concatenation RETURNED from a function. This is the case that
+		// caught the retKindOfExpr defect: the callee emitted the correct
+		// (RAX=ptr, RDX=len) pair, but the call site inferred an int return
+		// for `a + b`, so print(join()) ran print_int on the POINTER and
+		// printed a heap address as a decimal. It runs on PE here so the
+		// regression is caught on a windows/amd64 dev host instead of only
+		// on the Linux CI leg.
+		{"returned", "func join() {\n    return \"re\" + \"turn\"\n}\nfunc main() {\n    print(join())\n}\n", "return\n"},
+		// Returning a concatenation of a parameter, so the inference has to
+		// see through the parameter as well as the literal.
+		{"returned_param", "func tag(s string) {\n    return s + \"!\"\n}\nfunc main() {\n    print(tag(\"hi\"))\n}\n", "hi!\n"},
+		// A returned concatenation consumed by a call argument rather than
+		// by print, so the value crosses the ABI as a two-unit string.
+		{"returned_into_arg", "func join() {\n    return \"a\" + \"b\"\n}\nfunc show(t string) {\n    print(t)\n}\nfunc main() {\n    show(join())\n}\n", "ab\n"},
 		{"many_sites", "func main() {\n    print(\"1\" + \"2\")\n    print(\"3\" + \"4\")\n}\n", "12\n34\n"},
 		{"long_operand", "func main() {\n    let a = \"abcdefghijklmnopqrstuvwxyz0123456789\"\n    print(a + a)\n}\n", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789\n"},
 	}
