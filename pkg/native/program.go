@@ -367,6 +367,16 @@ type Builder struct {
 	// maximum is deliberately generous -- it costs arena bytes but removes
 	// any need to prove which map an insert targets.
 	mapCap int
+	// Phase 150C: mapStage is a single 8-byte frame unit, reserved only when
+	// the program uses a map, used to carry the KEY across the evaluation of
+	// the value. A key and a value are two independent expressions, and
+	// emitExpr leaves both in RAX, so without a slot the value's evaluation
+	// overwrote the key and map_set was handed a garbage key: reads always
+	// missed, and a two-entry literal stored both pairs under the same key
+	// (so len() reported 1). Reserved per function next to the other
+	// conditional areas, so a program without a map keeps its exact frame
+	// and therefore its exact bytes.
+	mapStage int
 	// prog is the program being lowered, retained so the value-kind lookup
 	// for a map (which must inspect the literal's entries) can walk it
 	// without threading the AST through every classifier signature.
@@ -2148,10 +2158,21 @@ func (b *Builder) emitHelpers() {
 	b.e.PushReg(RAX)
 	b.e.PushReg(RSI)
 	b.e.MovRegImm32(RDX, 1)
-	b.e.MovRegImm32(RAX, b.sysWrite())
 	b.e.MovRegImm32(RDI, 1)
 	b.rodataRef(RSI, "-")
-	b.e.Syscall()
+	// Phase 150C: the sign write must go through emitWrite, not a raw
+	// Syscall. A raw `syscall` is the Linux/macOS write(1, ptr, 1), but on
+	// the Windows container the instruction has no valid meaning: the "-"
+	// was silently never written, so every negative integer printed as its
+	// absolute value (print(-1) printed "1", 3-10 printed "7") while the
+	// positive path -- which already used emitWrite -- was correct. The
+	// ELF goldens could not see it, which is why this only ever appeared
+	// once the PE execution guard stopped skipping empty output.
+	//
+	// RSI (the digit buffer pointer) and RAX (the magnitude) are pushed
+	// across the call, because emitWrite/Win64 clobbers volatile registers;
+	// the pops below restore them for the digit loop.
+	b.emitWrite()
 	b.e.PopReg(RSI)
 	b.e.PopReg(RAX)
 	b.e.Mark("print_int_pos")
@@ -2464,9 +2485,20 @@ func (b *Builder) emitMapLiteral(name string, x *parser.MapLiteral) error {
 // the same key comparison, the same capacity check and the same diagnostics.
 func (b *Builder) emitMapInsertEntry(key, val parser.Node, vk, off int) error {
 	// The key is an int, evaluated into RSI; the value goes in the pair.
+	//
+	// Phase 150C: the key is STAGED in the frame rather than left in a
+	// register, because the value is a second independent expression and
+	// emitExpr leaves its result in RAX too. Evaluating the value in place
+	// therefore destroyed the key before map_set ever saw it: RSI held
+	// whatever the value expression left there, so every stored pair was
+	// filed under a junk key. Reads then always missed (a missing key is
+	// 0, which is why the failures looked like "map reads return 0"), and a
+	// literal with two entries filed BOTH pairs under the same junk key, so
+	// the second overwrote the first and len() reported 1 instead of 2.
 	if err := b.emitExpr(key, 0); err != nil {
 		return err
 	}
+	b.e.StoreStack(RAX, b.mapStage)
 	if vk == KindString {
 		if err := b.emitStr(val, 0); err != nil {
 			return err
@@ -2491,6 +2523,10 @@ func (b *Builder) emitMapInsertEntry(key, val parser.Node, vk, off int) error {
 		return err
 	}
 	b.e.MovRegReg(RDX, RAX)
+	// The key comes back from its frame slot -- see the note above on why it
+	// cannot simply be evaluated in place, and why a register would not do
+	// either (the value expression is free to use RSI).
+	b.e.LoadStack(RSI, b.mapStage)
 	// RDI = map address. Load it after the value is in RDX.
 	b.e.LoadStack(RDI, off)
 	b.e.XorRegReg(RCX)
@@ -2652,6 +2688,27 @@ func (b *Builder) emitPrintFloatHelper() {
 	b.e.Cvttsd2siGpXmm(RCX, XMM0)
 	b.e.Cvtsi2sdXmmGp(XMM1, RCX)
 	b.e.SubsdXmmXmm(XMM0, XMM1)
+	// Both halves must survive the writes below, and neither can stay in a
+	// register across one: the integer part lives in RCX and the fraction
+	// (bit pattern) needs a staging register, but RCX/RAX/RDX are volatile
+	// at the Win64 WriteFile boundary AND at the raw syscall (syscall
+	// itself assigns RCX the return RIP), so a "caller-saved" park is not
+	// enough on either container. Both are parked in this helper's frame:
+	//
+	//   rsp+0..5    fraction digit buffer
+	//   rsp+8..15   R11 digit-count spill (later, across the "." write)
+	//   rsp+16..23  fraction bit pattern
+	//   rsp+24..31  integer part
+	//   rsp+45..63  integer digit buffer (grows down from rsp+64)
+	//
+	// The fraction goes through RAX because RAX is dead here: the abs bit
+	// pattern was consumed by MovXmmRegGp above, and the int path reloads
+	// from rsp+24 rather than from a register. Parking the integer part is
+	// what makes negative values correct too -- the sign write below would
+	// otherwise clobber RCX before line 2676 reads it.
+	b.e.MovGpRegXmm(RAX, XMM0)
+	b.e.StoreStack(RAX, 16)
+	b.e.StoreStack(RCX, 24)
 	b.e.TestRegReg(R11, R11)
 	noSign := b.fresh("fltnosign")
 	b.e.Jz(noSign)
@@ -2660,7 +2717,10 @@ func (b *Builder) emitPrintFloatHelper() {
 	b.e.MovRegImm32(RDI, 1)
 	b.emitWrite()
 	b.e.Mark(noSign)
-	b.e.MovRegReg(RAX, RCX)
+	// Reload the integer part: RCX did not survive the sign write above
+	// (Win64 WriteFile clobbers it, and the Linux/macOS syscall reassigns
+	// RCX to the return RIP), so it comes back from its frame slot.
+	b.e.LoadStack(RAX, 24)
 	b.e.TestRegReg(RAX, RAX)
 	intNz := b.fresh("fltintnz")
 	intDone := b.fresh("fltintdone")
@@ -2688,6 +2748,10 @@ func (b *Builder) emitPrintFloatHelper() {
 	b.e.MovRegImm32(RDI, 1)
 	b.emitWrite()
 	b.e.Mark(intDone)
+	// Reload the parked fractional bits into XMM0 (volatile across the
+	// kernel32 write above) and scale them to the digit count.
+	b.e.LoadStack(RCX, 16)
+	b.e.MovXmmRegGp(XMM0, RCX)
 	b.e.MovRegImm64(R10, 0x412E848000000000)
 	b.e.MovXmmRegGp(XMM1, R10)
 	b.e.MulsdXmmXmm(XMM0, XMM1)
@@ -2837,6 +2901,13 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	if b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush || b.usesStrField {
 		b.strTemp = next
 		next += 8 * 5 * maxBinDepth
+	}
+	// Phase 150C: one frame unit to carry a map key across the evaluation of
+	// its value (see mapStage). Conditional for the same reason strTemp is:
+	// a program with no map must keep its exact frame, and so its exact bytes.
+	if b.usesMap {
+		b.mapStage = next
+		next += 8
 	}
 	// Phase 148: caller-frame extras area for argument units past the six
 	// register units (sized by the hungriest call site in this function).
@@ -3870,8 +3941,14 @@ func (b *Builder) emitPush(name string, x *parser.CallExpr) error {
 	b.e.LoadStack(RAX, off+8)
 	b.e.StoreStack(RAX, stage+16)
 	// bytes = (old len + 1) * 8
+	//
+	// The +1 is the appended element, not a byte count: the arena must hold
+	// exactly oldlen+1 8-byte elements. A previous +8 here over-allocated
+	// the copy destination, and the same mistake in the header below set
+	// the pushed array's LENGTH to oldlen+8, so len() and every for-in over
+	// a pushed array saw eight phantom trailing elements.
 	b.e.LoadStack(RDI, stage+16)
-	b.e.AddRegImm32(RDI, 8)
+	b.e.AddRegImm32(RDI, 1)
 	b.e.ShlRegImm(RDI, 3)
 	b.e.Call("alloc") // RAX = new base
 	b.e.StoreStack(RAX, stage+24)
@@ -3894,12 +3971,14 @@ func (b *Builder) emitPush(name string, x *parser.CallExpr) error {
 	// as the index, so no separate address computation is needed.
 	b.e.LoadStack(RAX, stage)
 	b.e.StoreScaled64(RAX, R10, R9, 8, 0)
-	// Header: base = newbase, len = old len + 1.
+	// Header: base = newbase, len = old len + 1. The +1 counts the appended
+	// ELEMENT (see the allocation above): the header length is what len()
+	// and for-in read, so an 8 here would make a 3-element array report 10.
 	dst := b.slots[name]
 	b.e.LoadStack(RAX, stage+24)
 	b.e.StoreStack(RAX, dst)
 	b.e.LoadStack(RAX, stage+16)
-	b.e.AddRegImm32(RAX, 8)
+	b.e.AddRegImm32(RAX, 1)
 	b.e.StoreStack(RAX, dst+8)
 	return nil
 }
