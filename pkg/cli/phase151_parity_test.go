@@ -106,39 +106,72 @@ func assertNativeParity(t *testing.T, karkain, src, target, outName string) (goR
 	return goRes, kccRes
 }
 
-// TestPhase151_HarnessDetectsFallback is the harness's own self-test.
+// TestPhase151_HarnessDetectsNonParity is the harness's own self-test.
 //
-// It proves the instrument is not broken. Today the kcc leg cannot be shown to
-// be kcc-produced, and the harness must REPORT that rather than pass. A harness
-// that cannot detect the known-bad state is worse than no harness, because
-// 151A–151C would then be validated by it.
-func TestPhase151_HarnessDetectsFallback(t *testing.T) {
+// It proves the instrument is not broken, and it encodes the invariant that
+// survives the whole increment:
+//
+//	AN IMAGE MUST NEVER EXIST WITHOUT kcc PROVENANCE.
+//
+// There are exactly two acceptable states for a kcc native build:
+//
+//	(a) 151A+ — kcc emits the image, and its output carries the kcc-native
+//	    provenance marker. Bytes are then compared for real.
+//	(b) today — kcc refuses loudly with K116 and writes no image.
+//
+// The unacceptable third state is the one this test exists to kill: an image
+// written by the Go backend while the caller believes it came from kcc. That
+// was the measured baseline state (§1.1) and it is exactly what made "the
+// bytes match" worthless as evidence. So the assertion is deliberately written
+// as a prohibition rather than as a comparison — it must hold in BOTH
+// acceptable states, and it must fail the moment the fallback reappears.
+func TestPhase151_HarnessDetectsNonParity(t *testing.T) {
 	karkain := phase130Karkain(t)
 	const src = "func main() {\n\tprint(42)\n}\n"
 
 	goRes, kccRes := assertNativeParity(t, karkain, src, NativeLinuxTarget, "probe.elf")
 
-	// Sanity: both engines must produce an image, so the comparison below is a
-	// real comparison rather than two absences being called "equal".
+	// The Go leg is the oracle and must always work; if it does not, nothing
+	// below is a real comparison.
 	if !goRes.WroteImage {
 		t.Fatalf("go engine produced no image: %s", goRes.Output)
 	}
-	if !kccRes.WroteImage {
-		t.Fatalf("kcc engine produced no image: %s", kccRes.Output)
+
+	// THE INVARIANT. An image from the kcc request is only legitimate if kcc
+	// can prove it produced it.
+	if kccRes.WroteImage && !kccProducedImage(kccRes.Output) {
+		t.Fatalf("silent Go fallback: the kcc request wrote an image (%s) with no kcc-native provenance.\n"+
+			"  That is the exact dishonesty the 151 baseline measured: the caller asked for kcc and\n"+
+			"  received Go output, so byte-equality would prove nothing.\n"+
+			"  kcc output was: %s", shortSHA(kccRes.SHA), kccRes.Output)
 	}
 
-	// The finding, stated as an expectation so it is a gate and not a comment.
-	// Until 151A lands the bytes match (the fallback) AND the provenance check
-	// fails. Both facts are asserted, because a future slice that fixes
-	// provenance without changing bytes must flip exactly one of them.
-	if kccProducedImage(kccRes.Output) {
-		t.Logf("note: kcc now reports its own native emission — 151A may have landed")
-	} else {
-		t.Logf("CONFIRMED FALLBACK: the kcc leg emitted no kcc-native provenance; its image %s is the Go image %s. This is the state 151A-151C must close.",
-			shortSHA(kccRes.SHA), shortSHA(goRes.SHA))
-	}
-	if goRes.SHA != kccRes.SHA {
-		t.Logf("note: images already differ (go=%s kcc=%s) — the fallback is gone", shortSHA(goRes.SHA), shortSHA(kccRes.SHA))
+	switch {
+	case kccProducedImage(kccRes.Output):
+		// (a) 151A landed: kcc owns the target. Now the bytes carry meaning,
+		// so compare them for real rather than logging a note.
+		if goRes.SHA != kccRes.SHA {
+			t.Errorf("kcc provenance present but images differ: go=%s kcc=%s\n"+
+				"  151A-151C require byte-identical output for the same source and target.",
+				shortSHA(goRes.SHA), shortSHA(kccRes.SHA))
+		}
+		t.Logf("kcc owns the target and matches the Go oracle byte for byte (%s)", shortSHA(goRes.SHA))
+	case kccRes.WroteImage:
+		// Unreachable: the invariant above already failed. Kept so the switch
+		// is exhaustive and a future edit cannot fall through silently.
+		t.Fatal("unreachable: image without provenance")
+	default:
+		// (b) the current state: a loud refusal and no image. Assert the
+		// refusal is actually loud and names the code, because "silent" here
+		// would reintroduce the same dishonesty one layer up.
+		if kccRes.ExitCode == 0 {
+			t.Errorf("kcc native build exited 0 with no image and no refusal: %s", kccRes.Output)
+		}
+		if !strings.Contains(kccRes.Output, "K116") {
+			t.Errorf("kcc native refusal does not name its code (want K116): %s", kccRes.Output)
+		}
+		t.Logf("CONFIRMED NO FALLBACK: kcc refused with K116 and wrote no image; the Go oracle is %s. "+
+			"This is the state 151A closes by making kcc emit the image itself.", shortSHA(goRes.SHA))
 	}
 }
 

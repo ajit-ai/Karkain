@@ -137,8 +137,15 @@ Stable diagnostic expectations
 ==============================
 
 * ``error[K...]`` numeric codes on the front end; ``karkain explain <code>``
-  documents each code (K001–K008, K100, K101–K115, including K114 escape
-  rejection and K115 generic-arity/misuse).
+  documents each code (K001–K008, K100, K101–K116, K145, including K114 escape
+  rejection, K115 generic-arity/misuse, and K116 engine-capability refusal).
+* ``K116`` is a capability refusal, not a program defect: the self-hosted engine
+  (kcc) has no machine-code backend, so a C-free native target
+  (``native-x86_64-linux`` / ``-windows`` / ``-macos``) requested under kcc is
+  refused loudly instead of being silently built by the Go engine. The three
+  native targets are Go-owned; kcc owns C23. See
+  :doc:`/development/roadmap` (increment 151A) and
+  ``docs/audit/PHASE-151-BASELINE.md``.
 * ``karkain check --format=json`` emits the ``karkain-diagnostics-v1`` JSON
   contract.
 * Runtime failure model: ``runtime error: <kind> at <file>:<line>`` with a
