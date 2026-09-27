@@ -86,7 +86,7 @@ func RunCommand(targetFile string, cfg codegen.Config, verbose bool) CommandResu
 	// Phase 148: C-free machine-code target (Linux-only execution; build
 	// from anywhere since emission is pure Go).
 	if IsNativeTarget(cfg.Target) {
-		return cfreeRunCommand(prog, targetFile, verbose)
+		return cfreeRunForOS(prog, targetFile, NativeTargetOS(cfg.Target), cfg.Target, verbose)
 	}
 
 	// Phase 111: an explicit triple whose machine differs from the host can be
@@ -172,7 +172,7 @@ func BuildCommand(targetFile string, outputPath string, cfg codegen.Config, verb
 
 	// Phase 148: C-free machine-code target (see nativeRunCommand above).
 	if IsNativeTarget(cfg.Target) {
-		return cfreeBuildCommand(prog, targetFile, outputPath, verbose)
+		return cfreeBuildForOS(prog, targetFile, outputPath, NativeTargetOS(cfg.Target), cfg.Target, verbose)
 	}
 
 	cfg.RunAfter = false

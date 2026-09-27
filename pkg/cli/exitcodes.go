@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"karkain/pkg/native"
 	"karkain/pkg/target"
 )
 
@@ -31,30 +32,61 @@ const (
 // through the target model in pkg/target rather than this map. Anything else
 // is rejected rather than silently falling back to native.
 var validTargets = map[string]bool{
-	"native":              true,
-	"c23":                 true,
-	"wasm32-wasi":         true,
-	"native-link":         true,
-	"native-x86_64-linux": true,
+	"native":                true,
+	"c23":                   true,
+	"wasm32-wasi":           true,
+	"native-link":           true,
+	"native-x86_64-linux":   true,
+	"native-x86_64-windows": true,
+	"native-x86_64-macos":   true,
 }
 
-// NativeLinuxTarget is the Phase-148 C-free machine-code target: static
-// x86-64 Linux executables with no C compiler anywhere on the path.
-// Emission is pure Go (buildable from any host); execution needs
-// linux/amd64 (run elsewhere is refused with a build-only hint).
-const NativeLinuxTarget = "native-x86_64-linux"
+// The three Phase 150D C-free machine-code targets. Emission is pure Go on
+// every host, so all three BUILD anywhere; each one RUNS only where its OS and
+// arch match the host, and is refused elsewhere with the Phase-111 build-only
+// hint (ExitEnv = 6). The container is chosen per TARGET, not per host, which is
+// what makes these real cross-build targets rather than three aliases for the
+// host image.
+//
+//	native-x86_64-linux    static ELF64   (container in Phase 148)
+//	native-x86_64-windows  PE32+         (container in Phase 149)
+//	native-x86_64-macos    Mach-O        (container in Phase 149)
+//
+// The three CLI names are registered by 150D; the containers themselves are
+// Phase 148/149 and were proven by the pkg/native execution goldens.
+const (
+	NativeLinuxTarget   = "native-x86_64-linux"
+	NativeWindowsTarget = "native-x86_64-windows"
+	NativeMacOSTarget   = "native-x86_64-macos"
+)
+
+// NativeTargetOS maps a --target value to the OS its image is written for
+// (one of native.OSLinux / OSWindows / OSMacOS), or "" when the value is not a
+// C-free machine-code target. Keeping the mapping in the CLI layer means the
+// native package never has to know about CLI target names.
+func NativeTargetOS(value string) string {
+	switch value {
+	case NativeLinuxTarget:
+		return native.OSLinux
+	case NativeWindowsTarget:
+		return native.OSWindows
+	case NativeMacOSTarget:
+		return native.OSMacOS
+	}
+	return ""
+}
 
 // IsNativeTarget reports whether a --target value selects the C-free
 // machine-code backend (as opposed to the C23/gcc pipeline, the Phase-84
 // object pipeline, WASM, or a conventional cross triple).
 func IsNativeTarget(value string) bool {
-	return value == NativeLinuxTarget
+	return NativeTargetOS(value) != ""
 }
 
 // supportedTargetsLine is the deterministic human list appended to target
 // diagnostics and shown by `karkain target`.
 func supportedTargetsLine() string {
-	names := []string{"native, c23, native-link, wasm32-wasi, native-x86_64-linux"}
+	names := []string{"native, c23, native-link, wasm32-wasi, native-x86_64-linux, native-x86_64-windows, native-x86_64-macos"}
 	for _, t := range target.SupportedTargets() {
 		names = append(names, t.String())
 	}
@@ -99,13 +131,13 @@ func NormalizeTarget(value string) (string, error) {
 }
 
 // SelectedTarget resolves a --target value into a target model. The legacy
-// aliases `native`, `c23`, `native-link` and `native-x86_64-linux` mean
-// "compile for the host" (the native machine-code target additionally
-// enforces linux/amd64 at run time); a recognized triple means that target.
+// aliases `native`, `c23`, `native-link` and the three `native-x86_64-*`
+// machine-code targets mean "compile for the host" (each native target enforces
+// its own OS/arch at run time instead); a recognized triple means that target.
 // The second return value is false when the value is not a concrete triple
 // (wasm32-wasi is a triple target handled by the dedicated WASM backend).
 func SelectedTarget(value string) (target.Target, bool) {
-	if value == "" || value == "native" || value == "c23" || value == "native-link" || value == NativeLinuxTarget {
+	if value == "" || value == "native" || value == "c23" || value == "native-link" || IsNativeTarget(value) {
 		return target.Host(), false
 	}
 	t, err := target.Parse(value)

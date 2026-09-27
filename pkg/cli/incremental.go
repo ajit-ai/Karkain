@@ -124,7 +124,7 @@ func BuildCommandIncremental(targetFile, outputPath string, cfg codegen.Config, 
 	// so incremental+native is refused loudly (native-split caching is
 	// post-148 work, never silent C fallback).
 	if IsNativeTarget(cfg.Target) {
-		return CommandResult{ExitCode: ExitUsage, Message: "karkain build --incremental does not support --target native-x86_64-linux yet (native-split caching is future work); build without --incremental"}
+		return CommandResult{ExitCode: ExitUsage, Message: fmt.Sprintf("karkain build --incremental does not support --target %s yet (native-split caching is increment 150D work); build without --incremental", cfg.Target)}
 	}
 	if verbose {
 		// resolve doubt about the target path resolution up front.
