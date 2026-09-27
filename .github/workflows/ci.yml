@@ -99,6 +99,18 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Cross-arch vet (32-bit hosts)
+        # The release build matrix ships GOARCH=386 and arm, but every build
+        # step below compiles only ./cmd/karkain, so a leaf package can carry a
+        # defect that breaks those archives and still go green here. This is
+        # exactly how pkg/native shipped `MachoBase + fileOffset` arithmetic on
+        # an untyped 0x100000000 constant, which overflows a 32-bit int.
+        # `go vet` type-checks the whole tree, so it catches constant overflow
+        # and width mismatches without needing a 32-bit toolchain to run tests.
+        run: |
+          GOOS=linux GOARCH=386 go vet ./...
+          GOOS=linux GOARCH=arm go vet ./...
+
       - name: Build compiler
         run: go build -o karkain ./cmd/karkain
 
