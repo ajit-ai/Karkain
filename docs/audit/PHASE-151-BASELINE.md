@@ -147,7 +147,33 @@ verifiable rather than hopeful.
 
 ## 9. Progress
 
-*Nothing started yet. This is the baseline.*
+### 151-prelude — the byte-parity harness (DONE)
+
+`pkg/cli/phase151_parity_test.go`. Written before any codegen, as §5 requires.
+
+**The instrument, and the trap it avoids.** A parity test that compares image
+bytes is **not evidence** here, because the silent Go fallback makes the bytes
+match by construction. So every comparison in the harness pairs the byte
+comparison with a **provenance** assertion: `kccProducedImage(out)` checks for a
+kcc-native emission marker the Go fallback cannot imitate. When 151A lands it
+becomes the switch that flips; until then it is honestly false.
+
+**Self-test result** (the state 151A–151C must close):
+
+```
+CONFIRMED FALLBACK: the kcc leg emitted no kcc-native provenance;
+its image 237f5f1ab09a is the Go image 237f5f1ab09a.
+```
+
+**Positive control** — `TestPhase151_HarnessComparesBytes` builds the same
+source for two different containers and requires different hashes, so the
+harness cannot silently stop comparing bytes. It was **mutation-verified**:
+forcing the branch makes the test FAIL with the real digests
+(`elf=237f5f1a…`, `pe=64916445…`), proving the gate is live rather than
+vacuously green.
+
+### 151A–151D — NOT STARTED
+
 
   **loud** refusal naming the construct, never a quiet hand-off to the Go
   engine. An invisible fallback is worse than an error.
