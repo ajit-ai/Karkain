@@ -148,14 +148,7 @@ func TestNativeStructExecPE(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNativeOS(t, OSWindows, c.src)
 			out, code := runNativeWindows(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -167,14 +160,7 @@ func TestNativeStructExec(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)
 			out, code := runNativeCode(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }

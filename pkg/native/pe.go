@@ -91,7 +91,18 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 	reloc, relocBlocks := buildReloc(b)
 	relocFileOff := idataFileOff + idataRaw
 	relocRaw := peAlignUp(len(reloc), peFileAlign)
-	sizeOfImage := peAlignUp(peRelocRVA+len(reloc), peSectAlign)
+	// SizeOfImage must cover the WHOLE image, and .idata is no longer a
+	// fixed size: Phase 150B grows it by the arena, and .reloc sits AFTER
+	// .idata. Computing the total from peRelocRVA alone therefore
+	// under-reports whenever an arena is present, so the loader maps an
+	// image whose tail (including the arena) is not backed by memory --
+	// hence the access violations every allocating PE program hit.
+	// The high-water mark is the end of whichever section ends last.
+	imageEnd := peIdataRVA + idataTotal
+	if peRelocRVA+relocBlocks > imageEnd {
+		imageEnd = peRelocRVA + relocBlocks
+	}
+	sizeOfImage := peAlignUp(imageEnd, peSectAlign)
 
 	out := make([]byte, 0, idataFileOff+idataRaw)
 
