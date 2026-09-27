@@ -34,7 +34,36 @@ executed by **increment** — an increment *is* a phase. The two levels are:
 
 Version scope is frozen when its checklist is written: new ideas go to the
 next version or an explicit carry-over list, never silently into an open
-one.
+one. **A version is not closed as "green except X."**
+
+## Governance (MANDATORY RULE)
+
+**A completed increment is frozen.** A later defect does not automatically
+reopen the completed increment, and a completed slice is not re-planned because
+new work would prefer its slot.
+
+A corrective change against a completed increment must, in the same commit:
+
+1. **identify the owning layer** (which module, which file, which path);
+2. **document why it is required** — the demonstrated failure, not a
+   preference, with the evidence that demonstrates it;
+3. **preserve downstream behavior** — a correction that changes emitted bytes,
+   frame layout or a public surface says so explicitly and re-pins what it
+   moved;
+4. **run the affected regression gates** — the increment's own gate plus the
+   neighbours it can break, isolated per the ~4 GB host rule;
+5. **be recorded as a corrective change against the frozen baseline** — in the
+   increment's audit note, not as a new phase, and not by editing the original
+   phase's completion claim.
+
+Corrective changes never silently improve scope. If a fix reveals genuinely new
+work, that work becomes its own increment with its own baseline and gate.
+
+**Evidence discipline.** A completion claim is only as strong as the check that
+produced it. A gate that can pass without comparing anything — for example one
+that skips when output is empty — is not evidence, and the "executed" wording it
+supports must be corrected rather than quietly inherited. The
+`docs/audit/PHASE-150-BASELINE.md` §12 entry is the worked example.
 
 ## Roadmap
 
@@ -860,9 +889,11 @@ passthrough, debuggers on native images stay on the C path, kcc native parity
 is 151, and `--target native-x86_64-windows/macos` CLI targets are the
 immediate follow-up. Report: `docs/audit/PHASE-149-FINAL-REPORT.md`.)
 
-**In progress: 150 — Native Value Model + Windows/macOS native targets**
-(version **1.2.0** "Sovereignty I" opener; scope, slices and exit criteria
-in `docs/audit/PHASE-150-BASELINE.md`).
+**In progress: increment 150 — Native Value Model + Windows/macOS native
+targets** (version **1.2.0** "Sovereignty I" opener; slices, scope and exit
+criteria in `docs/audit/PHASE-150-BASELINE.md`). **Slices 150A–150C are
+complete and frozen; 150D is the only remaining slice and is not started.**
+Architecture context: `docs/audit/KARKAIN-ARCHITECTURE-ROADMAP.md`.
 
 Also completed: **150A — Native Value Model core** (increment 150, slice A
 of 4; verdict **COMPLETE**). The native backend stopped being an
@@ -1123,11 +1154,50 @@ Regressions green: `go build ./...`, `go vet`, full `pkg/native` (no FAIL),
 native CLI gate, `pkg/parser`, `pkg/lexer`, `pkg/sema`, `pkg/ir/...`,
 `pkg/target`, `pkg/wasm`, `pkg/compiler`.
 
-**Increment 150 status:** 150A, 150B1, 150B2, 150B3a, 150B3b and 150B3c are
-complete, so the **boxed Value model is done** — arrays, `for-in`, floats,
-maps, structs and string ops all have executed goldens (ELF live, PE live).
-**Next: 150C — register allocation**, validated against the `nativeLegacyELF`
-byte-identity table this increment has kept green through every slice.
+**Increment 150 status:** 150A, 150B1, 150B2, 150B3a, 150B3b, 150B3c **and
+150C** are complete, so the **boxed Value model and the register allocator are
+both done** — arrays, `for-in`, floats, maps, structs and string ops have
+executed goldens (PE live on Windows, ELF live on Linux CI), and 150C promotes
+hot int locals from frame slots to callee-saved registers with spilling proven
+to be the pre-150C path.
+**Current increment: 150. Next implementation slice: 150D** — Mach-O PIE/rebase
+plus the writable `__DATA`, the `native-x86_64-windows` /
+`native-x86_64-macos` CLI targets, and the native-split cache, gated by
+`pkg/cli/phase150_native_targets_test.go`. Scope in
+`docs/audit/PHASE-150-BASELINE.md` §11; the v1.2.0 scope freeze is
+`docs/release/v1.2.0-CHECKLIST.md`.
+**150A–150C are frozen** unless a directly demonstrated regression requires an
+explicit corrective change, recorded per the Governance rule below.
+
+Also completed: **150C — register allocation** (increment 150, slice C of 8;
+verdict **COMPLETE**). Int locals can live in callee-saved registers instead
+of frame slots. The allocatable set is R12–R15, chosen because they are
+callee-saved under **both** System V and Win64 and are referenced nowhere else
+in the backend. Spilling needs no new machinery: a local that is not allocated
+keeps its frame slot, so spilling *is* the pre-150C path, the frame slot stays
+reserved, and the pushes happen outside the frame so every slot displacement is
+unchanged. Allocation is planned once in `layout()` from the information the
+existing layout pass already produced, before any emission, so prologue, body
+and epilogue read one plan; a function that does not qualify leaves the map
+empty and emits a byte-for-byte pre-150C prologue. The allocator engages only
+under genuine pressure — more than `raMinLive` simultaneously-live int locals
+**and** the function contains control flow, because in a straight-line body
+every value is read once, so a push/pop pair would cost more than the load it
+removes. Three access sites only: `emitLet` (RAX → register), `emitExpr`
+(register → RAX), `emitExprStmt` (RAX → register); RAX remains the
+expression-result register throughout and evaluation order is unchanged.
+Evidence: below-threshold, engagement, spill, control-flow, determinism and
+three live PE programs. Validated against the `nativeLegacyELF` byte-identity
+table this increment kept green through every slice.
+**Corrective changes (not a reopen):** the hardened PE output guard exposed 38
+red subtests that the old `if out != ""` guard had been skipping silently, and
+three real defects were repaired against the frozen baseline — a `print_int`
+sign write that used a Linux-only raw `syscall` (so every negative integer
+printed unsigned on Windows), a `push()` length of `oldlen + 8` instead of
+`+1`, and a map key that the value's evaluation overwrote before it reached
+`map_set`. All three are container-independent lowering, so the Linux CI leg was
+failing for the same reasons. Full detail, gates and the reverted
+`MovzxRegMem8` misdiagnosis: `docs/audit/PHASE-150-BASELINE.md` §12.
 
 Also completed: **125A — Standard-Library Networking / Database / Web slice +
 Windows Winsock linking** (verdict **COMPLETE**; three new stdlib modules,

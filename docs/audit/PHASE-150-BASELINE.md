@@ -263,11 +263,137 @@ through the PE container. Nine negative cases pin the boundaries (non-int
 element, wrong arity, non-array receiver, a literal receiver, and push inside
 `while` and inside `for-in`).
 
-## 10. Not yet started
+## 10. Current state — slices 150A–150C complete, 150D not started
 
-- **150B3b** — maps, structs.
-- **150C** — register allocation, validated against the `nativeLegacyELF`
-  table landed in 150A.
-- **150D** — Mach-O PIE/rebase (and the writable `__DATA` the heap refusal
-  above names), the two new CLI targets, the native-split cache, and
-  `pkg/cli/phase150_native_targets_test.go`.
+Increment 150 is **one increment**, planned as eight slices:
+
+| Slice | Deliverable | State |
+|---|---|---|
+| 150A | Native Value model (floats, arrays, `for-in`, `len`) | ✅ complete |
+| 150B1 | Heap arena + string concatenation | ✅ complete |
+| 150B2 | String slice + string comparison | ✅ complete |
+| 150B3a | `push()` | ✅ complete |
+| 150B3b | Records / structs | ✅ complete |
+| 150B3c | Maps | ✅ complete |
+| 150C | Register allocation | ✅ complete |
+| **150D** | **Mach-O + native OS targets + native-split cache** | ⬜ **not started** |
+
+**150D is the only remaining slice of increment 150.** 150A–150C are frozen
+unless a directly demonstrated regression requires an explicit corrective
+change (see §12).
+
+## 11. 150D — scope (the only remaining slice)
+
+### Mach-O
+* PIE flag
+* rebase opcodes
+* `ParseMachO` support
+* writable `__DATA` segment for allocating programs (today an allocating
+  program gets a loud, named refusal on macOS)
+
+### CLI native targets
+* `native-x86_64-windows`
+* `native-x86_64-macos`
+* target listing / `--help`
+* per-OS build/run matrix
+* run refusal when the target OS does not match the host
+* **exit code 6** for unsupported-host execution
+
+### Incremental compilation
+* native-split incremental cache, **or** a documented, explicitly gated refusal
+  if cache soundness cannot be established — the refusal text is itself gated
+
+### Gate
+`pkg/cli/phase150_native_targets_test.go` (magic per OS, run refusals, listing,
+incremental refusal), plus the existing `pkg/native` unit goldens.
+
+### Explicitly OUT OF SCOPE for 150D
+* ARM64 native
+* PE delay-load
+* TLS / SEH / resources / code signing
+* Mach-O **execution** on Intel macOS (no runner exists; structural only)
+* kcc native parity (that is increment 151)
+* unrelated backend optimization
+
+## 12. Corrective changes against the frozen 150 baseline
+
+**A completed increment is frozen.** A later defect does not automatically
+reopen it. A corrective change must (1) identify the owning layer, (2) document
+why it is required, (3) preserve downstream behavior, (4) run the affected
+regression gates, and (5) be recorded as a corrective change against the frozen
+baseline. None of the changes below reopened a slice.
+
+**Scope freezes when a version opens. A version is not closed as "green except
+X".** An unmet condition moves to the next version or to an explicit carry-over
+list.
+
+### 12.1 Test-validation correction (read before trusting the slice records)
+
+The per-slice sections above say "executed live" and "all N programs run for
+real". **Those claims were affected by a test guard and were not verified as
+written.** The PE execution guard read:
+
+```go
+if out != "" { /* compare */ }
+```
+
+A program that printed **nothing** was therefore never compared — the guard
+skipped it silently. The guard was later replaced with `requireNativeOut`
+(`program_test.go`), which treats empty output as a hard failure, and that change
+exposed **38 red subtests** across the increment.
+
+This is a **test-validation correction, not a claim that the implementation did
+not exist.** The value model, arena, string operations, `push()`, records, maps
+and register allocation are all present in the tree. What was wrong was the
+*evidence*: the "executed" suites had been passing vacuously, and three real
+defects had shipped underneath them.
+
+Subsequent targeted validation exercised the **actual output checks** — real PE
+execution on this Windows host, structural validation for Mach-O, and the ELF
+differential — and the corrected suites now pass on that evidence.
+
+### 12.2 The three defects that had shipped
+
+| # | Owning layer | Defect | Why it survived | Fix |
+|---|---|---|---|---|
+| 1 | `pkg/native` helper I/O (`print_int`) | the sign write used a raw `syscall` — Linux/macOS `write(1,…)`, with no valid meaning in the PE container — so **every negative integer printed unsigned** (`print(-1)` → `1`, `3-10` → `7`) | the broken path still printed digits, so output was non-empty and the guard was satisfied; and **no PE case ever printed a negative int**, so the branch never ran on that container | sign write goes through `emitWrite` |
+| 2 | `pkg/native` value lowering (`emitPush`) | `len` was stored as `oldlen + 8` instead of `+1`, at two sites: a pushed array reported `len` 10 for three elements, and `for-in` over it emitted eight phantom elements | same vacuous guard — the affected suites never ran to comparison | both sites add the one appended element |
+| 3 | `pkg/native` map lowering (`emitMapInsertEntry`) | the key was evaluated into `RAX`, then the value — a second expression that also lands in `RAX` — overwrote it, and the key was never moved to `RSI`. Every pair was filed under a junk key: reads always missed, and a two-entry literal stored both under one key so `len()` reported 1 | same vacuous guard | the key now rides a dedicated `mapStage` frame unit |
+
+**Downstream behavior preserved:** non-map programs keep their exact frame and
+therefore their exact emitted bytes; the new staging slot is conditional, the
+same discipline `strTemp` already used.
+
+**Gates run:** `pkg/native` (fully green, from 38 red subtests), the Phase 148
+native CLI gate, `TestPhase150C`, `pkg/parser`, `pkg/lexer`, `pkg/sema`,
+`go build ./...`, `go vet`.
+
+**New coverage for the class that had none:** `nativeNegIntCases` pins eight
+sign shapes (`-1`, `-x`, `-(-x)`, `3-10`, `0-1`, array elements, a loop, a
+branch) on **both** containers, every golden cross-checked against the C
+backend, plus a structural pin on the sign-write ordering.
+
+**One earlier fix was reverted as incorrect.** A `MovzxRegMem8` change claimed
+`REX.W + 0F B6` is an eight-byte load. It is not — that encoding is
+`movzx r64, r/m8`, a one-byte load zero-extended to 64 bits. `emit.go` is
+therefore untouched by the corrective change, and the two emit byte pins it had
+broken are green again.
+
+### 12.3 Test-data corrections (no behavior change)
+
+* `forin_nested`'s golden said `10/20/11/21`, which no evaluation of that source
+  can produce. The C backend — the language's semantic oracle — prints
+  `20/30/30/40`; the golden now matches arithmetic.
+* `nativeLegacyELF` is re-pinned. Two entries had been left stale by the
+  preceding encoder commit, and the `print_int` reordering moves every image.
+  The drift was **verified benign, not assumed**: old and new `p145_hello`
+  differ in exactly 13 bytes — the three instructions of the sign path in a
+  different order — identical size and identical ELF semantics, since all three
+  argument registers are still set before the syscall.
+
+### 12.4 Known limitation carried forward
+
+Building the **compiler** itself without a C compiler is still unscheduled:
+after increment 154 the toolchain is Go-free, but bootstrap links through `gcc`
+because `kcc` emits C23. See `KARKAIN-ARCHITECTURE-ROADMAP.md` §6. Tracked as a
+roadmap gap, not as a 150 defect.

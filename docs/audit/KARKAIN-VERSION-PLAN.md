@@ -1,18 +1,53 @@
 # Karkain Version Plan — 1.1.0 → 2.0.0
 
 **Status**: authoritative forward view (planning + release ledger).
-**Baseline**: increment **149** complete, `VERSION` = `1.1.0`, tree clean on
-`main` @ `624323e`, CI gates Phase 114–148 + `pkg/native` + docs green.
+**Baseline**: increment **150** in progress — slices **150A–150C complete,
+150D not started**. `VERSION` = `1.1.0`, `main` @ `da5082c`.
 **Companion documents** (this file does not replace them):
 
 | Document | Role |
 |---|---|
 | `AGENTS.md` | completion record + branch/cadence rules |
+| `docs/audit/KARKAIN-ARCHITECTURE-ROADMAP.md` | how the compiler is layered today, and which layer changes hands in which release |
 | `docs/audit/GENERAL-AVAILABILITY-ROADMAP.md` | GA-1/2/3 milestones (phases 128–142) |
 | `docs/audit/KARKAIN-INDEPENDENCE-ROADMAP.md` | I / S / L / P / D track definitions + per-module stdlib backlog |
 | `docs/source/development/semver-policy.rst` | what a patch / minor / major may contain |
 | `docs/source/status/scope.rst`, `docs/source/reference/stable-api.rst` | the public status + API ledger |
 | `ROADMAP.md` | historical phase log (Phases 1–49) |
+
+---
+
+## 0. Numbering model (read this before the matrix)
+
+Two different numbering schemes share one document. They are **not**
+interchangeable, and 150's letters are **not** release versions:
+
+* **Historical phases / increments 1–149** — completed work. Phases 1–49 are
+  the `ROADMAP.md` log; 50–149 are the `AGENTS.md` record. These are closed
+  history and are not re-planned.
+* **Current increments 150+** — the forward planning units, one deliverable,
+  one gate file, one audit note, one merge per increment.
+* **150A / 150B1 / 150B2 / 150B3a / 150B3b / 150B3c / 150C / 150D are slices
+  of increment 150** — eight slices of **one** increment, which ships as
+  **one** release (v1.2.0). They are never four or eight separate releases.
+
+```text
+Increment 150
+├── 150A   Native Value model
+├── 150B1  Heap arena + string concatenation
+├── 150B2  String slice + comparison
+├── 150B3a push()
+├── 150B3b Records / structs
+├── 150B3c Maps
+├── 150C   Register allocation
+└── 150D   Mach-O + native OS targets + native-split cache
+```
+
+**Release membership is a capability decision, not a function of the number.**
+An increment belongs to a release because the roadmap documents the capability
+that release needs; renumbering never changes membership, and no increment
+number on its own implies a release.
+
 
 ---
 
@@ -67,23 +102,66 @@ that property is why the 1.0/1.1 lines shipped at all.
 5. `scope.rst` / `stable-api.rst` / NFR ledger rows update **in the same
    commit** as the increment that moves them (the L-6 standing rule).
 
-## 3. Version table
+## 3. Version ↔ increment master matrix (authoritative)
 
-| Version | Theme | Increments | Exit criteria (beyond "all gates green") |
+| Release | Theme | Increments | State |
 |---|---|---|---|
-| **1.1.0** | performance, parity, generics v1, LSP v2, local registry, native prep | 128–149 ✅ in-tree | only the owner ceremony: tag `v1.1.0` on current `main`, CI archives + checksums, `verify-install`/`rc-journey` against the shipped binary, docs marker flip |
-| **1.2.0** | **Sovereignty I — off C, off Go** | 150, 151, 152, 154, 165 | hello + `stdlib_v2` + one `std.net` program build/run with `gcc`/`clang`/`cl` **absent from `PATH`**; `stage2 == stage3` with **no Go toolchain**; native images byte-identical Go↔kcc; Go described as *reference only* in `installation.rst` |
-| **1.3.0** | language + library completeness | 155, 156, 158, 159, 160, 161 | OS stdlib modules ship (both engines); PM/scaffolding owned by kcc; generics v2 + `const` folding; linear types enforced; atomic surface with litmus goldens; **zero** Go-engine-only core rows |
-| **1.4.0** | tooling, debugging, observability | 153, 157, 163, 164, 175, 176 | DWARF consumed (breakpoints/step); `prof`/SIMD/DWARF parity on kcc; KIR consumed by the backend; every known wrong-code class fixed or a loud `K1xx` |
-| **1.5.0** | platforms & packaging | 166, 167, 168, 169, 170, 171, 172 | `--target freestanding` links with no libc; WASM GC/components + `wit`; MSI/DEB/RPM/DMG artifacts install in clean environments; riscv64 real; Android triple |
-| **1.6.0** | performance, memory, registry | 162, 174, 179* | full self-build ≤ 2.5 GB; one measured SSA→emit pass with a published bench delta; CLI startup budget; public registry **only if operated** (*otherwise it stays Planned and is not claimed*) |
-| **2.0.0** | layout & hardware (breaking line) | 177, 178, 180 | C-layout structs + `packed`/alignment with goldens re-pinned as the reviewed diff; `volatile`/MMIO/`asm()` with K108-style rejects; deprecation removals + migration guide |
-| post-2.0 | Apple distribution, TLS/AEAD, async/await, JIT | 181, 182, 183, 184 | each needs a real runner, a costed dependency decision, or a measured win before it is claimed |
+| Pre-1.0 | Language/compiler foundation | 1–90 | Complete |
+| v1.0.0 | Stable/self-hosted foundation | 91–128 | Complete |
+| v1.1.0 | Toolchain/native foundation | 128–149 | Complete |
+| **v1.2.0** | **Sovereignty I — Off C, Off Go** | **150, 151, 152, 154** + 165 | **In progress** |
+| v1.3.0 | Language + library completeness | 155, 156, 158–161 | Planned |
+| v1.4.0 | Tooling/debugging/observability | 153, 157, 163, 164, 175, 176 | Planned |
+| v1.5.0 | Platforms + packaging | 166–172 | Planned |
+| v1.6.0 | Performance/memory/registry | 162, 174, 179* | Planned |
+| v2.0.0 | Breaking layout + hardware | 177, 178, 180 | Planned |
+| post-2.0 | Advanced/future | 181–184 | Future |
+
+**\* 179** is conditional on an operated registry service. If no service is
+operated it stays **Planned and unclaimed** — it is never asserted as shipped.
+
+Notes on this matrix:
+
+* **Increment 150 is one release.** Its eight slices (150A–150D) ship together
+  as v1.2.0; see §0.
+* **128 is the 1.0.0/1.1.0 boundary.** Phase 128 is the 1.0.0 cut-and-distribution
+  preparation and is counted in the 1.1.0 range because it is the first work of
+  that line; v1.0.0 therefore spans 91–128 inclusive at its tail.
+* **"Planned" ≠ "baselined".** v1.3.0 and later carry a theme and exit criteria
+  only. Their per-increment deliverables and gates are **not yet written**; a
+  number is assigned when an increment is scheduled, and renumbering is allowed
+  until its baseline note exists. **v1.2.0 is the only open release with
+  baselined per-increment scope.**
+* **Owner-only items are not increments.** Cutting a release tag, container
+  registry visibility and code-signing identities cannot be done from the repo;
+  they are tracked in §4.1 and §8, not as planned work.
+* **v1.2.0's scope freeze lives in `docs/release/v1.2.0-CHECKLIST.md`**, written
+  at version open. 1.1.0 shipped release notes but no checklist; 1.2.0 has one,
+  and it is the document that decides what is *in* this release.
+
+### 3.1 Exit criteria per release (beyond "all gates green")
+
+| Version | Exit criteria |
+|---|---|
+| **1.1.0** | only the owner ceremony: tag `v1.1.0` on current `main`, CI archives + checksums, `verify-install`/`rc-journey` against the shipped binary, docs marker flip |
+| **1.2.0** | hello + `stdlib_v2` + one `std.net` program build/run with `gcc`/`clang`/`cl` **absent from `PATH`**; `stage2 == stage3` with **no Go toolchain**; native images byte-identical Go↔kcc; Go described as *reference only* in `installation.rst` |
+| **1.3.0** | OS stdlib modules ship (both engines); PM/scaffolding owned by kcc; generics v2 + `const` folding; linear types enforced; atomic surface with litmus goldens; **zero** Go-engine-only core rows |
+| **1.4.0** | DWARF consumed (breakpoints/step); `prof`/SIMD/DWARF parity on kcc; KIR consumed by the backend; every known wrong-code class fixed or a loud `K1xx` |
+| **1.5.0** | `--target freestanding` links with no libc; WASM GC/components + `wit`; MSI/DEB/RPM/DMG artifacts install in clean environments; riscv64 real; Android triple |
+| **1.6.0** | full self-build ≤ 2.5 GB; one measured SSA→emit pass with a published bench delta; CLI startup budget; public registry **only if operated** |
+| **2.0.0** | C-layout structs + `packed`/alignment with goldens re-pinned as the reviewed diff; `volatile`/MMIO/`asm()` with K108-style rejects; deprecation removals + migration guide |
+| post-2.0 | each of Apple distribution, TLS/AEAD, async/await and JIT needs a real runner, a costed dependency decision, or a measured win before it is claimed |
 
 ## 4. Increment queue — 1.2.0 "Sovereignty I" (open)
 
 Order is dependency-forced: `150 → 151 → 152 → 154`, with `165` free-floating
 (CI-only lane, no compiler risk).
+
+```text
+150 ──▶ 151 ──▶ 152 ──▶ 154
+
+165   free-floating: packaging/CI, NOT a compiler dependency
+```
 
 | Increment | Track | Deliverable | Gate / Definition of Done | Boundaries (not this increment) |
 |---|---|---|---|---|
@@ -92,6 +170,43 @@ Order is dependency-forced: `150 → 151 → 152 → 154`, with `165` free-float
 | **152** | I | **Native stdlib + no-C closure** (completes I-5): `hello`, `stdlib_v2` and one `std.net` program link and run with no C compiler on `PATH` | Link-without-compiler gate; `--target c23` still available and unchanged; deterministic rejects for net/db/http on a runtime without OS sockets | removing the C path (it stays, as an option) |
 | **154** | I | **I-6 self-bootstrap** — `kcc` builds `kcc`; retire the `KARKAIN_ENGINE=go` stage-1 pin; Go tree archived as `reference/` differential oracle | `stage2 == stage3` (SHA) with the Go toolchain absent from the build host; full QA battery green in that state | deleting the Go tree (kept as oracle) |
 | **165** | P | **P-0 Docker image**: slim base + gcc + wasmtime, multi-arch `ghcr.io` push on tag, cosign | `docker run ghcr.io/ajit-ai/karkain:<tag> karkain --version` + hello `run` inside the image on amd64 and arm64 | MSI/DEB/RPM/DMG (1.5.0) |
+
+### 4.1 v1.2.0 — Sovereignty I: closure conditions
+
+**Theme: Off C, Off Go.** Dependency order is fixed:
+
+```text
+150 ──▶ 151 ──▶ 152 ──▶ 154
+```
+
+**165 is free-floating CI/packaging work and is not a compiler dependency** — it
+can land at any point in the sequence without unblocking or blocking 150–154.
+
+The release closes **only** when every one of these holds:
+
+1. hello builds and runs with `gcc`, `clang` and `cl` all **absent from `PATH`**
+2. `stdlib_v2` works in that same no-C environment
+3. one `std.net` program builds and runs under the defined no-C constraint
+4. native images are **byte-identical** between the Go compiler and `kcc`
+   wherever the gate requires parity
+5. `stage2 == stage3` — the self-hosted build is bit-reproducible
+6. **no Go toolchain is required** for that self-bootstrap closure
+7. `installation.rst` identifies Go as **reference-only**
+8. the full version QA battery passes (units, Phase-114 corpus on both engines,
+   conformance, probes, every gate file, Sphinx `-W` + linkcheck,
+   `verify-examples`, `install`/`verify-install`, `rc-journey`)
+
+These conditions are **not weakened** to close the release. A version is not
+closed as "green except X": an unmet condition moves to the next version or to
+an explicit, written carry-over list. `AGENTS.md` carries the frozen-increment
+rule that governs how these are evidenced.
+
+**What 1.2.0 does not claim.** It does not make building the *compiler* C-free:
+after 154 the toolchain is Go-free but bootstrap still links through a C
+compiler, because `kcc` emits C23. Removing that last borrow needs `kcc` to
+compile and link itself natively, which has no increment, baseline or gate yet
+(`KARKAIN-ARCHITECTURE-ROADMAP.md` §6). It is not counted against 1.2.0 and it
+is not silently dropped.
 
 **Owner items for 1.2.0** (cannot be done from the repo): the `v1.1.0` tag cut
 that closes the previous line, container-registry visibility for `ghcr.io`,
@@ -161,12 +276,12 @@ each operation has exactly one home.
 planned for the "133 slot" but **never shipped** — there is no source file for
 any of them. They gate native/PM work, so they open 1.3.0 as increment 155.
 
-## 7. Verified state snapshot (increment 149)
+## 7. Verified state snapshot (increment 150, slices 150A–150C complete)
 
 | Fact | Value |
 |---|---|
 | `VERSION` / banner | `1.1.0` / `Karkain Compiler v1.1.0 (windows/amd64, Stable Build)` |
-| Branch state | `main` @ `624323e`, tree clean; `develop` and `1.0.x` present and pushed |
+| Branch state | `main` @ `da5082c`, tree clean; `develop` and `1.0.x` present and pushed |
 | Tags on origin | `karkain-17`, `v0.14.0`, `v0.19.0`, `v1.0.0` — **no `v1.1.0`** |
 | Gates | 24 CI gate steps (Phases 114–148 + `pkg/native` + unit suites), plus the `native-windows` job and the informational `native-evidence` job |
 | Corpus | 61 pinned goldens across 15 categories (210 `.kark` files under `examples/`) |
@@ -174,6 +289,8 @@ any of them. They gate native/PM work, so they open 1.3.0 as increment 155.
 | Tests in tree | 211 `*_test.go`, of which 81 are `phase*_test.go` (59 in `pkg/cli`) |
 | Audit reports | 85 `PHASE-*.md` records |
 | KIR pin | whole-tree KIR = **9574** lines (Phase 146c) |
+| Native backend | C-free image writers for ELF/PE/Mach-O; **executed** on PE (this host) and ELF (Linux CI) |
+| Native value model | increment 150 slices **150A–150C complete**; **150D not started** |
 | Toolchain | Go 1.27.0 windows/amd64; gcc on PATH; wasmtime available for the WASM leg |
 
 ## 8. Status ledger (updated per increment)
@@ -181,12 +298,12 @@ any of them. They gate native/PM work, so they open 1.3.0 as increment 155.
 | Version | Increments | State | Blocker |
 |---|---|---|---|
 | 1.1.0 | 128–149 | **in-tree complete**, gates green | owner tag/archive ceremony |
-| 1.2.0 | 150, 151, 152, 154, 165 | **open** — 0 of 5 started | none (starts with 150) |
-| 1.3.0 | 155, 156, 158, 159, 160, 161 | scoped, not started | needs the 1.2.0 native/lib baseline |
-| 1.4.0 | 153, 157, 163, 164, 175, 176 | scoped, not started | needs the 1.3.0 library rows |
-| 1.5.0 | 166, 167, 168, 169, 170, 171, 172 | scoped, not started | macOS signing and BSD VM are owner/community items |
-| 1.6.0 | 162, 174, 179* | scoped, not started | 179 needs an operated registry service |
-| 2.0.0 | 177, 178, 180 | scoped, not started | 177 is the intentional breaking change |
+| 1.2.0 | 150, 151, 152, 154, 165 | **open, in progress** — increment 150 has slices 150A–150C **complete** and **150D not started**; 151/152/154/165 not started | none (150D is next) |
+| 1.3.0 | 155, 156, 158, 159, 160, 161 | **planned, not baselined** — theme + exit criteria only; per-increment scope unwritten | needs the 1.2.0 native/lib baseline |
+| 1.4.0 | 153, 157, 163, 164, 175, 176 | **planned, not baselined** | needs the 1.3.0 library rows |
+| 1.5.0 | 166, 167, 168, 169, 170, 171, 172 | **planned, not baselined** | macOS signing and BSD VM are owner/community items |
+| 1.6.0 | 162, 174, 179* | **planned, not baselined** | 179 needs an operated registry service |
+| 2.0.0 | 177, 178, 180 | **planned, not baselined** | 177 is the intentional breaking change |
 
 ## 9. Numbering and anti-scope
 
