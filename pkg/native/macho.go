@@ -45,7 +45,19 @@ import (
 // the bytes. First execution on a real Mac is still unproven.
 
 // MachoBase is the conventional x86-64 macOS load address (__TEXT's vmaddr).
-const MachoBase = 0x100000000
+//
+// It is a uint64 because it does NOT fit in an int on a 32-bit target: 0x100000000
+// overflows a 32-bit int, and `pkg/native` is compiled for GOARCH=arm and 386 as
+// part of the release build matrix. Keep every use of it in 64-bit arithmetic —
+// use machoAddr() to turn a file offset into a vmaddr rather than adding to this
+// constant directly.
+const MachoBase uint64 = 0x100000000
+
+// machoAddr converts a file offset to its Mach-O vmaddr: the image is mapped
+// 1:1 from file offset 0 at MachoBase, so the vmaddr is simply the offset added
+// to the base. Doing the addition in uint64 here is what keeps the writer
+// buildable on 32-bit hosts.
+func machoAddr(fileOff int) uint64 { return MachoBase + uint64(fileOff) }
 
 // MachoPageZeroSize is __PAGEZERO's vmsize: the 4 GiB hole below __TEXT that
 // makes a null dereference a guaranteed fault instead of a wild read.
@@ -317,9 +329,9 @@ func LinkMachO(text, rodata, data []byte, textOffset, entryOffset int, rebaseSit
 	// __TEXT: header + .text + .rodata, R+X, mapped 1:1 from the file start.
 	out = append(out, machoSegCmd("__TEXT", MachoBase, uint64(bodyEnd), 0, uint64(bodyEnd), machoProtRX, machoProtRX)...)
 	if hasData {
-		out = append(out, machoSegCmd("__DATA", uint64(MachoBase+dataOff), uint64(len(data)), uint64(dataOff), uint64(len(data)), machoProtRW, machoProtRW)...)
+		out = append(out, machoSegCmd("__DATA", machoAddr(dataOff), uint64(len(data)), uint64(dataOff), uint64(len(data)), machoProtRW, machoProtRW)...)
 	}
-	out = append(out, machoSegCmd("__LINKEDIT", uint64(MachoBase+linkEditOff), uint64(len(rebase)), uint64(linkEditOff), uint64(len(rebase)), machoProtRead, machoProtRead)...)
+	out = append(out, machoSegCmd("__LINKEDIT", machoAddr(linkEditOff), uint64(len(rebase)), uint64(linkEditOff), uint64(len(rebase)), machoProtRead, machoProtRead)...)
 
 	// LC_DYLD_INFO_ONLY: the rebase opcodes are the only content that matters
 	// here. bind/weak_bind/lazy_bind/export stay zero — this image imports
