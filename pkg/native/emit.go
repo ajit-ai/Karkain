@@ -493,60 +493,104 @@ func (e *Emitter) MovRegGsMem(dst Reg, disp uint32) {
 	e.u32(disp)
 }
 
-// MovzxRegMem16 emits movzx r32, word [base+off]: 0F B7 /r + ModRM +
-// SIB + disp (no REX.W: 32-bit destination). Used to read UNICODE_STRING
-// Length fields and WCHARs while matching DLL/export names.
+// MovzxRegMem16 emits movzx r32, word [base+off]: 0F B7 /r (no REX.W:
+// 32-bit destination). Used to read UNICODE_STRING Length fields and
+// WCHARs while matching DLL/export names.
+//
+// Phase 150C: routed through memBaseOff; it previously forced a SIB byte
+// and emitted 0x20|base as that SIB, which is not an "index none" encoding.
 func (e *Emitter) MovzxRegMem16(dst, base Reg, off int) {
 	e.rex(false, dst, base)
 	e.byte(0x0F)
 	e.byte(0xB7)
-	switch {
-	case off == 0 && base.low() != 5:
-		e.modrm(0, dst.low(), 4)
-	case off >= -128 && off <= 127:
-		e.modrm(1, dst.low(), 4)
-	default:
-		e.modrm(2, dst.low(), 4)
-	}
-	e.byte(0x20 | base.low())
-	switch {
-	case off == 0 && base.low() != 5:
-	case off >= -128 && off <= 127:
-		e.byte(byte(int8(off)))
-	default:
-		e.u32(uint32(int32(off)))
-	}
+	e.memBaseOff(dst, base, off)
 }
 
-// CmpRegImm32 emits cmp r64, imm32: REX.W + 81 /7 io.
+// CmpRegImm32 emits cmp r64, imm: REX.W + 81 /7 id, or the shorter
+// REX.W + 83 /7 ib when the value is sign-extendable from a signed byte.
+//
+// Two corrections, both pinned against GNU as:
+//
+//   - The imm8 form (83 /7 ib) is used when v fits in int8. It is three
+//     bytes shorter than 81 /7 id for every such value and means exactly
+//     the same thing, because 83 sign-extends its byte to 64 bits.
+//   - The register operand of 81/83 /7 sits in the ModRM rm field, so only
+//     REX.B is required. Passing r as both reg and rm also set REX.R, which
+//     as does not emit (as gives 49 81 f8 .., this gave 4d 81 f8 ..).
 func (e *Emitter) CmpRegImm32(r Reg, v uint32) {
-	e.rex(true, r, r)
+	if v <= 0x7F {
+		e.rex(true, 0, r)
+		e.byte(0x83)
+		e.modrm(3, 7, r.low())
+		e.byte(byte(v))
+		return
+	}
+	e.rex(true, 0, r)
 	e.byte(0x81)
 	e.modrm(3, 7, r.low())
 	e.u32(v)
 }
 
-// StoreBaseOff emits mov [base+off], r64: REX.W + 89 /r + ModRM + SIB +
-// disp. Used to publish resolved kernel32 addresses into the IAT slots.
+// memBaseOff emits the ModRM + displacement for a plain [base+off]
+// addressing form, with NO SIB byte.
+//
+// Phase 150C arena fix. This form previously forced rm=100 (SIB) and then
+// emitted 0x20|base as the SIB byte. That is wrong: the SIB byte's index
+// field occupies bits 5-3, so 0x20|base does not mean "index none, base
+// =base" -- it silently produces a scaled address out of whatever happens
+// to be in the index/base registers. GNU as proves the correct encoding:
+//
+//	mov rax,[r10]      -> 49 8b 02
+//	mov rax,[rbx]      -> 48 8b 03
+//	mov rax,[rax+0x18] -> 48 8b 40 18
+//	mov rax,[r10+0x30] -> 49 8b 42 30
+//
+// none of which contain a SIB byte. The old form emitted 49 8b 04 22 for
+// [r10], which the CPU decodes as [rdx + rcx*1] -- so the arena cursor
+// load in alloc read from a garbage address, R11 was never the limit by
+// the time the bounds check ran, and every allocating PE program died.
+// RSP is the one register that still needs mod=00 with a SIB (it has no
+// low-3-bit encoding), so the existing memRsp path is left untouched.
+func (e *Emitter) memBaseOff(gp, base Reg, off int) {
+	// RSP is the one register with no low-3-bit ModRM encoding (rm=101
+	// means RIP-relative when mod!=00), so it is addressed through a SIB:
+	// GNU as emits `cmp %rcx,0x8(%rsp)` as 48 39 4c 24 08 -- the SIB 0x24
+	// is mandatory there. Every other base uses the compact direct form.
+	if base == RSP {
+		// The SIB byte must be emitted BEFORE the displacement: the
+		// ModRM's rm=100 promises a SIB, and the disp follows it.
+		switch {
+		case off == 0:
+			e.modrm(0, gp.low(), 4)
+			e.byte(0x20 | base.low())
+		case off >= -128 && off <= 127:
+			e.modrm(1, gp.low(), 4)
+			e.byte(0x20 | base.low())
+			e.byte(byte(int8(off)))
+		default:
+			e.modrm(2, gp.low(), 4)
+			e.byte(0x20 | base.low())
+			e.u32(uint32(int32(off)))
+		}
+		return
+	}
+	switch {
+	case off == 0:
+		e.modrm(0, gp.low(), base.low())
+	case off >= -128 && off <= 127:
+		e.modrm(1, gp.low(), base.low())
+		e.byte(byte(int8(off)))
+	default:
+		e.modrm(2, gp.low(), base.low())
+		e.u32(uint32(int32(off)))
+	}
+}
+
+// StoreBaseOff emits mov [base+off], r64: REX.W + 89 /r + ModRM + disp.
 func (e *Emitter) StoreBaseOff(src, base Reg, off int) {
 	e.rex(true, src, base)
 	e.byte(0x89)
-	switch {
-	case off == 0 && base.low() != 5:
-		e.modrm(0, src.low(), 4)
-	case off >= -128 && off <= 127:
-		e.modrm(1, src.low(), 4)
-	default:
-		e.modrm(2, src.low(), 4)
-	}
-	e.byte(0x20 | base.low())
-	switch {
-	case off == 0 && base.low() != 5:
-	case off >= -128 && off <= 127:
-		e.byte(byte(int8(off)))
-	default:
-		e.u32(uint32(int32(off)))
-	}
+	e.memBaseOff(src, base, off)
 }
 
 // Phase 148: frame-addressing primitives for the extras-pointer ABI
@@ -561,26 +605,11 @@ func (e *Emitter) LeaRegStack(dst Reg, off int) {
 }
 
 // LoadBaseOff emits mov r64, [base+off] for an arbitrary base register:
-// REX.W + 8B /r + ModRM + SIB + disp.
+// REX.W + 8B /r + ModRM + disp (no SIB -- see memBaseOff).
 func (e *Emitter) LoadBaseOff(dst, base Reg, off int) {
 	e.rex(true, dst, base)
 	e.byte(0x8B)
-	switch {
-	case off == 0 && base.low() != 5:
-		e.modrm(0, dst.low(), 4)
-	case off >= -128 && off <= 127:
-		e.modrm(1, dst.low(), 4)
-	default:
-		e.modrm(2, dst.low(), 4)
-	}
-	e.byte(0x20 | base.low())
-	switch {
-	case off == 0 && base.low() != 5:
-	case off >= -128 && off <= 127:
-		e.byte(byte(int8(off)))
-	default:
-		e.u32(uint32(int32(off)))
-	}
+	e.memBaseOff(dst, base, off)
 }
 
 // Syscall emits syscall: 0F 05.
@@ -592,27 +621,13 @@ func (e *Emitter) Syscall() {
 // Phase 149: loader-independent bootstrap memory forms.
 
 // LoadBaseOff32 emits mov r32, [base+off] (zero-extending): 8B /r +
-// ModRM + SIB + disp with no REX.W (REX.B only for extended regs).
-// Used for u32 fields (PE headers, export directory, name RVAs).
+// ModRM + disp with no REX.W (REX.B only for extended regs), and no SIB --
+// see memBaseOff. Used for u32 fields (PE headers, export directory, name
+// RVAs).
 func (e *Emitter) LoadBaseOff32(dst, base Reg, off int) {
 	e.rex(false, dst, base)
 	e.byte(0x8B)
-	switch {
-	case off == 0 && base.low() != 5:
-		e.modrm(0, dst.low(), 4)
-	case off >= -128 && off <= 127:
-		e.modrm(1, dst.low(), 4)
-	default:
-		e.modrm(2, dst.low(), 4)
-	}
-	e.byte(0x20 | base.low())
-	switch {
-	case off == 0 && base.low() != 5:
-	case off >= -128 && off <= 127:
-		e.byte(byte(int8(off)))
-	default:
-		e.u32(uint32(int32(off)))
-	}
+	e.memBaseOff(dst, base, off)
 }
 
 // LoadScaled32 emits mov r32, [base+index*scale+disp]: 8B /r + ModRM +
@@ -846,24 +861,17 @@ func (e *Emitter) ShlRegImm(r Reg, imm byte) {
 	e.byte(imm)
 }
 
-// StoreMem8Off emits mov byte [base+off], r8: REX + 88 /r + ModRM + SIB +
-// disp8. Like StoreBaseOff it always emits a SIB byte so rsp bases (the
-// print_float frame) address correctly; off must fit in a signed byte.
+// StoreMem8Off emits mov byte [base+off], r8.
+//
+// Phase 150C: routed through memBaseOff. It previously always used the SIB
+// form with a disp8, so a zero offset paid for a redundant 0x00 byte and a
+// non-zero offset still carried a SIB the assembler does not use. memBaseOff
+// picks the direct form for ordinary bases and keeps the SIB only for RSP,
+// which has no low-3-bit ModRM encoding (the print_float frame base).
 func (e *Emitter) StoreMem8Off(src, base Reg, off int) {
-	r := byte(0x40)
-	if src.ext() {
-		r |= 0x04
-	}
-	if base.ext() {
-		r |= 0x01
-	}
-	if r != 0x40 {
-		e.byte(r)
-	}
+	e.rex(false, src, base)
 	e.byte(0x88)
-	e.modrm(1, src.low(), 4)
-	e.byte(0x20 | base.low())
-	e.byte(byte(int8(off)))
+	e.memBaseOff(src, base, off)
 }
 
 // MovMemDwordImm emits mov r/m64, imm32 (REX.W + C7 /0 + ModRM + SIB +
@@ -922,29 +930,17 @@ func (e *Emitter) RolRegImm(r Reg, imm byte) {
 	e.byte(imm)
 }
 
-// MovzxRegMem8 emits movzx r64, byte [base+off]: REX.W + 0F B6 /r. The SIB
-// form matches LoadBaseOff so rsp- and register-based frame pointers both
-// address correctly.
+// MovzxRegMem8 emits movzx r64, byte [base+off]: REX.W + 0F B6 /r.
+//
+// Phase 150C: routed through memBaseOff. It previously forced a SIB byte
+// and emitted 0x20|base as that SIB, so the SIB's index field carried base
+// bits and the load silently addressed a scaled register instead of
+// [base+off].
 func (e *Emitter) MovzxRegMem8(dst, base Reg, off int) {
 	e.rex(true, dst, base)
 	e.byte(0x0F)
 	e.byte(0xB6)
-	switch {
-	case off == 0 && base.low() != 5:
-		e.modrm(0, dst.low(), 4)
-	case off >= -128 && off <= 127:
-		e.modrm(1, dst.low(), 4)
-	default:
-		e.modrm(2, dst.low(), 4)
-	}
-	e.byte(0x20 | base.low())
-	switch {
-	case off == 0 && base.low() != 5:
-	case off >= -128 && off <= 127:
-		e.byte(byte(int8(off)))
-	default:
-		e.u32(uint32(int32(off)))
-	}
+	e.memBaseOff(dst, base, off)
 }
 
 // scaledSIB emits [base+index*scale+disp] addressing for a 64-bit move.
@@ -1006,18 +1002,36 @@ func (e *Emitter) sibTail(reg byte, base, index Reg, scale int, disp int) {
 	}
 }
 
-// IncReg emits inc r64 (REX.W + FF /0): the byte-copy index step.
+// IncReg emits inc r64 (REX.W + FF /0) in the REGISTER form: the ModRM
+// mod field must be 11, which selects r/m = the register itself.
+//
+// Phase 150C arena fix. The mod field was 00, which selects the MEMORY
+// form, so `IncReg(RDX)` assembled to `incq (%rdx)` -- an increment of the
+// memory at the address held in RDX. Every caller passes a loop counter,
+// so the first iteration dereferenced the counter value as a pointer and
+// the process died with an access violation. This is why a single
+// iteration of the byte-copy loop worked (no IncReg reached) while the
+// loop itself faulted, and why every arena-backed program failed.
+//
+// GNU as: `inc rdx` -> 48 ff c2. objdump decodes the old bytes `48 ff 02`
+// as `incq (%rdx)`, which is the defect stated in machine-code terms.
 func (e *Emitter) IncReg(r Reg) {
 	e.rex(true, 0, r)
 	e.byte(0xFF)
-	e.modrm(0, 0, r.low())
+	e.modrm(3, 0, r.low())
 }
 
 // LoadScaled8 emits movzx r64, byte [base+index*scale+disp]: REX.W + 0F B6
 // /r + SIB. Phase 150B: the byte-wise copy behind string concatenation,
 // where the length is a runtime value so a constant-offset load cannot work.
+//
+// Phase 150C arena fix: the REX prefix must also carry REX.X when the INDEX
+// register is r8-r15. It previously only covered dst and base, so
+// `LoadScaled8(RBX, base=R8, index=R9)` assembled to `movzbq (%r8,%rcx,1),%rbx`
+// -- the index silently became RCX. The 64-bit scaled forms already did this
+// correctly (see scaledSIB); the byte forms did not.
 func (e *Emitter) LoadScaled8(dst, base, index Reg, scale int, disp int) {
-	e.rex(true, dst, base)
+	e.sibRex(true, dst, base, index)
 	e.byte(0x0F)
 	e.byte(0xB6)
 	e.sibTail(dst.low(), base, index, scale, disp)
@@ -1025,10 +1039,36 @@ func (e *Emitter) LoadScaled8(dst, base, index Reg, scale int, disp int) {
 
 // StoreScaled8 emits mov [base+index*scale+disp], r8: REX + 88 /r + SIB.
 // The mirror of LoadScaled8, for the destination half of the same copy.
+// Phase 150C: same REX.X requirement for a high index register.
 func (e *Emitter) StoreScaled8(src, base, index Reg, scale int, disp int) {
-	e.rex(false, src, base)
+	e.sibRex(false, src, base, index)
 	e.byte(0x88)
 	e.sibTail(src.low(), base, index, scale, disp)
+}
+
+// sibRex emits the REX prefix for a SIB-addressed instruction, covering all
+// three extension fields: R (the general register operand), X (the INDEX
+// register) and B (the BASE register). The older rex() helper only knew
+// about R and B, so a high index register decoded as its low-3-bit
+// counterpart -- the same class of bug the REX.B miss caused for a high
+// base.
+func (e *Emitter) sibRex(w bool, reg, base, index Reg) {
+	r := byte(0x40)
+	if w {
+		r |= 0x08
+	}
+	if reg.ext() {
+		r |= 0x04
+	}
+	if index.ext() {
+		r |= 0x02
+	}
+	if base.ext() {
+		r |= 0x01
+	}
+	if r != 0x40 {
+		e.byte(r)
+	}
 }
 
 // LoadScaled64 emits mov r64, [base+index*scale+disp]: REX.W + 8B /r.
@@ -1048,22 +1088,7 @@ func (e *Emitter) StoreScaled64(src, base, index Reg, scale int, disp int) {
 func (e *Emitter) CmpMemReg(base Reg, off int, src Reg) {
 	e.rex(true, src, base)
 	e.byte(0x39)
-	switch {
-	case off == 0 && base.low() != 5:
-		e.modrm(0, src.low(), 4)
-	case off >= -128 && off <= 127:
-		e.modrm(1, src.low(), 4)
-	default:
-		e.modrm(2, src.low(), 4)
-	}
-	e.byte(0x20 | base.low())
-	switch {
-	case off == 0 && base.low() != 5:
-	case off >= -128 && off <= 127:
-		e.byte(byte(int8(off)))
-	default:
-		e.u32(uint32(int32(off)))
-	}
+	e.memBaseOff(src, base, off)
 }
 
 // IncMem emits inc qword [base+off]: REX.W + FF /0 + ModRM + SIB +

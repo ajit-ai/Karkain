@@ -103,10 +103,13 @@ func TestEmitCondJumps(t *testing.T) {
 func TestEmitFrameAddr(t *testing.T) {
 	want(t, "lea rax,[rsp+16]", hexOf(t, func(e *Emitter) { e.LeaRegStack(RAX, 16) }),
 		0x48, 0x8D, 0x44, 0x24, 0x10)
+	// The base+disp forms below were re-pinned in Phase 150C against GNU as:
+	// they used to force a SIB byte (rm=100) and emit 0x20|base as that SIB,
+	// which decodes to a scaled [index+base] address rather than [base+disp].
 	want(t, "mov rax,[r10]", hexOf(t, func(e *Emitter) { e.LoadBaseOff(RAX, R10, 0) }),
-		0x49, 0x8B, 0x04, 0x22)
+		0x49, 0x8B, 0x02)
 	want(t, "mov rax,[r10+24]", hexOf(t, func(e *Emitter) { e.LoadBaseOff(RAX, R10, 24) }),
-		0x49, 0x8B, 0x44, 0x22, 0x18)
+		0x49, 0x8B, 0x42, 0x18)
 	want(t, "call [rax]", hexOf(t, func(e *Emitter) { e.CallReg(RAX) }), 0xFF, 0x10)
 	want(t, "call [r10]", hexOf(t, func(e *Emitter) { e.CallReg(R10) }), 0x41, 0xFF, 0x12)
 	want(t, "call [rsp]", hexOf(t, func(e *Emitter) { e.CallReg(RSP) }), 0xFF, 0x14, 0x24)
@@ -114,13 +117,13 @@ func TestEmitFrameAddr(t *testing.T) {
 	want(t, "mov rax,gs:[0x60]", hexOf(t, func(e *Emitter) { e.MovRegGsMem(RAX, 0x60) }),
 		0x65, 0x48, 0x8B, 0x04, 0x25, 0x60, 0x00, 0x00, 0x00)
 	want(t, "movzx ecx,[rbx]", hexOf(t, func(e *Emitter) { e.MovzxRegMem16(RCX, RBX, 0) }),
-		0x0F, 0xB7, 0x0C, 0x23)
+		0x0F, 0xB7, 0x0B)
 	want(t, "cmp rax,60", hexOf(t, func(e *Emitter) { e.CmpRegImm32(RAX, 60) }),
-		0x48, 0x81, 0xF8, 0x3C, 0x00, 0x00, 0x00)
+		0x48, 0x83, 0xF8, 0x3C)
 	want(t, "mov [rax],rcx", hexOf(t, func(e *Emitter) { e.StoreBaseOff(RCX, RAX, 0) }),
-		0x48, 0x89, 0x0C, 0x20)
+		0x48, 0x89, 0x08)
 	want(t, "mov ecx,[rsi]", hexOf(t, func(e *Emitter) { e.LoadBaseOff32(RCX, RSI, 0) }),
-		0x8B, 0x0C, 0x26)
+		0x8B, 0x0E)
 	want(t, "mov eax,[rbp+ecx*4]", hexOf(t, func(e *Emitter) { e.LoadScaled32(RAX, RBP, RCX, 4, 0) }),
 		0x8B, 0x44, 0x8D, 0x00)
 	want(t, "mov [imm64],rax", hexOf(t, func(e *Emitter) { e.StoreAbs64Placeholder() }),
@@ -166,9 +169,82 @@ func TestEmitPrintFloatPrims(t *testing.T) {
 	want(t, "bsr rax,rcx", hexOf(t, func(e *Emitter) { e.BsrReg(RAX, RCX) }), 0x48, 0x0F, 0xBD, 0xC1)
 	want(t, "rol rax,1", hexOf(t, func(e *Emitter) { e.RolRegImm(RAX, 1) }), 0x48, 0xC1, 0xC0, 0x01)
 	want(t, "movzx rax,[rbx+8]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RAX, RBX, 8) }),
-		0x48, 0x0F, 0xB6, 0x44, 0x23, 0x08)
+		0x48, 0x0F, 0xB6, 0x43, 0x08)
 	want(t, "mov rax,[rbx+rcx*8+16]", hexOf(t, func(e *Emitter) { e.LoadScaled64(RAX, RBX, RCX, 8, 16) }),
 		0x48, 0x8B, 0x44, 0xCB, 0x10)
 	want(t, "mov [r10+r11*8],r9", hexOf(t, func(e *Emitter) { e.StoreScaled64(R9, R10, R11, 8, 0) }),
 		0x4F, 0x89, 0x0C, 0xDA)
+}
+
+// Phase 150C: byte-level pins for the four primitives whose encodings were
+// corrected against GNU as (gcc/objdump on this host). Each expected byte
+// sequence below is the assembler's own output, not a hand derivation.
+//
+// Background: these forms used to force a SIB byte (rm=100) and then emit
+// 0x20|base as the SIB. That silently produced a scaled address from
+// whatever happened to be in the index/base registers -- the same defect
+// class already fixed for LoadBaseOff/StoreBaseOff/CmpMemReg. They now go
+// through memBaseOff, which selects the compact direct form and keeps the
+// SIB only where RSP requires it.
+func TestEmitMemBaseOffFamily(t *testing.T) {
+// --- MovzxRegMem8: movzx r32, byte [base+off] ---
+want(t, "movzx rcx,[rax-1]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RCX, RAX, -1) }),
+		0x48, 0x0F, 0xB6, 0x48, 0xFF)
+want(t, "movzx rcx,[rbx]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RCX, RBX, 0) }),
+		0x48, 0x0F, 0xB6, 0x0B)
+want(t, "movzx rcx,[r8]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RCX, R8, 0) }),
+		0x49, 0x0F, 0xB6, 0x08)
+want(t, "movzx rcx,[rax+0x18]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RCX, RAX, 0x18) }),
+		0x48, 0x0F, 0xB6, 0x48, 0x18)
+want(t, "movzx rcx,[r10+0x30]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RCX, R10, 0x30) }),
+		0x49, 0x0F, 0xB6, 0x4A, 0x30)
+// RSP has no low-3-bit ModRM encoding, so the SIB is mandatory there.
+want(t, "movzx rcx,[rsp]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RCX, RSP, 0) }),
+		0x48, 0x0F, 0xB6, 0x0C, 0x24)
+want(t, "movzx rcx,[rsp+8]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RCX, RSP, 8) }),
+		0x48, 0x0F, 0xB6, 0x4C, 0x24, 0x08)
+// A displacement beyond disp8 takes the mod=10 form.
+want(t, "movzx rcx,[rax+0x1234]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(RCX, RAX, 0x1234) }),
+		0x48, 0x0F, 0xB6, 0x88, 0x34, 0x12, 0x00, 0x00)
+// REX.R for a high destination register.
+want(t, "movzx r9,[r8+2]", hexOf(t, func(e *Emitter) { e.MovzxRegMem8(R9, R8, 2) }),
+		0x4D, 0x0F, 0xB6, 0x48, 0x02)
+
+// --- MovzxRegMem16: movzx r32, word [base+off] ---
+want(t, "movzx ecx,[rax]", hexOf(t, func(e *Emitter) { e.MovzxRegMem16(RCX, RAX, 0) }),
+0x0F, 0xB7, 0x08)
+want(t, "movzx ecx,[r8]", hexOf(t, func(e *Emitter) { e.MovzxRegMem16(RCX, R8, 0) }),
+0x41, 0x0F, 0xB7, 0x08)
+want(t, "movzx ecx,[rax+0x20]", hexOf(t, func(e *Emitter) { e.MovzxRegMem16(RCX, RAX, 0x20) }),
+0x0F, 0xB7, 0x48, 0x20)
+want(t, "movzx ecx,[rsp+4]", hexOf(t, func(e *Emitter) { e.MovzxRegMem16(RCX, RSP, 4) }),
+0x0F, 0xB7, 0x4C, 0x24, 0x04)
+// The PEB-bootstrap caller shape: [rbx+0x58].
+want(t, "movzx ecx,[rbx+0x58]", hexOf(t, func(e *Emitter) { e.MovzxRegMem16(RCX, RBX, 0x58) }),
+0x0F, 0xB7, 0x4B, 0x58)
+
+// --- StoreMem8Off: mov byte [base+off], r8 ---
+// offset 0 no longer pays for a redundant disp8.
+want(t, "mov [rsp],al", hexOf(t, func(e *Emitter) { e.StoreMem8Off(RAX, RSP, 0) }),
+0x88, 0x04, 0x24)
+want(t, "mov [rsp+5],al", hexOf(t, func(e *Emitter) { e.StoreMem8Off(RAX, RSP, 5) }),
+0x88, 0x44, 0x24, 0x05)
+want(t, "mov [r8],al", hexOf(t, func(e *Emitter) { e.StoreMem8Off(RAX, R8, 0) }),
+0x41, 0x88, 0x00)
+want(t, "mov [rax+0x18],al", hexOf(t, func(e *Emitter) { e.StoreMem8Off(RAX, RAX, 0x18) }),
+0x88, 0x40, 0x18)
+
+// --- CmpRegImm32: the imm8 form when the value is sign-extendable ---
+want(t, "cmp rcx,0x30", hexOf(t, func(e *Emitter) { e.CmpRegImm32(RCX, 0x30) }),
+0x48, 0x83, 0xF9, 0x30)
+want(t, "cmp rax,0x7f", hexOf(t, func(e *Emitter) { e.CmpRegImm32(RAX, 0x7F) }),
+0x48, 0x83, 0xF8, 0x7F)
+// R8 destination: REX.B only, because cmp's /7 puts the register in rm.
+want(t, "cmp r8,0x47", hexOf(t, func(e *Emitter) { e.CmpRegImm32(R8, 0x47) }),
+0x49, 0x83, 0xF8, 0x47)
+// Values outside int8 keep the imm32 form.
+want(t, "cmp rcx,0x7ff", hexOf(t, func(e *Emitter) { e.CmpRegImm32(RCX, 0x7FF) }),
+0x48, 0x81, 0xF9, 0xFF, 0x07, 0x00, 0x00)
+want(t, "cmp r8,0x1234", hexOf(t, func(e *Emitter) { e.CmpRegImm32(R8, 0x1234) }),
+0x49, 0x81, 0xF8, 0x34, 0x12, 0x00, 0x00)
 }

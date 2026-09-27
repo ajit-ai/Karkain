@@ -60,6 +60,36 @@ func compileNativeOS(t *testing.T, osName, src string) []byte {
 	return img
 }
 
+// requireNativeOut compares a program's output against its golden and
+// makes EMPTY OUTPUT A HARD FAILURE.
+//
+// The 150C gate found that every PE execution test in this file used to
+// read `if out != "" { ...compare... }`, which silently skipped the
+// comparison whenever a program produced nothing. That guard was
+// presumably meant for the "executor unavailable" case, but the runners
+// already t.Skip when the host cannot execute, so by the time this is
+// called the image really did run. The consequence was severe: a
+// scrambled Win64 push/pop in emitWinWrite made EVERY native program
+// exit 0 with empty stdout, and the entire PE suite stayed green. The
+// goldens in this file had therefore never been compared against real
+// output on a PE host.
+//
+// Empty output is now an error unless the golden itself is empty, so a
+// broken image can no longer masquerade as a passing test.
+func requireNativeOut(t *testing.T, name, got, want string, code, wantCode int) {
+	t.Helper()
+	if got == "" && want != "" {
+		t.Fatalf("%s: produced NO output (want %q) — the image ran but wrote nothing; exit=%d", name, want, code)
+	}
+	if got != want {
+		t.Errorf("%s: output %q, want %q", name, got, want)
+	}
+	if code != wantCode {
+		t.Errorf("%s: exit %d, want %d (out=%q)", name, code, wantCode, got)
+	}
+}
+
+// runNativeCode executes a Linux ELF image for real (linux/amd64 only).
 func runNativeCode(t *testing.T, img []byte) (string, int) {
 	t.Helper()
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
@@ -184,12 +214,7 @@ func TestNativeBisect(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)
 			out, code := runNativeCode(t, img)
-			if out != "" && out != c.want {
-				t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-			}
-			if code != c.wantCode {
-				t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
-			}
+			requireNativeOut(t, c.name, out, c.want, code, c.wantCode)
 		})
 	}
 }
@@ -357,14 +382,7 @@ func TestNativeFloatExec(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)
 			out, code := runNativeCode(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -389,14 +407,7 @@ func TestNativeFloatExecPE(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNativeOS(t, OSWindows, c.src)
 			out, code := runNativeWindows(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -438,14 +449,7 @@ func TestNativeArrayExec(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)
 			out, code := runNativeCode(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -460,14 +464,7 @@ func TestNativeArrayExecPE(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNativeOS(t, OSWindows, c.src)
 			out, code := runNativeWindows(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -503,14 +500,7 @@ func TestNativeStrConcatExec(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)
 			out, code := runNativeCode(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("elf %s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("elf %s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, "elf "+c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -539,14 +529,7 @@ func TestNativeStrConcatExecPE(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNativeOS(t, OSWindows, c.src)
 			out, code := runNativeWindows(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("pe %s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("pe %s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, "pe "+c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -576,7 +559,13 @@ var nativeStrViewCases = []struct {
 	{"eq_both_empty", "func main() {\n    if (\"\" == \"\") {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "1\n"},
 	// Combined: a slice compared against a literal decides a branch.
 	{"slice_eq_gates", "func main() {\n    let s = \"prefix-body-suffix\"\n    if (s[7:11] == \"body\") {\n        print(1)\n    } else {\n        print(0)\n    }\n}\n", "1\n"},
-	{"slice_in_while", "func main() {\n    let s = \"abcdef\"\n    let i = 0\n    while (i < 3) {\n        print(s[i:2])\n        i = i + 1\n    }\n}\n", "ab\nbc\ncd\n"},
+	// The end bound is the LITERAL 2, not `i+2`, so the three iterations
+	// print s[0:2]="ab", s[1:2]="b" and s[2:2]="". The previous golden
+	// "ab\nbc\ncd\n" described s[i:i+2], which this program does not
+	// compute. It was never actually observed on a real host: the PE
+	// harness skipped every empty-output run, so this expectation was
+	// never compared against anything.
+	{"slice_in_while", "func main() {\n    let s = \"abcdef\"\n    let i = 0\n    while (i < 3) {\n        print(s[i:2])\n        i = i + 1\n    }\n}\n", "ab\nb\n\n"},
 	{"eq_in_while", "func main() {\n    let s = \"ab\"\n    let i = 0\n    while (i < 2) {\n        if (s == \"ab\") {\n            print(7)\n        }\n        i = i + 1\n    }\n}\n", "7\n7\n"},
 }
 
@@ -588,14 +577,7 @@ func TestNativeStrViewExecPE(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNativeOS(t, OSWindows, c.src)
 			out, code := runNativeWindows(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -607,14 +589,7 @@ func TestNativeStrViewExec(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)
 			out, code := runNativeCode(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -650,14 +625,7 @@ func TestNativePushExecPE(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNativeOS(t, OSWindows, c.src)
 			out, code := runNativeWindows(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -669,14 +637,7 @@ func TestNativePushExec(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)
 			out, code := runNativeCode(t, img)
-			if out != "" {
-				if out != c.want {
-					t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-				}
-				if code != 0 {
-					t.Errorf("%s: exit %d, want 0 (out=%q)", c.name, code, out)
-				}
-			}
+			requireNativeOut(t, c.name, out, c.want, code, 0)
 		})
 	}
 }
@@ -703,12 +664,7 @@ func TestNativeControl(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)
 			out, code := runNativeCode(t, img)
-			if out != "" && out != c.want {
-				t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-			}
-			if code != c.wantCode {
-				t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
-			}
+			requireNativeOut(t, c.name, out, c.want, code, c.wantCode)
 		})
 	}
 }
@@ -737,12 +693,7 @@ func TestNativeCallsABI(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNative(t, c.src)
 			out, code := runNativeCode(t, img)
-			if out != "" && out != c.want {
-				t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-			}
-			if code != c.wantCode {
-				t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
-			}
+			requireNativeOut(t, c.name, out, c.want, code, c.wantCode)
 		})
 	}
 }
@@ -882,12 +833,7 @@ func TestNativePE(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := compileNativeOS(t, OSWindows, c.src)
 			out, code := runNativeWindows(t, img)
-			if out != "" && out != c.want {
-				t.Errorf("%s: output %q, want %q", c.name, out, c.want)
-			}
-			if code != c.wantCode {
-				t.Errorf("%s: exit %d, want %d (out=%q)", c.name, code, c.wantCode, out)
-			}
+			requireNativeOut(t, c.name, out, c.want, code, c.wantCode)
 		})
 	}
 }

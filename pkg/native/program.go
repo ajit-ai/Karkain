@@ -371,6 +371,15 @@ type Builder struct {
 	// for a map (which must inspect the literal's entries) can walk it
 	// without threading the AST through every classifier signature.
 	prog *parser.Program
+	// Phase 150C: register allocation state, per function. regOf maps a
+	// local name to the callee-saved register holding it; a name absent
+	// from the map lives in its frame slot exactly as it did pre-150C,
+	// which is what makes spilling the proven path rather than a new
+	// one. regsUsed is the push/pop list in allocRegs order, and it is
+	// empty whenever allocation did not engage, so a function that does
+	// not qualify keeps its exact pre-150C prologue.
+	regOf    map[string]Reg
+	regsUsed []Reg
 }
 
 // mapValueKind returns the kind of the values in map `name` (Phase 150B3c).
@@ -1930,9 +1939,24 @@ func (b *Builder) emitWrite() {
 // preserving RSI across this boundary is load-bearing: without it the
 // second write reuses a clobbered pointer and prints garbage.
 func (b *Builder) emitWinWrite() {
+	// Phase 150C fix. The push order here was RSI, RDX, RBX while the
+	// pops below were RDX, RSI, ... RBX -- so every pop read the wrong
+	// slot: `pop rdx` returned RBX's value and `pop rsi` returned RDX's.
+	// WriteFile then received a garbage buffer pointer and a garbage
+	// length, wrote nothing, and returned without an error, so the
+	// process exited 0 with EMPTY stdout. RBX is pushed FIRST (deepest)
+	// because its pop happens LAST: it has to survive both kernel32
+	// calls, and print_float keeps an end pointer in RBX across writes.
+	//
+	// This went unnoticed because the PE execution tests guard on
+	// `if out != ""`, which treats empty output as "did not run" and
+	// skips the comparison -- exactly the symptom this bug produces.
+	b.e.PushReg(RBX)
 	b.e.PushReg(RSI)
 	b.e.PushReg(RDX)
-	b.e.PushReg(RBX)
+	// 32 = the Win64 caller shadow for GetStdHandle. With three live
+	// pushes (24 bytes) above it, rsp%16 lands on 0 before the call,
+	// which is what Win64 requires.
 	b.e.SubRsp(32)
 	b.e.MovRegImm32(RCX, 0xFFFFFFF5) // STD_OUTPUT_HANDLE
 	b.iatCall(IATGetStdHandle)
@@ -1942,8 +1966,10 @@ func (b *Builder) emitWinWrite() {
 	b.e.MovRegReg(RCX, RAX)
 	b.e.MovRegReg(R8, RDX)
 	b.e.MovRegReg(RDX, RSI)
-	// 48 = 32 shadow + 8 written-dword + 8 pad: Win64 requires
-	// rsp%16==8 before the call (40 would flip it to 0 and fault).
+	// 48 = 32 shadow + 8 written-dword + 8 pad. RBX is still live on the
+	// stack here (8 bytes), so the caller's rsp already sits 8 lower than
+	// the pre-push baseline; 48 keeps rsp%16 == 0 at the call, where 40
+	// would flip it to 8 and fault inside kernel32.
 	b.e.SubRsp(48)
 	b.e.LeaRegStack(R9, 24)
 	b.e.XorRegReg(RAX)
@@ -1951,9 +1977,7 @@ func (b *Builder) emitWinWrite() {
 	b.iatCall(IATWriteFile)
 	b.e.AddRsp(48)
 	// Win64 WriteFile may clobber RCX/RDX (and R8-R11) on return, so
-	// restore the caller's RBX after the shadow is released. The
-	// print_float integer loop keeps its end pointer in RBX across
-	// writes; without this the digit length computes from garbage.
+	// restore the caller's RBX after the shadow is released.
 	b.e.PopReg(RBX)
 }
 
@@ -2708,12 +2732,23 @@ func (b *Builder) emitPrintFloatHelper() {
 	b.e.TestRegReg(R11, R11)
 	noFrac := b.fresh("fltnofrac")
 	b.e.Jz(noFrac)
+	// The digit count lives in R11 across the "." write below, and a
+	// Win64 kernel32 call CLOBBERS R11 (caller-saved), so it is spilled to
+	// the frame and reloaded. Without this the fraction write uses the
+	// clobbered count: on the raw-syscall path R11 happens to survive, so
+	// the bug is invisible on Linux, but on Windows the length comes back
+	// as whatever WriteFile left behind, the write emits nothing, and every
+	// float prints as a bare integer ("1.5" -> "1").
+	//
+	// Offset 8 is safe in both containers: the fraction digits occupy
+	// rsp+0..5, and the Win64 caller shadow reaches only rsp-48..rsp-17.
+	b.e.StoreStack(R11, 8)
 	b.rodataRef(RSI, ".")
 	b.e.MovRegImm32(RDX, 1)
 	b.e.MovRegImm32(RDI, 1)
 	b.emitWrite()
 	b.e.LeaRegStack(RSI, 0)
-	b.e.MovRegReg(RDX, R11)
+	b.e.LoadStack(RDX, 8)
 	b.e.MovRegImm32(RDI, 1)
 	b.emitWrite()
 	b.e.Mark(noFrac)
@@ -2763,6 +2798,13 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	if b.scanErr != nil {
 		return b.scanErr
 	}
+	// Phase 150C: register allocation runs here, once the kinds of every
+	// local are known (the liveness walk is kind-filtered) and before any
+	// emission, so the prologue, the body and the epilogue all agree on
+	// one allocation. A function that does not qualify leaves regOf empty
+	// and regsUsed nil, and every access below falls back to the frame
+	// slot -- which is why the pre-150C images stay byte-identical.
+	b.planRegs(fd)
 	// Phase 150B3b: a record literal passed straight to a call
 	// (`f(P { x: 1 })`) has no `let` of its own, so reserve a field area per
 	// such call site. Keyed by the call node, and reserved in a fixed walk
@@ -3127,6 +3169,16 @@ func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
 	if err := b.layout(fd); err != nil {
 		return err
 	}
+	// Phase 150C: save the callee-saved registers this function's
+	// allocation claimed. Pushed BEFORE the frame is taken so the frame
+	// displacements below stay rsp-relative and unchanged, and popped in
+	// exact reverse order after the frame is released. regsUsed is in
+	// allocRegs order, so this sequence is a pure function of the
+	// allocation. A function that did not qualify has an empty list and
+	// emits nothing here -- its prologue is byte-for-byte pre-150C.
+	for _, reg := range b.regsUsed {
+		b.e.PushReg(reg)
+	}
 	if b.frame > 0 {
 		b.e.SubRsp(b.frame)
 	}
@@ -3164,6 +3216,10 @@ func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
 	b.e.Mark(name + "$ret")
 	if b.frame > 0 {
 		b.e.AddRsp(b.frame)
+	}
+	// Phase 150C: restore the callee-saved registers, reverse order.
+	for i := len(b.regsUsed) - 1; i >= 0; i-- {
+		b.e.PopReg(b.regsUsed[i])
 	}
 	b.e.Ret()
 	return nil
@@ -3267,6 +3323,13 @@ func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
 		if err := b.emitExpr(be.Right, 0); err != nil {
 			return err
 		}
+		// Phase 150C: same rule as a `let` binding -- an allocated int
+		// local is reassigned in its register, everything else is stored
+		// to the frame slot.
+		if reg, ok := b.regOfFor(id.Name); ok {
+			b.e.MovRegReg(reg, RAX)
+			return nil
+		}
 		b.e.StoreStack(RAX, off)
 		return nil
 	}
@@ -3313,6 +3376,10 @@ func (b *Builder) emitStrEqCond(be *parser.BinaryExpr, falseLabel string) error 
 	b.e.StoreStack(RSI, base+24)
 	neLbl := b.fresh("streq$ne")
 	eqLbl := b.fresh("streq$eq")
+	// pastEqLbl is the end of the comparison, reached by the TRUE path of
+	// either operator. `!=` jumps here from the not-equal block so it
+	// skips the equal block's own false jump.
+	pastEqLbl := b.fresh("streq$end")
 	// Unequal lengths decide it immediately.
 	b.e.LoadStack(RAX, base+8)
 	b.e.CmpRegReg(RAX, RSI) // RSI still holds the right length
@@ -3339,11 +3406,18 @@ func (b *Builder) emitStrEqCond(be *parser.BinaryExpr, falseLabel string) error 
 	b.e.Mark(neLbl)
 	if be.Operator == "==" {
 		b.e.Jmp(falseLabel)
+	} else {
+		// `!=` holds when the strings differ: jump past the equal block so
+		// this path falls through as the true branch. Without this it falls
+		// into the equal block and lands on that block's own false jump,
+		// which makes `!=` behave exactly like `==`.
+		b.e.Jmp(pastEqLbl)
 	}
 	b.e.Mark(eqLbl)
 	if be.Operator == "!=" {
 		b.e.Jmp(falseLabel)
 	}
+	b.e.Mark(pastEqLbl)
 	return nil
 }
 
@@ -3634,6 +3708,13 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 	}
 	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
+	}
+	// Phase 150C: an int local the allocator claimed is written in place,
+	// so the value never reaches memory at all. A spilled local (or any
+	// other kind) keeps the pre-150C frame store.
+	if reg, ok := b.regOfFor(n.Name); ok {
+		b.e.MovRegReg(reg, RAX)
+		return nil
 	}
 	b.e.StoreStack(RAX, off)
 	return nil
@@ -4161,6 +4242,12 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		}
 		if b.kinds[x.Name] != KindInt {
 			return fmt.Errorf("error[K145]: %s '%s' in int position", kindName(b.kinds[x.Name]), x.Name)
+		}
+		// Phase 150C: an int local the allocator claimed is read straight
+		// out of its register; everything else is the pre-150C frame load.
+		if reg, ok := b.regOfFor(x.Name); ok {
+			b.e.MovRegReg(RAX, reg)
+			return nil
 		}
 		off, ok := b.slots[x.Name]
 		if !ok {
@@ -4756,6 +4843,12 @@ func (b *Builder) emitStrSlice(x *parser.SliceExpr) error {
 	b.e.CmpRegReg(RAX, RCX) // RCX is still the start
 	b.e.Jl(badLbl)
 	// Result: (base + start, end - start).
+	//
+	// The length is end - start, NOT len - start. RAX currently holds the
+	// end bound (loaded above), so it must be moved into the result
+	// register; subtracting start from RSI would yield len - start and
+	// silently return the tail of the string to the end.
+	b.e.MovRegReg(RSI, RAX)
 	b.e.LoadStack(RDI, base)
 	b.e.AddRegReg(RDI, RCX)
 	b.e.SubRegReg(RSI, RCX)
@@ -4830,15 +4923,25 @@ func (b *Builder) emitStrConcat(x *parser.BinaryExpr, depth int) error {
 	b.e.LoadStack(R8, base+16)
 	b.e.LoadStack(RCX, base+24)
 	b.emitByteCopy(R9, R8, RCX)
-	// Result: (RDI = block, RSI = total).
+	// Result: (RDI = block, RSI = total). The total is recomputed from the
+	// two staged lengths rather than reusing RCX, which emitByteCopy leaves
+	// holding the loop's exit counter.
 	b.e.LoadStack(RDI, base+32)
 	b.e.LoadStack(RSI, base+8)
+	b.e.LoadStack(RCX, base+24)
 	b.e.AddRegReg(RSI, RCX)
 	return nil
 }
 
-// emitByteCopy copies n bytes from [src] to [dst]. RDX is the index and R8
+// emitByteCopy copies n bytes from [src] to [dst]. RDX is the index and RBX
 // the byte shuttle, so callers must not hold live values in either.
+//
+// The shuttle is RBX, not R8: every caller stages the SOURCE pointer in R8
+// (emitStrConcat and emitPush both do `LoadStack(R8, ...)`), so an R8
+// shuttle made the first `movzx r8, [r8+rdx]` overwrite the source pointer
+// with the byte just loaded, and every later iteration read from that byte
+// value as if it were an address. RBX is callee-saved under both ABIs and
+// is not used as an argument or staging register on these paths.
 func (b *Builder) emitByteCopy(dst, src, n Reg) {
 	loop := b.fresh("cp")
 	done := b.fresh("cp$done")
@@ -4846,8 +4949,8 @@ func (b *Builder) emitByteCopy(dst, src, n Reg) {
 	b.e.Mark(loop)
 	b.e.CmpRegReg(RDX, n)
 	b.e.Jae(done)
-	b.e.LoadScaled8(R8, src, RDX, 1, 0)
-	b.e.StoreScaled8(R8, dst, RDX, 1, 0)
+	b.e.LoadScaled8(RBX, src, RDX, 1, 0)
+	b.e.StoreScaled8(RBX, dst, RDX, 1, 0)
 	b.e.IncReg(RDX)
 	b.e.Jmp(loop)
 	b.e.Mark(done)
