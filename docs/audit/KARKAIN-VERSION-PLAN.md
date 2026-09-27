@@ -171,6 +171,12 @@ Order is dependency-forced: `150 → 151 → 152 → 154`, with `165` free-float
 | **154** | I | **I-6 self-bootstrap** — `kcc` builds `kcc`; retire the `KARKAIN_ENGINE=go` stage-1 pin; Go tree archived as `reference/` differential oracle | `stage2 == stage3` (SHA) with the Go toolchain absent from the build host; full QA battery green in that state | deleting the Go tree (kept as oracle) |
 | **165** | P | **P-0 Docker image**: slim base + gcc + wasmtime, multi-arch `ghcr.io` push on tag, cosign | `docker run ghcr.io/ajit-ai/karkain:<tag> karkain --version` + hello `run` inside the image on amd64 and arm64 | MSI/DEB/RPM/DMG (1.5.0) |
 
+**Baselined increments have a baseline note.** 150: `PHASE-150-BASELINE.md`.
+151: `PHASE-151-BASELINE.md` (written 2026-09-27; the measured silent-Go-fallback
+finding in its §1.1 is why the 148/150 gates must re-run with the kcc engine
+un-pinned — they cannot currently tell parity from fallback). 152, 154 and 165
+are **not yet baselined**; a number is assigned when an increment is scheduled.
+
 ### 4.1 v1.2.0 — Sovereignty I: closure conditions
 
 **Theme: Off C, Off Go.** Dependency order is fixed:
