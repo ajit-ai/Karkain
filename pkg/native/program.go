@@ -371,6 +371,15 @@ type Builder struct {
 	// for a map (which must inspect the literal's entries) can walk it
 	// without threading the AST through every classifier signature.
 	prog *parser.Program
+	// Phase 150C: register allocation state, per function. regOf maps a
+	// local name to the callee-saved register holding it; a name absent
+	// from the map lives in its frame slot exactly as it did pre-150C,
+	// which is what makes spilling the proven path rather than a new
+	// one. regsUsed is the push/pop list in allocRegs order, and it is
+	// empty whenever allocation did not engage, so a function that does
+	// not qualify keeps its exact pre-150C prologue.
+	regOf    map[string]Reg
+	regsUsed []Reg
 }
 
 // mapValueKind returns the kind of the values in map `name` (Phase 150B3c).
@@ -2789,6 +2798,14 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	if b.scanErr != nil {
 		return b.scanErr
 	}
+	// Phase 150C: register allocation runs here, once the kinds of every
+	// local are known (the liveness walk is kind-filtered) and before any
+	// emission, so the prologue, the body and the epilogue all agree on
+	// one allocation. A function that does not qualify leaves regOf empty
+	// and regsUsed nil, and every access below falls back to the frame
+	// slot -- which is why the pre-150C images stay byte-identical.
+	b.planRegs(fd)
+	// Phase 150B3b: a record literal passed straight to a call
 	// (`f(P { x: 1 })`) has no `let` of its own, so reserve a field area per
 	// such call site. Keyed by the call node, and reserved in a fixed walk
 	// order, so layout and emission agree on the offsets.
@@ -3152,6 +3169,16 @@ func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
 	if err := b.layout(fd); err != nil {
 		return err
 	}
+	// Phase 150C: save the callee-saved registers this function's
+	// allocation claimed. Pushed BEFORE the frame is taken so the frame
+	// displacements below stay rsp-relative and unchanged, and popped in
+	// exact reverse order after the frame is released. regsUsed is in
+	// allocRegs order, so this sequence is a pure function of the
+	// allocation. A function that did not qualify has an empty list and
+	// emits nothing here -- its prologue is byte-for-byte pre-150C.
+	for _, reg := range b.regsUsed {
+		b.e.PushReg(reg)
+	}
 	if b.frame > 0 {
 		b.e.SubRsp(b.frame)
 	}
@@ -3190,6 +3217,11 @@ func (b *Builder) emitFunc(fd *parser.FuncDecl) error {
 	if b.frame > 0 {
 		b.e.AddRsp(b.frame)
 	}
+	// Phase 150C: restore the callee-saved registers, reverse order.
+	for i := len(b.regsUsed) - 1; i >= 0; i-- {
+		b.e.PopReg(b.regsUsed[i])
+	}
+	b.e.Ret()
 	return nil
 }
 
@@ -3290,6 +3322,13 @@ func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
 		}
 		if err := b.emitExpr(be.Right, 0); err != nil {
 			return err
+		}
+		// Phase 150C: same rule as a `let` binding -- an allocated int
+		// local is reassigned in its register, everything else is stored
+		// to the frame slot.
+		if reg, ok := b.regOfFor(id.Name); ok {
+			b.e.MovRegReg(reg, RAX)
+			return nil
 		}
 		b.e.StoreStack(RAX, off)
 		return nil
@@ -3669,6 +3708,13 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 	}
 	if err := b.emitExpr(n.Value, 0); err != nil {
 		return err
+	}
+	// Phase 150C: an int local the allocator claimed is written in place,
+	// so the value never reaches memory at all. A spilled local (or any
+	// other kind) keeps the pre-150C frame store.
+	if reg, ok := b.regOfFor(n.Name); ok {
+		b.e.MovRegReg(reg, RAX)
+		return nil
 	}
 	b.e.StoreStack(RAX, off)
 	return nil
@@ -4196,6 +4242,12 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		}
 		if b.kinds[x.Name] != KindInt {
 			return fmt.Errorf("error[K145]: %s '%s' in int position", kindName(b.kinds[x.Name]), x.Name)
+		}
+		// Phase 150C: an int local the allocator claimed is read straight
+		// out of its register; everything else is the pre-150C frame load.
+		if reg, ok := b.regOfFor(x.Name); ok {
+			b.e.MovRegReg(RAX, reg)
+			return nil
 		}
 		off, ok := b.slots[x.Name]
 		if !ok {
