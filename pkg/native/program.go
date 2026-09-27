@@ -1340,6 +1340,20 @@ func scanStringViewOps(prog *parser.Program, strNames map[string]bool) (eq, slic
 	walkStmts = func(stmts []parser.Node) {
 		for _, s := range stmts {
 			switch x := s.(type) {
+			case *parser.FuncDecl:
+				// Phase 150B2 fix. prog.Statements holds FuncDecls, so
+				// without this case this walker never descends into a
+				// function body and always reports eq=false, slice=false.
+				// strTemp is then never reserved, so it stays 0 -- the first
+				// local's own slot -- and emitStrEqCond stages its operands
+				// straight over the compared local. A comparison inside a
+				// loop therefore clobbers that local, and the second
+				// iteration compares against corrupted bytes, so `s == "ab"`
+				// holds only on the first pass. Every other statement
+				// walker in this file has this case; this one was the
+				// outlier.
+				walkStmts(x.Body)
+
 			case *parser.VarDeclStmt:
 				walkExpr(x.Value)
 			case *parser.PrintStmt:
