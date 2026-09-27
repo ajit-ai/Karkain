@@ -1492,33 +1492,32 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 		b.e.Syscall()
 	}
 	text := b.e.Bytes()
+	// Phase 150B: the arena, and Phase 150D: all three containers can carry it.
+	// ELF gets a second R+W PT_LOAD, PE the already-writable .idata, and
+	// macOS a writable __DATA segment (increment 149 refused allocating
+	// programs there by name, because its single R+X __TEXT would have faulted
+	// on the first bump-cursor store).
+	//
+	// This is decided BEFORE the per-OS .text offset below, because each
+	// container's header size depends on whether a writable segment follows.
+	arenaLen := heapHeaderLen + b.heapSize
+	var data []byte
+	if b.heapSize > 0 {
+		// The arena image: a zeroed header (the cursor self-initialises on
+		// first alloc) followed by heapSize usable bytes. PE's linker reads
+		// it straight off the Builder; ELF and Mach-O get it as a data segment.
+		b.heap = make([]byte, arenaLen)
+		data = b.heap
+	}
 	textOff := elfHeaderSize + progHeaderSize
 	base := uint64(BaseAddr)
 	switch b.goos {
 	case OSMacOS:
-		textOff = machoTextOff
+		textOff = machoTextOffset(len(data) > 0)
 		base = MachoBase
 	case OSWindows:
 		textOff = peTextOff
 		base = PEBaseAddr
-	}
-	// Phase 150B: the arena. ELF and PE carry it in a writable segment
-	// (a second R+W PT_LOAD; and the already-writable .idata on PE).
-	// Mach-O has a single R+X __TEXT and no writable segment, and
-	// increment 150D owns that container — so a program that allocates
-	// gets a loud, specific refusal here instead of an image whose first
-	// bump-cursor store would fault.
-	arenaLen := heapHeaderLen + b.heapSize
-	var data []byte
-	if b.heapSize > 0 {
-		if b.goos == OSMacOS {
-			return nil, fmt.Errorf("error[K145]: heap allocation is not supported on the macos native container yet (a writable __DATA segment lands with 150D)")
-		}
-		// The arena image: a zeroed header (the cursor self-initialises on
-		// first alloc) followed by heapSize usable bytes. PE's linker reads
-		// it straight off the Builder; ELF gets it as the data segment.
-		b.heap = make([]byte, arenaLen)
-		data = b.heap
 	}
 	// ELF's header count depends on whether a data segment follows, so the
 	// .text offset is only known now.
@@ -1527,15 +1526,20 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 		base = uint64(BaseAddr)
 	}
 	entry := textOff + b.e.labels["_start"]
+	bodyEnd := textOff + len(text) + len(b.rodata)
 	// The arena's absolute address, needed to resolve hpatches. For ELF it
 	// is the page-aligned file offset the linker will place it at; for PE it
-	// sits immediately after the import structures inside .idata.
+	// sits immediately after the import structures inside .idata; for Mach-O
+	// it is the __DATA segment's vmaddr, which MachoDataOffset defines and
+	// LinkMachO then places the segment at.
 	heapBase := uint64(0)
 	switch b.goos {
 	case OSWindows:
 		heapBase = uint64(PEBaseAddr+peIdataRVA) + uint64(len(buildIdata()))
+	case OSMacOS:
+		heapBase = uint64(MachoBase) + uint64(MachoDataOffset(bodyEnd))
 	default:
-		heapBase = uint64(BaseAddr) + uint64(peAlignUp(textOff+len(text)+len(b.rodata), 0x1000))
+		heapBase = uint64(BaseAddr) + uint64(peAlignUp(bodyEnd, 0x1000))
 	}
 	// Windows resolves all three patch kinds inside LinkPE (rodata against
 	// the .text base, IAT slots and arena addresses against .idata);
@@ -1564,10 +1568,31 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 	}
 	switch b.goos {
 	case OSMacOS:
-		return LinkMachO(out, b.rodata, textOff, entry)
+		// The rebase sites are the .text offsets of every imm64 slot that now
+		// holds a link-time absolute address, so dyld slides each one.
+		return LinkMachO(out, b.rodata, data, textOff, entry, machoRebaseSiteOffsets(b))
 	default:
 		return Link(out, b.rodata, data, textOff, entry)
 	}
+}
+
+// machoRebaseSiteOffsets returns the .text offsets of every baked-in absolute
+// address: the union of the .rodata patch list and the arena patch list.
+//
+// It is derived from the very lists the addresses were resolved from, which is
+// the point. A hand-maintained inventory of "the places we bake an address"
+// would be a second source of truth that could silently miss a site, and a
+// missed site in a PIE is an image that loads and then reads through a pointer
+// that was never slid. Deriving it makes the omission structurally impossible.
+func machoRebaseSiteOffsets(b *Builder) []int {
+	out := make([]int, 0, len(b.patches)+len(b.hpatches))
+	for _, p := range b.patches {
+		out = append(out, p.pos)
+	}
+	for _, p := range b.hpatches {
+		out = append(out, p.pos)
+	}
+	return out
 }
 
 // collectStructs gathers every `type X struct {...}` declaration and lays it
