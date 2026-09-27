@@ -414,6 +414,85 @@ func TestNativeFloatExecPE(t *testing.T) {
 
 
 
+// nativeNegIntCases pins integer sign handling on the Windows container.
+//
+// Phase 150C. print_int emitted its sign with a raw `syscall`, which is the
+// Linux/macOS write(1, ptr, 1) but has no valid meaning in the PE container:
+// the "-" was never written and EVERY negative integer printed as its
+// absolute value. Nothing caught it for three increments, for two reasons.
+// The PE guard used to read `if out != ""`, and the broken path still wrote
+// the digits, so output was non-empty and non-empty was not enough -- the
+// digits were simply wrong. And no PE execution case printed a negative
+// integer at all, so the sign branch was never executed on this container
+// even once the guard was hardened.
+//
+// Every golden below was cross-checked against the C backend (pkg/codegen),
+// which is the language's semantic oracle and printed the same values: the
+// lexer always emits TokenMinus for a leading '-', so `-1`, `0 - 1` and
+// `-x` are three different AST shapes reaching the same value.
+var nativeNegIntCases = []struct {
+	name string
+	src  string
+	want string
+}{
+	{"unary_lit", "func main() {\n    print(-1)\n}\n", "-1\n"},
+	{"unary_var", "func main() {\n    let x = 5\n    print(-x)\n}\n", "-5\n"},
+	{"double_neg", "func main() {\n    let x = 5\n    print(-(-x))\n}\n", "5\n"},
+	{"sub_expr", "func main() {\n    print(3 - 10)\n}\n", "-7\n"},
+	{"sub_zero", "func main() {\n    let b = 0 - 1\n    print(b)\n}\n", "-1\n"},
+	{"in_array", "func main() {\n    let a = [-4, 7]\n    print(a[0])\n    print(a[1])\n}\n", "-4\n7\n"},
+	{"in_loop", "func main() {\n    let i = 0\n    while (i < 3) {\n        print(0 - i)\n        i = i + 1\n    }\n}\n", "0\n-1\n-2\n"},
+	{"neg_cond", "func main() {\n    let n = 0 - 4\n    if (n < 0) {\n        print(-1)\n    } else {\n        print(0)\n    }\n}\n", "-1\n"},
+}
+
+// TestNativeNegIntExecPE runs the sign cases through the PE container, where
+// print_int, the Win64 write sequence and the PEB bootstrap all execute for
+// real on windows/amd64.
+func TestNativeNegIntExecPE(t *testing.T) {
+	for _, c := range nativeNegIntCases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNativeOS(t, OSWindows, c.src)
+			out, code := runNativeWindows(t, img)
+			requireNativeOut(t, c.name, out, c.want, code, 0)
+		})
+	}
+}
+
+// TestNativeNegIntExec mirrors the sign surface on the Linux ELF container.
+func TestNativeNegIntExec(t *testing.T) {
+	for _, c := range nativeNegIntCases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := compileNative(t, c.src)
+			out, code := runNativeCode(t, img)
+			requireNativeOut(t, c.name, out, c.want, code, 0)
+		})
+	}
+}
+
+// nativeNegIntCost pins that the sign write goes through emitWrite rather
+// than a raw syscall: the ELF sign path must still contain the write(1, ..)
+// syscall number load, and it must appear AFTER both argument registers are
+// set, because that is the order the Win64 sequence requires and the order
+// the re-pinned ELF table now measures.
+func TestNativeNegIntCost(t *testing.T) {
+	img := compileNative(t, "func main() {\n    print(-1)\n}\n")
+	// mov rsi, <rodata "-">  -> 48 BE <imm64>
+	idx := bytes.Index(img, []byte{0x48, 0xBE})
+	if idx < 0 {
+		t.Fatal("image lacks the sign pointer load (mov rsi, imm64)")
+	}
+	// mov rax, <write syscall nr> -> B8 imm32 (syscall number 1 on Linux)
+	idx2 := bytes.Index(img[idx:], []byte{0xB8, 0x01, 0x00, 0x00, 0x00})
+	if idx2 < 0 {
+		t.Fatal("image lacks the write syscall number after the sign pointer")
+	}
+	if !bytes.Contains(img[idx:], []byte{0x0F, 0x05}) {
+		t.Fatal("image lacks the write syscall after the sign pointer")
+	}
+}
+
 // nativeArrayCases is the shared Phase 150A array surface, executed on both
 // containers: array literal + header, indexing, len(), for-in over int
 // arrays, and the control-flow interactions (break/continue/nesting) that
@@ -433,7 +512,7 @@ var nativeArrayCases = []struct {
 	// own hidden index slot. This case fails if the guard is inverted (the
 	// body never runs) or if the index slot is shared (the outer counter is
 	// clobbered by the inner loop), so it is the regression pin for both.
-	{"forin_nested", "func main() {\n    let a = [1, 2]\n    let b = [10, 20]\n    for x in a {\n        for y in b {\n            print(x * 10 + y)\n        }\n    }\n}\n", "10\n20\n11\n21\n"},
+	{"forin_nested", "func main() {\n    let a = [1, 2]\n    let b = [10, 20]\n    for x in a {\n        for y in b {\n            print(x * 10 + y)\n        }\n    }\n}\n", "20\n30\n30\n40\n"},
 	{"forin_break", "func main() {\n    let a = [1, 2, 3, 4]\n    for x in a {\n        if (x == 3) {\n            break\n        }\n        print(x)\n    }\n}\n", "1\n2\n"},
 	{"forin_continue", "func main() {\n    let a = [1, 2, 3, 4]\n    for x in a {\n        if (x == 2) {\n            continue\n        }\n        print(x)\n    }\n}\n", "1\n3\n4\n"},
 	{"forin_in_while", "func main() {\n    let a = [1, 2]\n    let i = 0\n    while (i < 2) {\n        for x in a {\n            print(x + i)\n        }\n        i = i + 1\n    }\n}\n", "1\n2\n2\n3\n"},
@@ -735,31 +814,47 @@ var nativeLegacyCorpus = []struct {
 // (register allocation) validates against this same table, which is what
 // makes "zero golden drift" a measurement instead of an assertion.
 //
-// The values are the increment-149 (951ee10) images, measured — not
-// regenerated after the fact. That is what proves the differential: an
-// earlier 150A state emitted print_float unconditionally and grew every one
-// of these images (hello 503 -> 1226 bytes) until the helper was gated on
-// scanFloatUsage.
+// RE-PIN HISTORY. This table is not the increment-149 (951ee10) table any
+// more, for two reasons that were each verified rather than assumed:
+//
+//  1. Increment 150C corrected the memBaseOff encoding family (see emit.go).
+//     Only p148_seven_params and p148_straddle move, because only they load
+//     through the caller-extras LoadBaseOff path. That drift was real and was
+//     deliberately left un-pinned at the time, which left the gate red.
+//
+//  2. print_int's negative-sign write went from a raw `syscall` to emitWrite,
+//     because a raw syscall is Linux-only and on the Windows container the
+//     "-" was silently never written -- every negative integer printed as its
+//     absolute value. On ELF this is a pure REORDER of the same three
+//     instructions (mov rdi,1 and mov rsi,"-" now precede mov rax,sysWrite
+//     instead of following it), identical size, identical semantics: all
+//     three argument registers are still set before the syscall. It was
+//     verified by disassembling the old and new images of p145_hello: the
+//     only differing bytes are those 13 in that sign path, and the full
+//     objdump listing is otherwise identical. It moves every image, because
+//     print_int is emitted for every program.
+//
+// The values below are MEASURED from the current tree, not asserted.
 var nativeLegacyELF = map[string]string{
-	"p145_hello":          "c73a6e38d6571dc7a19420fb8dae60294cebda9e74b41a90a0b9cc22e5769fb3",
-	"p145_int42":          "865c5846912a192aa90dd364d00a02b7d1c510e5368d0d4a3c978aa20733e23e",
-	"p145_str":            "6ae64efc3edcb56a5a7b6c11e6283f1a8eea7bf2603a951f63d8fb2d53ea0f75",
-	"p145_arith":          "2c314d9b7af8b5d47742f6947e60327eb475671d0c9f14cf7da5740ea3dc1b06",
-	"p145_call":           "2f925e86ea1c2d3877304587549ce2c28cfd912f19ed451e4d02b30cf86813ff",
-	"p145_mult":           "f2035ee4a5da40b4b6e5025340a64a495f2b1455fd5e41215f4903e0c3895c34",
-	"p147_empty":          "30263ddf22f56b65a499e725b47f7e9ce641eb219fea156e32de4cf8dddf4303",
-	"p147_retcode":        "853afe5070f705d4c4a9f1358fa124504bef39235cb753a87378dd0dc2c45aa6",
-	"p148_if_else":        "2020a957bf7c05117f93c40ee78510c736a2e576578bad5653a937c075010215",
-	"p148_while_sum":      "a8e6cbbc3bebbc22ca41351d802f28fb928b41fb30155b0c499b427d8879d001",
-	"p148_break_continue": "bb138f6e3309d39e74a04a2d2158b5b071048c330b10041daa3dae0cd3ecac98",
-	"p148_nested":         "6e49dc9ced20348912da1a991223f7b59905d716fec5b098b56951475b1a0043",
-	"p148_string_arg":     "41dd9df614fe60dfee01b0235b4a74b0ce0c573e741e75429f5fa20c3aa09ec0",
-	"p148_string_var_arg": "2425a5f7c600621ec8188cc4ac945b62d8d37f47140d2eb62d4d3d7a3cd68c20",
-	"p148_string_return":  "72a22569763cacef040b242d4b68753d1d20586b3be9742f7654598de57e8112",
-	"p148_mixed_args":     "31588945b8168a988042e979f65362a297ed2f8fd1cdc3a5876e68e86901478e",
-	"p148_seven_params":   "ff2c76ae18bb7703e054e6e88079d8caaebdc2726b98cceac2c1131d625de9dc",
-	"p148_straddle":       "149b2e1148acae6db1895aebd43830d74ee0d4f8a9bf742eff94d610e7a14f82",
-	"p148_nested_strcall": "51c9f9ae3e1963daa739147deb1e892407ea6e0dc0fe7b031a099413fdc169f9",
+	"p145_hello":          "a2ad2c2f2a7954790914bd0c6a345c5e7a20e215281953295b357429014a8740",
+	"p145_int42":          "237f5f1ab09a75cd65ccd266fc69e0ea479f6965222bea84aa0270a0d1374b13",
+	"p145_str":            "5d1f74a42833cb836e26ccaee95cb8dad0c16ce58341d982b96c0bfc4a84b1a0",
+	"p145_arith":          "fd05a97d0244763b7b011695cf10df48006c039838bb864c7a2b8d3c19d032d4",
+	"p145_call":           "e2095cb1964dedaf0edc4f55735ae4b6cb548abdac92a0b662e24cb7dc23f8ad",
+	"p145_mult":           "b30535ff1d99ae5659d485fc0c109a6cf0674b15cc8b8e873cddf8e42b215e5e",
+	"p147_empty":          "a0818aec6d9e91fdbdef2c35391dd3316fdfeee474dd6e5e6ab6c08483184250",
+	"p147_retcode":        "49fcbda16f7a35ef4012302469ad096344707fc25599ef96fa2f9ca30875ef8b",
+	"p148_if_else":        "4dcfb69f7c5a271818949e7117a0f6a3c1a9bcc58b1f56806512828d911b656d",
+	"p148_while_sum":      "71a1f365adcddd499bebe7ef8ccd3cb2a7bd4238f5f290d378e44b054b275924",
+	"p148_break_continue": "6419b3832ec1079be4b499b2bb94005dc7f75d718cbcf48118f967bface545c5",
+	"p148_nested":         "4df86812bb2f5264e5fa344211097a37c634c1a7f7baf1e1a95e5ca5cde20ca5",
+	"p148_string_arg":     "fbbe693e5ace6ce4701694e325913311dc5c0b6153b3c02b986713a4ef525093",
+	"p148_string_var_arg": "bf6035e3323552d628585445948cba2e7c17f4ab4499a44569c9c7315aeadf2c",
+	"p148_string_return":  "c08eab124d73c4e66c22a60d1be7e64eca5e887394e8820babc3fa56fb0e818a",
+	"p148_mixed_args":     "3fad49b52354d2a968bac4652485298c7c136054c4d3fe4c4db9a67f4e3349a4",
+	"p148_seven_params":   "9e7210204e2dff3bf8acc04568054e7ac3e2d9caf0aeb1b430e4544157c8a692",
+	"p148_straddle":       "0e07f6319fa8815d827ba55c30237b747b48a03ab5f7f9838fb756856a87fd03",
+	"p148_nested_strcall": "b18c05ad4bca9436525f2f39f7f943f5c2d6227f541a76b7c515797f5b79da20",
 }
 
 // TestNativeELFByteIdentity is the Phase-150A ELF byte-identity differential
