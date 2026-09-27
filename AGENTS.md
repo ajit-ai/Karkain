@@ -1197,12 +1197,23 @@ provenance* — satisfied by today's refusal and by 151A's real emission, and fa
 if the fallback returns. K116 registered in `karkain explain` + `stable-api.rst`. Two
 pre-existing defects fixed in passing: `pkg/native` did not compile for
 `GOARCH=386`/`arm` (both in the release matrix) because the untyped `MachoBase`
-constant `0x100000000` overflowed a 32-bit `int` in `MachoBase+fileOffset` — the
-build jobs only ever compiled `./cmd/karkain`, so the leaf package broke the 32-bit
-archives invisibly; fixed by a `uint64` constant + `machoAddr()`, and a
-`GOARCH=386`/`arm` `go vet ./...` step now gates it (**mutation-verified**: the
-reintroduced overflow fails with `MachoBase (untyped int constant 4294967296)
-overflows int`). Also repaired a truncated "Must not" bullet in
+constant `0x100000000` overflowed a 32-bit `int` in `MachoBase+fileOffset`.
+**Corrected record — the first version of this entry claimed the break was
+"invisible" to CI because the build jobs only compile `./cmd/karkain`. That was
+wrong, and the evidence is in the run history: `cmd/karkain` → `pkg/cli` →
+`pkg/native` (via `pkg/cli/cfree_target.go`), so the leaf package *is* in that
+build, and CI caught it.** `Build (linux/arm)` and `Build (linux/386)` failed
+with `MachoBase (untyped int constant 4294967296) overflows int` on runs
+`36315881454`, `36317485711` and `36317485745` — i.e. `develop` and `main` were
+**red for three consecutive pushes** before this fix. Fixed by a `uint64` constant
++ `machoAddr()`; the fix turns those jobs green (run `36324231037`, all 18 jobs
+✓). The added `GOARCH=386`/`arm` `go vet ./...` step is therefore
+defense-in-depth, **not** the thing that catches this class: the release build
+matrix already does. Its value is *earlier and cheaper* detection — it runs inside
+the `test` job (which gates the `build` job via `needs:`), and `go vet`
+type-checks the whole tree at vet level rather than only the linked binary
+(**mutation-verified**: reintroducing the overflow fails it with the same
+diagnostic). Also repaired a truncated "Must not" bullet in
 `PHASE-151-BASELINE.md` §3 whose text had been orphaned to the end of the file.
 **Next: 151A — the native value model in kcc** (frame layout, boxed kinds, arrays/
 `for-in`, floats, arena, string ops, `push`, records, maps), gated byte-identical

@@ -228,6 +228,29 @@ seam that closes the fallback.
 | mutation: refusal weakened | FAILS |
 | `go build ./...`, `go vet ./...`, `GOARCH=386` vet | clean |
 | `pkg/native`, `pkg/cli` 148/150/151 gates | green |
+| CI `main` run `36324231037` | success — all 18 jobs ✓ |
+| CI `develop` run `36324185177` | success |
+| Pages run `36324231034` | success — build ✓, linkcheck ✓, deploy ✓ |
+
+**A second defect, fixed in passing — and a correction.** Increment 150D added
+`MachoBase` as an untyped constant, so `MachoBase + fileOffset` computed in `int`
+and `0x100000000` overflowed a 32-bit target. `GOARCH=386` and `arm` are both in
+the release build matrix, so **`Build (linux/arm)` and `Build (linux/386)` were
+failing**, and `develop` and `main` were red for three consecutive pushes
+(`36315881454`, `36317485711`, `36317485745`) before the fix turned them green
+(`36324231037`). Fixed by declaring the constant `uint64` and routing every
+offset-to-vmaddr conversion through `machoAddr()`.
+
+The first version of this record claimed the break was **invisible** to CI,
+arguing the build jobs only compile `./cmd/karkain`. That was wrong and is
+corrected here: `cmd/karkain` → `pkg/cli` → `pkg/native` (via
+`pkg/cli/cfree_target.go`), so the leaf package *is* in that build and CI caught
+it. Consequently the added `GOARCH=386`/`arm` `go vet ./...` step is
+**defense-in-depth, not the catch** — the release matrix already detected this
+class. What it adds is earlier and cheaper detection: it runs inside the `test`
+job, which gates the `build` job through `needs:`, and `go vet` type-checks the
+whole tree rather than only the linked binary. It is still mutation-verified
+(reintroducing the overflow fails it with the same diagnostic).
 
 **The harness self-test was reformulated**, because it asserted the *old* state
 (it required the kcc leg to write an image, which is the fallback). It is now
