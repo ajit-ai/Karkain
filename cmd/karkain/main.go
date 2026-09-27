@@ -1662,6 +1662,13 @@ func main() {
 			// route those through the Go engine, which enforces run restrictions.
 			if cfg.Target == "" || cfg.Target == "native" || cfg.Target == "c23" {
 				result = cli.KCCRunCommand(nil, targetFile, cfg, verbose)
+			} else if cli.IsNativeTarget(cfg.Target) {
+				// Phase 151: a C-free native target asked for under kcc. kcc has
+				// no machine-code backend yet, so this is a LOUD refusal (K116).
+				// It used to fall through to cli.RunCommand, which is the Go
+				// backend: the user asked for kcc, got a Go image, and the
+				// output carried no indication that the engine had been swapped.
+				result = cli.KCCNativeRunCommand(targetFile, cfg, verbose)
 			} else {
 				result = cli.RunCommand(targetFile, cfg, verbose)
 			}
@@ -1677,6 +1684,10 @@ func main() {
 				result = cli.BuildCommandIncremental(targetFile, outputPath, cfg, verbose, cacheDir)
 			} else if cfg.Target == "native" || cfg.Target == "c23" {
 				result = cli.KCCBuildCommand(nil, targetFile, outputPath, cfg, verbose)
+			} else if cli.IsNativeTarget(cfg.Target) {
+				// Phase 151: same seam as `run` above — loud K116 instead of a
+				// silent hand-off to the Go backend.
+				result = cli.KCCNativeBuildCommand(targetFile, outputPath, cfg, verbose)
 			} else {
 				result = cli.BuildCommand(targetFile, outputPath, cfg, verbose)
 			}

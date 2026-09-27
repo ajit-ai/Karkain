@@ -1537,7 +1537,7 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 	case OSWindows:
 		heapBase = uint64(PEBaseAddr+peIdataRVA) + uint64(len(buildIdata()))
 	case OSMacOS:
-		heapBase = uint64(MachoBase) + uint64(MachoDataOffset(bodyEnd))
+		heapBase = machoAddr(MachoDataOffset(bodyEnd))
 	default:
 		heapBase = uint64(BaseAddr) + uint64(peAlignUp(bodyEnd, 0x1000))
 	}

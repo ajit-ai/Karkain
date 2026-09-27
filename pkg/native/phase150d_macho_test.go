@@ -181,7 +181,7 @@ func TestMachOAllocatingDataSegment(t *testing.T) {
 	// The arena starts at the page-aligned offset after __TEXT, so its
 	// absolute address is MachoBase + that offset. Every imm64 that points
 	// into the arena must be published for the slide.
-	wantArena := uint64(MachoBase + MachoDataOffset(info.bodyEnd))
+	wantArena := machoAddr(MachoDataOffset(info.bodyEnd))
 	if info.segs["__DATA"].vmaddr != wantArena {
 		t.Errorf("__DATA vmaddr = %#x, want %#x", info.segs["__DATA"].vmaddr, wantArena)
 	}
