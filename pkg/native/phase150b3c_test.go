@@ -95,21 +95,20 @@ func TestNativeMapExec(t *testing.T) {
 	}
 }
 
-// TestNativeMapStructural compiles and structurally validates every map case
-// for ELF and PE. The macOS leg asserts the DOCUMENTED refusal instead of
-// pretending the image is valid: macOS has no writable segment until 150D, so
-// an allocating program (a map needs the arena) is refused by design.
+// TestNativeMapStructural compiles and structurally validates every map case on
+// ALL THREE containers.
+//
+// The macOS leg used to assert the DOCUMENTED refusal (no writable segment
+// until 150D). Increment 150D added the writable __DATA segment, so the
+// expectation is now a real, validated image: parseMachO checks the segment is
+// R+W and that the arena's absolute address is published as a rebase site.
 func TestNativeMapStructural(t *testing.T) {
 	for _, c := range nativeMapCases {
 		c := c
-		for _, osName := range []string{OSLinux, OSWindows} {
+		for _, osName := range []string{OSLinux, OSWindows, OSMacOS} {
 			t.Run(c.name+"_"+osName, func(t *testing.T) {
 				compileNativeOS(t, osName, c.src)
 			})
-		}
-		_, err := CompileProgramForOS(parseNative(t, c.src), OSMacOS)
-		if err == nil || !strings.Contains(err.Error(), "heap allocation is not supported") {
-			t.Errorf("%s (macos): want the documented no-writable-segment refusal, got %v", c.name, err)
 		}
 	}
 }

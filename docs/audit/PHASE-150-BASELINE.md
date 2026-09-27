@@ -70,15 +70,15 @@ stays); WASM/native interplay.
 
 ## 5. Exit criteria
 
-- [ ] Boxed Value model covers arrays/for-in/floats/maps/structs/string
+- [x] Boxed Value model covers arrays/for-in/floats/maps/structs/string
   ops with executed goldens (ELF live, PE live where applicable).
-- [ ] Register allocation lands with zero golden drift (differential).
-- [ ] Mach-O PIE/rebase structural + parsed; win/macOS targets listed,
+- [x] Register allocation lands with zero golden drift (differential).
+- [x] Mach-O PIE/rebase structural + parsed; win/macOS targets listed,
   built, refused correctly per host matrix.
 - [x] ELF byte-identity differential vs the 147/148/149 corpus green.
 - [x] `go build ./...`, `go vet`, full `pkg/native` suite, neighboring
   CLI gates (148, 122-KIR untouched) green.
-- [ ] AGENTS.md increment-150 record; commit `develop` → merge `main` →
+- [x] AGENTS.md increment-150 record; commit `develop` → merge `main` →
   push (hard rule).
 
 ## 6. Progress
@@ -276,11 +276,12 @@ Increment 150 is **one increment**, planned as eight slices:
 | 150B3b | Records / structs | ✅ complete |
 | 150B3c | Maps | ✅ complete |
 | 150C | Register allocation | ✅ complete |
-| **150D** | **Mach-O + native OS targets + native-split cache** | ⬜ **not started** |
+| 150D | **Mach-O PIE + native OS targets + incremental decision** | ✅ **complete** |
 
-**150D is the only remaining slice of increment 150.** 150A–150C are frozen
-unless a directly demonstrated regression requires an explicit corrective
-change (see §12).
+**Increment 150 is complete** (all eight slices, 150A–150C plus 150D). 150A–150C
+are frozen unless a directly demonstrated regression requires an explicit
+corrective change (see §12); 150D's record is §13. The next increment is **151**
+(kcc native parity).
 
 ## 11. 150D — scope (the only remaining slice)
 
@@ -396,4 +397,158 @@ broken are green again.
 Building the **compiler** itself without a C compiler is still unscheduled:
 after increment 154 the toolchain is Go-free, but bootstrap links through `gcc`
 because `kcc` emits C23. See `KARKAIN-ARCHITECTURE-ROADMAP.md` §6. Tracked as a
+
+## 13. 150D — Mach-O PIE, native OS targets, and the incremental decision (DONE)
+
+150D had two open items: the Mach-O container (PIE, rebase opcodes, a writable
+`__DATA` segment) and the native-split incremental cache. The CLI half of the
+targets landed in the previous commit (`2604bfb`); this is the rest.
+
+### 13.1 Mach-O is now a real PIE
+
+Increment 149 shipped a Mach-O that was *position-dependent*: flags
+`NOUNDEFS|DYLDLINK|TWOLEVEL`, one R+X `__TEXT` covering the whole file, and a
+zeroed `LC_DYLD_INFO_ONLY`. That is not loadable as a PIE, and it is not a valid
+modern executable: dyld reserves the 4 GiB hole below `0x100000000` for
+`__PAGEZERO`, and every address the backend bakes into the instruction stream is
+an imm64 that a slide would invalidate.
+
+So `pkg/native/macho.go` now emits a conventional PIE:
+
+* `__PAGEZERO` (unmapped hole, 4 GiB at 0) then `__TEXT` R+X at `MachoBase`,
+  then — only when the program allocates — a **writable `__DATA`** for the
+  arena, then `__LINKEDIT` for the rebase opcodes. Sections stay empty
+  (`nsects=0`), so there is no section table to get wrong.
+* `MH_PIE` (`0x200000`) joins the flag set.
+* **Real rebase opcodes** in `LC_DYLD_INFO_ONLY` (`rebase_off`/`rebase_size`),
+  pointing at the `__LINKEDIT` contents. `bind`/`weak_bind`/`lazy_bind`/`export`
+  stay zero: the image imports nothing (raw syscalls) and exports nothing.
+* `__DATA` and `__LINKEDIT` each start on a page boundary, so `fileoff` and
+  `vmaddr` agree modulo the page size and no segment overlaps the one before it.
+
+**The load-bearing decision** is where the rebase sites come from. They are
+derived from `machoRebaseSiteOffsets(b)` — the union of the `.rodata` patch list
+and the arena patch list, i.e. exactly the lists the addresses were *resolved
+from*. A hand-maintained inventory of "the places we bake an address" would be a
+second source of truth that could silently miss a site, and a missed site in a
+PIE is not a crash: it is an image that loads and then dereferences a pointer
+nobody slid. Deriving it makes the omission structurally impossible.
+
+**The allocation refusal is gone.** Increment 149 refused any allocating program
+on macOS by name ("a writable `__DATA` segment lands with 150D"), because its
+single R+X `__TEXT` would have faulted on the arena's first bump-cursor store.
+Both gates that pinned that refusal (`TestNativeMapStructural`,
+`TestPhase150D_BuildIsCrossHost`) were flipped to assert a real, validated image
+in the same commit that added `__DATA`, exactly as the test file's own comment
+asked for.
+
+**`parseMachO` is now a real validator**, not a shape smoke-test. It checks
+MH_PIE, the exact segment set, each segment's protection, the page-aligned
+placement, the entry, `sizeofcmds` against the commands actually present, and it
+**decodes the rebase stream**, rejecting it if it does not terminate, has bytes
+after `DONE`, names a non-POINTER type, names the wrong segment, or carries an
+over-long uleb128. `MachORebaseSites` and `MachOHasDataSegment` are exported so
+gates can assert the published set is exactly the patched set.
+
+### 13.2 Two real encoder defects, caught by the goldens
+
+The byte-level golden table for the rebase encoder failed on first run, and both
+failures were genuine logic errors in `machoRebaseOpcodes`:
+
+1. **The cursor was conflated with the last emitted site.** The code tracked one
+   variable for both, and treated "site equals cursor" as a duplicate. But dyld
+   advances the cursor by 8 after every rebase, so a site landing exactly on the
+   cursor is the *adjacent 8-byte slot*, not a duplicate — so it was silently
+   **dropped** from the stream. A second, subtler consequence: for a genuine
+   duplicate the delta is negative, `s-prev >= 0x80` is false for a negative
+   number, and the code fell into the short-hop branch and encoded
+   `byte(s-prev)` — a truncated negative (`0xf8` = 248) — a bogus forward hop of
+   248 bytes instead of "skip".
+
+   Fixed by tracking `last` (last emitted slot) and `cur` (the cursor)
+   separately, and by requiring `0 < d < 0x80` for the hop.
+
+   **How live was this?** Less than it looked, and the measurement is worth
+   recording: every baked address is an imm64 inside a 10-byte `movabs`, so
+   distinct sites are ≥10 bytes apart and the cursor always lands *past* the
+   previous site. The `d == 0` branch is therefore defensive rather than
+   currently reachable; the negative-delta path was reachable only for a
+   duplicate site. Both guards stay, because "sites are ≥10 apart" is a property
+   of today's emission, not of the encoding.
+
+2. Three test *fixtures* were wrong rather than the code, and all three are
+   recorded because a green check is only as strong as what it checked:
+   * a "truncated uleb" case `{0x80, 0x51}` is a perfectly valid two-byte
+     uleb128 (10368) — the decoder was right to accept it; replaced with a
+     genuinely over-long uleb.
+   * an assertion that the arena base and its limit are *adjacent* rebase sites
+     failed; they are 10 bytes apart, for the reason above.
+   * the limit is not the stored header field at all: reading `emitAllocHelper`
+     shows R11 is re-materialised as `arena + heapHeaderLen + heapSize` (the
+     arena **end**), because the helper never loads the limit field. The test now
+     asserts the base and the end are both published, which is the property that
+     actually matters.
+
+### 13.3 The incremental cache: refusal kept, on evidence
+
+The baseline allowed either a native-split cache or "a documented, explicitly
+gated refusal if cache soundness cannot be established". 150D investigated and
+**kept the refusal**, with the reason measured rather than asserted. A new
+`BenchmarkNativeCompile` in `pkg/native` measures pure-Go emission per program:
+
+| case | ns/op | B/op | allocs/op |
+|---|---|---|---|
+| hello_linux | 11,016 | 3,664 | 43 |
+| concat_linux | 33,982 | 14,726 | 65 |
+| map_linux | 20,188 | 14,078 | 67 |
+| concat_windows | 53,106 | 30,006 | 104 |
+| concat_macos | 25,875 | 19,388 | 76 |
+
+* **A whole-image content-addressed cache cannot repay itself.** The entire cost
+  it could ever save is 11–53 µs, smaller than the stat + read + hash work of
+  looking the cache up.
+* **A per-function split cache is not sound with today's emitter.** The native
+  backend emits one monolithic `.text` and resolves every intra-text reference
+
+### 13.4 Gates and regressions
+
+* `pkg/cli/phase150_native_targets_test.go` — 6/6 PASS (19.4 s), including the
+  flipped macOS allocating build, with MH_PIE + writable `__DATA` + decodable
+  rebase opcodes asserted on the real image the CLI wrote.
+* `pkg/native` — full suite green (8.5 s), including the **19-image ELF
+  byte-identity differential at zero drift** (Mach-O work touches no ELF or PE
+  byte) and the live PE execution suites on this windows/amd64 host.
+* New `pkg/native/phase150d_macho_test.go`: encoder goldens, decoder negatives,
+  PIE load-command pins, the `__DATA`/arena-site assertions, and an **8-case
+  tamper table** (cleared MH_PIE, non-R+X `__TEXT`, shrunk `__PAGEZERO`,
+  non-writable `__DATA`, unaligned `__DATA`, moved rebase stream, truncated
+  rebase stream, bind opcodes present).
+* `TestPhase148*` green (6.8 s); `pkg/parser`, `pkg/lexer`, `pkg/sema`,
+  `pkg/target`, `pkg/compiler` green; `go build ./...` and `go vet` clean.
+
+### 13.5 Boundaries carried out of 150D (documented, NOT defects)
+
+* **Mach-O execution is still unproven** — no Intel-mac runner exists (GitHub's
+  macOS legs are arm64), so every Mach-O claim here is structural. The honest
+  limit is unchanged from 149 and now stated in the writer's own doc comment.
+* `LC_DYLD_INFO_ONLY` rebase opcodes, not `LC_DYLD_CHAINED_FIXUPS`: the baseline
+  named "rebase opcodes", and the legacy form is what the existing load command
+  already carried. Chained fixups would be a separate change.
+* arm64 native, PE delay-load/TLS/SEH/resources/signing, and kcc native parity
+  (increment 151) remain out of scope.
+
+  *eagerly*: `rel32` branches in `Emitter.Bytes`, and the `.rodata`/arena imm64
+  sites in the linker. Caching a function's bytes independently therefore has no
+  key that keeps those references valid; it needs a real relocation model
+  (offset+type relocations against symbol boundaries), which is a larger piece of
+  work than this flag and honestly out of scope here.
+
+The refusal text was rewritten to carry that reason, and
+`TestPhase150D_IncrementalRefused` now asserts the **reason** is present
+("monolithic", "relocation model"), not just the exit code and the target name —
+a refusal that decayed into "not supported yet" would pass an exit-code-only gate
+while losing the explanation, and the explanation is the deliverable. The
+benchmark is what will say "revisit this" if emission ever gets slow.
+
+
 roadmap gap, not as a 150 defect.

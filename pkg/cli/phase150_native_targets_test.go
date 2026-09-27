@@ -253,51 +253,62 @@ func TestPhase150D_RunOnHostOrRefuse(t *testing.T) {
 // emulator, and it is still a valid image for its own container.
 //
 // The program deliberately needs the heap arena, so the images differ in more
-// than their magic: the arena is a second writable segment on ELF and lives
-// in .idata on PE. The macOS case asserts the CURRENT contract — Mach-O has
-// a single R+X __TEXT and no writable segment, so an allocating program is
-// refused by name there rather than emitted as an image whose first
-// bump-cursor store would fault. Flipping that expectation to a successful
-// build belongs in the same commit that adds __DATA.
+// than their magic: the arena is a second writable segment on ELF, lives in
+// .idata on PE, and is a writable __DATA segment on Mach-O. The macOS leg used
+// to assert the no-writable-segment refusal; 150D added __DATA, so it now
+// asserts a real build AND that the image carries a PIE flag plus a writable
+// __DATA segment (the two structural claims a macOS image now makes).
 func TestPhase150D_BuildIsCrossHost(t *testing.T) {
 	karkain := phase130Karkain(t)
 	src := "func main() {\n\tlet a = \"ka\" + \"rk\"\n\tprint(a)\n}\n"
 	probe := write150DProbe(t, src)
 	dir := t.TempDir()
-	for _, tc := range []struct {
-		target     string
-		wantRefuse bool
-	}{
-		{NativeLinuxTarget, false},
-		{NativeWindowsTarget, false},
-		// Documented 150D boundary: no writable __DATA yet.
-		{NativeMacOSTarget, true},
-	} {
-		out := filepath.Join(dir, strings.TrimPrefix(tc.target, "native-"))
-		msg, code := run150D(t, karkain, "build", probe, "--engine", "go", "--target", tc.target, "-o", out)
-		if tc.wantRefuse {
-			if code != ExitCompile {
-				t.Errorf("%s: allocating program should be refused on macOS until __DATA lands, got %d:\n%s", tc.target, code, msg)
-			}
-			if !strings.Contains(msg, "writable") && !strings.Contains(msg, "__DATA") {
-				t.Errorf("%s: refusal must name the writable-__DATA gap, got:\n%s", tc.target, msg)
-			}
-			continue
-		}
+	for _, target := range []string{NativeLinuxTarget, NativeWindowsTarget, NativeMacOSTarget} {
+		out := filepath.Join(dir, strings.TrimPrefix(target, "native-"))
+		msg, code := run150D(t, karkain, "build", probe, "--engine", "go", "--target", target, "-o", out)
 		if code != 0 {
-			t.Errorf("%s: allocating program should build on any host (%d):\n%s", tc.target, code, msg)
+			t.Errorf("%s: allocating program should build on any host (%d):\n%s", target, code, msg)
 			continue
 		}
 		if st, err := os.Stat(out); err != nil || st.Size() == 0 {
-			t.Errorf("%s: no image written: %v", tc.target, err)
+			t.Errorf("%s: no image written: %v", target, err)
+			continue
+		}
+		if target != NativeMacOSTarget {
+			continue
+		}
+		// The macOS image must be a PIE carrying a writable __DATA segment.
+		img, err := os.ReadFile(out)
+		if err != nil {
+			t.Fatalf("reading mach-o image: %v", err)
+		}
+		if flags := binary.LittleEndian.Uint32(img[24:]); flags&0x200000 == 0 {
+			t.Errorf("%s: MH_PIE (0x200000) not set, flags = %#x", target, flags)
+		}
+		hasData, err := native.MachOHasDataSegment(img)
+		if err != nil {
+			t.Errorf("%s: structural parse: %v", target, err)
+			continue
+		}
+		if !hasData {
+			t.Errorf("%s: allocating program must map a writable __DATA arena", target)
+		}
+		if _, err := native.MachORebaseSites(img); err != nil {
+			t.Errorf("%s: rebase opcodes must decode: %v", target, err)
 		}
 	}
 }
 
-// TestPhase150D_IncrementalRefused pins the documented boundary: the
+// TestPhase150D_IncrementalRefused pins the documented boundary. The
 // incremental cache serves the C pipeline, so every native target is a loud
-// usage refusal naming the target the user typed (native-split caching is
-// 150D work).
+// usage refusal naming the target the user typed.
+//
+// 150D investigated whether a native-split cache could replace the refusal and
+// kept it deliberately, so this gate asserts more than the exit code: the
+// message must carry the REASON (a monolithic, microsecond-scale emission with
+// no relocation model), not merely that some text appeared. A refusal that
+// degraded to "not supported yet" would pass an exit-code-only gate while
+// losing the explanation, and the explanation is the deliverable.
 func TestPhase150D_IncrementalRefused(t *testing.T) {
 	karkain := phase130Karkain(t)
 	probe := write150DProbe(t, phase150DSrc)
@@ -311,6 +322,11 @@ func TestPhase150D_IncrementalRefused(t *testing.T) {
 		}
 		if !strings.Contains(out, target) {
 			t.Errorf("%s: refusal must name the target:\n%s", target, out)
+		}
+		for _, want := range []string{"relocation model", "monolithic"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: refusal must give the reason (%q missing):\n%s", target, want, out)
+			}
 		}
 	}
 }

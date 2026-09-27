@@ -1154,20 +1154,85 @@ Regressions green: `go build ./...`, `go vet`, full `pkg/native` (no FAIL),
 native CLI gate, `pkg/parser`, `pkg/lexer`, `pkg/sema`, `pkg/ir/...`,
 `pkg/target`, `pkg/wasm`, `pkg/compiler`.
 
-**Increment 150 status:** 150A, 150B1, 150B2, 150B3a, 150B3b, 150B3c **and
-150C** are complete, so the **boxed Value model and the register allocator are
-both done** — arrays, `for-in`, floats, maps, structs and string ops have
-executed goldens (PE live on Windows, ELF live on Linux CI), and 150C promotes
-hot int locals from frame slots to callee-saved registers with spilling proven
-to be the pre-150C path.
-**Current increment: 150. Next implementation slice: 150D** — Mach-O PIE/rebase
-plus the writable `__DATA`, the `native-x86_64-windows` /
-`native-x86_64-macos` CLI targets, and the native-split cache, gated by
-`pkg/cli/phase150_native_targets_test.go`. Scope in
-`docs/audit/PHASE-150-BASELINE.md` §11; the v1.2.0 scope freeze is
-`docs/release/v1.2.0-CHECKLIST.md`.
-**150A–150C are frozen** unless a directly demonstrated regression requires an
+**Increment 150 status: COMPLETE (all eight slices, 150A–150C + 150D)** — the
+boxed Value model, the register allocator, the three native OS targets, and a
+real Mach-O PIE. Arrays, `for-in`, floats, maps, structs and string ops have
+executed goldens (PE live on Windows, ELF live on Linux CI); 150C promotes hot
+int locals from frame slots to callee-saved registers with spilling proven to be
+the pre-150C path; 150D makes the macOS container a position-independent
+executable with a writable `__DATA` arena, and closes the last open scope item
+(the native-split cache) with a measured decision rather than an assumption.
+**Next increment: 151 — kcc native parity** (the self-hosted engine emits the
+same native targets), per `docs/audit/KARKAIN-VERSION-PLAN.md` §3–§4; 150D's
+scope and record are `docs/audit/PHASE-150-BASELINE.md` §11 and §13, and the
+v1.2.0 scope freeze is `docs/release/v1.2.0-CHECKLIST.md`.
+**150A–150D are frozen** unless a directly demonstrated regression requires an
 explicit corrective change, recorded per the Governance rule below.
+
+Also completed: **150D — Mach-O PIE + native OS targets + incremental decision**
+(increment 150, slice D of 8; verdict **COMPLETE**). Increment 149's Mach-O was
+*position-dependent* — flags without `MH_PIE`, one R+X `__TEXT`, a zeroed
+`LC_DYLD_INFO_ONLY` — which is neither a valid modern executable nor loadable
+as a PIE, and every address the backend bakes as an imm64 would have been
+invalidated by a slide. `pkg/native/macho.go` now emits a conventional PIE:
+`__PAGEZERO` (4 GiB hole at 0) → `__TEXT` R+X at `MachoBase` → **writable
+`__DATA`** when the program allocates → `__LINKEDIT` for the rebase opcodes,
+with `MH_PIE` (`0x200000`) set, `__DATA`/`__LINKEDIT` page-aligned so `fileoff`
+and `vmaddr` agree mod page, and a **real rebase opcode stream** in
+`LC_DYLD_INFO_ONLY` (`bind`/`export` stay zero — the image imports nothing and
+exports nothing). **The load-bearing choice** is that the rebase sites are
+*derived* from `machoRebaseSiteOffsets(b)` — the union of the `.rodata` and
+arena patch lists, i.e. exactly the lists the addresses were resolved from — so a
+hand-kept inventory cannot silently miss a site; a missed site in a PIE is not a
+crash but an image that loads and dereferences a pointer nobody slid. The
+increment-149 refusal of allocating programs on macOS is **gone** (its single
+R+X `__TEXT` would have faulted on the arena's first bump-cursor store), and both
+gates that pinned that refusal were flipped to assert a real validated image.
+`parseMachO` became a real validator: MH_PIE, the exact segment set, each
+protection, page-aligned placement, entry, `sizeofcmds`, and it **decodes** the
+rebase stream, rejecting a stream with no `DONE`, bytes after `DONE`, a
+non-POINTER type, the wrong segment or an over-long uleb128; `MachORebaseSites`
+and `MachOHasDataSegment` are exported for gates. **Two real encoder defects
+were caught by the byte-level goldens** and fixed: (1) `machoRebaseOpcodes`
+conflated dyld's *cursor* (advanced by 8 per rebase) with the *last emitted
+site*, so a site landing exactly on the cursor was silently **dropped** as a
+duplicate, and a genuine duplicate produced a negative delta that fell through
+the range check and encoded as a bogus forward hop of `0xf8`; fixed by tracking
+`last` and `cur` separately and requiring `0 < d < 0x80`. Measured nuance: every
+baked address is an imm64 inside a 10-byte `movabs`, so sites are ≥10 apart and
+the dropped-site path was *latent* rather than live — both guards kept, since
+that spacing is a property of today's emission, not of the encoding. (2) Three
+test *fixtures* were wrong, not the code, and are recorded: `{0x80,0x51}` is a
+valid uleb128 (10368) not a truncation; the arena base and limit are 10 apart,
+not adjacent; and the "limit" is re-materialised as `arena +
+heapHeaderLen + heapSize` (the arena **end**) because `emitAllocHelper` never
+loads the stored limit field. **The incremental cache: refusal KEPT, on
+evidence.** A new `BenchmarkNativeCompile` measures pure-Go emission at
+**11–53 µs/program** (hello 11.0 µs, concat 34.0, map 20.2, PE concat 53.1,
+Mach-O concat 25.9), so a whole-image content-addressed cache cannot repay
+itself — the entire saving is smaller than the stat+read+hash of a lookup — and
+a per-function split is **not sound** with today's emitter, which resolves every
+intra-text reference *eagerly* (`rel32` in `Emitter.Bytes`, `.rodata`/arena
+imm64 in the linker), so caching a function's bytes independently has no key
+that keeps those references valid; it needs a real relocation model. The refusal
+text now carries that reason and `TestPhase150D_IncrementalRefused` asserts the
+**reason** ("monolithic", "relocation model"), not just the exit code.
+Gates: `pkg/cli/phase150_native_targets_test.go` 6/6 (19.4 s, macOS allocating
+build now real, with MH_PIE + writable `__DATA` + decodable opcodes asserted on
+the CLI's own image); full `pkg/native` green (8.5 s) with the **19-image ELF
+byte-identity differential still at zero drift** (Mach-O work touches no ELF or
+PE byte) and the live PE suites; new `pkg/native/phase150d_macho_test.go`
+(encoder goldens, decoder negatives, PIE pins, `__DATA`/arena-site assertions,
+and an 8-case tamper table — cleared MH_PIE, non-R+X `__TEXT`, shrunk
+`__PAGEZERO`, non-writable/unaligned `__DATA`, moved and truncated rebase
+streams, bind opcodes present); `TestPhase148*` green; `pkg/parser`,
+`pkg/lexer`, `pkg/sema`, `pkg/target`, `pkg/compiler` green; `go build ./...`
+and `go vet` clean. Boundaries (documented, NOT defects): **Mach-O execution is
+still unproven** (no Intel-mac runner; every Mach-O claim is structural, as in
+149), rebase opcodes are `LC_DYLD_INFO_ONLY` rather than
+`LC_DYLD_CHAINED_FIXUPS` (the form the existing load command already carried),
+arm64 native and PE delay-load/TLS/SEH/signing stay out, and kcc native parity
+is 151.
 
 Also completed: **150C — register allocation** (increment 150, slice C of 8;
 verdict **COMPLETE**). Int locals can live in callee-saved registers instead

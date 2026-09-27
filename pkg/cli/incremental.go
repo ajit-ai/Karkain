@@ -119,12 +119,31 @@ func BuildCommandIncremental(targetFile, outputPath string, cfg codegen.Config, 
 	if err := ValidateKarFile(targetFile); err != nil {
 		return CommandResult{ExitCode: ExitUsage, Message: err.Error()}
 	}
-	// Phase 148: the incremental cache serves the C pipeline (monolith C
-	// + objects); the C-free native backend has no C artifacts to cache,
-	// so incremental+native is refused loudly (native-split caching is
-	// post-148 work, never silent C fallback).
+	// Phase 148 introduced this refusal; increment 150D investigated it and
+	// deliberately KEPT it, with the reason measured rather than asserted
+	// (BenchmarkNativeCompile in pkg/native):
+	//
+	//  * A whole-image content-addressed cache cannot repay itself. Native
+	//    emission is pure Go and measures 11-53 us per program, so the entire
+	//    cost a cache could ever save is smaller than the stat + read + hash
+	//    work of looking the cache up.
+	//  * A per-function split cache is not sound with today's emitter. The
+	//    native backend emits one monolithic .text and resolves every
+	//    intra-text reference EAGERLY: rel32 branches in Emitter.Bytes and
+	//    the .rodata/arena imm64 sites in the linker. Caching a function's
+	//    bytes independently therefore has no key that keeps those
+	//    references valid -- it would need a real relocation model
+	//    (offset+type relocations against symbol boundaries), which is a
+	//    separate, larger piece of work than this flag.
+	//
+	// So the honest answer is a loud refusal naming the target, never a
+	// silent fallback to the C pipeline. The text is gated by
+	// TestPhase150D_IncrementalRefused; if emission ever gets slow enough to
+	// matter, the benchmark is what says so first.
 	if IsNativeTarget(cfg.Target) {
-		return CommandResult{ExitCode: ExitUsage, Message: fmt.Sprintf("karkain build --incremental does not support --target %s yet (native-split caching is increment 150D work); build without --incremental", cfg.Target)}
+		return CommandResult{ExitCode: ExitUsage, Message: fmt.Sprintf(
+			"karkain build --incremental does not support --target %s: the C-free native backend emits one monolithic image in tens of microseconds, and a per-function split is not sound without a relocation model; build without --incremental",
+			cfg.Target)}
 	}
 	if verbose {
 		// resolve doubt about the target path resolution up front.
