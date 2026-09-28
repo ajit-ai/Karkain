@@ -2265,3 +2265,78 @@ whole program (no entry stub, no syscall tail, no PEB bootstrap — those arrive
 with 151A's value model, and 151D is what flips `kccOwnsNativeTargets`).
 Report: `docs/audit/PHASE-151C-ELF-CONTAINER-FINAL-REPORT.md`. **Next: 151C2
 (Mach-O, then PE), then 151A (the value model) and 151D.**
+
+Also completed: **151C2 — the Mach-O PIE container writer in kcc** (increment
+151, slice C2; verdict **COMPLETE — Mach-O**; PE is 151C3). Mach-O is the
+SUBTLE one of the three containers: it is a load-command chain sized by its own
+contents (__TEXT holds the header, the header holds the load commands,
+__LINKEDIT is placed after the body), and one extra LC_SEGMENT_64 (72 bytes)
+appears only when the program needs a writable arena — which moves .text and
+therefore moves the very offsets the rebase stream addresses, so the writer and
+the stream encoder are entangled where ELF's header count is a simple
+consequence of whether data is present. New `src/compiler/native_macho.kark`:
+the full image (32-byte header, __PAGEZERO/__TEXT/(__DATA)/__LINKEDIT,
+LC_DYLD_INFO_ONLY, LC_LOAD_DYLINKER, LC_MAIN, .text, .rodata, the page gap, the
+rebase stream); `natMachoRebaseOpcodes`; `natAppendUleb`; `natSortInts` (an
+insertion sort, because Karkain has no sort and a program has tens of sites);
+`natMachoTextOffset` as a FUNCTION not a constant for the same reason the ELF
+header count is; and `natMachoSegCmd` writing the 16-byte fixed-width name
+character by character through the compiler's existing `asciiVal`. The rebase
+stream keeps 150D's `cur`/`last` distinction: `cur` is the CURSOR (the address
+dyld visits next, advanced by 8 after every rebase) and `last` is the last slot
+emitted. Two sites 8 apart are ADJACENT pointer slots, not a duplicate, so the
+stream repositions once and rebases twice — conflating the two silently DROPS a
+site, which is not a crash but an image that dereferences a pointer nobody slid.
+New `native-macho` subcommand + Go-side dispatch; the three container/encoder
+commands now share one `kccSubcommand` helper since they genuinely are the same
+shape (no input file, no fallback, and **refusal lines treated as DATA** rather
+than build failures, because the corpus deliberately includes refusal cases).
+Gate `pkg/cli/phase151c2_macho_test.go` 6/6 PASS (37.7 s) as a **differential**
+against the real `native.LinkMachO`, with structural validation done by the
+**ORACLE's** `ParseMachO`/`MachORebaseSites`/`MachOHasDataSegment` rather than by
+a check written here (a check in the writer's own language would share its
+assumptions). The four reference cases make the stream shapes real rather than
+decorative: `single` (3 segments, 1 site), `arena` (4 segments, 2 sites, so .text
+moves 72 bytes and the sites must move with it), `nosite` (a PIE with no baked
+addresses still needs a valid SET_TYPE+DONE stream — the case that catches an
+encoder emitting nothing at all), and `adjacent` (sites 8 apart, exercising the
+`d==0` branch where the cursor already points at the next site). **Two real bugs,
+both the 151B constant class — and I repeated the mistake**: I wrote
+`LC_DYLD_INFO_ONLY` as 2147484194 (it is 0x80000022 = 2147483682) and `LC_MAIN`
+as 2147484712 (it is 0x80000028 = 2147483688), every other constant being
+right. The consequence was silent and DOUBLY confusing: the oracle reported "no
+LC_MAIN", a structural complaint that reads as "kcc built a broken image", and a
+test scanning for the rebase stream found no matching command, fell back to
+offset 0 and read the **whole image** instead of the stream — inventing a second,
+entirely spurious fault out of the first. I already had a constants gate for the
+encoder and still hand-wrote two in the new file. **The guard is now added at the
+point of writing new code rather than remembered afterwards**:
+`TestPhase151C2_MachOConstantsAreIndependentlyComputed` asserts the header fields
+and the set of load-command ids. One wrong expectation, in the test: the
+adjacent-site test initially failed with "2 SET_SEGMENT_AND_OFFSET, want 1", which
+was NOT a writer bug but §4.1's second symptom, and the initial diagnosis pointed
+at the rebase encoder, which was correct all along — recorded because that
+misattribution is what the 151C entry-offset trap also invites.
+**Mutation-verified**: making the `d==0` branch emit a redundant reposition fails
+TWO layers — the byte differential (4106 vs 4103 bytes) and the adjacent-site
+opcode count. Regressions green: `go build ./...`, `go vet ./pkg/... ./cmd/...`,
+`pkg/native|lexer|parser|sema|target|codegen` (codegen 60.5s; its
+`TestPhase107_CodegenSpawnJoin` failed once in a COMBINED run and passes in
+isolation at 3.8s — the documented ~4GB-host OOM class, not a regression, this
+slice touching no codegen), Phase 151/151B/151C/151C2/150D/148 gates, Phase 122
+KIRContinuity with the pin re-pinned **10031 -> 10264**, and the kcc self-check
+clean. **Boundary stated, not claimed:** **no execution proof** — the images are
+byte-identical to LinkMachO's and every structural and rebase claim is checked
+against the oracle, but there is no Intel-mac runner, so every Mach-O claim in
+this repository has been structural since increment 149 and this slice does not
+change that. The rebase sites are SUPPLIED by the reference cases rather than
+derived, because deriving them needs the value model (151A); what this increment
+proves is that the writer places whatever list it is given at the right file
+offsets and encodes it correctly. **PE (151C3) is deliberately left for its own
+slice and is the one that matters most for the increment's purpose**: it is the
+only container that can be EXECUTED on the dev host (PE images run in increments
+145-150), so landing it lets the "no direct execution proof" boundary be
+CLOSED rather than restated, and it is the hardest per the baseline's risk
+register (PEB bootstrap, IAT, DIR64 relocations, 16-byte alignment).
+Report: `docs/audit/PHASE-151C2-MACHO-CONTAINER-FINAL-REPORT.md`. **Next:
+151C3 (PE), then 151A (the value model), then 151D.**

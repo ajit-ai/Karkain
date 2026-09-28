@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1647,6 +1647,18 @@ func main() {
 	// comparing the Go oracle against itself.
 	if command == "native-elf" {
 		result := cli.KCCNativeELFCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151C2: the SELF-HOSTED Mach-O PIE container writer, same
+	// contract again. Mach-O is the subtle one of the three containers: its
+	// header is sized by its own load-command chain, and the rebase opcode
+	// stream is what makes the image a real position-independent executable.
+	if command == "native-macho" {
+		result := cli.KCCNativeMachOCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}
