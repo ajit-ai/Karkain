@@ -222,6 +222,16 @@ jobs:
         # gate above (Linux) with structural validation elsewhere.
         run: go test ./pkg/cli/ -run 'TestPhase148' -count=1
 
+      # Increment 151: the kcc native-parity track. These four gates were
+      # written but NOT wired here between 146D and this step, so every green
+      # run in that window was reporting success without exercising them --
+      # a gate that never runs is not a gate. They are wired as one step
+      # because each is fast (the encoder and both container writers are
+      # compared byte-for-byte against the Go oracle, which needs no
+      # execution host).
+      - name: Run Phase 151 kcc native-parity gates
+        run: go test ./pkg/cli/ -run 'TestPhase151|TestPhase151P0|TestPhase151B|TestPhase151C|TestPhase151C2' -count=1 -timeout 30m
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 
