@@ -1228,18 +1228,47 @@ func (p *Parser) parseExpr() Node {
 	return p.parseBinaryExpr(nil, 0)
 }
 
+// precedence returns the binding strength of a binary operator; a HIGHER
+// number binds TIGHTER, and parseBinaryExpr recurses with precedence+1 so
+// the right operand of a given level swallows only tighter operators.
+//
+// Increment 151P0 inserted the bitwise and shift levels. The table below
+// is the C table, from loosest to tightest, because Karkain compiles to C
+// and a user who reasons in one must get the same grouping in the other:
+//
+//	||  <  &&  <  |  <  ^  <  &  <  comparisons  <  shifts  <  + -  <  * / %
+//
+// Two placements are easy to get wrong and were both wrong in the first
+// draft of 151P0, caught by the gate probe rather than by inspection:
+//
+//   * bitwise AND/OR/XOR are LOOSER than the comparisons, not tighter.
+//     `a & b == 0` means `a & (b == 0)` in C, matching C is the point.
+//   * shifts are looser than `+ -` and tighter than the comparisons, so
+//     `1 << 3 + 1` is `1 << (3 + 1)` = 16, NOT `(1 << 3) + 1` = 9.
+//
+// The relative order of the pre-existing operators is untouched: the
+// comparisons, `+ -` and `* / %` keep exactly the ordering they had, so
+// no expression that was valid before this change groups differently now.
 func precedence(op string) int {
 	switch op {
 	case "||":
 		return 0
 	case "&&":
 		return 1
-	case "==", "!=", "<", ">", "<=", ">=":
+	case "|":
 		return 2
-	case "+", "-":
+	case "^":
 		return 3
-	case "*", "/", "%":
+	case "&":
 		return 4
+	case "==", "!=", "<", ">", "<=", ">=":
+		return 5
+	case "<<", ">>":
+		return 6
+	case "+", "-":
+		return 7
+	case "*", "/", "%":
+		return 8
 	default:
 		return -1
 	}
@@ -1381,6 +1410,20 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 			op = "&&"
 		case lexer.TokenOr:
 			op = "||"
+		// Increment 151P0: bitwise and shift operators, INFIX only. The
+		// same TokenAmp that is the Phase 41 borrow operator in PREFIX
+		// position reaches this switch only after a complete left operand
+		// has been parsed, so `&x` and `a & b` cannot be confused.
+		case lexer.TokenAmp:
+			op = "&"
+		case lexer.TokenPipe:
+			op = "|"
+		case lexer.TokenCaret:
+			op = "^"
+		case lexer.TokenShiftLeft:
+			op = "<<"
+		case lexer.TokenShiftRight:
+			op = ">>"
 		}
 
 		if op == "" || precedence(op) < minPrec {

@@ -45,6 +45,15 @@ func TK_PERCENT()      { return 61 }
 func TK_AND()          { return 62 }
 func TK_OR()           { return 63 }
 func TK_NOT()          { return 64 }
+// Increment 151P0: bitwise and shift tokens. TK_AND stays "&&" and TK_OR
+// stays "||"; the single-character forms get their own kinds so that a
+// single "&" is no longer lexed as logical-and, which is what the Go lexer
+// bug (and the earlier self-hosted one) amounted to.
+func TK_AMP()          { return 65 }
+func TK_PIPE()         { return 66 }
+func TK_CARET()        { return 67 }
+func TK_SHL()          { return 68 }
+func TK_SHR()          { return 69 }
 func TK_LPAREN()       { return 70 }
 func TK_RPAREN()       { return 71 }
 func TK_LBRACE()       { return 72 }
@@ -611,6 +620,11 @@ func tokenize(source) {
             } else if (lxPeek(state) == "-") {
                 lxAdvance(state)
                 tokens = appendArray(tokens, createToken(TK_SEND(), startPos, 2, startLine, startCol))
+            } else if (lxPeek(state) == "<") {
+                // Increment 151P0: shift left. Checked last so that the send
+                // operator "<-" and "<=" keep winning.
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_SHL(), startPos, 2, startLine, startCol))
             } else {
                 tokens = appendArray(tokens, createToken(TK_LT(), startPos, 1, startLine, startCol))
             }
@@ -621,6 +635,10 @@ func tokenize(source) {
             if (lxPeek(state) == "=") {
                 lxAdvance(state)
                 tokens = appendArray(tokens, createToken(TK_GTE(), startPos, 2, startLine, startCol))
+            } else if (lxPeek(state) == ">") {
+                // Increment 151P0: arithmetic shift right, after ">=".
+                lxAdvance(state)
+                tokens = appendArray(tokens, createToken(TK_SHR(), startPos, 2, startLine, startCol))
             } else {
                 tokens = appendArray(tokens, createToken(TK_GT(), startPos, 1, startLine, startCol))
             }
@@ -651,7 +669,10 @@ func tokenize(source) {
                 lxAdvance(state)
                 tokens = appendArray(tokens, createToken(TK_AND(), startPos, 2, startLine, startCol))
             } else {
-                tokens = appendArray(tokens, createToken(TK_AND(), startPos, 1, startLine, startCol))
+                // Increment 151P0: a single "&" is bitwise-and. It used to
+                // be emitted as TK_AND (logical-and) with length 1, which
+                // silently turned `a & b` into `a && b` on this engine.
+                tokens = appendArray(tokens, createToken(TK_AMP(), startPos, 1, startLine, startCol))
             }
             continue
         }
@@ -661,8 +682,17 @@ func tokenize(source) {
                 lxAdvance(state)
                 tokens = appendArray(tokens, createToken(TK_OR(), startPos, 2, startLine, startCol))
             } else {
-                tokens = appendArray(tokens, createToken(TK_ILLEGAL(), startPos, 1, startLine, startCol))
+                // Increment 151P0: a single "|" is bitwise or. It used to
+                // be TK_ILLEGAL, which is why `a | b` could not even parse.
+                tokens = appendArray(tokens, createToken(TK_PIPE(), startPos, 1, startLine, startCol))
             }
+            continue
+        }
+
+        if (ch == "^") {
+            // Increment 151P0: bitwise xor. Karkain has no two-character
+            // form starting with "^", so this is unconditional.
+            tokens = appendArray(tokens, createToken(TK_CARET(), startPos, 1, startLine, startCol))
             continue
         }
 
@@ -720,6 +750,11 @@ func tokenKindName(kind) {
     if (kind == TK_PERCENT())   { return "PERCENT" }
     if (kind == TK_AND())       { return "AND" }
     if (kind == TK_OR())        { return "OR" }
+    if (kind == TK_AMP())       { return "AMP" }
+    if (kind == TK_PIPE())      { return "PIPE" }
+    if (kind == TK_CARET())     { return "CARET" }
+    if (kind == TK_SHL())       { return "SHL" }
+    if (kind == TK_SHR())       { return "SHR" }
     if (kind == TK_NOT())       { return "NOT" }
     if (kind == TK_LPAREN())    { return "LPAREN" }
     if (kind == TK_RPAREN())    { return "RPAREN" }

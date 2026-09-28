@@ -77,15 +77,20 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// generated conc_runtime.kark embed), and now to 9574 (Phase 146's
 		// generics v1: 146A Go-parser TypeArgs + 146C kcc mono pass,
 		// keyword type-arg gate, index-then-brace fix, template skips;
-		// verified deterministic 9574/9574 text/verify on both runs);
+		// verified deterministic 9574/9574 text/verify on both runs),
+		// and now to 9642 (increment 151P0's bitwise operators: five new
+		// lexer token kinds and their scan arms, the kcc kPrec table, the
+		// infix operator mapping, and the binary_op C helper block in both
+		// pkg/codegen and the self-hosted codegen emitter; kir verify
+		// passes on the new count);
 		// the pin is refreshed to the validated current value.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 9574 {
-			t.Errorf("whole-tree kir text = %d lines, want 9574:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 9642 {
+			t.Errorf("whole-tree kir text = %d lines, want 9642:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

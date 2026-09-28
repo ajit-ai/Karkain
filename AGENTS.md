@@ -1260,6 +1260,62 @@ stays `false`; 151B/151C untouched. Gates: `pkg/cli` 151 (all pass),
 covers `.karkain-dev/`, the scratch tree the native/kcc gates build in the repo
 root (a 15 MB `karkain.exe` was sitting untracked).
 
+Also completed: **151P0 — Bitwise operators (P0 soundness fix)** (verdict
+**COMPLETE**; new increment, baselined `docs/audit/
+PHASE-151P0-BITWISE-BASELINE.md`, ordered **before 151B** and inside the
+frozen v1.2.0 scope; its own gate `pkg/cli/phase151p0_bitwise_test.go` 4/4
+PASS. Found while writing the 151B encoder, which is bit manipulation by
+definition and could not be built without it. `&`, `|`, `^`, `<<`, `>>`
+were **not implemented at all**, and on the Go reference engine they failed
+**silently**: `597 & 21` returned `597` (should be 21), `x >> 8` returned
+`0`, `1 << 4` returned `1` — a program using them compiled, exited 0, and
+printed a wrong answer, which is a soundness hole in the shipped 1.1.0
+"Stable" release. Four independent root causes, all measured: the Go
+lexer had no `|`/`^` tokens and never lexed `<<`/`>>` (so `x >> 8` reached
+the parser as `x > > 8`); `&` was already spoken for by the **Phase 41
+borrow** operator in prefix position; `precedence()` had no bitwise level
+and the infix switch had no cases; and `binary_op` fell through to
+`make_int(0)`. The self-hosted engine was **worse**: its lexer emitted the
+*logical*-and token for a single `&` (lexer.kark:654), silently turning
+`a & b` into `a && b`. Fix: five new tokens (`TokenPipe`, `TokenCaret`,
+`TokenShiftLeft`, `TokenShiftRight`, plus `TokenAmp` reused for infix),
+mirrored in `src/compiler/lexer.kark` as `TK_AMP/TK_PIPE/TK_CARET/TK_SHL/
+TK_SHR`; the C precedence table in `precedence()` and `kPrec`; the infix
+operator switch and `kindToOp`/`isOpToken`; and `binary_op` in **both**
+`pkg/codegen/codegen.go` and the self-hosted `src/compiler/codegen.kark`.
+Prefix `&` (borrow) and infix `&` (bitwise) are separated by position, as
+in Rust, so no existing borrow syntax is disturbed. Every edge is given a
+defined answer rather than inheriting C's UB: shift count < 0 or >= 64
+yields 0, `<<` is unsigned and wraps, `>>` is arithmetic and
+sign-preserving, float/string/bigint yields 0, and a bool operand is
+**accepted and coerced** like arithmetic (a first draft asserted
+`true & 1` was 0 and the gate caught it against the reference engine —
+`is_truthy` lowers bool to int upstream, so refusing it would have made
+`true & 1` disagree with `true + 1`). **The gate asserts correct VALUES,
+not just cross-engine agreement** — a byte-identity-only gate would have
+passed on the defective code, which is the state this was found in, and is
+mutation-verified (neuter the `&` case and 3 lines fail). **Two precedence
+placements were wrong in the first draft and were caught by the probe, not
+by inspection**: bitwise must be LOOSER than the comparisons, and shifts
+LOOSER than `+ -`, so `1 << 3 + 1` is 16 and `1|2==2` is 1. My own baseline
+also recorded two wrong *expectations* (`597 & 21` is 21, not 5; the shift
+result is 4822678189205111, not 4799245345463037) and is corrected, because
+a baseline with wrong expectations is worse than none. Regressions green:
+`go build ./...`, `go vet` (lexer/parser/codegen/cli/sema), `pkg/lexer`,
+`pkg/parser`, `pkg/sema`, `pkg/codegen` (71s), `pkg/native`, `pkg/compiler`,
+`pkg/ir/...`, `pkg/target`, `pkg/wasm`, Phase 114 corpus **both legs in
+isolation** (GoEngine PASS 452s, KCCParity ok 568s — run together they
+exceed Go's 10m default and panic on timeout, a harness artifact rather
+than a regression), Phase 122 KIRContinuity with the pin re-pinned
+**9574 -> 9642** for the new lexer/parser/codegen lines and `kir verify`
+passing on the new count, Phase 148/150D/151 gates, and the self-hosted
+`check` of `src/compiler/main.kark` clean. Also recorded: **a zero-argument
+call in expression position is dropped by the kcc C codegen** (`let a =
+zero()` compiles on Go and emits a bare `zero;` on kcc; one-argument calls
+are fine) — a separate real parity bug, worked around in the 151B draft
+with one-argument accessors, not yet fixed or filed. **151B is now
+unblocked** but the encoder draft is still uncommitted.)
+
 Also completed: **150D — Mach-O PIE + native OS targets + incremental decision**
 (increment 150, slice D of 8; verdict **COMPLETE**). Increment 149's Mach-O was
 *position-dependent* — flags without `MH_PIE`, one R+X `__TEXT`, a zeroed

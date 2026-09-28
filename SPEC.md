@@ -58,7 +58,7 @@ of ASCII letters, digits, and underscore. Keywords are ASCII lowercase except
 | Category | Tokens |
 |----------|--------|
 | Words | `func`, `print`, `println`, `let`, `var`, `return`, `if`, `else`, `import`, `matrix`, `alloc`, `free`, `addr`, `qreg`, `gate`, `measure`, `actor`, `spawn`, `receive`, `channel`, `send`, `macro`, `quote`, `unquote`, `comptime`, `while`, `for`, `type`, `struct`, `bool`, `bigint`, `bigfloat`, `true`, `false`, `kernel`, `device`, `global_id`, `barrier`, `mut`, `raw`, `move`, `Some`, `None`, `Ok`, `Err`, `match`, `linear`, `packed`, `enum`, `fn`, `in`, `break`, `continue` |
-| Operators | `=`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-`, `*`, `/`, `%`, `&&`, `\|\|`, `!`, `&`, `@`, `.`, `?`, `=>` |
+| Operators | `=`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-`, `*`, `/`, `%`, `&&`, `\|\|`, `!`, `&`, `\|`, `^`, `<<`, `>>`, `@`, `.`, `?`, `=>` |
 | Delimiters | `(`, `)`, `{`, `}`, `[`, `]`, `,`, `:`, `;` |
 | Literal kinds | integer, float64, bigint, bigfloat, string, bool |
 | Others | identifier (`IDENT`), `EOF`, `ILLEGAL` |
@@ -268,10 +268,50 @@ unit (pre-existing CLI behavior, not a language rule).
 | 0 | `=` (assignment, handled at precedence 0) | right |
 | 0 | `\|\|` | left |
 | 1 | `&&` | left |
-| 2 | `== != < <= > >=` | left |
-| 3 | `+ -` | left |
-| 4 | `* / %` | left |
+| 2 | `\|` | left |
+| 3 | `^` | left |
+| 4 | `&` | left |
+| 5 | `== != < <= > >=` | left |
+| 6 | `<< >>` | left |
+| 7 | `+ -` | left |
+| 8 | `* / %` | left |
 | unary | `- ! & @` | Ã¢â‚¬â€ |
+
+A HIGHER number binds TIGHTER. The bitwise and shift levels (2-4 and 6)
+were added in increment 151P0 and the table matches C, because Karkain
+compiles to C and a user who reasons in one must get the same grouping and
+the same results in the other. Two consequences worth stating, because both
+are the classic C grouping surprises and a reader will otherwise assume the
+more intuitive reading:
+
+- `1 << 3 + 1` is `1 << (3 + 1)` = **16**, not `(1 << 3) + 1` = 9.
+- `1 | 2 == 2` is `1 | (2 == 2)` = **1**, not `(1 | 2) == 2` = 0.
+
+### 4.1.1 Bitwise and shift semantics (increment 151P0)
+
+`&`, `|`, `^`, `<<` and `>>` operate on 64-bit signed integers. Before
+151P0 these five operators were **not implemented at all**, and on the
+reference engine they failed *silently*: a program using `a & b` compiled,
+exited 0, and printed a wrong answer.
+
+Because the corresponding C operators are undefined for out-of-range
+shift counts, Karkain gives every edge a defined answer:
+
+| case | result |
+|---|---|
+| shift count < 0 | `0` |
+| shift count >= 64 | `0` |
+| `<<` overflows 64 bits | wraps (performed unsigned, no UB) |
+| `>>` on a negative value | arithmetic, sign-preserving |
+| float, string or bigint operand | `0` |
+| bool operand | accepted and coerced, as in arithmetic |
+
+`&` in **prefix** position remains the borrow/reference operator (`&x`,
+`&mut T`); in **infix** position it is bitwise-and. Position separates the
+two, exactly as it does in Rust.
+
+Out of scope and still unimplemented: compound assignment (`&=`, `<<=`),
+and `~` (bitwise not).
 
 ### 4.2 Expression forms Ã¢Å“â€¦
 
