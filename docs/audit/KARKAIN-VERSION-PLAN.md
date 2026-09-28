@@ -163,6 +163,20 @@ Order is dependency-forced: `150 → 151 → 152 → 154`, with `165` free-float
 165   free-floating: packaging/CI, NOT a compiler dependency
 ```
 
+**Named gate inside increment 151 (added 2026-09-28).** After increment 151
+completes, a **Language Hardening Checkpoint** precedes any further
+sovereignty work. It is a **verification gate, not an increment**: no number is
+assigned, no phase is redefined, and it does not alter the `1.2.0` closure
+conditions in §4.1. Definition and verification areas (LH-A to LH-G):
+`LANGUAGE-HARDENING-CHECKPOINT.md`. Developer Experience / Debugging is a
+**separate future track**: `DEVELOPER-EXPERIENCE-DEBUGGING-TRACK.md` (DX-A to
+DX-D).
+
+Per the numbering model in §0, a number is assigned only when an increment is
+scheduled and baselined, so neither of these carries one yet. Per-slice
+completion status for 151A-1/151B/151C/151C2/151C3 is recorded in `AGENTS.md`
+and summarised in §8; this plan does not restate it.
+
 | Increment | Track | Deliverable | Gate / Definition of Done | Boundaries (not this increment) |
 |---|---|---|---|---|
 | **150** | I (C-front) | Native **Value model** (boxed `Value`: arrays, `for-in`, floats, maps, structs, string ops) + register allocation + Mach-O PIE/rebase + native-split incremental cache + **`--target native-x86_64-windows` / `native-x86_64-macos`** CLI targets (listing, `--help`, per-OS build/run matrix, run only on matching hosts else exit 6) | `pkg/native` executed goldens on windows/amd64 (PE) and linux/amd64 (ELF), structural Mach-O everywhere; new `pkg/cli/phase150_native_targets_test.go` (magic per OS, run refusals, listing, incremental refusal); ELF byte-identity differential vs the 147/148/149 corpus | arm64 native; PE delay-load/TLS/SEH/resources/signing; Mach-O **execution** (no Intel-mac runner); kcc native parity (151) |

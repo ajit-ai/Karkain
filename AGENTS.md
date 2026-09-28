@@ -65,6 +65,43 @@ that skips when output is empty — is not evidence, and the "executed" wording 
 supports must be corrected rather than quietly inherited. The
 `docs/audit/PHASE-150-BASELINE.md` §12 entry is the worked example.
 
+## Language Hardening Checkpoint (MANDATORY RULE)
+
+**After 151C3, Language Hardening Checkpoint verification must be completed
+before implementing newly identified language-correctness work. Gap-analysis
+findings are not implementation authorization. Coding agents must work only on
+explicitly authorized roadmap phases/slices.**
+
+Concretely, for agents:
+
+* `docs/audit/KARKAIN_GAP_ANALYSIS.md` is an **inventory of hypotheses**. Its
+  entries are NOT authorization to change code. Do not implement a gap-analysis
+  finding because it is worded imperatively.
+* `docs/audit/LANGUAGE-HARDENING-CHECKPOINT.md` is a **verification gate**
+  (LH-A to LH-G), positioned after 151C3 and before further sovereignty work.
+  It authorizes **verification only** — reproduce, measure, classify.
+* **The checkpoint is documentation/verification first. Individual fixes require
+  a subsequent explicitly authorized implementation slice**, each with its own
+  baseline note per the numbering model in `KARKAIN-VERSION-PLAN.md` §0.
+* A verification finding resolving to "fixed", "intentional limitation",
+  "historical/stale", or "unable to reproduce" is a **successful** outcome. Do
+  not manufacture a fix for a finding that does not reproduce.
+* Do not invent phase numbers from either document, and do not reassign 152.
+* `docs/audit/DEVELOPER-EXPERIENCE-DEBUGGING-TRACK.md` (DX-A to DX-D) is a
+  **separate future track**. No DAP server exists in the repository; do not
+  document one as implemented, and do not begin debugging implementation from
+  that document.
+
+The gap analysis identifies potential problems. The roadmap authorizes work.
+Keeping those responsibilities separate is the purpose of this rule.
+
+**Companion rule — a gate is a test file *plus* a CI entry.** Writing a gate and
+running it locally is not sufficient evidence. `ci.yml` was last wired at 146D,
+which meant four increment gates (151P0, 151B, 151C, 151C2) were written, run
+locally, reported as green in increment records, and **never executed by CI**.
+Any new gate must add its own `ci.yml` step in the same change, or it is not a
+gate.
+
 ## Roadmap
 
 **Version-wise plan (authoritative forward view):

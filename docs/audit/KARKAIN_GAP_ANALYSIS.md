@@ -1,5 +1,25 @@
 # KARKAIN GAP ANALYSIS
 
+> **This document identifies potential problems. It does not authorize work.**
+>
+> Nothing here is implementation authorisation. Entries are written as
+> observations and hypotheses, and an entry that reads imperatively is still an
+> observation. Before acting on any item, check it against the current tree:
+> these findings predate substantial work and some may be stale, fixed, or
+> intentional limitations.
+>
+> The **Language Hardening Checkpoint**
+> (`LANGUAGE-HARDENING-CHECKPOINT.md`, areas LH-A to LH-G) is the mechanism for
+> doing that re-verification as a single, evidence-driven pass. It authorizes
+> **verification only**. Individual fixes require a subsequent, explicitly
+> authorized implementation slice with its own baseline note.
+>
+> Where a checkpoint area names this document as an evidence base — LH-C, LH-D,
+> LH-E and LH-F do — that is a pointer to hypotheses to re-test, not a
+> restatement of current state. See also the separate
+> `DEVELOPER-EXPERIENCE-DEBUGGING-TRACK.md` (DX-A to DX-D), which covers
+> developer tooling and is **not** a language-correctness track.
+
 Divided into CRITICAL (must fix before expansion), ARCHITECTURAL (missing foundational
 decisions), IMPLEMENTATION (designed but incomplete), TESTING, DOCUMENTATION, and FUTURE.
 
