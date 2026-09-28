@@ -216,3 +216,33 @@ note before work starts, per the numbering model.
 **Do not derive implementation phases from this document.** No phase numbers
 are invented here, and none should be inferred from it. `KARKAIN_GAP_ANALYSIS.md`
 findings are not implementation authorisation.
+
+## 7. Implementation authority (added 2026-09-28, after the audit)
+
+> **A finding in the audit does not automatically authorise implementation.**
+> The audit classifies and evidences; it does not authorise.
+
+The audit (`LANGUAGE-HARDENING-CHECKPOINT-FINAL-AUDIT.md`) confirmed two
+current kcc/backend parity defects. Those two — and only those two — are
+authorised for implementation:
+
+| Slice | Confirmed defect | Status |
+|---|---|---|
+| **LH-1** | kcc `?` propagation parity. The self-hosted engine has `TK_QUESTION`, `NODE_PROPAGATE` and a parser case, but `src/compiler/codegen.kark` has **no** case for it, so the operator is parsed and then lowered to nothing. The Go engine propagates correctly. | **AUTHORIZED / NOT STARTED** |
+| **LH-2** | kcc `match` binding parity. Match-arm bindings are rejected on the self-hosted engine with `error[K102] undefined identifier`, so the idiomatic way to consume a `Result` is unavailable there while it works on the Go engine. | **AUTHORIZED / NOT STARTED** |
+
+Both are **implementation slices under this checkpoint, not new numbered
+phases.** They carry no number, do not redefine any phase, and do not alter the
+`1.2.0` closure conditions.
+
+**Not yet authorised.** Every other audit finding remains evidence only,
+including: the absence of a whole-program type-checking pass on any backend;
+borrow diagnostics discarding a line number at the render boundary; enum
+payloads being discarded; the three-way memory model; the absence of a
+security or capability model; and every item in the Developer Experience /
+Debugging track. A runtime exception system (`try` / `catch` / `throw` /
+`panic`) is **not** authorised and is a separate architectural decision.
+
+Implementation proceeds **one slice at a time**: LH-2 is not to be started
+together with LH-1 unless that is explicitly requested.
+

@@ -502,3 +502,21 @@ semantic checks. Two of those corrections were to claims I made myself.
 
 This audit deliberately does **not** state which of these should be addressed
 next, or in what order. That decision belongs to the project owner.
+
+---
+
+## Post-audit authorization status (added 2026-09-28)
+
+This audit remains the historical evidence of the checkpoint. Its findings are
+unchanged and are not superseded by the note below.
+
+```text
+LH-1  (kcc `?` propagation parity)   AUTHORIZED / NOT STARTED
+LH-2  (kcc `match` binding parity)    AUTHORIZED / NOT STARTED
+All other audit findings             NOT CURRENTLY AUTHORIZED
+```
+
+The project owner authorized LH-1 and LH-2 only, as implementation slices
+under the Language Hardening Checkpoint — not as new numbered phases. Nothing
+in this audit was implemented, and the remaining findings stay evidence until
+separately approved.

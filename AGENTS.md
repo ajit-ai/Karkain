@@ -95,6 +95,35 @@ Concretely, for agents:
 The gap analysis identifies potential problems. The roadmap authorizes work.
 Keeping those responsibilities separate is the purpose of this rule.
 
+**Implementation authority inside the checkpoint (2026-09-28).** The
+checkpoint audit (`LANGUAGE-HARDENING-CHECKPOINT-FINAL-AUDIT.md`) confirmed
+two current kcc/backend parity defects, and authorized exactly two slices:
+
+* **LH-1** — kcc `?` propagation parity. `src/compiler/codegen.kark` has no
+  case for `NODE_PROPAGATE`, so the operator is parsed and then lowered to
+  nothing. **AUTHORIZED / NOT STARTED.**
+* **LH-2** — kcc `match` binding parity. Match-arm bindings are rejected on
+  the self-hosted engine with `error[K102]`. **AUTHORIZED / NOT STARTED.**
+
+Rules for agents:
+
+* **The current authorized scope is limited to LH-1 and LH-2. Agents must
+  implement only the explicitly requested slice. Other audit findings remain
+  non-authorized findings unless separately approved.**
+* **LH-2 must not be implemented together with LH-1 unless explicitly
+  requested; implementation proceeds one slice at a time.**
+* These are slices under the checkpoint, **not new numbered phases**. Do not
+  assign them a phase number, do not invent Phase 152/153/154, and do not
+  redefine 151A or 152.
+* Still **not** authorized: a runtime exception system (`try` / `catch` /
+  `throw` / `panic`), enum payload semantics, borrow-checker redesign,
+  whole-program type-checking redesign, memory-model redesign, a
+  security/capability model, DAP or any debugger implementation, WASM changes,
+  package-ecosystem work, Phase 151A, and Phase 152.
+* A finding in the audit does not automatically authorize implementation. The
+  audit is evidence; this rule is the authorization, and it is narrow on
+  purpose.
+
 **Companion rule — a gate is a test file *plus* a CI entry.** Writing a gate and
 running it locally is not sufficient evidence. `ci.yml` was last wired at 146D,
 which meant four increment gates (151P0, 151B, 151C, 151C2) were written, run

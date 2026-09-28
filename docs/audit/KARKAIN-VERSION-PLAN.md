@@ -177,6 +177,24 @@ scheduled and baselined, so neither of these carries one yet. Per-slice
 completion status for 151A-1/151B/151C/151C2/151C3 is recorded in `AGENTS.md`
 and summarised in §8; this plan does not restate it.
 
+**Authorized implementation slices under the checkpoint (added 2026-09-28,
+after the checkpoint audit).** The audit
+(`LANGUAGE-HARDENING-CHECKPOINT-FINAL-AUDIT.md`) confirmed two current
+kcc/backend parity defects. Those two, and only those two, are authorized for
+implementation:
+
+| Slice | Deliverable | Status |
+|---|---|---|
+| **LH-1** | kcc `?` propagation parity — the self-hosted code generator has no case for `NODE_PROPAGATE`, so the operator is parsed and then lowered to nothing | **AUTHORIZED / NOT STARTED** |
+| **LH-2** | kcc `match` binding parity — match-arm bindings are rejected on the self-hosted engine with `error[K102]`, so idiomatic `Result` consumption is unavailable there | **AUTHORIZED / NOT STARTED** |
+
+These are **implementation slices under the existing checkpoint, not new
+numbered phases**: no number is assigned, no phase is invented, Phase 152 is
+unaffected, and the `1.2.0` closure conditions in §4.1 are unchanged. Every
+other audit finding remains a finding and is **not** authorized. Implementation
+proceeds **one slice at a time**; LH-2 is not to be implemented together with
+LH-1 unless explicitly requested.
+
 | Increment | Track | Deliverable | Gate / Definition of Done | Boundaries (not this increment) |
 |---|---|---|---|---|
 | **150** | I (C-front) | Native **Value model** (boxed `Value`: arrays, `for-in`, floats, maps, structs, string ops) + register allocation + Mach-O PIE/rebase + native-split incremental cache + **`--target native-x86_64-windows` / `native-x86_64-macos`** CLI targets (listing, `--help`, per-OS build/run matrix, run only on matching hosts else exit 6) | `pkg/native` executed goldens on windows/amd64 (PE) and linux/amd64 (ELF), structural Mach-O everywhere; new `pkg/cli/phase150_native_targets_test.go` (magic per OS, run refusals, listing, incremental refusal); ELF byte-identity differential vs the 147/148/149 corpus | arm64 native; PE delay-load/TLS/SEH/resources/signing; Mach-O **execution** (no Intel-mac runner); kcc native parity (151) |
