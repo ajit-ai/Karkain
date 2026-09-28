@@ -2144,3 +2144,68 @@ go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1
 All tests must pass before committing.
 
 
+
+Also completed: **151B — the machine-code encoder in kcc** (increment 151,
+slice B; verdict **COMPLETE**). The "subtle slice" the 151 baseline calls out:
+the Go emitter's eager label resolution is what makes byte-identical images
+possible, so the port reproduces that discipline rather than improving on it.
+New `src/compiler/native_emit.kark` (byte buffer, label table with linear-scan
+lookup, rel32 fixups recorded as (position,label) pairs and resolved in one
+finish pass, imm64 placeholders recorded for a linker and never resolved here,
+REX/ModRM mirroring pkg/native exactly including suppressing a redundant
+0x40, and two error[K117] refusals: undefined label and duplicate label).
+Karkain has no structs, so the emitter state threads through one array with
+fixed slots. New `native-encode` subcommand with Go-side dispatch
+(`pkg/cli/native_encode.go`) taking **no input file** — the reference
+sequences are compiled into kcc, which is what makes the comparison a
+comparison of two *implementations* rather than two invocations of one, and
+there is deliberately **no Go fallback** (a Go encoder producing the same
+bytes would pass the gate while proving nothing about kcc — the exact
+dishonesty 151 was opened to remove). Gate
+`pkg/cli/phase151b_encoder_test.go` 7/7 PASS (21.0 s) built as a **differential,
+not a golden**: every expected value is produced by calling the real
+`pkg/native.Emitter` in the test, because a golden would pin kcc against a
+transcription of the Go code and pass when both copies are wrong the same
+way. Four deliberately independent layers, each catching a different class of
+wrong: (1) differential vs the oracle catches any byte difference; (2)
+displacements computed from first principles catches a *shared* sign error;
+(3) a stated-bytes disassembly golden catches *shared* drift in the sequence
+definition; (4) an independently computed constants table catches a mistyped
+selector. Plus determinism, both refusal paths, and a vacuity guard that no
+sequence is empty. **Two real bugs found and fixed, both by decoding bytes by
+eye rather than by any test**: (1) **every decimal constant in the table was
+wrong** — `0xFF` written as 597 (`0x255`), `0x0F` as 21 (`0x15`), `0x90` as
+90 (`0x5A`) — because Karkain has no hex literals so the values were hand
+converted, and the conversion read decimal-looking strings as hex; the output
+`4010445400141000000005541` was not x86 at all. (2) **ModRM double-counted the
+mode field** — `192 + (mod<<6) + ...` where `192` (0xC0) *is* `mod=3` already
+shifted, so `mod=3` produced 392, truncating to `0x88`, a memory operand where
+a register operand was meant (`add rax,rcx` encoded `48 01 88` instead of
+`48 01 c8`). Bug 2 is instructive: the imm64 and multi sequences contain **no
+ModRM at all**, so two thirds of the corpus was unaffected and a differential
+over them would have stayed green — only the loop sequence exposed it, and only
+by being decoded by eye. Both are now gate-pinned, and bug 2 is
+**mutation-verified** (reintroducing it fails the differential with exactly
+those bytes). A third, smaller finding: `pkg/native.Emitter` had **no
+`Nop()`**, so the Go mirror could not reproduce the two padding bytes in the
+imm64 sequence; rather than drop the padding (load-bearing — a forward fixup
+whose displacement happens to be zero produces identical bytes whether the fixup
+pass ran or not) a `Nop()` was added to the Go emitter, since a primitive on
+only one side of a bit-exact port is an asymmetry that would surface later
+anyway. Regressions green: `go build ./...`, `go vet ./pkg/... ./cmd/...`,
+`pkg/lexer|parser|sema|codegen|compiler|native`, Phase 151/151B/150D/148 gates
+(18.0 s), Phase 122 KIRContinuity with the pin re-pinned **9642 -> 9889**, and
+the kcc self-check of `src/compiler/main.kark` clean. **Boundary stated, not
+papered over:** there is **no direct execution proof** of the kcc-encoded
+bytes and none is claimed — the argument is transitive (kcc's bytes are
+byte-identical to pkg/native's, whose PE images *are* executed on this host by
+the 145-150 suites), and executing kcc-encoded bytes directly would need the PE
+PEB bootstrap, which is program.go's job (151A/151C), not the encoder's. The
+opcode subset is representative (mov imm32/imm64, add/sub reg-reg, jnz, jmp,
+call, nop, ret) — enough to prove the *mechanism* byte-for-byte; the remaining
+~80 primitives are mechanical now and are 151A/151C work. Report:
+`docs/audit/PHASE-151B-ENCODER-FINAL-REPORT.md`. **Next: 151C** — the three
+containers (ELF, PE with the PEB bootstrap and Win64 boundary, Mach-O PIE with
+rebase opcodes) in kcc, matching Link/LinkPE/LinkMachO byte for byte; the
+baseline's risk register still stands, and PE is the hardest container to match
+and may need to land after ELF.

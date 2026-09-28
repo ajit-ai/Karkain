@@ -1267,18 +1267,18 @@ func main() {
 	switch args[0] {
 	case "init", "new", "add", "remove", "rm", "update", "list", "tree", "fetch":
 		os.Exit(handlePackageCommand(args))
-		case "prof":
-			os.Exit(runProfCommand(args[1:]))
-		case "dbg":
-			if len(args) < 2 {
-				fmt.Println("Error: No input .kark file specified (usage: karkain dbg <file.kark>)")
-				os.Exit(cli.ExitUsage)
-			}
-			result := cli.DbgCommand(args[1], false)
-			if result.Message != "" {
-				fmt.Println(result.Message)
-			}
-			os.Exit(result.ExitCode)
+	case "prof":
+		os.Exit(runProfCommand(args[1:]))
+	case "dbg":
+		if len(args) < 2 {
+			fmt.Println("Error: No input .kark file specified (usage: karkain dbg <file.kark>)")
+			os.Exit(cli.ExitUsage)
+		}
+		result := cli.DbgCommand(args[1], false)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
 	case "debug":
 		os.Exit(runDebugCommand(args[1:]))
 	}
@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1618,6 +1618,23 @@ func main() {
 			os.Exit(result.ExitCode)
 		}
 		result := cli.KCCKirCommand(nil, targetFile, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151B: exercise the SELF-HOSTED machine-code encoder and print the
+	// bytes it produces as hex, one line per reference sequence.
+	//
+	// This is the increment's measurement surface. It is a compiler-owned
+	// component on kcc only, with NO Go fallback, so the byte differential it
+	// feeds cannot pass by comparing the Go oracle against itself. It takes no
+	// input file: the reference sequences are compiled into kcc, which is what
+	// makes the comparison a comparison of two implementations rather than of
+	// two invocations of one.
+	if command == "native-encode" {
+		result := cli.KCCNativeEncodeCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}
