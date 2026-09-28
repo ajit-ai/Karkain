@@ -1220,6 +1220,46 @@ diagnostic). Also repaired a truncated "Must not" bullet in
 Go↔kcc through the existing harness; then 151B (encoder) and 151C (three
 containers), then flip `kccOwnsNativeTargets` and re-point the seam at kcc.
 
+Also completed: **151A-1 — the native decision moves into kcc** (increment 151,
+sub-slice; verdict **COMPLETE**, and explicitly **not** parity). 151D-first made
+the refusal honest but kept it in Go: the marker `kccProducedImage` looked for was
+a string the Go driver chose to print, so it could never become true and proved
+nothing about kcc. Now the seam (`pkg/cli/kcc_native.go`) **stages the user's
+real project** and **runs kcc on it**, returning kcc's own output.
+`src/compiler/main.kark` gained `isNativeTarget` / `nativeTargetOS` /
+`buildNativeFile`, and its `build` arm routes the three C-free targets there.
+`buildNativeFile` runs the **full self-hosted pipeline** — assemble, tokenize,
+parse, two-pass type check — *before* refusing, so the refusal is a statement
+about a program kcc actually read, and a program that does not type-check reports
+that instead of a backend error. Verified with the real binary:
+`[kcc] native request native-x86_64-linux (os=linux): hello.kark` then
+`error[K116]`, exit 6, no image. `kccProducedImage` is now **true and real** — the
+marker is emitted inside `src/compiler/main.kark` and the Go backend has no code
+path that prints it. Three failure modes are kept distinct (type error →
+ExitCompile; kcc refusal → ExitEnv; kcc unreachable → ExitEnv reported as a
+toolchain failure, because "kcc has no backend" and "kcc is not installed" are
+different problems). **Two gates that could not fail, found by mutation:** the
+provenance check searched for the bare marker, and removing the marker from kcc
+**did not fail it** because the "kcc did not answer" diagnostic quoted the very
+marker it was reporting missing — the diagnostic no longer contains the marker in
+any form, and the gate now checks marker + target; re-mutated and confirmed
+failing. Separately: `Copy-Item` preserves `LastWriteTime`, so restoring a mutated
+`main.kark` left it older than the `kcc.exe` built from the mutation and
+`kccStale` reused the mutated binary — any future mutation of a self-hosted source
+must bump the mtime. Scope: `docs/audit/PHASE-151A-BASELINE.md` states why real
+emission (151A/B/C) is not startable as one increment — the Go image bytes are a
+function of label names, `fresh()` counter order, frame layout and the 150C
+register plan, so byte-parity means a second compiler that is bit-exactly
+bug-compatible with the first. **KIR pin 9574 unchanged** (the first version of
+the note predicted drift; measured, the pin holds because KIR does not render the
+driver — `runFile`/`buildNativeFile` are absent from the emitted text, and the
+real 151B/151C work lands in the modules it does cover). `kccOwnsNativeTargets`
+stays `false`; 151B/151C untouched. Gates: `pkg/cli` 151 (all pass),
+`TestPhase122_KIRContinuity` (275 s), `pkg/native`, `pkg/parser`, `pkg/lexer`,
+`pkg/sema`, `go build ./...`, `go vet ./...`, `GOARCH=386` vet. `.gitignore` now
+covers `.karkain-dev/`, the scratch tree the native/kcc gates build in the repo
+root (a 15 MB `karkain.exe` was sitting untracked).
+
 Also completed: **150D — Mach-O PIE + native OS targets + incremental decision**
 (increment 150, slice D of 8; verdict **COMPLETE**). Increment 149's Mach-O was
 *position-dependent* — flags without `MH_PIE`, one R+X `__TEXT`, a zeroed
