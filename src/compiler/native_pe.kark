@@ -1,0 +1,474 @@
+// ============================================================
+// PE32+ (PE/COFF) container writer (increment 151C3)
+//
+// The Karkain counterpart of pkg/native/pe.go's LinkPE, and required to agree
+// with it BYTE FOR BYTE for the same reason as the encoder (151B) and the
+// ELF/Mach-O containers (151C/151C2): the point of increment 151 is that the
+// two engines' images are indistinguishable, and a Windows loader is stricter
+// about a malformed image than any test is about a matching one.
+//
+// Like the other containers, this is a SERIALISATION LAYER and not a backend.
+// It takes already-encoded x86-64 bytes plus four patch lists and serialises
+// them. It decides nothing about lowering, and it is not a second code
+// generator.
+//
+// THE LAYOUT, and the two offsets that must never be confused:
+//
+//   file offset   where a byte lives in the .exe file
+//   RVA           relative virtual address: the loader's coordinate space
+//   VA            ImageBase + RVA, what an absolute pointer holds
+//
+// .text starts at file offset 0x200 and at RVA 0x1000, so
+// `entry RVA = peTextRVA + (entryFileOffset - textOffset)`. The entry arrives
+// as a FILE offset, exactly as in the ELF writer, and the subtraction is what
+// converts it. Increment 151C got this wrong in its own gate and had to be
+// corrected; the distinction is spelled out here because the failure reads as
+// "the writer emitted a bad entry" rather than as a test that asked for the
+// wrong thing.
+//
+// THE THREE SECTIONS AND WHY NONE IS OPTIONAL:
+//
+//   .text   R-X  code and rodata
+//   .idata  RW  the kernel32 import table AND the heap arena
+//   .reloc  RS  DIR64 fixups
+//
+// .idata MUST be writable and is not optional: the loader resolves imports by
+// writing addresses into the IAT slots at load time, and a read-only .idata
+// fails the load with ERROR_BAD_EXE_FORMAT. Phase 149 diagnosed this with
+// objdump. Windows has no stable user-mode syscall ABI, so exit and output go
+// through those imports. The arena rides inside .idata because it is already
+// R/W, which avoids a fourth section and keeps the import directories pointing
+// only at the import structures.
+//
+// .reloc is not decoration: the host loader rebases the image even with no
+// relocation table (Phase 149 measured it at 0x7FF6... instead of the linked
+// 0x140000000), which makes every absolute movabs stale and faults
+// immediately. DYNAMIC_BASE is only honest if the fixups are present.
+//
+// DETERMINISM. TimeDateStamp is 0 and there is no other time, no random and
+// no host-dependent value anywhere in the image, so identical inputs give
+// byte-identical output.
+// ============================================================
+
+// natPEBaseAddr is 0x140000000, the conventional Windows x64 image base. It
+// exceeds 32 bits, so every field that carries it must be written with
+// natPut64 -- truncating it to 32 bits would produce an image whose
+// absolute pointers disagree with its own header.
+func natPEBaseAddr() { return 5368709120 }
+
+// Layout constants. The hex is given because Karkain has no hex literals, and
+// the decimal is checked by TestPhase151C3_PEConstantsAreIndependentlyComputed.
+func natPEFileAlign() { return 512 }        // 0x200
+func natPESectAlign() { return 4096 }        // 0x1000
+func natPESigOff() { return 128 }            // 0x80: where PE\0\0 sits
+func natPECoffSize() { return 20 }
+func natPEOptSize() { return 240 }
+func natPESectSize() { return 40 }
+func natPETextRVA() { return 4096 }          // 0x1000
+func natPEIdataRVA() { return 8192 }         // 0x2000
+func natPERelocRVA() { return 12288 }        // 0x3000
+func natPENumImports() { return 3 }
+func natPENumSections() { return 3 }
+
+// natPETextOff is the file offset .text starts at: the headers
+// (0x80 + 4 + 20 + 240 + 3*40 = 512) rounded up to the 0x200 file alignment.
+//
+// That arithmetic lands on EXACTLY 512, so the image has zero slack between
+// the end of the section table and the start of .text. Any future header
+// growth must be caught, not silently absorbed, which is why the writer
+// refuses when its headers overflow this value.
+func natPETextOff() { return 512 }
+
+// .idata layout, offsets relative to the section start.
+func natPEIDTOff() { return 0 }
+func natPEILTOff() { return 40 }
+func natPEIATOff() { return 72 }
+func natPEHNOff() { return 104 }
+
+// Section characteristics.
+func natPESectTextChars() { return 1610612768 }   // 0x60000020 CODE|EXEC|READ
+func natPESectIdataChars() { return 3221225536 }  // 0xC0000040 INIT|READ|WRITE
+func natPESectRelocChars() { return 1107296320 }  // 0x42000040 DISCARD|READ
+
+// natPEIdata builds the .idata body: the import directory, the ILT and IAT
+// thunk arrays, the Hint/Name blobs, and the DLL name.
+//
+// The layout is fixed rather than computed, because the loader addresses it by
+// RVA: IDT at 0, ILT at 40, IAT at 72, Hint/Name at 104, and "kernel32.dll"
+// at 148. The three imports are fixed by the native architecture, which only
+// ever needs exit, a stdout handle, and write.
+func natPEIdata() {
+    let idata = natZeros(161)
+    // Import directory entry: OriginalFirstThunk, Name, FirstThunk.
+    natPut32(idata, natPEIDTOff() + 0, natPEIdataRVA() + natPEILTOff())
+    natPut32(idata, natPEIDTOff() + 12, natPEIdataRVA() + 148)
+    natPut32(idata, natPEIDTOff() + 16, natPEIdataRVA() + natPEIATOff())
+
+    // Hint/Name RVA per import. The blob sizes are 16, 16 and 12, which are
+    // the 2-byte hint plus the padded name.
+    let sizes = [16, 16, 12]
+    let names = ["ExitProcess", "GetStdHandle", "WriteFile"]
+    let hnOff = natPEHNOff()
+    let hnRvas = []
+    let i = 0
+    while (i < natPENumImports()) {
+        hnRvas = appendArray(hnRvas, natPEIdataRVA() + hnOff)
+        hnOff = hnOff + sizes[i]
+        i = i + 1
+    }
+
+    i = 0
+    while (i < natPENumImports()) {
+        // The ILT keeps the Hint/Name RVA; the IAT starts with the same value
+        // and the loader overwrites it with the resolved address.
+        natPut64(idata, natPEILTOff() + i * 8, hnRvas[i])
+        natPut64(idata, natPEIATOff() + i * 8, hnRvas[i])
+        i = i + 1
+    }
+
+    let off = natPEHNOff()
+    i = 0
+    while (i < natPENumImports()) {
+        natPut16(idata, off, 0) // hint: 0, so the loader matches by name alone
+        let nm = names[i]
+        let k = 0
+        while (k < len(nm)) {
+            idata[off + 2 + k] = asciiVal(substr(nm, k, 1))
+            k = k + 1
+        }
+        off = off + sizes[i]
+        i = i + 1
+    }
+
+    // "kernel32.dll" at 148, NUL-terminated, 13 bytes.
+    let dll = "kernel32.dll"
+    let d = 0
+    while (d < len(dll)) {
+        idata[148 + d] = asciiVal(substr(dll, d, 1))
+        d = d + 1
+    }
+    return idata
+}
+
+// natPEReloc builds the .reloc body and returns the PADDED bytes plus the
+// unpadded size, which is what the base-relocation data directory must point
+// at. Reporting the padded size there would describe padding as relocations.
+//
+// Every absolute address the image holds is position-dependent, so every
+// patch site joins the fixup list: rodata pointers, IAT slot addresses, the
+// bootstrap's published import addresses, and arena addresses. Entries are
+// type-10 (DIR64) grouped into one block per 4 KB page, each block padded to a
+// DWORD boundary with a type-0 ABSOLUTE entry.
+func natPEReloc(rvas) {
+    let sorted = natSortInts(rvas)
+    let blocks = []
+    let rvas2 = sorted
+    while (len(rvas2) > 0) {
+        let page = rvas2[0] - (rvas2[0] & 4095)
+        let entries = []
+        let rest = []
+        let i = 0
+        while (i < len(rvas2)) {
+            if (rvas2[i] - (rvas2[i] & 4095) == page) {
+                // type 10 (DIR64) in the top nibble, offset in the low 12.
+                let v = 10 * 4096 + (rvas2[i] & 4095)
+                entries = appendArray(entries, v & natMask(0))
+                entries = appendArray(entries, (v >> 8) & natMask(0))
+            } else {
+                rest = appendArray(rest, rvas2[i])
+            }
+            i = i + 1
+        }
+        rvas2 = rest
+        if (len(entries) % 4 != 0) {
+            entries = appendArray(entries, 0)
+            entries = appendArray(entries, 0)
+        }
+        let hdr = natZeros(8)
+        natPut32(hdr, 0, page)
+        natPut32(hdr, 4, 8 + len(entries))
+        blocks = natMachoAppend(blocks, hdr)
+        blocks = natMachoAppend(blocks, entries)
+    }
+    let size = len(blocks)
+    let padded = blocks
+    let want = natAlignUp(size, natPEFileAlign())
+    while (len(padded) < want) {
+        padded = appendArray(padded, 0)
+    }
+    return [padded, size]
+}
+
+// natPESectHeader builds one 40-byte section header.
+//
+// The parameter is named rawSize rather than `raw` because `raw` is a
+// reserved word in this language: it is the escape hatch spelled `@raw`. A
+// parameter that shadows a keyword does not parse, and the error names the
+// token rather than the parameter, so this is worth stating.
+func natPESectHeader(name, vsize, rva, rawSize, off, chars) {
+    let s = natZeros(natPESectSize())
+    let k = 0
+    while (k < 8) {
+        if (k < len(name)) {
+            s[k] = asciiVal(substr(name, k, 1))
+        }
+        k = k + 1
+    }
+    natPut32(s, 8, vsize)          // VirtualSize
+    natPut32(s, 12, rva)           // VirtualAddress
+    natPut32(s, 16, rawSize)       // SizeOfRawData
+    natPut32(s, 20, off)           // PointerToRawData
+    natPut32(s, 36, chars)         // Characteristics
+    return s
+}
+
+// natPEStore64 writes a 64-bit little-endian value into the image at a FILE
+// offset relative to .text, which is how every patch site is filled.
+//
+// The position is an offset into .text, not into the image, because that is
+// what the encoder's patch lists carry.
+func natPEStore64(img, textFileOff, pos, v) {
+    let b = textFileOff + pos
+    img[b] = v & natMask(0)
+    img[b + 1] = (v >> 8) & natMask(0)
+    img[b + 2] = (v >> 16) & natMask(0)
+    img[b + 3] = (v >> 24) & natMask(0)
+    img[b + 4] = (v >> 32) & natMask(0)
+    img[b + 5] = (v >> 40) & natMask(0)
+    img[b + 6] = (v >> 48) & natMask(0)
+    img[b + 7] = (v >> 56) & natMask(0)
+    return img
+}
+
+// natPELink builds a complete PE32+ x86-64 image.
+//
+//   text, rodata - already-encoded bytes
+//   heap         - the arena, or empty for a program with no heap
+//   patches      - flat [pos, roOff] pairs: absolute pointers to .rodata
+//   ipatches     - flat [pos, index] pairs: IAT slot addresses
+//   apatches     - flat [pos, index] pairs: bootstrap-published import addrs
+//   hpatches     - flat [pos, roOff] pairs: absolute pointers into the arena
+//   textOffset   - the file offset .text must start at
+//   entryOffset  - the FILE offset of the entry point
+//
+// The four patch lists are FLAT arrays rather than records because Karkain has
+// no structs; each is read two elements at a time. Keeping them as four lists
+// rather than one list carrying a kind mirrors the Go Builder, so a
+// differential compares like with like.
+//
+// Returns the image bytes, or a diagnostic string. The refusal is a string
+// rather than an error value because this surface has no error type, and it is
+// returned rather than thrown so the caller decides what it means.
+func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOffset, entryOffset) {
+    if (textOffset != natPETextOff()) {
+        return "error[K117]: native pe: unsupported text offset " + str(textOffset) + ", want " + str(natPETextOff())
+    }
+
+    let codeLen = len(text) + len(rodata)
+    let textRaw = natAlignUp(codeLen, natPEFileAlign())
+    let idata = natPEIdata()
+    let idataFileOff = natPETextOff() + textRaw
+    let arenaLen = len(heap)
+    let idataTotal = len(idata) + arenaLen
+    let idataRaw = natAlignUp(idataTotal, natPEFileAlign())
+
+    // Every patch site holds an absolute address and therefore needs a DIR64
+    // fixup, so the relocation list is the union of the four patch lists.
+    let rvas = []
+    let i = 0
+    while (i < len(patches)) { rvas = appendArray(rvas, natPETextRVA() + patches[i]); i = i + 2 }
+    i = 0
+    while (i < len(ipatches)) { rvas = appendArray(rvas, natPETextRVA() + ipatches[i]); i = i + 2 }
+    i = 0
+    while (i < len(apatches)) { rvas = appendArray(rvas, natPETextRVA() + apatches[i]); i = i + 2 }
+    i = 0
+    while (i < len(hpatches)) { rvas = appendArray(rvas, natPETextRVA() + hpatches[i]); i = i + 2 }
+    let rel = natPEReloc(rvas)
+    let relocBlocks = rel[1]
+    let relocFileOff = idataFileOff + idataRaw
+    let relocRaw = natAlignUp(relocBlocks, natPEFileAlign())
+
+    // SizeOfImage must cover the WHOLE image. .idata is not a fixed size (the
+    // arena grows it) and .reloc sits AFTER .idata, so computing the total
+    // from a single fixed RVA under-reports whenever the arena is present --
+    // the loader then maps an image whose tail is not backed by memory, which
+    // is the access violation Phase 150B diagnosed. The high-water mark is the
+    // end of whichever section ends last.
+    let imageEnd = natPEIdataRVA() + idataTotal
+    if (natPERelocRVA() + relocBlocks > imageEnd) {
+        imageEnd = natPERelocRVA() + relocBlocks
+    }
+    let sizeOfImage = natAlignUp(imageEnd, natPESectAlign())
+
+    // DOS header. 64 bytes, then padding to the signature offset.
+    let out = natZeros(64)
+    out[0] = 77   // 'M'
+    out[1] = 90   // 'Z'
+    natPut32(out, 60, natPESigOff())   // e_lfanew
+    while (len(out) < natPESigOff()) { out = appendArray(out, 0) }
+    out = appendArray(out, 80)   // 'P'
+    out = appendArray(out, 69)   // 'E'
+    out = appendArray(out, 0)
+    out = appendArray(out, 0)
+
+    // COFF header.
+    let coff = natZeros(natPECoffSize())
+    natPut16(coff, 0, 34404)               // Machine: IMAGE_FILE_MACHINE_AMD64
+    natPut16(coff, 2, natPENumSections())
+    natPut32(coff, 4, 0)                   // TimeDateStamp: 0, for determinism
+    // PointerToSymbolTable (8) and NumberOfSymbols (12) stay zero.
+    natPut16(coff, 16, natPEOptSize())     // SizeOfOptionalHeader
+    natPut16(coff, 18, 34)                 // EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE
+    out = natMachoAppend(out, coff)
+
+    // Optional header, PE32+.
+    let opt = natZeros(natPEOptSize())
+    natPut16(opt, 0, 523)                  // Magic: PE32+
+    natPut32(opt, 4, textRaw)              // SizeOfCode
+    natPut32(opt, 8, idataRaw + relocRaw)  // SizeOfInitializedData
+    // entryOffset is a FILE offset; the RVA is .text's RVA plus the distance
+    // from .text's file offset. Conflating the two is the 151C trap.
+    natPut32(opt, 16, natPETextRVA() + (entryOffset - textOffset))
+    natPut32(opt, 20, natPETextRVA())      // BaseOfCode
+    natPut64(opt, 24, natPEBaseAddr())     // ImageBase: needs 64 bits
+    natPut32(opt, 32, natPESectAlign())
+    natPut32(opt, 36, natPEFileAlign())
+    // MajorSubsystemVersion must be at least 6: 0 fails the load on Windows
+    // 11 with ERROR_BAD_EXE_FORMAT (Phase 149, bisected).
+    natPut16(opt, 48, 6)
+    natPut32(opt, 56, sizeOfImage)
+    natPut32(opt, 60, natPETextOff())      // SizeOfHeaders
+    natPut16(opt, 68, 3)                   // Subsystem: CONSOLE
+    natPut16(opt, 70, 352)                 // HIGH_ENTROPY_VA|DYNAMIC_BASE|NX_COMPAT
+    natPut64(opt, 72, 1048576)             // SizeOfStackReserve
+    natPut64(opt, 80, 4096)                // SizeOfStackCommit
+    natPut64(opt, 88, 1048576)             // SizeOfHeapReserve
+    natPut64(opt, 96, 4096)                // SizeOfHeapCommit
+    natPut32(opt, 108, 16)                 // NumberOfRvaAndSizes
+    // Data directories. Only the three that are actually GENERATED are
+    // claimed: the import table, the base relocation table and the IAT.
+    // Claiming a directory that carries no data would be a claim the loader
+    // could act on.
+    natPut32(opt, 120, natPEIdataRVA())                    // export: none
+    natPut32(opt, 124, 40)                                 // import table (entry 1)
+    natPut32(opt, 152, natPERelocRVA())                    // base reloc (entry 5)
+    natPut32(opt, 156, relocBlocks)
+    natPut32(opt, 208, natPEIdataRVA() + natPEIATOff())    // IAT (entry 12)
+    natPut32(opt, 212, natPENumImports() * 8)
+    out = natMachoAppend(out, opt)
+
+    out = natMachoAppend(out, natPESectHeader(".text", codeLen, natPETextRVA(), textRaw, natPETextOff(), natPESectTextChars()))
+    out = natMachoAppend(out, natPESectHeader(".idata", idataTotal, natPEIdataRVA(), idataRaw, idataFileOff, natPESectIdataChars()))
+    out = natMachoAppend(out, natPESectHeader(".reloc", relocBlocks, natPERelocRVA(), relocRaw, relocFileOff, natPESectRelocChars()))
+
+    // The headers must fit before .text. They land on exactly 0x200, so there
+    // is no slack: if header growth ever pushes past this the image is
+    // malformed and must be refused rather than truncated.
+    if (len(out) > natPETextOff()) {
+        return "error[K117]: native pe: headers overflow .text start (" + str(len(out)) + " > " + str(natPETextOff()) + ")"
+    }
+    while (len(out) < natPETextOff()) { out = appendArray(out, 0) }
+
+    // Absolute addresses the patches resolve to. All three bases are VIRTUAL
+    // addresses, which is what a pointer stored in the image must hold.
+    let textBase = natPEBaseAddr() + natPETextRVA()
+    let roBase = textBase + len(text)
+    let idataBase = natPEBaseAddr() + natPEIdataRVA()
+
+    let img = out
+    img = natMachoAppend(img, text)
+    img = natMachoAppend(img, rodata)
+    // Pad .text out to its file alignment before any patch is written, so a
+    // patch position can never address a byte that does not exist yet.
+    while (len(img) < natPETextOff() + textRaw) { img = appendArray(img, 0) }
+
+    i = 0
+    while (i < len(patches)) {
+        img = natPEStore64(img, natPETextOff(), patches[i], roBase + patches[i + 1])
+        i = i + 2
+    }
+    i = 0
+    while (i < len(ipatches)) {
+        img = natPEStore64(img, natPETextOff(), ipatches[i], idataBase + natPEIATOff() + ipatches[i + 1] * 8)
+        i = i + 2
+    }
+    i = 0
+    while (i < len(apatches)) {
+        img = natPEStore64(img, natPETextOff(), apatches[i], idataBase + natPEIATOff() + apatches[i + 1] * 8)
+        i = i + 2
+    }
+    i = 0
+    while (i < len(hpatches)) {
+        img = natPEStore64(img, natPETextOff(), hpatches[i], idataBase + len(idata) + hpatches[i + 1])
+        i = i + 2
+    }
+
+    img = natMachoAppend(img, idata)
+    if (arenaLen > 0) { img = natMachoAppend(img, heap) }
+    while (len(img) < idataFileOff + idataRaw) { img = appendArray(img, 0) }
+    img = natMachoAppend(img, rel[0])
+    while (len(img) < relocFileOff + relocRaw) { img = appendArray(img, 0) }
+    return img
+}
+
+// ============================================================
+// Reference cases (increment 151C3)
+//
+// The .text is four `mov r64, imm64` instructions, which is the minimum shape
+// that gives every patch class a DISTINCT site to write to. Using one site for
+// several patch kinds would make them overwrite each other and a
+// last-writer-wins bug invisible.
+//
+// Site layout (each instruction is 10 bytes: 48 b8 + 8 immediate bytes):
+//   pos 2   : 48 b8 | imm64   <- rodata pointer   (patch 0)
+//   pos 12  : 48 b8 | imm64   <- IAT slot address  (ipatch 0)
+//   pos 22  : 48 b8 | imm64   <- published import  (apatch 1)
+//   pos 32  : 48 b8 | imm64   <- arena address     (hpatch 4)
+// ============================================================
+
+// natPEText is the reference .text: four movabs, 40 bytes.
+func natPEText() {
+    return natHexDecode("48b88877665544332211" + "48b88877665544332211" + "48b88877665544332211" + "48b88877665544332211")
+}
+
+// natPERodata is 8 bytes of read-only data, the target of the rodata pointer.
+func natPERodata() {
+    return natHexDecode("68690a0000000000")
+}
+
+// natPEHeap is a 32-byte arena: a 16-byte bump-allocator header (cursor,
+// limit) followed by data, matching what Phase 150B lays down.
+func natPEHeap() {
+    return natHexDecode("10000000200000000000000000000000000000000000000000000000000000")
+}
+
+// natPECorpus runs one reference case and returns "name <image-hex>".
+//
+// The cases are chosen so the layout arithmetic is actually exercised rather
+// than assumed:
+//
+//   0 - bare    : text only. No patches, no arena. The relocation list is
+//                 EMPTY, so .reloc has no blocks and the image exercises the
+//                 empty-table case.
+//   1 - text    : text + rodata, one rodata patch. .text spans two pages of
+//                 RVA once the patch RVA is added, so the DIR64 page
+//                 grouping is exercised.
+//   2 - arena   : everything at once, including a 32-byte arena inside
+//                 .idata. This is the case Phase 150B's SizeOfImage
+//                 diagnosis depends on: .reloc now ends AFTER .idata.
+//   3 - refuse  : an unsupported text offset must be refused, not rounded.
+func natPECorpus(which) {
+    if (which == 0) {
+        return "bare " + natToHex(natPELink(natPEText(), [], [], [], [], [], [], natPETextOff(), natPETextOff()))
+    }
+    if (which == 1) {
+        return "text " + natToHex(natPELink(natPEText(), natPERodata(), [], [2, 0], [], [], [], natPETextOff(), natPETextOff() + 32))
+    }
+    if (which == 2) {
+        return "arena " + natToHex(natPELink(natPEText(), natPERodata(), natPEHeap(), [2, 0], [12, 0], [22, 1], [32, 4], natPETextOff(), natPETextOff() + 32))
+    }
+    if (which == 3) {
+        return "refuse " + natPELink(natPEText(), [], [], [], [], [], [], 999, 0)
+    }
+    return ""
+}

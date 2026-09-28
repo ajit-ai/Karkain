@@ -82,7 +82,7 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// lexer token kinds and their scan arms, the kcc kPrec table, the
 		// infix operator mapping, and the binary_op C helper block in both
 		// pkg/codegen and the self-hosted codegen emitter; kir verify
-		// passes on the new count), and now to 10264 (increment 151C2's Mach-O PIE container writer: the new src/compiler/native_macho.kark module plus its driver arm in main.kark), which itself followed 10031 (increment 151C's ELF64 container writer: native_elf.kark), which itself followed 9889 (increment 151B's native
+		// passes on the new count), and now to 10530 (increment 151C3's PE32+ container writer: the new src/compiler/native_pe.kark module plus its driver arm in main.kark), which itself followed 10264 (increment 151C2's Mach-O PIE container writer: native_macho.kark), which itself followed 10031 (increment 151C's ELF64 container writer: native_elf.kark), which itself followed 9889 (increment 151B's native
 		// machine-code encoder: the new src/compiler/native_emit.kark module
 		// plus its driver arm in main.kark; kir verify passes on the new
 		// count);
@@ -92,8 +92,8 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 10264 {
-			t.Errorf("whole-tree kir text = %d lines, want 10264:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 10530 {
+			t.Errorf("whole-tree kir text = %d lines, want 10530:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

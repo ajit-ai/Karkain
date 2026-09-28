@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1659,6 +1659,17 @@ func main() {
 	// stream is what makes the image a real position-independent executable.
 	if command == "native-macho" {
 		result := cli.KCCNativeMachOCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151C3: the SELF-HOSTED PE32+ container writer, same contract
+	// again. PE is the one container a real Windows loader accepts, so it is
+	// the one whose structural evidence is worth the most.
+	if command == "native-pe" {
+		result := cli.KCCNativePECommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

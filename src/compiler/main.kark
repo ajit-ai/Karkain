@@ -131,6 +131,20 @@ func main() {
         return
     }
 
+	// Phase 151C3: the self-hosted PE32+ container writer. Same measurement
+	// contract as native-encode / native-elf / native-macho: the cases are
+	// compiled into kcc and the gate compares the images against
+	// pkg/native's LinkPE.
+	if (command == "native-pe") {
+        let pnames = ["bare", "text", "arena", "refuse"]
+        let p = 0
+        while (p < 4) {
+            print(natPECorpus(p))
+            p = p + 1
+        }
+        return
+    }
+
     if (command == "verifykir") {
         if (argc < 3) {
             print("Usage: karkain verifykir <file.kark>")

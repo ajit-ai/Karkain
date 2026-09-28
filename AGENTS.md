@@ -2377,3 +2377,95 @@ CLOSED rather than restated, and it is the hardest per the baseline's risk
 register (PEB bootstrap, IAT, DIR64 relocations, 16-byte alignment).
 Report: `docs/audit/PHASE-151C2-MACHO-CONTAINER-FINAL-REPORT.md`. **Next:
 151C3 (PE), then 151A (the value model), then 151D.**
+
+Also completed: **151C3 — the PE32+ container writer in kcc** (increment 151,
+slice C3; verdict **COMPLETE — PE32+**, and the last of the three containers).
+PE is the one that matters most for the increment's purpose: it is the only
+container a Windows loader will accept and run, so it is the one whose
+structural evidence is worth the most. New `src/compiler/native_pe.kark`: the
+DOS header, PE signature, COFF header, PE32+ optional header, three section
+headers, the `.idata` body (IDT/ILT/IAT/Hint-Name/kernel32.dll), `.reloc`
+DIR64 blocks, and the four patch-class resolutions. The four patch lists are
+FLAT `[pos, value]` arrays rather than records because Karkain has no
+structs, and they are kept as FOUR lists rather than one list carrying a kind
+so the differential compares like with like. New `native-pe` subcommand +
+Go-side dispatch (`KCCNativePECommand`), reusing the shared `kccSubcommand`
+helper. **Three layout facts that are traps rather than choices**: `.idata`
+is not optional and MUST be writable (the loader writes resolved addresses
+into the IAT; a read-only `.idata` fails the load with ERROR_BAD_EXE_FORMAT,
+Phase 149 via objdump) and the arena rides inside it, which avoids a fourth
+section; `.reloc` is not decoration (the host loader rebases even with no
+relocation table — Phase 149 measured a live base of 0x7FF6... instead of the
+linked 0x140000000 — so every absolute movabs is stale without DIR64 fixups);
+and **the headers occupy EXACTLY 0x200** (`0x80+4+20+240+3*40 = 512`), so
+there is ZERO slack and the writer refuses if header growth ever overflows
+it rather than truncating. Only three data directories are claimed — import,
+base relocation, IAT — and only those three are generated. A parameter named
+`raw` had to be renamed `rawSize` because **`raw` is a reserved word** in this
+language (the `@raw` escape hatch) and the parse error names the token, not
+the parameter.
+
+Gate `pkg/native/phase151c3_pe_test.go` 9/9 PASS as a **differential against
+the real `native.LinkPE`**, with all four patch classes at **distinct** .text
+sites so a last-writer-wins bug is visible. It lives in `package native`
+rather than `pkg/cli` because `LinkPE` takes a `*Builder` whose
+patches/ipatches/apatches/hpatches fields are **unexported**, so a pkg/cli
+gate cannot construct a Builder with a chosen patch set. Byte identity held on
+all three cases on the first run after the inputs were corrected. The
+**independent structural oracle** (`peRead`/`peValidate`) is written from the
+PE/COFF specification, not from the writer: it reads every field at a
+hand-derived offset with le16/le32/le64 and recomputes every relationship,
+never calling LinkPE, natPELink, or any writer helper. It checks MZ,
+e_lfanew, PE\0\0, COFF machine/section count/timestamp/optional size/
+characteristics, optional magic, the 64-bit ImageBase, both alignments,
+subsystem and its minimum version (0 fails the load on Windows 11, Phase 149),
+DllCharacteristics, NumberOfRvaAndSizes, the three claimed directories,
+SizeOfHeaders covering the headers and file-aligned, each section's name/RVA/
+characteristics/both alignments, raw extents inside the file, .text not
+overlapping the headers, **no two sections overlapping**, SizeOfImage covering
+the virtual high-water mark and section-aligned, BaseOfCode, the entry inside
+.text, and SizeOfCode/SizeOfInitializedData against the section table.
+**Mutation verification: 15 single-field mutations plus a raw-extent mutation,
+all rejected** — and the table is also mutation-verified against the WRITER
+(writing the raw file offset instead of converting to an RVA fails the
+differential on all three cases). **One finding worth generalising: six of
+the thirteen first-draft mutations were NO-OPS.** They poked a single low byte
+at fields whose low byte was already 0 or already equal to the written value
+— SectionAlignment 0x1000, FileAlignment 0x200, SizeOfImage 0x3000,
+SizeOfHeaders 0x200, and Machine's low byte is already 0x64 — so writing 0x00
+changed nothing and the validator correctly accepted an UNMUTATED image, which
+reads exactly like a validator bug. **A mutation that changes no bytes cannot
+demonstrate anything**; the table now writes 32-bit values and the trap is
+documented in the test. Two further wrong expectations, both mine and both in
+the test: three header fields were read with le32 when they are 16-bit (so
+Machine read 0x038664, SizeOfOptionalHeader 0x002200f0, Subsystem 0x01600003 —
+PE32+ mixes 2- and 4-byte header fields, so the width is part of the
+definition), and SizeOfImage was asserted as the literal 0x3000 when the real
+high-water mark (reloc RVA + 16-byte block = 12304) rounds UP to 0x4000. The
+three size fields are now RECOMPUTED from the section table rather than
+asserted, because a literal there is a guess dressed as a requirement.
+
+**Execution evidence is stated separately and NOT claimed: PE structural
+validity was verified; execution of newly generated Phase-151C3 images was
+not established by this phase.** The reference .text is four bare `mov`
+instructions — no entry stub, no syscall tail, no PEB bootstrap — so there is
+nothing a Windows loader could usefully run.
+`TestPhase151C3_PEExecutionStatus` records this in code so it cannot be
+quietly upgraded later, and the existing PE execution evidence (increments
+145-150) is explicitly NOT substituted: those images were produced by the GO
+writer. **CI: wired, and named explicitly** rather than left implicit — the
+existing `go test ./pkg/native/ -count=1` step would have picked it up, but
+relying on that is exactly how 151P0/151B/151C/151C2 shipped without ever
+executing in CI. Regressions green: `go build ./...`, `go vet ./pkg/... ./cmd/...`,
+`pkg/native`, Phase 151/151B/151C/151C2/150D/148 gates, Phase 122 KIRContinuity
+with the pin re-pinned **10264 -> 10530**, and the kcc self-check clean.
+**Scope:** no backend, encoder, Value Model, semantic analysis,
+ownership/borrow, error model, debugger/DAP, memory-model, Phase 152 or
+`kccOwnsNativeTargets` work. `VERSION` unchanged, Phase 152 untouched, no new
+phase number invented, and the **Language Hardening Checkpoint was NOT
+started**. Report:
+`docs/audit/PHASE-151C3-PE-CONTAINER-FINAL-REPORT.md`. **Increment 151 now
+has all four mechanisms the baseline asked for** — 151B the encoder, 151C ELF,
+151C2 Mach-O, 151C3 PE — all byte-identical to the Go oracle. What remains
+inside 151 is **151A, the value model**, which is what actually produces the
+bytes these four serialise.

@@ -232,6 +232,16 @@ jobs:
       - name: Run Phase 151 kcc native-parity gates
         run: go test ./pkg/cli/ -run 'TestPhase151|TestPhase151P0|TestPhase151B|TestPhase151C|TestPhase151C2' -count=1 -timeout 30m
 
+      # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
+      # pkg/cli because the differential needs the Go Builder's unexported
+      # patch fields, which a pkg/cli gate cannot construct. The existing
+      # `go test ./pkg/native/ -count=1` step above would pick it up, but
+      # relying on that is implicit: this repository has previously shipped
+      # gates that were written, run locally, reported green, and never
+      # executed by CI at all. The step is therefore named explicitly.
+      - name: Run Phase 151C3 PE container gate
+        run: go test ./pkg/native/ -run 'TestPhase151C3' -count=1 -timeout 20m -v
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 

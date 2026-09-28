@@ -79,6 +79,18 @@ func KCCNativeMachOCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-macho")
 }
 
+// KCCNativePECommand runs the self-hosted PE32+ container writer over its
+// reference cases and returns the images as hex.
+//
+// Increment 151C3, same contract as the other three. PE is the only one of
+// the four containers that a Windows loader will accept and RUN, which is
+// exactly why the structural evidence here is worth as much as it is: the
+// earlier native images are executed by the increment 145-150 PE gates, and
+// those images were produced by the Go writer.
+func KCCNativePECommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-pe")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //
