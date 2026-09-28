@@ -1,0 +1,234 @@
+# Phase 151A BASELINE — the native value model in kcc
+
+Date: 2026-09-27. Version-plan slot: 1.2.0 "Sovereignty I", increment 151,
+slice A. Parent: `PHASE-151-BASELINE.md` (its §4 named this slice; this file
+re-measures it and splits the plan it left open).
+
+**KIR pin: 9574, unchanged by 151A-1, and the first version of this note
+claimed it would drift.** Corrected by measurement. The pin gate
+(`TestPhase122_PipelineOwnership/KIRContinuity`) runs
+`karkain kir --verify src/compiler/kir.kark` and asserts exactly 9574. Adding
+151A-1's ~83 lines to `src/compiler/main.kark` left it at **9574/9574 verified
+on both runs**, because KIR does not render the driver at all: the emitted text
+contains `runFile`? **No.** `buildNativeFile`? **No.** `isNativeTarget`? **No.**
+The pin therefore covers the compiler's library modules (ast/lexer/parser/sema/
+codegen/checker/kir), not `main.kark`.
+
+The real 151B/151C emitter and container work lands in the modules KIR *does*
+cover, so the pin will move then and must be re-measured there — not
+hand-edited.
+
+## 1. Starting position (measured, not assumed)
+
+* **Increment 150 is COMPLETE** and frozen. `pkg/native` (14 Go files, 396,417
+  bytes) is the **oracle**: boxed Value model, register allocation, three
+  containers (ELF / PE / Mach-O PIE), three CLI targets.
+* **The silent Go fallback is closed** (151D-first, `f228d31`): a kcc native
+  build now refuses with `error[K116]`, exit 6, and writes no image.
+  `pkg/cli/kcc_native.go` holds the seam; `kccOwnsNativeTargets = false`.
+* **kcc has ZERO machine-code codegen.** Verified again this session: no `elf`,
+  `pe`, `macho` or `x86` token in `src/compiler/*.kark`. Its whole command
+  surface is `checkFile` / `buildFile` / `runFile` / `runTests` / `kirFile` /
+  `verifyFile`, and `buildFile` ends in `generate(ast, target, ...)` → C23 text →
+  `createFile` + `writeToFile`. `runFile` shells out to `gcc`.
+* **kcc module assembly is `siblingContent` + letter order**
+  (`main.kark:collectKarkFiles:502`, `siblingContent:571`, `assembleProject:964`).
+  A new `native*.kark` is therefore picked up **only** if its name sorts after
+  every file that calls it — this is a real ordering constraint, not a detail.
+* **kcc has no byte-level buffer primitive.** The available I/O is
+  `createFile` / `writeToFile` / `openFile` / `removeFile`, all **string**-valued.
+  There is no `readFile` on a handle, no byte append, and no numeric byte store.
+  `asciiVal` (`lexer.kark:198`) converts a one-character string to a code point.
+
+## 2. The load-bearing problem, stated before any code
+
+Writing the image is the easy half. **151A's hard requirement is that kcc's
+image be byte-identical to Go's**, and the Go oracle is a 396 KB Go program that
+lowers a `*parser.Program` — a data structure kcc does not have and cannot
+reconstruct, because its AST is a different shape built by a different parser.
+
+There are exactly three honest ways to close this, and only one of them is
+"parity":
+
+| Option | What it means | Verdict |
+|---|---|---|
+| **(A) Re-implement the lowering in Karkain** | port the value model, emitter and three containers into `src/compiler`, reproducing the Go byte-for-byte | **this is the real 151A–151C.** Weeks. |
+| **(B) kcc shells out to a helper that owns the image** | kcc emits a *request*, something else writes the bytes | **not parity.** Same dishonesty as the Go fallback, one process hop further away. Rejected by §3 of the parent baseline. |
+| **(C) kcc reuses the Go oracle through a stable, auditable interface** | the self-hosted engine drives the *pipeline and decisions*; image bytes come from the one implementation that is proven | **honest if — and only if — the seam is disclosed, versioned and gated** |
+
+## 3. Why (A) is not startable in one increment, stated plainly
+
+The blocker is structural, not effort. The Go image bytes are a function of
+`pkg/native`'s **decisions**, and the decisions are not recorded anywhere
+machine-readable:
+
+* label names (`karkain_main`, `fn_<name>`, `print_int`, `print_str`, `map_find`…)
+  and their **emission order**;
+* the `fresh()` label counter, which suffixes control-flow labels
+  (`while$1`, `forpost$2`, …) and therefore depends on the exact traversal order
+  of the whole program;
+* the frame layout (`argSpillBytes`, `binTemp`, `extrasBase`, per-slot offsets);
+* the register allocator's 150C plan;
+* the container field ordering and the link-time patch lists.
+
+Porting that into Karkain is not "write the same logic twice" — it is writing a
+**second compiler front-to-back that is bit-exactly bug-compatible with the
+first**, including every incidental constant. Any divergence in one label
+counter or one frame offset changes the SHA and fails the gate. That is the
+correct standard (Phase 109/123 precedent: parity is asserted on golden bytes),
+and it is why 151 is split A/B/C in the first place.
+
+## 4. Decision for this increment: make (C) honest, and stage (A)
+
+I am **not** claiming parity. I am doing the part that is genuinely deliverable
+and honest, and recording what (A) still needs.
+
+**151A-1 — the decision seam moves into kcc.** Instead of Go deciding
+"is this a native target, and hand it to the oracle", kcc becomes the engine
+that *identifies* the request and *refuses or delegates* it explicitly, with
+its own banner and a recorded reason. This is the one thing the Go fallback
+could never do, because the Go fallback never consulted kcc at all.
+
+**151A-2 — the oracle interface is made stable and gated.** `pkg/native`
+already exposes exactly one entry point, `CompileProgramForOS(*parser.Program,
+osName)`. The seam will call **only** that, and the gate will pin that it
+remains the only symbol 151 depends on, so the coupling is explicit and cannot
+widen silently.
+
+**151A-3 — a byte-differential harness over the real feature corpus.** The
+existing `phase151_parity_test.go` is extended from one `print(42)` probe to
+one corpus file per native feature (float64, arrays, `for-in`, `len`, arena +
+string ops, `push`, records, maps, register allocation, PE, Mach-O), each
+compared by SHA-256, with the provenance assertion retained.
+
+**Why this is not (B).** (B) would re-add a silent hand-off. The difference is
+that (C) **discloses** it: the build output says which engine made the
+decision and which wrote the bytes, the gate fails if the seam ever stops
+saying so, and the docs carry it as an open, owned gap against (A). A disclosed
+delegation is a tracked debt; a silent one is a lie. The parent's §1.1 exists
+precisely because the silent version was shipped and looked like parity.
+
+## 5. Exit criteria for 151A-1 (this increment)
+
+Met, and marked against what was actually measured rather than what was planned.
+Two criteria from the original §4/§5 sketch did **not** survive contact with the
+code, and are recorded as such instead of being quietly ticked:
+
+* [x] A kcc native build **reaches kcc first**, and the provenance line is
+      emitted by kcc itself (`buildNativeFile`, `src/compiler/main.kark`).
+* [x] `kccProducedImage` in the parity harness is **true** for a kcc native
+      build, and it is true because kcc was consulted — proven by mutation.
+* [x] An unsupported capability is still a **loud K1xx**, never a fallback; and
+      the three failure modes (type error / kcc refusal / kcc unreachable) are
+      reported distinctly, because a toolchain failure is not a capability
+      refusal.
+* [x] `go build ./...`, `go vet ./...`, `GOARCH=386` vet, `pkg/native`,
+      `pkg/parser`, `pkg/lexer`, `pkg/sema`, and the `pkg/cli` 148/150/151
+      gates are green. `TestPhase122_KIRContinuity` green.
+* [x] KIR pin **re-measured**: 9574/9574, unchanged, and the reason recorded
+      (KIR does not render the driver).
+* [x] `v1.2.0-CHECKLIST.md` updated; `AGENTS.md` record added.
+* [x] `.gitignore` covers `.karkain-dev/`, the scratch tree the native/kcc
+      gates build in the repo root (a 15 MB `karkain.exe` was sitting untracked).
+
+**Dropped, with the reason.** §4 originally listed two criteria that turned out
+to be unachievable as written:
+
+* *"The seam calls exactly one oracle symbol; a gate pins that."* — **dropped.**
+  151A-1 makes no oracle call at all; kcc refuses and writes no image, so there
+  is no symbol to pin. A gate for it would have been theatre. The single-symbol
+  constraint only becomes real when 151B/151C actually delegate the bytes, and
+  it should be pinned then, with the real symbol.
+* *"The corpus differential runs over every native feature, byte-exact."* —
+  **deferred, not dropped.** It is meaningless while kcc emits no image: there
+  are no kcc bytes to compare, and comparing Go-to-Go would be the vacuous check
+  §2 exists to prevent. It becomes the 151C exit criterion.
+
+## 6. 151A-1 — the decision moves into kcc (DONE)
+
+**What landed.** `src/compiler/main.kark` gained `isNativeTarget`,
+`nativeTargetOS` and `buildNativeFile`, and its `build` arm routes the three
+C-free targets there. `pkg/cli/kcc_native.go` now **stages the user's real
+project** and **runs kcc on it** (`kccStageInput` + `exec`), returning kcc's own
+output instead of synthesising a refusal in Go.
+
+Verified with the real binary:
+
+```
+$ KARKAIN_ENGINE=kcc karkain build hello.kark --target native-x86_64-linux
+[kcc] native request native-x86_64-linux (os=linux): hello.kark   <- from kcc
+error[K116]: the self-hosted engine (kcc) has no machine-code backend...
+exit 6, no image written
+```
+
+`buildNativeFile` runs the **full self-hosted pipeline** — assemble, tokenize,
+parse, and the two-pass type check — before refusing, so the refusal is a
+statement about a program kcc actually read, and a program that does not
+type-check reports that instead of a backend error.
+
+**`kccProducedImage` is now TRUE, and it is real.** 151D-first could not make
+it true, because the marker was a string Go chose to print. It is now emitted
+by `buildNativeFile` inside `src/compiler/main.kark`, and the Go backend has no
+code path that prints it. The harness invariant is unchanged and now satisfied
+by kcc rather than by Go.
+
+**A gate that could not fail, found by mutation.** The first version of the
+provenance check searched the output for the bare marker. Removing the marker
+from kcc's source **did not fail the gate**, because the "kcc did not answer"
+diagnostic quoted the very marker it was reporting missing — a self-defeating
+assertion. Two fixes, both kept: the diagnostic no longer contains the marker
+text in any form, and the gate checks the marker **followed by the target**.
+Re-mutated and confirmed failing.
+
+A second, unrelated trap worth recording: `Copy-Item` preserves the source
+file's `LastWriteTime`, so restoring a mutated `main.kark` left it looking older
+than the `kcc.exe` built from the mutation, and `kccStale` happily reused the
+mutated binary. The "restored" tree was not what the tests were exercising. Any
+future mutation of a self-hosted source must bump the mtime explicitly.
+
+**Evidence.**
+
+| Gate | Result |
+|---|---|
+| `TestPhase151_NoSilentGoFallback` (3 targets) | PASS — refuses, K116, **kcc provenance**, no image |
+| `TestPhase151_NativeGoBackendUnaffected` (3 targets) | PASS — Go still builds all three |
+| `TestPhase151_KccNativeRefusalIsNotAFallback` | PASS — premature-flip guard |
+| `TestPhase151_HarnessDetectsNonParity` | PASS — "kcc is the engine of record and refused with K116" |
+| `TestPhase151_HarnessComparesBytes` | PASS |
+| mutation: kcc provenance line removed | **FAILS** (after the fix above) |
+| mutation: `kccOwnsNativeTargets` flipped early | FAILS with the guard diagnosis |
+| `karkain kir --verify` (KIR pin) | 9574/9574 — unchanged; driver is not rendered |
+| `TestPhase122_KIRContinuity` | PASS (275 s) |
+| `go build ./...`, `go vet ./...`, `GOARCH=386` vet | clean |
+| `pkg/native`, `pkg/parser`, `pkg/lexer`, `pkg/sema`, cli 148/150/151 | green |
+
+**What is still not claimed.** kcc still cannot emit a machine-code image, so
+this is **not parity**. `kccOwnsNativeTargets` stays `false`. Slices 151B
+(encoder) and 151C (three containers) are untouched, and they are the work that
+actually earns the byte-identity the parent baseline requires.
+
+## 7. What this increment explicitly does NOT claim
+
+* **Not parity.** No claim is made that kcc's own codegen produces these bytes,
+  because it does not — there is none. The parent's §1.1 measured problem is
+  *eliminated as a lie*, not *solved as a compiler*.
+* **Not a 151 substitute.** 151A/B/C (real Karkain codegen) remain open, and
+  their order is unchanged: value model → encoder → three containers.
+* **Not 152.** The no-C closure (hello / `stdlib_v2` / `std.net` with
+  `gcc`+`clang`+`cl` absent from `PATH`) depends on 151A–151C, not on this.
+* **No new native features.** Per parent §3.
+* **No Value-model redesign**, no C-path change, no 1.3.0+ work.
+
+## 8. Risk register
+
+1. **Provenance is not parity, and can be mistaken for it.** Mitigated by
+   naming the mechanism in output, docs and `AGENTS.md`, and by keeping the
+   parent's byte-comparison gate armed for the day (A) lands.
+2. **KIR pin drift is expected for 151B/151C, and NOT for 151A-1.** Measured:
+   the pin held at 9574/9574 because KIR does not render the driver. The
+   emitter and container slices touch the modules it does cover, so re-measure
+   there; never hand-edit the number.
+3. **The seam could widen.** Pinned by a gate on the symbol set.
+4. **A "temporary" delegation becomes permanent** because it passes gates. The
+   gates cannot detect that, so the audit record carries it as an explicit
+   carry-over against (A) rather than as a success.

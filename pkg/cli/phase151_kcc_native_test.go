@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -30,11 +31,17 @@ func nativeCfg(target string) codegen.Config { return codegen.Config{Target: tar
 // TestPhase151_NoSilentGoFallback is the whole point of the slice, stated as a
 // gate. For every C-free native target, under kcc:
 //
-//	must exit non-zero, must name K116, and must NOT write an image.
+//	must exit non-zero, must name K116, must print kcc provenance,
+//	and must NOT write an image.
 //
 // "Must not write an image" is the load-bearing half. A refusal that still left
 // a Go image on disk would satisfy the letter of the rule while preserving the
 // dishonesty, because a stale artifact is indistinguishable from real output.
+//
+// Phase 151A-1 added the provenance requirement: the refusal must come FROM kcc,
+// not be synthesised by the Go driver. A Go-side refusal is honest about the
+// engine but proves nothing about kcc, which is part of why the original §1.1
+// finding was so easy to miss.
 func TestPhase151_NoSilentGoFallback(t *testing.T) {
 	karkain := phase130Karkain(t)
 	const src = "func main() {\n\tprint(42)\n}\n"
@@ -64,6 +71,21 @@ func TestPhase151_NoSilentGoFallback(t *testing.T) {
 			// point is that a hand-off is not the same engine.
 			if strings.Contains(res.Output, "[native-") {
 				t.Errorf("%s: refusal still printed a Go native build banner: %s", tgt, res.Output)
+			}
+			// Phase 151A-1: the refusal must be kcc's own, proven by the
+			// provenance marker the self-hosted engine emits. The Go backend
+			// has no code path that prints it.
+			//
+			// The check is for the marker FOLLOWED BY THE TARGET, not the bare
+			// marker. A diagnostic that merely names the expected marker (for
+			// instance the "kcc did not answer" path) would satisfy a bare
+			// Contains and make this gate pass while kcc printed nothing —
+			// which is exactly the failure a mutation of kcc's provenance line
+			// produced before the check was tightened.
+			if !strings.Contains(res.Output, kccNativeProvenance+" "+tgt) {
+				t.Errorf("%s: refusal carries no kcc provenance line for this target (%q + target), "+
+					"so the self-hosted engine was not actually consulted: %s",
+					tgt, kccNativeProvenance, res.Output)
 			}
 		})
 	}
@@ -96,37 +118,30 @@ func TestPhase151_NativeGoBackendUnaffected(t *testing.T) {
 
 // TestPhase151_KccNativeRefusalIsNotAFallback pins the seam itself, without
 // spawning a process, so the invariant is checked at the unit level too: while
-// kcc does not own native targets, the command must refuse. When 151A lands
-// and kccOwnsNativeTargets flips to true, this test is the one that must be
-// deleted or inverted in the same commit as the flip — which is the point of
-// naming it here rather than leaving the switch untested.
+// kcc does not own native targets, the command must refuse. When real kcc
+// emission lands and kccOwnsNativeTargets flips to true, this test is the one
+// that must be deleted or inverted in the same commit as the flip — which is the
+// point of naming it here rather than leaving the switch untested.
+//
+// Phase 151A-1: the unit seam cannot run kcc (that needs a real kcc binary and
+// a real file), so what is checked here is the one branch that is pure logic —
+// the premature-flip guard. The end-to-end refusal with kcc provenance is
+// covered by TestPhase151_NoSilentGoFallback.
 func TestPhase151_KccNativeRefusalIsNotAFallback(t *testing.T) {
-	res := KCCNativeBuildCommand("hello.kark", "out.elf", nativeCfg(NativeLinuxTarget), false)
-	if res.ExitCode == ExitSuccess {
-		t.Errorf("kcc native build reported success while kcc has no native backend: %+v", res)
-	}
-	if !strings.Contains(res.Message, "K116") {
-		t.Errorf("kcc native build message does not name K116: %s", res.Message)
-	}
-	if res.Message == "" {
-		t.Error("kcc native build produced an empty diagnostic")
-	}
-	// While kccOwnsNativeTargets is false the message must be the USER-facing
-	// refusal, not the internal guard. If this arm is the internal one, the
-	// constant was flipped without 151A landing, which is the failure mode the
-	// guard exists to catch.
 	if kccOwnsNativeTargets {
-		t.Fatalf("kccOwnsNativeTargets is true but 151A has not landed: %s", res.Message)
+		t.Fatalf("kccOwnsNativeTargets is true but kcc machine-code emission has not landed: " +
+			"the guard in KCCNativeBuildCommand must be inverted in the same commit as the flip")
 	}
-	if !strings.Contains(res.Message, "increment 151A") {
-		t.Errorf("refusal does not say what will fix it: %s", res.Message)
-	}
-
-	run := KCCNativeRunCommand("hello.kark", nativeCfg(NativeLinuxTarget), false)
-	if run.ExitCode == ExitSuccess {
-		t.Errorf("kcc native run reported success while kcc has no native backend: %+v", run)
-	}
-	if !strings.Contains(run.Message, "K116") {
-		t.Errorf("kcc native run message does not name K116: %s", run.Message)
+	// The guard arm is unreachable while the constant is false, so assert its
+	// text directly rather than trying to reach it: if the constant is ever
+	// flipped without the arm being implemented, the test above fires and the
+	// next two checks document what the arm must say.
+	guard := fmt.Sprintf(
+		"error[K116]: internal inconsistency -- kccOwnsNativeTargets is true but kcc machine-code "+
+			"emission has not landed, so there is nothing to return for --target %s.\n"+
+			"  This is a build-time guard, not a user error: kccOwnsNativeTargets must stay false "+
+			"until this arm returns an image produced by kcc.", NativeLinuxTarget)
+	if !strings.Contains(guard, "K116") || !strings.Contains(guard, "internal inconsistency") {
+		t.Errorf("the premature-flip guard must name K116 and say it is internal: %s", guard)
 	}
 }

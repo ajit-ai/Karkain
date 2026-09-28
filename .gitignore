@@ -19,6 +19,8 @@
 # Karkain Package Manager & Caches
 .karkain/
 /cache/
+# Scratch tree the kcc/native gate suites build in the repo root
+.karkain-dev/
 
 # Generated Shaders & Intermediate Code
 *.spv

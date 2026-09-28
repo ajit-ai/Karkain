@@ -34,12 +34,24 @@ func main() {
 
     if (command == "build") {
         if (argc < 3) {
-            print("Usage: karkain build <file.kark> [--target c23|wgsl|opencl|openqasm|qir|kbc]")
+            print("Usage: karkain build <file.kark> [--target c23|wgsl|opencl|openqasm|qir|kbc|native-x86_64-linux|native-x86_64-windows|native-x86_64-macos]")
             return
         }
         let target = "c23"
         if (argc >= 5 && args[3] == "--target") {
             target = args[4]
+        }
+        // Phase 151A-1: a C-free native target is a REQUEST the self-hosted
+        // engine sees and answers for itself. Before this, `kcc build
+        // --target native-...` was never consulted at all -- the Go driver
+        // silently handed the request to the Go backend, which is the
+        // dishonesty PHASE-151-BASELINE.md 1.1 measured. Now kcc parses the
+        // program, decides, and states its provenance. It does NOT yet have a
+        // machine-code backend, so the answer is a refusal naming the reason
+        // (see PHASE-151A-BASELINE.md 4: real emission is 151A/B/C).
+        if (isNativeTarget(target)) {
+            buildNativeFile(args[2], target)
+            return
         }
         buildFile(args[2], target)
         return
@@ -218,6 +230,76 @@ func verifyFile(path) {
     }
     print("[ok] kir text: " + str(len(lines)) + " lines")
     print("[ok] kir verify: " + str(len(lines)) + " lines ok")
+}
+
+// isNativeTarget reports whether target names one of the C-free machine-code
+// targets. Phase 151A-1: the self-hosted engine recognises these requests
+// itself rather than letting the Go driver decide on its behalf.
+func isNativeTarget(target) {
+    if (target == "native-x86_64-linux") { return 1 }
+    if (target == "native-x86_64-windows") { return 1 }
+    if (target == "native-x86_64-macos") { return 1 }
+    return 0
+}
+
+// nativeTargetOS maps a C-free target to the OS name the containers share.
+// Single source of truth for the spelling used in the refusal.
+func nativeTargetOS(target) {
+    if (target == "native-x86_64-windows") { return "windows" }
+    if (target == "native-x86_64-macos") { return "macos" }
+    return "linux"
+}
+
+// buildNativeFile is kcc's own answer to a C-free native request.
+//
+// It performs the FULL self-hosted pipeline -- assemble, tokenize, parse, and
+// the two-pass type check -- so that a refusal is reached only after kcc has
+// actually read and understood the program, rather than being a string match
+// in the driver. The provenance line it prints is the signal the 151 parity
+// harness requires: it is emitted by the self-hosted engine, so it cannot be
+// produced by the Go fallback.
+//
+// HONEST BOUNDARY: kcc has no machine-code codegen (no elf/pe/macho/x86 token
+// exists in src/compiler). It therefore REFUSES, loudly, with the reason. It
+// does not call the Go backend, because that is the silent fallback this
+// increment exists to end. Real emission is increments 151A/B/C; see
+// docs/audit/PHASE-151A-BASELINE.md.
+func buildNativeFile(path, target) {
+    let source = assembleProject(path)
+    if (source == "") { return }
+
+    let tokens = tokenize(source)
+    let state = createParserState(tokens, source)
+    let ast = parseWithState(state)
+
+    if (hasParserErrors(state)) {
+        printParserErrors(state)
+        return
+    }
+
+    // The type check runs before the refusal so the program is validated by
+    // the self-hosted engine first: a program that does not type-check should
+    // say so rather than be told it lacks a backend. typeCheckProgram returns
+    // the diagnostic list (an array), so len() is the error count -- the same
+    // shape `checkFile` uses at line 147.
+    let typeErrs = typeCheckProgram(ast)
+    if (len(typeErrs) > 0) {
+        let ei = 0
+        while (ei < len(typeErrs)) {
+            print(typeErrs[ei])
+            ei = ei + 1
+        }
+        return
+    }
+
+    // Provenance, printed by the self-hosted engine. The parity harness
+    // treats this exact line as proof the request was NOT handled by the Go
+    // fallback, so it is load-bearing and must stay greppable.
+    print("[kcc] native request " + target + " (os=" + nativeTargetOS(target) + "): " + fileBaseName(path))
+    print("error[K116]: the self-hosted engine (kcc) has no machine-code backend, so it cannot emit --target " + target + ".")
+    print("  kcc emits C23 only. The " + target + " C-free target is implemented by the Go backend alone.")
+    print("  This is refused here, by kcc, rather than silently handed to the Go engine.")
+    print("  kcc native codegen is increment 151A/B/C (see docs/audit/PHASE-151A-BASELINE.md).")
 }
 
 func buildFile(path, target) {
