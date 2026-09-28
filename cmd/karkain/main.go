@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1635,6 +1635,18 @@ func main() {
 	// two invocations of one.
 	if command == "native-encode" {
 		result := cli.KCCNativeEncodeCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151C: the SELF-HOSTED ELF64 container writer, same contract as
+	// native-encode above -- a compiler-owned component on kcc only, with no
+	// Go reimplementation, so the byte differential it feeds cannot pass by
+	// comparing the Go oracle against itself.
+	if command == "native-elf" {
+		result := cli.KCCNativeELFCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

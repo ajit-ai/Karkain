@@ -2209,3 +2209,59 @@ containers (ELF, PE with the PEB bootstrap and Win64 boundary, Mach-O PIE with
 rebase opcodes) in kcc, matching Link/LinkPE/LinkMachO byte for byte; the
 baseline's risk register still stands, and PE is the hardest container to match
 and may need to land after ELF.
+
+Also completed: **151C — the ELF64 container writer in kcc** (increment 151,
+slice C; verdict **COMPLETE — ELF**; Mach-O and PE are 151C2/151C3, see below).
+The baseline's risk register said PE is the hardest container to match byte for
+byte and "may need to land after ELF"; the evidence says the same is true of
+Mach-O, so the slice is scoped to ELF and the other two are named, not omitted.
+**The container could land BEFORE the value model**, which is why 151C is
+reachable while 151A is still open: `native.Link` takes already-encoded bytes
+(text, rodata, data) plus two offsets and knows nothing about functions, arrays
+or strings, so the container is pure serialisation and is provable against
+FIXED INPUT BYTES. New `src/compiler/native_elf.kark`: the full image
+(identification, 64-byte header, one R+X PT_LOAD, an optional second R+W
+PT_LOAD for the arena, .text, .rodata, a zero-filled gap to the page boundary,
+the arena), `natAlignUp` written as "add then clear the low bits" (`x - (x&0xFFF)`)
+because Karkain has no `&^`, LE field writers mirroring put16/32/64, hex
+decode because Karkain has no byte string literal, and one refusal for an
+unsupported text offset. New `native-elf` subcommand + Go-side dispatch, same
+no-Go-fallback contract as 151B. Gate
+`pkg/cli/phase151c_container_test.go` 5/5 PASS (19.7 s) as a **differential**:
+every expected image comes from calling the real `native.Link`, and structural
+validation is done by the **ORACLE's** `Parse` rather than by kcc's own code
+(a check in the writer's language would share its assumptions), with the layout
+facts read out of the IMAGE via `readPh64` rather than from the writer's
+variables. **Two layout decisions pinned**: the header count follows the
+ARENA and nothing else, so a heapless program gets exactly one PT_LOAD and .text
+immediately after it — the pre-150B layout, byte for byte, which is what keeps
+increment 149's identity pins honest (the `rodata` case exists to prove the
+count follows the arena and not the rodata); and the arena is page-aligned by
+OFFSET, not sized to a page, so p_offset and p_vaddr share the same residue
+modulo 4096 while the R+X segment stops before it so the two mappings cannot
+overlap. **Three defects found — one of them mine, in the test.** (1)
+**`entryOffset` is a FILE offset, not a `.text`-relative one**: it is written as
+`BaseAddr + entryOffset` and compared against `BaseAddr + textOffset`, so a
+text-relative value lands before .text and the loader rejects it as "entry
+outside image". The first gate draft passed 15 meaning "15 bytes into .text" and
+every image was rejected; the diagnostic NAMES THE WRITER, so the mistake reads
+as "kcc emitted a bad entry" when the test had asked for an entry outside .text.
+Documented in the source, in the test constant, and in the report. (2) The same
+test asserted the arena image's total SIZE was a multiple of 4096; it is not and
+should not be — the arena is placed at a page-aligned offset and its length need
+not be a whole number of pages. (3) The arena fixture's hex was 94 characters, so
+it decoded to **47** bytes, not the 32 its comment claimed, making the image 4143
+bytes where 4144 was expected — no writer involved, my own arithmetic when reading
+the fixture; the 151B lesson applies, measure rather than count by eye.
+Mutation-verified: removing the arena page-alignment fails the differential.
+Regressions green: `go build ./...`, `go vet ./pkg/... ./cmd/...`,
+`pkg/native|lexer|parser|sema|codegen`, Phase 151/151B/151C/150D/148 gates,
+Phase 122 KIRContinuity with the pin re-pinned **9889 -> 10031**, and the kcc
+self-check clean. **Boundary stated, not claimed:** no execution proof — the
+argument is transitive (kcc's images are byte-identical to Link's, whose ELF
+images are executed by the 145-150 Linux gates) and there is no native-ELF
+runner on this host; and the images carry a real 151B-encoded loop body, not a
+whole program (no entry stub, no syscall tail, no PEB bootstrap — those arrive
+with 151A's value model, and 151D is what flips `kccOwnsNativeTargets`).
+Report: `docs/audit/PHASE-151C-ELF-CONTAINER-FINAL-REPORT.md`. **Next: 151C2
+(Mach-O, then PE), then 151A (the value model) and 151D.**

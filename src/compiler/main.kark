@@ -102,6 +102,21 @@ func main() {
         return
     }
 
+	// Phase 151C: exercise the self-hosted ELF64 container writer and print
+	// the image it produces as hex, one line per reference case. This is the
+	// increment's measurement surface for the container, and it works exactly
+	// like 151B's native-encode: the cases are compiled into kcc and the gate
+	// compares them against pkg/native's Link.
+	if (command == "native-elf") {
+        let enames = ["text", "arena", "rodata", "refuse"]
+        let e = 0
+        while (e < 4) {
+            print(natELFCorpus(e))
+            e = e + 1
+        }
+        return
+    }
+
     if (command == "verifykir") {
         if (argc < 3) {
             print("Usage: karkain verifykir <file.kark>")

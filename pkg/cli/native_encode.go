@@ -50,3 +50,33 @@ func KCCNativeEncodeCommand(w io.Writer, verbose bool) CommandResult {
 	}
 	return CommandResult{ExitCode: code, Message: msg}
 }
+
+// KCCNativeELFCommand runs the self-hosted ELF64 container writer over its
+// reference cases and returns the images as hex.
+//
+// Increment 151C's measurement surface, and it works exactly like
+// native-encode's: the cases are compiled into kcc, the Go side never
+// reimplements the writer, and the gate compares kcc's images against
+// pkg/native's Link.
+//
+// The container CAN be delivered before the value model, and that is the
+// reason this increment is tractable: Link takes already-encoded bytes
+// (text, rodata, data) plus two offsets and knows nothing about functions,
+// arrays or strings, so it is pure serialisation and can be proven against
+// fixed input bytes.
+func KCCNativeELFCommand(w io.Writer, verbose bool) CommandResult {
+	bin, err := kccBinaryPath(w)
+	if err != nil {
+		return CommandResult{ExitCode: ExitEnv, Message: err.Error()}
+	}
+	out, code := runKCC(bin, "native-elf", "")
+	var lines []string
+	for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		ln = strings.TrimRight(ln, "\r")
+		if strings.TrimSpace(ln) == "" {
+			continue
+		}
+		lines = append(lines, ln)
+	}
+	return CommandResult{ExitCode: code, Message: strings.Join(lines, "\n")}
+}

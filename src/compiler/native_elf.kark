@@ -1,0 +1,328 @@
+// ============================================================
+// ELF64 container writer (increment 151C)
+//
+// Turns .text, .rodata and an optional writable data segment into a complete
+// static x86-64 executable image. This is the Karkain counterpart of
+// pkg/native/elf.go's Link, and the two must agree BYTE FOR BYTE for the same
+// reason the encoder did in 151B: increment 151's whole purpose is that the
+// two engines' images are indistinguishable, and a loader is far stricter
+// about an image that is merely valid than one that matches byte for byte.
+//
+// WHY THE CONTAINER CAN PRECEDE THE VALUE MODEL. Link takes already-encoded
+// bytes -- (text, rodata, data) plus two offsets. It does not know what a
+// function, an array or a string is. So the container is pure serialisation
+// and can be proven correct against the Go oracle using FIXED INPUT BYTES,
+// with no value model in the picture at all. That is what makes 151C
+// reachable before 151A.
+//
+// THE SHAPE, and why each field is what it is:
+//
+//   +---------------------------+  file 0 / vaddr BaseAddr
+//   | ELF header (64 bytes)     |
+//   | program header 1 (56 B)   |  R+X: the R+X segment
+//   | [program header 2 (56 B)] |  R+W: the arena, only when data is present
+//   | .text                     |
+//   | .rodata                   |
+//   | [zero-fill to a page]     |
+//   | .data (the arena)         |
+//   +---------------------------+
+//
+// A program with no arena gets EXACTLY ONE PT_LOAD and its .text starts right
+// after the single header -- that is the pre-150B layout, and preserving it
+// is what keeps increment 149's byte-identity pins honest. The header count
+// therefore follows from whether `data` is non-empty, and nothing else.
+//
+// The arena is page-aligned so that p_offset and p_vaddr have the same residue
+// modulo the page size, which is the ELF loader's actual requirement; the R+X
+// segment stops before the arena so the two mappings never overlap.
+// ============================================================
+
+// natBaseAddr is 0x400000, the ELF load address every segment is biased by.
+func natBaseAddr() { return 4194304 }
+
+// natEhSize is the ELF64 header size, 64 bytes.
+func natEhSize() { return 64 }
+
+// natPhSize is the ELF64 program header size, 56 bytes.
+func natPhSize() { return 56 }
+
+// natPage is 0x1000, the page size used for arena alignment and p_align.
+func natPage() { return 4096 }
+
+// natZeros returns an array of n zero bytes.
+//
+// Containers are built by appending zeros and then overwriting the handful of
+// fields that are not zero. Building them this way rather than assigning
+// every byte keeps the field offsets readable as offsets: put32(ph, 8, v)
+// states "p_vaddr is at byte 8" instead of hiding it in a run of appends.
+func natZeros(n) {
+    let z = []
+    let i = 0
+    while (i < n) {
+        z = appendArray(z, 0)
+        i = i + 1
+    }
+    return z
+}
+
+// natAlignUp rounds v up to the next multiple of align (a power of two).
+//
+// It is written as "add, then clear the low bits" rather than as an
+// AND-NOT mask, because Karkain has no `&^` operator. Clearing the low 12
+// bits is exactly `x - (x & 0xFFF)`, which is what this does, and it needs
+// only the bitwise AND that 151P0 added. Mirrors peAlignUp in pkg/native.
+func natAlignUp(v, align) {
+    let x = v + align - 1
+    return x - (x & (align - 1))
+}
+
+// natPut16 writes a 16-bit little-endian value into buf at off.
+func natPut16(buf, off, v) {
+    buf[off] = v & natMask(0)
+    buf[off + 1] = (v >> 8) & natMask(0)
+}
+
+// natPut32 writes a 32-bit little-endian value into buf at off.
+func natPut32(buf, off, v) {
+    buf[off] = v & natMask(0)
+    buf[off + 1] = (v >> 8) & natMask(0)
+    buf[off + 2] = (v >> 16) & natMask(0)
+    buf[off + 3] = (v >> 24) & natMask(0)
+}
+
+// natPut64 writes a 64-bit little-endian value into buf at off.
+func natPut64(buf, off, v) {
+    natPut32(buf, off, v)
+    natPut32(buf, off + 4, v >> 32)
+}
+
+// natByteAt returns byte off of buf, or 0 when off is past the end.
+//
+// The zero return is deliberate and is NOT a silent truncation: every reader
+// in this file is used on an image this writer just built, and the structural
+// Parse refuses a short image before any reader runs. A bounds error here
+// would be a bug in the writer, which the byte differential against the Go
+// oracle would catch.
+func natByteAt(buf, off) {
+    if (off >= 0 && off < len(buf)) {
+        return buf[off]
+    }
+    return 0
+}
+
+// natMask(0) -- the 0xFF byte mask -- comes from src/compiler/native_emit.kark
+// and is deliberately SHARED rather than redeclared here. Increment 151B
+// found that hand-converted constants silently diverge from their intended
+// values, so a second, parallel mask table in the container would be a second
+// place for that bug to hide. One table, one conversion.
+
+// natELFLink builds a complete ELF64 image.
+//
+//   text   - already-encoded machine code
+//   rodata - read-only data
+//   data   - the writable heap arena, or empty for a program with no heap
+//   textOffset   - the file offset .text must start at
+//   entryOffset  - the FILE offset of the entry point
+//
+// NOTE the entry offset is a FILE offset, not a .text-relative one. The
+// entry is written as BaseAddr + entryOffset, and the loader compares that
+// against BaseAddr + textOffset, so a .text-relative value lands before .text
+// and is rejected as "entry outside image". pkg/native/elf.go says the same
+// thing in its own comment ("entryLabel is resolved by the caller to a file
+// offset before calling"). This is stated here because getting it wrong looks
+// exactly like a writer that emitted a bad entry, and the first draft of the
+// 151C gate did get it wrong.
+//
+// Returns the image bytes, or a diagnostic string on the one condition that
+// can go wrong (an unsupported text offset). The refusal is a string rather
+// than an error value because Karkain has no error type here, and it is
+// returned rather than thrown so the caller decides what it means.
+func natELFLink(text, rodata, data, textOffset, entryOffset) {
+    let phnum = 1
+    if (len(data) > 0) { phnum = 2 }
+    let want = natEhSize() + natPhSize() * phnum
+    if (textOffset != want) {
+        return "error[K117]: native elf: unsupported text offset " + str(textOffset) + ", expected " + str(want) + " for phnum " + str(phnum)
+    }
+
+    // Arena placement: page-aligned file offset, so the vaddr carries the same
+    // page residue as the offset, which is what the loader requires.
+    let dataOff = natAlignUp(textOffset + len(text) + len(rodata), natPage())
+    let bodyEnd = dataOff
+    if (len(data) == 0) {
+        dataOff = 0
+        bodyEnd = textOffset + len(text) + len(rodata)
+    }
+
+    let out = natZeros(natEhSize())
+
+    // ELF identification.
+    out[0] = 127
+    out[1] = 69
+    out[2] = 76
+    out[3] = 70
+    out[4] = 2   // EI_CLASS: 64-bit
+    out[5] = 1   // EI_DATA: little-endian
+    out[6] = 1   // EI_VERSION
+    // out[7] osabi = 0 (SysV), out[8] abiversion = 0
+
+    natPut16(out, 16, 2)                    // e_type: ET_EXEC
+    natPut16(out, 18, 62)                   // e_machine: x86-64
+    natPut32(out, 20, 1)                    // e_version
+    natPut64(out, 24, natBaseAddr() + entryOffset)  // e_entry
+    natPut64(out, 32, natEhSize())           // e_phoff
+    natPut64(out, 40, 0)                     // e_shoff: none
+    natPut32(out, 48, 0)                     // e_flags
+    natPut16(out, 52, natEhSize())           // e_ehsize
+    natPut16(out, 54, natPhSize())           // e_phentsize
+    natPut16(out, 56, phnum)                 // e_phnum
+    natPut16(out, 58, 0)                     // e_shentsize
+    natPut16(out, 60, 0)                     // e_shnum
+    natPut16(out, 62, 0)                     // e_shstrndx
+
+    // Program header 1: the R+X segment carrying .text and .rodata. It stops
+    // at the arena so the two mappings never overlap.
+    let ph = natZeros(natPhSize())
+    natPut32(ph, 0, 1)                    // p_type: PT_LOAD
+    natPut32(ph, 4, 5)                    // p_flags: R+X
+    natPut64(ph, 8, 0)                    // p_offset
+    natPut64(ph, 16, natBaseAddr())       // p_vaddr
+    natPut64(ph, 24, natBaseAddr())       // p_paddr
+    natPut64(ph, 32, bodyEnd)              // p_filesz
+    natPut64(ph, 40, bodyEnd)              // p_memsz
+    natPut64(ph, 48, natPage())            // p_align
+
+    let i = 0
+    while (i < natPhSize()) {
+        out = appendArray(out, ph[i])
+        i = i + 1
+    }
+
+    // Program header 2: the R+W arena, only when the program has a heap.
+    if (len(data) > 0) {
+        let dp = natZeros(natPhSize())
+        natPut32(dp, 0, 1)                            // p_type: PT_LOAD
+        natPut32(dp, 4, 6)                            // p_flags: R+W
+        natPut64(dp, 8, dataOff)                      // p_offset
+        natPut64(dp, 16, natBaseAddr() + dataOff)     // p_vaddr
+        natPut64(dp, 24, natBaseAddr() + dataOff)     // p_paddr
+        natPut64(dp, 32, len(data))                   // p_filesz
+        natPut64(dp, 40, len(data))                   // p_memsz
+        natPut64(dp, 48, natPage())                   // p_align
+        let j = 0
+        while (j < natPhSize()) {
+            out = appendArray(out, dp[j])
+            j = j + 1
+        }
+    }
+
+    let k = 0
+    while (k < len(text)) {
+        out = appendArray(out, text[k])
+        k = k + 1
+    }
+    let m = 0
+    while (m < len(rodata)) {
+        out = appendArray(out, rodata[m])
+        m = m + 1
+    }
+    if (len(data) > 0) {
+        // Zero-fill the alignment gap between .rodata and the arena.
+        while (len(out) < dataOff) {
+            out = appendArray(out, 0)
+        }
+        let n = 0
+        while (n < len(data)) {
+            out = appendArray(out, data[n])
+            n = n + 1
+        }
+    }
+    return out
+}
+
+// natHexDecode turns a lowercase hex string into a byte array.
+//
+// Karkain has no byte string literal, so the container's test surface is
+// hex in and hex out. That is a real constraint rather than a stylistic
+// choice, and it is why the reference sequences below are written as hex
+// constants: they are the input bytes, not the output.
+func natHexDecode(s) {
+    let out = []
+    let i = 0
+    while (i + 1 < len(s)) {
+        let hi = natHexNibble(substr(s, i, 1))
+        let lo = natHexNibble(substr(s, i + 1, 1))
+        out = appendArray(out, hi * 16 + lo)
+        i = i + 2
+    }
+    return out
+}
+
+// natHexNibble maps one hex character to its value, or 0 for anything else.
+// Malformed input is not a diagnostic here: every caller in this file feeds
+// it a literal, and the byte differential against the Go oracle would expose a
+// mis-parse as a byte difference.
+func natHexNibble(c) {
+    let digits = "0123456789abcdef"
+    return indexOf(digits, c)
+}
+
+// natELFText is the .text used by the reference sequences: the 151B loop
+// sequence, which is real machine code with a resolved rel32. Using a real
+// body rather than filler means the writer is exercised against bytes that
+// were themselves proven byte-identical to the Go encoder's output.
+func natELFText() {
+    return natHexDecode("b800000000b90a000000ba010000004801c84829d10f85f4ffffffc3")
+}
+
+// natELFRodata is a short .rodata: "hi\n" plus padding, standing in for string
+// literals and float formatting tables.
+func natELFRodata() {
+    return natHexDecode("68690a0000000000")
+}
+
+// natELFData is a 32-byte arena with a plausible bump-allocator header
+// (cursor, limit) at the front, which is what 150B put there.
+func natELFData() {
+    return natHexDecode("10000000200000000000000000000000000000000000000000000000000000")
+}
+
+// natELFEntry is the FILE offset of the entry point: the `loop` label, which
+// is 15 bytes into .text, so this is the text offset plus 15. See the note on
+// natELFLink about why it is a file offset and not a .text-relative one.
+func natELFEntry(textOffset) {
+    return textOffset + 15
+}
+
+// natELFCorpus runs one reference case and returns "name <image-hex>".
+//
+// The cases are chosen to cover the two layouts the writer can produce and
+// the one condition it can refuse:
+//
+//   0 - .text only: no arena, so EXACTLY ONE PT_LOAD and .text immediately
+//       after it. This is the pre-150B layout, and matching it byte for byte
+//       is what keeps increment 149's identity pins honest.
+//   1 - .text + .rodata + arena: TWO PT_LOADs, the arena page-aligned, and a
+//       zero-filled gap before it.
+//   2 - .text + .rodata, still no arena: proves the header count follows the
+//       arena and not the rodata.
+//   3 - refusal: an unsupported text offset must be refused, not silently
+//       rounded into a wrong layout.
+func natELFCorpus(which) {
+    if (which == 0) {
+        let t = natEhSize() + natPhSize()
+        return "text " + natToHex(natELFLink(natELFText(), [], [], t, natELFEntry(t)))
+    }
+    if (which == 1) {
+        let t = natEhSize() + natPhSize() * 2
+        return "arena " + natToHex(natELFLink(natELFText(), natELFRodata(), natELFData(), t, natELFEntry(t)))
+    }
+    if (which == 2) {
+        let t = natEhSize() + natPhSize()
+        return "rodata " + natToHex(natELFLink(natELFText(), natELFRodata(), [], t, natELFEntry(t)))
+    }
+    if (which == 3) {
+        return "refuse " + natELFLink(natELFText(), [], [], 999, 0)
+    }
+    return ""
+}
