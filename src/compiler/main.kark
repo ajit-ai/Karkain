@@ -86,6 +86,22 @@ func main() {
         return
     }
 
+    // Phase 151B: exercise the self-hosted machine-code encoder and print
+    // the bytes it produces as hex, one line per reference sequence. This
+    // is the increment's measurement surface: the gate runs the same
+    // sequences through the Go oracle (pkg/native Emitter) and compares,
+    // so the encoder can be proven byte-identical before any value model
+    // is layered on top of it.
+    if (command == "native-encode") {
+        let names = ["imm64", "loop", "multi", "undef", "dup"]
+        let i = 0
+        while (i < 5) {
+            print(names[i] + " " + natEncodeCorpus(i))
+            i = i + 1
+        }
+        return
+    }
+
     if (command == "verifykir") {
         if (argc < 3) {
             print("Usage: karkain verifykir <file.kark>")

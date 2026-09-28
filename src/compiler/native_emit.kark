@@ -1,0 +1,523 @@
+// ============================================================
+// Native machine-code ENCODER (Phase 151B)
+//
+// The byte-level encoder the self-hosted engine needs before it can emit
+// anything at all. It is the Karkain counterpart of the Go `Emitter` in
+// pkg/native/emit.go, and the two must agree BYTE FOR BYTE: the whole
+// point of increment 151 is that kcc's images are identical to the Go
+// oracle's, and a single differing REX prefix or displacement byte is a
+// different image.
+//
+// THE MECHANISM IS THE HARD PART, NOT THE OPCODES. Three things make the
+// Go encoder work, and all three are reproduced here rather than
+// improved on:
+//
+//   1. EAGER label resolution with a rel32 fixup pass at Finish(). The Go
+//      emitter records (offset, label) and patches `rel = target -
+//      (offset+4)` once every label is known. Resolving earlier, or
+//      patching at emission time, changes the bytes.
+//   2. Labels must be Marked before they are referenced; a missing one is
+//      a hard error, never a silent zero displacement. The Go side
+//      panics; the self-hosted side raises error[K117] and refuses, which
+//      is the same class of failure expressed in its own language.
+//   3. imm64 placeholders. Address sites are emitted as a 10-byte
+//      `mov r64, imm64` with the immediate left at zero and the POSITION
+//      returned, so a linker can fill in an absolute address it alone
+//      knows. The position, not the value, is what this layer owns.
+//
+// STATE REPRESENTATION. Karkain has no structs, so the emitter state is
+// threaded as one array with fixed slots (see natSt* below). Every
+// mutating helper returns the new state, which is the same discipline
+// kir.kark uses when it threads `lines` through its renderers.
+//
+// Byte values are carried as ints, not bytes: Karkain has no byte type in
+// this surface, and the Go oracle stores them in a []byte. appending an
+// int and truncating with & 0xFF at Finish() is the exact equivalent of
+// writing into a []byte, and the parity gate compares the finished
+// images rather than trusting this conversion.
+// ============================================================
+
+// ============================================================
+// Opcode / mask constants.
+//
+// Karkain has NO HEX LITERALS: `0xFF` lexes as the identifier `xFF`, so a
+// port of pkg/native/emit.go has to state every bit mask in decimal. Bare
+// decimals in an x86 encoder are close to unreadable, so the constants
+// live in one selector and the hex each stands for lives in its comment.
+// That is the only reason this is a function and not a global: the
+// self-hosted language has no module-level `let`.
+//
+// natMask TAKES AN ARGUMENT, AND THAT IS LOAD-BEARING -- not a style
+// choice. A zero-argument call in expression position (`natMask(0)`)
+// works on the Go engine and is BROKEN in the kcc C codegen, which drops
+// the call and emits a bare identifier reference, so the expression fails
+// to compile under the default engine. Measured on 2026-09-28:
+//
+//   func zero() { return 42 }   let a = zero()    -> go: 42
+//                                                    kcc: 'zero' undeclared
+//   let d = zero() + 1                            -> go: 43
+//                                                    kcc: 'zero' undeclared
+//
+// One-argument calls are fine on both engines, so every constant here is
+// reached as natMask(0) rather than natMask(0). See
+// docs/audit/PHASE-151B-BASELINE.md for the recorded defect.
+//
+// The values are checked against the Go oracle by the Phase 151B gate; if
+// one drifts, the gate fails rather than an image.
+// ============================================================
+
+// natMask returns an opcode or bit mask by selector. Call it with an
+// argument: natMask(0), not natMask().
+//
+// Every value carries its hex in the comment, and the hex is what to trust.
+// The first draft of this table was produced by converting decimal-looking
+// strings as if they were hex, which turned 0xFF into 597 (0x255) and 0x0F
+// into 21 (0x15) -- and the encoder then emitted garbage. Karkain has no hex
+// literals (0xFF lexes as the identifier xFF), so this conversion is done by
+// hand and is therefore pinned: the gate asserts every selector against an
+// independently computed constant, so a wrong value fails the test rather
+// than reaching an image.
+func natMask(which) {
+    if (which == 0) { return 255 }                      // 0xFF  byte mask
+    if (which == 1) { return 15 }                       // 0x0F  low-nibble mask
+    if (which == 2) { return 72 }                       // 0x48  REX.W
+    if (which == 3) { return 144 }                      // 0x90  nop
+    if (which == 4) { return 195 }                      // 0xC3  ret
+    if (which == 5) { return 233 }                      // 0xE9  jmp rel32
+    if (which == 6) { return 1234605616436508552 }      // 0x1122334455667788
+    if (which == 7) { return 15 }                       // 0x0F  two-byte opcode escape
+    if (which == 8) { return 133 }                      // 0x85  jnz rel32 opcode
+    if (which == 9) { return 1 }                        // 0x01  add r/m64, r64
+    if (which == 10) { return 41 }                      // 0x29  sub r/m64, r64
+    if (which == 11) { return 184 }                     // 0xB8  mov r64, imm32/64 base
+    if (which == 12) { return 192 }                     // 0xC0  ModRM base for mod=11 (used only for reading; natModrm shifts instead)
+    if (which == 13) { return 64 }                      // 0x40  REX base
+    if (which == 14) { return 8 }                       // 0x08  REX.W bit
+    if (which == 15) { return 4 }                       // 0x04  REX.R bit
+    if (which == 16) { return 1 }                       // 0x01  REX.B bit
+    if (which == 17) { return 232 }                     // 0xE8  call rel32
+    return 0
+}
+
+// natRegExt reports whether a register number needs a REX extension bit.
+// Mirrors Reg.ext() in pkg/native/emit.go.
+func natRegExt(r) {
+    if (r >= 8) { return 1 }
+    return 0
+}
+
+// natRex emits a REX prefix when needed: W for 64-bit operand size, R for a
+// high modrm.reg, B for a high modrm.rm.
+//
+// It emits NOTHING when the computed prefix equals the null REX 0x40, because
+// pkg/native/emit.go's rex() does the same. A redundant 0x40 would still be
+// valid x86, but it is a different byte, and this encoder's entire contract is
+// to be byte-identical rather than merely equivalent.
+func natRex(s, w, reg, rm) {
+    let r = natMask(13)
+    if (w == 1) { r = r | natMask(14) }
+    if (natRegExt(reg) == 1) { r = r | natMask(15) }
+    if (natRegExt(rm) == 1) { r = r | natMask(16) }
+    if (r != natMask(13)) {
+        s = natByte(s, r)
+    }
+    return s
+}
+
+// natModrm emits the ModRM byte: mod(2) | reg(3) | rm(3).
+//
+// The mode field is SHIFTED IN, not added as a base. The first draft added
+// natMask(12) (0xC0, which is mod=3 already shifted) on top of (mod << 6),
+// so mod=3 produced 0xC0 + 0xC0 = 392, which truncated to 0x88 -- a memory
+// operand where a register operand was meant. The bug was invisible in the
+// imm64 and multi sequences because neither uses ModRM, and it was caught by
+// decoding the loop's output rather than by any test asserting the value.
+//
+// Mirrors pkg/native/emit.go's modrm(), which is (mod<<6)|(reg<<3)|rm.
+func natModrm(s, mod, reg, rm) {
+    return natByte(s, (mod << 6) + (reg << 3) + rm)
+}
+
+// natMovRegImm32 emits mov r32, imm32: optional REX + B8+rd io32.
+// Modelled on pkg/native/emit.go MovRegImm32, which is what a small integer
+// constant uses; natMovImm64 is the 64-bit form.
+func natMovRegImm32(s, r, v) {
+    s = natRex(s, 0, 0, r)
+    s = natByte(s, 184 + r)
+    return natU32(s, v)
+}
+
+// natAddRegReg emits add r64, r64: REX.W + 01 /r.
+func natAddRegReg(s, dst, src) {
+    s = natRex(s, 1, src, dst)
+    s = natByte(s, natMask(9))
+    return natModrm(s, 3, src, dst)
+}
+
+// natSubRegReg emits sub r64, r64: REX.W + 29 /r.
+func natSubRegReg(s, dst, src) {
+    s = natRex(s, 1, src, dst)
+    s = natByte(s, natMask(10))
+    return natModrm(s, 3, src, dst)
+}
+
+// natJnz emits jnz rel32: 0F 85 cd.
+func natJnz(s, label) {
+    s = natByte(s, natMask(7))
+    s = natByte(s, natMask(8))
+    let r = natRel32(s, label)
+    return r[0]
+}
+
+// natMovImm64Op returns 0xB8 + rd, the opcode byte of `mov r64, imm64`
+// for register number rd (0 = rax). Register arithmetic is confined here
+// so no other part of the encoder needs to know the numbering.
+func natMovImm64Op(rd) { return 184 + rd }
+
+// natStCode, natStLabelName, natStLabelOff, natStPatchOff, natStPatchLabel,
+// natStImm64 are the fixed slots of the emitter state array.
+func natStCode(s) { return s[0] }
+func natStLabelName(s) { return s[1] }
+func natStLabelOff(s) { return s[2] }
+func natStPatchOff(s) { return s[3] }
+func natStPatchLabel(s) { return s[4] }
+func natStImm64(s) { return s[5] }
+
+// natNewEmitter returns a fresh emitter state: empty code, no labels, no
+// rel32 fixups, no imm64 placeholders.
+func natNewEmitter(unused) {
+    return [[], [], [], [], [], []]
+}
+
+// natLen reports how many bytes have been emitted so far. It is the value
+// every label offset and patch position is relative to, so it must match
+// the Go Emitter's Len() exactly or every rel32 is wrong.
+func natLen(s) {
+    return len(natStCode(s))
+}
+
+// natByte appends one raw byte, truncated to 8 bits.
+func natByte(s, b) {
+    s[0] = appendArray(s[0], b & natMask(0))
+    return s
+}
+
+// natBytes appends a little-endian run of bytes from a value, least
+// significant first. Go's u32/u64 do exactly this.
+func natBytesLE(s, v, n) {
+    let i = 0
+    while (i < n) {
+        s[0] = appendArray(s[0], (v >> (i * 8)) & natMask(0))
+        i = i + 1
+    }
+    return s
+}
+
+// natU32 appends a 4-byte little-endian immediate.
+func natU32(s, v) {
+    return natBytesLE(s, v, 4)
+}
+
+// natU64 appends an 8-byte little-endian immediate.
+func natU64(s, v) {
+    return natBytesLE(s, v, 8)
+}
+
+// natMark defines a label at the current offset.
+//
+// Marking the same label twice is deferred to natFinish rather than
+// rejected here, for one reason: this function has no way to return an
+// error, and returning a silently-discarded error is how a bug hides. The
+// duplicate is therefore caught at the one point where the emitter can
+// fail as a whole, which is the same class of failure as a missing label
+// and matches the Go emitter, which panics on both.
+func natMark(s, label) {
+    s[1] = appendArray(s[1], label)
+    s[2] = appendArray(s[2], natLen(s))
+    return s
+}
+
+// natLabelPos returns the index of a label, or -1 when it is not defined.
+// The lookup is a linear scan: an emitter holds tens of labels, and a
+// scan keeps the structure identical to the Go map-free path.
+func natLabelPos(s, label) {
+    let i = 0
+    while (i < len(natStLabelName(s))) {
+        if (natStLabelName(s)[i] == label) {
+            return i
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// natLabelOff returns the offset a label resolves to, or -1 if undefined.
+func natLabelOff(s, label) {
+    let p = natLabelPos(s, label)
+    if (p < 0) {
+        return 0 - 1
+    }
+    return natStLabelOff(s)[p]
+}
+
+// natRel32 records a 4-byte rel32 fixup that will resolve to `label` at
+// Finish time, and returns the position of the displacement field.
+//
+// The displacement is written as four zero bytes now and rewritten later.
+// That is the whole trick: the instruction stream's LENGTH must be known
+// at emission time (everything after it is positioned relative to it)
+// while the TARGET is not known until every label is marked.
+func natRel32(s, label) {
+    let pos = natLen(s)
+    s[3] = appendArray(s[3], pos)
+    s[4] = appendArray(s[4], label)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    return [s, pos]
+}
+
+// natImm64Patch emits `mov r64, <placeholder>` (REX.W + B8+rd + 8 zero
+// bytes) and returns the position of the 8 immediate bytes.
+//
+// The register is passed as its opcode byte so this layer stays free of
+// register-number arithmetic; the caller supplies the already-computed
+// opcode. 10 bytes total, matching the Go imm64Patch exactly.
+func natImm64Patch(s, opcode) {
+    s[0] = appendArray(s[0], natMask(2))
+    s[0] = appendArray(s[0], opcode)     // B8 + rd
+    let pos = natLen(s)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    s[0] = appendArray(s[0], 0)
+    return [s, pos]
+}
+
+// natMovImm64 emits `mov r64, imm64` (REX.W + B8+rd + 8 little-endian
+// bytes) and returns the position of the immediate.
+//
+// This is the two-step form of natImm64Patch for the case where the
+// value is already known at emission time, so there is nothing for a
+// linker to fix up. The position is still recorded so that the caller can
+// tell an absolute-address site from an ordinary immediate if it needs to;
+// a linker must not clobber this one, which is the whole reason the
+// placeholder form exists as a separate call.
+//
+// `opcode` is the already-computed B8+rd byte, keeping register-number
+// arithmetic out of this layer. 10 bytes total.
+func natMovImm64(s, opcode, v) {
+    s[0] = appendArray(s[0], natMask(2))
+    s[0] = appendArray(s[0], opcode)      // B8 + rd
+    let pos = natLen(s)
+    s = natU64(s, v)
+    s[5] = appendArray(s[5], pos)
+    return s
+}
+
+// natFinish resolves every rel32 fixup and returns the finished code.
+//
+// Returns the code on success. On a duplicate label or a missing one it
+// returns the string "error[K117]: <detail>" instead, so the caller can
+// refuse loudly. The alternative -- writing a zero displacement -- would
+// produce an image that jumps to the wrong place and looks like a compiler
+// bug rather than a build error.
+func natFinish(s) {
+    // Duplicate labels first: a duplicate is a definition error, and
+    // resolving against the second definition would hide it behind a
+    // plausible-looking displacement.
+    let dup = natFindDupLabel(s)
+    if (dup != "") {
+        return "error[K117]: native encoder: duplicate label '" + dup + "'"
+    }
+    let i = 0
+    while (i < len(natStPatchOff(s))) {
+        let target = natLabelOff(s, natStPatchLabel(s)[i])
+        if (target < 0) {
+            return "error[K117]: native encoder: undefined label '" + natStPatchLabel(s)[i] + "' referenced by a rel32 fixup at byte " + str(natStPatchOff(s)[i])
+        }
+        // rel = target - (pos + 4), written as a signed 32-bit value.
+        let rel = target - (natStPatchOff(s)[i] + 4)
+        s[0][natStPatchOff(s)[i]] = rel & natMask(0)
+        s[0][natStPatchOff(s)[i] + 1] = (rel >> 8) & natMask(0)
+        s[0][natStPatchOff(s)[i] + 2] = (rel >> 16) & natMask(0)
+        s[0][natStPatchOff(s)[i] + 3] = (rel >> 24) & natMask(0)
+        i = i + 1
+    }
+    return natStCode(s)
+}
+
+// natFindDupLabel returns the first label marked more than once, or "" when
+// every label is unique.
+func natFindDupLabel(s) {
+    let i = 0
+    while (i < len(natStLabelName(s))) {
+        let j = i + 1
+        while (j < len(natStLabelName(s))) {
+            if (natStLabelName(s)[j] == natStLabelName(s)[i]) {
+                return natStLabelName(s)[i]
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// natToHex renders finished bytes as lowercase hex, two digits per byte.
+//
+// The parity gate compares this string between the Go and kcc engines, so
+// the rendering must be unambiguous and fixed-width: a one-digit encoding
+// would let 0x0f and 0xf0 compare equal in a sloppy implementation.
+func natToHex(code) {
+    let digits = "0123456789abcdef"
+    let out = ""
+    let i = 0
+    while (i < len(code)) {
+        let b = code[i] & natMask(0)
+        out = out + substr(digits, b >> 4, 1) + substr(digits, b & natMask(1), 1)
+        i = i + 1
+    }
+    return out
+}
+
+// ============================================================
+// Reference sequences (increment 151B)
+//
+// These are the encoder's MEASUREMENT SURFACE. The gate runs every one of
+// them through BOTH this encoder and the Go oracle (pkg/native Emitter) and
+// compares the bytes, so the encoder can be proven byte-identical to the
+// oracle before any value model is layered on top of it.
+//
+// They are chosen to cover the three things the encoder must get right and
+// nothing else, so a failure names a subsystem rather than a program:
+// a forward fixup, a BACKWARD fixup (negative displacement, two's
+// complement), several fixups in one stream, and an imm64 placeholder that
+// is recorded and never resolved here because filling absolute addresses is
+// the linker's job.
+// ============================================================
+
+// natSeqImm64: mov rax, imm64; jmp later; nop; nop; later: ret
+//
+// The padding is load-bearing. Without it the displacement would be 0 even
+// before the finish pass runs, so a finish pass that did nothing would still
+// produce the correct-looking bytes.
+func natSeqImm64(s) {
+    s = natMovImm64(s, natMovImm64Op(0), natMask(6))
+    s = natByte(s, natMask(5))
+    let r = natRel32(s, "later")
+    s = r[0]
+    s = natByte(s, natMask(3))
+    s = natByte(s, natMask(3))
+    s = natMark(s, "later")
+    return natByte(s, natMask(4))
+}
+
+// natSeqLoop: a counted loop whose jnz targets a BACKWARD label.
+//
+// This is the hard case for a rel32 fixup. The displacement is negative, so
+// it must be written as a little-endian two's-complement 32-bit value; an
+// implementation that gets the sign wrong emits a jump far outside the text
+// rather than a subtly wrong answer. The sequence computes sum(10..1) = 55,
+// and the gate checks the displacement against that independently.
+//
+//	mov rax, 0
+//	mov rcx, 10
+//	mov rdx, 1
+// loop:
+//	add rax, rcx
+//	sub rcx, rdx
+//	jnz loop
+//	ret
+func natSeqLoop(s) {
+    s = natMovRegImm32(s, 0, 0)
+    s = natMovRegImm32(s, 1, 10)
+    s = natMovRegImm32(s, 2, 1)
+    s = natMark(s, "loop")
+    s = natAddRegReg(s, 0, 1)
+    s = natSubRegReg(s, 1, 2)
+    s = natJnz(s, "loop")
+    return natByte(s, natMask(4))
+}
+
+// natCall32 emits the 0xE8 call rel32 opcode. It gets its own selector
+// rather than being derived from the jnz opcode: the first draft computed it
+// as natMask(8) - 128, which is arithmetically right but makes a reader
+// verify the relationship instead of reading the byte.
+func natCall32(s) {
+    return natByte(s, natMask(17))
+}
+
+// natSeqMulti: three fixups, two forward and one backward, plus an imm64
+// placeholder.
+//
+// A single fixup cannot distinguish a real fixup table from one global
+// displacement variable, so the gate needs more than one per stream, and
+// needs a mix of directions to catch a sign error that only shows up
+// backwards.
+func natSeqMulti(s) {
+    s = natCall32(s)
+    let r1 = natRel32(s, "helper_a")
+    s = r1[0]
+    s = natByte(s, natMask(5))
+    let r2 = natRel32(s, "done")
+    s = r2[0]
+    s = natMark(s, "helper_a")
+    s = natCall32(s)
+    let r3 = natRel32(s, "helper_b")
+    s = r3[0]
+    s = natMark(s, "back")
+    s = natByte(s, natMask(5))
+    let r4 = natRel32(s, "done")
+    s = r4[0]
+    s = natMark(s, "helper_b")
+    s = natCall32(s)
+    let r5 = natRel32(s, "back")
+    s = r5[0]
+    s = natMark(s, "done")
+    s = natByte(s, natMask(4))
+    let p = natImm64Patch(s, natMovImm64Op(0))
+    return p[0]
+}
+
+// natSeqUndefinedLabel: a rel32 to a label that is never marked.
+//
+// The finish pass must REFUSE rather than write a zero displacement, because
+// a zero displacement silently jumps to the wrong place and reads as a
+// compiler bug rather than as a build error.
+func natSeqUndefinedLabel(s) {
+    s = natByte(s, natMask(5))
+    let r = natRel32(s, "nowhere")
+    return r[0]
+}
+
+// natSeqDuplicateLabel marks one label twice. The second definition would
+// otherwise win silently, so the finish pass must refuse here too. This is
+// the condition pkg/native/emit.go's Mark panics on, and a self-hosted
+// compiler that cannot panic has to report it instead.
+func natSeqDuplicateLabel(s) {
+    s = natMark(s, "twice")
+    s = natByte(s, natMask(3))
+    s = natMark(s, "twice")
+    return natByte(s, natMask(3))
+}
+
+// natEncodeCorpus runs one named sequence to completion and returns either
+// its hex or the error string the finish pass produced.
+//
+// The dispatch is a plain if-chain because a zero-argument call in expression
+// position is dropped by this engine's C codegen, and a switch on a computed
+// value would reintroduce that shape.
+func natEncodeCorpus(which) {
+    if (which == 0) { return natToHex(natFinish(natSeqImm64(natNewEmitter(0)))) }
+    if (which == 1) { return natToHex(natFinish(natSeqLoop(natNewEmitter(0)))) }
+    if (which == 2) { return natToHex(natFinish(natSeqMulti(natNewEmitter(0)))) }
+    if (which == 3) { return natFinish(natSeqUndefinedLabel(natNewEmitter(0))) }
+    if (which == 4) { return natFinish(natSeqDuplicateLabel(natNewEmitter(0))) }
+    return ""
+}

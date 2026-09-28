@@ -696,6 +696,23 @@ func (e *Emitter) Int3() {
 	e.byte(0xCC)
 }
 
+// Nop emits a one-byte nop: 0x90.
+//
+// Added in increment 151B. The self-hosted encoder in
+// src/compiler/native_emit.kark has a nop from its first draft, and the two
+// encoders are required to agree BYTE FOR BYTE, so a primitive present on only
+// one side is an asymmetry that would surface as a parity failure the first
+// time kcc needed padding between a rel32 fixup and its target.
+//
+// The padding is not cosmetic: a forward fixup whose displacement happens to
+// be zero produces the same bytes whether the fixup pass ran or not, so a
+// reference sequence that relies on a zero displacement cannot distinguish a
+// working encoder from a broken one. Inserting a nop makes the displacement
+// non-zero and the test meaningful.
+func (e *Emitter) Nop() {
+	e.byte(0x90)
+}
+
 // OrRegImm8 emits or r64, imm8: REX.W + 83 /1 ib (REX.B only for
 // r8-r15; REX.R stays clear because the /1 lives in the fixed opcode
 // extension, not a register field). The bootstrap folds WCHARs with
