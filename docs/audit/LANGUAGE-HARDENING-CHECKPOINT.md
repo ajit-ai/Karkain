@@ -10,6 +10,13 @@ corpus, and by the numbering model in `KARKAIN-VERSION-PLAN.md` §0, which
 requires that a number be assigned only when an increment is scheduled and
 baselined.
 
+**Audit performed 2026-09-28** (increment 151C3 complete). Result:
+`LANGUAGE-HARDENING-CHECKPOINT-FINAL-AUDIT.md`. The audit is
+**verification only** and authorised no implementation; findings are
+classified there as confirmed, fixed, stale, intentional, unverified, or
+requiring an architectural decision.
+
+
 ---
 
 ## 1. Purpose
