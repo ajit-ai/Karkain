@@ -84,6 +84,14 @@ const (
 	TokenOr           TokenType = "||"
 	TokenNot          TokenType = "!"
 
+	// Increment 151P0: bitwise and shift tokens. TokenAmp ("&") already
+	// exists as the Phase 41 borrow operator and is reused for infix
+	// bitwise-and -- the two are separated by position, not by token.
+	TokenPipe         TokenType = "|"   // bitwise or (distinct from TokenOr "||")
+	TokenCaret        TokenType = "^"   // bitwise xor
+	TokenShiftLeft    TokenType = "<<"  // shift left
+	TokenShiftRight   TokenType = ">>"  // arithmetic shift right
+
 	TokenLParen    TokenType = "("
 	TokenRParen    TokenType = ")"
 	TokenLBrace    TokenType = "{"
@@ -94,7 +102,7 @@ const (
 	TokenDot       TokenType = "."
 	TokenAt        TokenType = "@"
 	TokenSemicolon TokenType = ";"
-	TokenAmp       TokenType = "&"  // Phase 41: reference/borrow operator
+	TokenAmp       TokenType = "&"  // Phase 41: reference/borrow operator; also bitwise-and in infix position (increment 151P0)
 	TokenFatArrow  TokenType = "=>" // Phase 42: match arm separator
 	TokenQuestion  TokenType = "?"  // Phase 44: error propagation operator
 
@@ -282,8 +290,13 @@ func (l *Lexer) NextToken() Token {
 			l.Col++
 			tok = Token{Type: TokenOr, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
-			tok = Token{Type: TokenIllegal, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
+			// Increment 151P0: single "|" is bitwise or. "||" still wins above.
+			tok = Token{Type: TokenPipe, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
+	case '^':
+		// Increment 151P0: bitwise xor. No two-character form exists, and
+		// Karkain uses "^" only as an operator, so this is unconditional.
+		tok = Token{Type: TokenCaret, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '<':
 		if l.peekChar() == '-' {
 			start := l.Position
@@ -295,6 +308,13 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 			l.Col++
 			tok = Token{Type: TokenLessEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
+		} else if l.peekChar() == '<' {
+			// Increment 151P0: shift left. Checked last so that the send
+			// operator "<-" and "<=" keep winning.
+			start := l.Position
+			l.readChar()
+			l.Col++
+			tok = Token{Type: TokenShiftLeft, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
 			tok = Token{Type: TokenLessThan, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}
@@ -304,6 +324,13 @@ func (l *Lexer) NextToken() Token {
 			l.readChar()
 			l.Col++
 			tok = Token{Type: TokenGreaterEqual, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
+		} else if l.peekChar() == '>' {
+			// Increment 151P0: arithmetic shift right. Checked after ">="
+			// so that ">=" keeps winning.
+			start := l.Position
+			l.readChar()
+			l.Col++
+			tok = Token{Type: TokenShiftRight, Start: uint32(start), Len: 2, Line: uint16(l.Line), Col: uint16(l.Col - 1)}
 		} else {
 			tok = Token{Type: TokenGreaterThan, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 		}

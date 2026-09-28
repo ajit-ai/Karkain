@@ -766,6 +766,25 @@ func emitC11ValueRuntime(state) {
     emitLine(state, "        if(strcmp(op,\"<\")==0) return make_int(a<b); if(strcmp(op,\">\")==0) return make_int(a>b);")
     emitLine(state, "        if(strcmp(op,\"<=\")==0) return make_int(a<=b); if(strcmp(op,\">=\")==0) return make_int(a>=b);")
     emitLine(state, "    }")
+    // Increment 151P0: bitwise and shift operators. This block accepts
+    // TYPE_BOOL exactly as the arithmetic block above does, because a bool
+    // operand is lowered to an int before it arrives and refusing it here
+    // would make `true & 1` disagree with `true + 1` for no stated reason.
+    // A float, string or bigint operand yields 0 instead of a truncated or
+    // garbage result, which is the same rule pkg/codegen binary_op uses, so
+    // both engines agree.
+    //
+    // Every edge is given a defined answer instead of inheriting C's
+    // undefined behaviour: a shift count below 0, or at or above the 64-bit
+    // width, yields 0; left shift is unsigned and wraps; right shift is
+    // arithmetic and therefore sign-preserving.
+    emitLine(state, "    if((l.type==TYPE_INT||l.type==TYPE_BOOL)&&(r.type==TYPE_INT||r.type==TYPE_BOOL)) {")
+    emitLine(state, "        if(strcmp(op,\"&\")==0) return make_int(l.intVal & r.intVal);")
+    emitLine(state, "        if(strcmp(op,\"|\")==0) return make_int(l.intVal | r.intVal);")
+    emitLine(state, "        if(strcmp(op,\"^\")==0) return make_int(l.intVal ^ r.intVal);")
+    emitLine(state, "        if(strcmp(op,\"<<\")==0) { if(r.intVal<0||r.intVal>=64) return make_int(0); return make_int((long long)((unsigned long long)l.intVal << r.intVal)); }")
+    emitLine(state, "        if(strcmp(op,\">>\")==0) { if(r.intVal<0||r.intVal>=64) return make_int(0); return make_int(l.intVal >> r.intVal); }")
+    emitLine(state, "    }")
     emitLine(state, "    if(strcmp(op,\"==\")==0) return values_equal(l,r); if(strcmp(op,\"!=\")==0) return make_int(is_truthy(values_equal(l,r))==0);")
     emitLine(state, "    if(strcmp(op,\"&&\")==0) return make_int(is_truthy(l)&&is_truthy(r)); if(strcmp(op,\"||\")==0) return make_int(is_truthy(l)||is_truthy(r));")
     emitLine(state, "    return make_int(0);")

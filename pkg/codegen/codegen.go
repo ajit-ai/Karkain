@@ -1962,6 +1962,40 @@ Value binary_op(Value left, const char* op, Value right) {
     if (strcmp(op, "==") == 0) {
         return make_int(values_equal(left, right));
     }
+    // Increment 151P0: bitwise and shift operators. Karkain integers are
+    // signed 64-bit, so these mirror the C operators on long long.
+    //
+    // Every edge is given a defined answer rather than inheriting C's
+    // undefined behaviour, because a program that shifts by 64 must get a
+    // reproducible result on both engines and under every optimisation
+    // level:
+    //   * a shift count below 0, or at or above the 64-bit width, yields 0
+    //   * left shift is performed UNSIGNED and wrapped, so a bit shifted
+    //     out of the top is discarded rather than being UB
+    //   * right shift is arithmetic, so a negative value stays negative
+    //     (sign-extending) instead of becoming a large positive
+    // A non-integer operand yields 0, matching how "/" and "%" already
+    // return 0 rather than trapping on a bad divisor.
+    // A bool operand is accepted and coerced, exactly as the arithmetic
+    // block above does, because the front end already lowers a bool
+    // operand to an int before it reaches here and refusing it would make
+    // "true & 1" disagree with "true + 1" for no stated reason. Float,
+    // string and bigint operands yield 0.
+    if ((left.type == TYPE_INT || left.type == TYPE_BOOL) &&
+        (right.type == TYPE_INT || right.type == TYPE_BOOL)) {
+        long long l = left.intVal, r = right.intVal;
+        if (strcmp(op, "&") == 0) return make_int(l & r);
+        if (strcmp(op, "|") == 0) return make_int(l | r);
+        if (strcmp(op, "^") == 0) return make_int(l ^ r);
+        if (strcmp(op, "<<") == 0) {
+            if (r < 0 || r >= 64) return make_int(0);
+            return make_int((long long)((unsigned long long)l << r));
+        }
+        if (strcmp(op, ">>") == 0) {
+            if (r < 0 || r >= 64) return make_int(0);
+            return make_int(l >> r);
+        }
+    }
     return make_int(0);
 }
 
