@@ -1,0 +1,425 @@
+// ============================================================
+// Mach-O (64-bit PIE) container writer (increment 151C2)
+//
+// The Karkain counterpart of pkg/native/macho.go's LinkMachO, and required to
+// agree with it BYTE FOR BYTE for the same reason as the encoder and the ELF
+// container: increment 151's purpose is that the two engines' images are
+// indistinguishable, and dyld is stricter about an image that merely loads
+// than any test is about an image that matches byte for byte.
+//
+// WHY THIS IS THE SUBTLE ONE OF THE THREE CONTAINERS. ELF is a header and two
+// program headers. Mach-O is a load-command chain whose SIZE depends on its own
+// contents: __TEXT holds the header, the header holds the load commands, and
+// __LINKEDIT is placed after the body. One extra LC_SEGMENT_64 (72 bytes)
+// appears only when the program needs a writable arena, which moves .text and
+// therefore changes the very offsets the rebase stream addresses. So the
+// writer and the rebase encoder are entangled, unlike ELF where the header
+// count is a simple consequence of whether data is present.
+//
+// THE REBASE STREAM IS THE POINT. A PIE is loaded at a slide chosen by the
+// kernel, so every absolute address baked into the text is wrong until dyld
+// adds the slide. The stream in LC_DYLD_INFO_ONLY tells dyld which pointer
+// slots to fix. Here the sites are DERIVED from the same .rodata and arena
+// patch lists the addresses were resolved from -- the union of those lists,
+// not a hand-kept inventory -- because a missed site in a PIE is not a crash
+// but an image that loads and dereferences a pointer nobody slid.
+//
+// __PAGEZERO exists so that a null dereference is a guaranteed fault rather
+// than a wild read, and MH_PIE is what makes this loadable as a position-
+// independent executable at all.
+// ============================================================
+
+// natMachoBase is 0x100000000, the vmaddr __TEXT is mapped at. Karkain ints
+// are signed 64-bit, so this fits; the addition is what keeps the arithmetic
+// honest, matching machoAddr's uint64 in Go.
+func natMachoBase() { return 4294967296 }
+
+// natMachoPageZeroSize is __PAGEZERO's vmsize: the 4 GiB hole below __TEXT.
+func natMachoPageZeroSize() { return 4294967296 }
+
+// natMachoPageSize is the segment alignment: a segment's fileoff and vmaddr
+// must share the same residue modulo the page size.
+func natMachoPageSize() { return 4096 }
+
+// Load-command and segment sizes.
+func natMachoHeaderSize() { return 32 }
+func natSegCmdSize() { return 72 }
+func natDyldInfoSize() { return 48 }
+func natDyldLoaderSize() { return 32 }
+func natMainCmdSize() { return 24 }
+
+// Segment indices as the REBASE OPCODES see them: 1-based over the
+// LC_SEGMENT_64 commands in load-command order. __PAGEZERO comes first, so
+// the code -- where every rebase site lives -- is segment 2, not 1.
+func natMachoSegText() { return 2 }
+
+// Mach-O protection and flag bits.
+func natMachoProtNone() { return 0 }
+func natMachoProtRead() { return 1 }
+func natMachoProtRW() { return 3 }
+func natMachoProtRX() { return 5 }
+func natMachoFlagPIE() { return 2097152 }
+
+// Rebase opcodes, as carried by LC_DYLD_INFO_ONLY. A stream is a tiny program
+// over a cursor that walks the image 8 bytes at a time, rebasing every
+// pointer-sized slot it visits.
+func natRebaseOpDone() { return 0 }
+func natRebaseOpSetTypeImm() { return 16 }
+func natRebaseOpSetSegOffUleb() { return 32 }
+func natRebaseOpAddAddrUleb() { return 48 }
+func natRebaseOpDoRebaseImmTimes() { return 80 }
+func natRebaseTypePointer() { return 1 }
+func natRebasePointerSize() { return 8 }
+
+// natMachoTextOffset returns the file offset of .text, which follows every
+// load command.
+//
+// It is a function rather than a constant because the header GROWS by one
+// 72-byte segment command when the program needs the writable __DATA. That is
+// the same discipline the ELF writer uses for its program-header count, and it
+// is why a Mach-O header size cannot be baked in anywhere.
+func natMachoTextOffset(hasData) {
+    let segs = 3
+    if (hasData) { segs = 4 }
+    return natMachoHeaderSize() + segs * natSegCmdSize() + natDyldInfoSize() + natDyldLoaderSize() + natMainCmdSize()
+}
+
+// natMachoDataOffset is the page-aligned file offset of a segment placed after
+// a body ending at bodyEnd.
+func natMachoDataOffset(bodyEnd) {
+    return natAlignUp(bodyEnd, natMachoPageSize())
+}
+
+// natAppendUleb appends v as an unsigned LEB128.
+//
+// Seven bits per byte, low group first, with the high bit set on every byte
+// but the last. Mirrors appendUleb in pkg/native/macho.go; dyld decodes this
+// and nothing else, so a wrong continuation bit corrupts every later opcode.
+func natAppendUleb(dst, v) {
+    let more = 1
+    while (more == 1) {
+        let b = v & 127
+        v = v >> 7
+        if (v != 0) {
+            b = b | 128
+        }
+        dst = appendArray(dst, b)
+        if (v == 0) { more = 0 }
+    }
+    return dst
+}
+
+// natMachoRebaseOpcodes encodes the rebase stream for the given FILE offsets
+// of the pointer sites.
+//
+// Sites are sorted so the cursor never walks backwards (dyld requires a
+// monotone walk), duplicates are dropped, and runs of nearby sites fold into
+// a short hop rather than a fresh SET_SEGMENT_AND_OFFSET.
+//
+// Every site is a POINTER rebase: the slot already holds the link-time
+// (unslid) address, and dyld adds the slide at load time.
+//
+// TWO POSITIONS ARE TRACKED SEPARATELY, and conflating them is a real logic
+// error this function is written to avoid. `cur` is the CURSOR, the address
+// the stream will visit next, which dyld advances by 8 after every rebase.
+// `last` is the last slot actually emitted. A site sitting exactly at the
+// cursor is the ADJACENT 8-byte slot, not a duplicate, so folding the two
+// into one variable silently DROPS such a site, and a negative delta (what a
+// genuine duplicate looks like) falls through the range check and encodes as
+// a bogus forward hop of a truncated value. The 150D gate's golden table
+// caught both.
+//
+// The d==0 case is defensive rather than live in the current lowering: every
+// baked address is an imm64 inside a 10-byte movabs, so distinct sites are at
+// least 10 bytes apart and the cursor always lands past the previous one. The
+// guard stays because that is a property of today's emission, not of this
+// encoding, and a future tighter instruction would otherwise lose a pointer.
+func natMachoRebaseOpcodes(sites) {
+    let sorted = natSortInts(sites)
+    let out = [natRebaseOpSetTypeImm() | natRebaseTypePointer()]
+    let last = 0 - 1
+    let cur = 0 - 1
+    let i = 0
+    while (i < len(sorted)) {
+        let s = sorted[i]
+        if (s != last) {
+            let d = s - cur
+            if (cur < 0) {
+                // No cursor yet: the first site must be positioned absolutely.
+                out = appendArray(out, natRebaseOpSetSegOffUleb() | natMachoSegText())
+                out = natAppendUleb(out, s)
+            } else if (d == 0) {
+                // The cursor already points here; do not reposition.
+            } else if (d > 0 && d < 128) {
+                // A short forward hop: cheaper than re-positioning, and the
+                // form dyld's own encoder prefers.
+                out = appendArray(out, natRebaseOpAddAddrUleb())
+                out = appendArray(out, d)
+            } else {
+                out = appendArray(out, natRebaseOpSetSegOffUleb() | natMachoSegText())
+                out = natAppendUleb(out, s)
+            }
+            out = appendArray(out, natRebaseOpDoRebaseImmTimes() | 1)
+            last = s
+            cur = s + natRebasePointerSize()
+        }
+        i = i + 1
+    }
+    return appendArray(out, natRebaseOpDone())
+}
+
+// natSortInts returns a sorted copy of a small int array.
+//
+// Karkain has no sort built in. The array is tiny -- a program has as many
+// rebase sites as it has absolute addresses, tens at most -- so an insertion
+// sort is both fast enough and easy to check against the Go oracle.
+func natSortInts(a) {
+    let out = []
+    let i = 0
+    while (i < len(a)) {
+        let v = a[i]
+        let j = 0
+        while (j < len(out)) {
+            if (out[j] > v) { break }
+            j = j + 1
+        }
+        // Splice v in at position j.
+        let head = []
+        let k = 0
+        while (k < j) {
+            head = appendArray(head, out[k])
+            k = k + 1
+        }
+        head = appendArray(head, v)
+        let m = j
+        while (m < len(out)) {
+            head = appendArray(head, out[m])
+            m = m + 1
+        }
+        out = head
+        i = i + 1
+    }
+    return out
+}
+
+// natMachoSegCmd builds one LC_SEGMENT_64 load command.
+//
+// `name` is the 16-byte fixed-width segment name, already padded by the
+// caller: Karkain strings are length-counted, so a fixed-width field has to be
+// written byte by byte rather than copied.
+func natMachoSegCmd(name, vmaddr, vmsize, fileoff, filesize, maxprot, initprot) {
+    let seg = natZeros(natSegCmdSize())
+    natPut32(seg, 0, 25)          // LC_SEGMENT_64
+    natPut32(seg, 4, natSegCmdSize())
+    // seg[8:24] is the name, written 16 bytes wide. Karkain strings are
+    // length-counted rather than byte arrays, so a fixed-width binary field is
+    // filled a character at a time with the compiler's own asciiVal, and the
+    // remaining bytes stay zero.
+    let k = 0
+    while (k < 16) {
+        if (k < len(name)) {
+            seg[8 + k] = asciiVal(substr(name, k, 1))
+        }
+        k = k + 1
+    }
+    natPut64(seg, 24, vmaddr)
+    natPut64(seg, 32, vmsize)
+    natPut64(seg, 40, fileoff)
+    natPut64(seg, 48, filesize)
+    natPut32(seg, 56, maxprot)
+    natPut32(seg, 60, initprot)
+    natPut32(seg, 64, 0)         // nsects
+    natPut32(seg, 68, 0)         // flags
+    return seg
+}
+
+// natMachoLink builds a complete Mach-O 64-bit PIE image.
+//
+//   text, rodata - already-encoded bytes
+//   data         - the writable arena, or empty for a program with no heap
+//   textOffset   - the file offset .text must start at
+//   entryOffset  - the FILE offset of the entry point
+//   rebaseSites  - .TEXT-RELATIVE offsets of pointer slots dyld must slide
+//
+// The sites are translated to file offsets HERE rather than by the caller,
+// because __TEXT is mapped from file offset 0, so a segment-relative offset is
+// a plain file offset. Doing the translation in one place keeps the caller's
+// contract honest ("these are offsets into .text") and stops the two from
+// drifting apart.
+func natMachoLink(text, rodata, data, textOffset, entryOffset, rebaseSites) {
+    let hasData = false
+    if (len(data) > 0) { hasData = true }
+    let want = natMachoTextOffset(hasData)
+    if (textOffset != want) {
+        return "error[K117]: native mach-o: unsupported text offset " + str(textOffset) + ", want " + str(want)
+    }
+
+    let bodyEnd = textOffset + len(text) + len(rodata)
+    // __DATA and __LINKEDIT each start on a page boundary, so neither can
+    // overlap the mapping before it and both keep fileoff == vmaddr mod page.
+    let dataOff = 0
+    let linkEditOff = natMachoDataOffset(bodyEnd)
+    if (hasData) {
+        dataOff = linkEditOff
+        linkEditOff = natMachoDataOffset(dataOff + len(data))
+    }
+
+    // Rebase opcodes address a segment-relative offset, and __TEXT is mapped
+    // from file offset 0, so a segment-relative offset is a plain file offset.
+    let segs = []
+    let i = 0
+    while (i < len(rebaseSites)) {
+        segs = appendArray(segs, rebaseSites[i] + textOffset)
+        i = i + 1
+    }
+    let rebase = natMachoRebaseOpcodes(segs)
+
+    let nsegs = 3
+    if (hasData) { nsegs = 4 }
+
+    let out = natZeros(natMachoHeaderSize())
+    natPut32(out, 0, 4277009103)   // 0xFEEDFACF, little-endian
+    natPut32(out, 4, 16777223)     // cputype: x86-64
+    natPut32(out, 8, 3)            // cpusubtype: all
+    natPut32(out, 12, 2)           // filetype: MH_EXECUTE
+    natPut32(out, 16, nsegs + 3)   // ncmds
+    natPut32(out, 20, nsegs * natSegCmdSize() + natDyldInfoSize() + natDyldLoaderSize() + natMainCmdSize())
+    // MH_NOUNDEFS | MH_DYLDLINK | MH_TWOLEVEL | MH_PIE
+    natPut32(out, 24, 1 | 4 | 128 | natMachoFlagPIE())
+    natPut32(out, 28, 0)           // reserved
+
+    out = natMachoAppend(out, natMachoSegCmd("__PAGEZERO", 0, natMachoPageZeroSize(), 0, 0, natMachoProtNone(), natMachoProtNone()))
+    out = natMachoAppend(out, natMachoSegCmd("__TEXT", natMachoBase(), bodyEnd, 0, bodyEnd, natMachoProtRX(), natMachoProtRX()))
+    if (hasData) {
+        out = natMachoAppend(out, natMachoSegCmd("__DATA", natMachoBase() + dataOff, len(data), dataOff, len(data), natMachoProtRW(), natMachoProtRW()))
+    }
+    out = natMachoAppend(out, natMachoSegCmd("__LINKEDIT", natMachoBase() + linkEditOff, len(rebase), linkEditOff, len(rebase), natMachoProtRead(), natMachoProtRead()))
+
+    // LC_DYLD_INFO_ONLY: the rebase opcodes are the only content that matters.
+    // bind/weak_bind/lazy_bind/export stay zero -- this image imports nothing
+    // (raw syscalls; the loader is named by LC_LOAD_DYLINKER) and exports
+    // nothing.
+    let di = natZeros(natDyldInfoSize())
+    natPut32(di, 0, 2147483682)   // 0x80000022, LC_DYLD_INFO_ONLY
+    natPut32(di, 4, natDyldInfoSize())
+    natPut32(di, 8, linkEditOff)   // rebase_off, a file offset
+    natPut32(di, 12, len(rebase))  // rebase_size
+    out = natMachoAppend(out, di)
+
+    let ld = natZeros(natDyldLoaderSize())
+    natPut32(ld, 0, 12)            // LC_LOAD_DYLINKER
+    natPut32(ld, 4, natDyldLoaderSize())
+    natPut32(ld, 8, 12)            // name offset
+    // "/usr/lib/dyld\0" written byte by byte, padded so cmdsize % 8 == 0.
+    let dyld = "/usr/lib/dyld"
+    let d = 0
+    while (d < len(dyld)) {
+        ld[12 + d] = asciiVal(substr(dyld, d, 1))
+        d = d + 1
+    }
+    out = natMachoAppend(out, ld)
+
+    let mc = natZeros(natMainCmdSize())
+    natPut32(mc, 0, 2147483688)   // 0x80000028, LC_MAIN
+    natPut32(mc, 4, natMainCmdSize())
+    // entryoff is a FILE offset, so the entry is slide-independent.
+    natPut64(mc, 8, entryOffset)
+    natPut64(mc, 16, 0)           // stacksize
+    out = natMachoAppend(out, mc)
+
+    out = natMachoAppend(out, text)
+    out = natMachoAppend(out, rodata)
+    if (hasData) {
+        while (len(out) < dataOff) { out = appendArray(out, 0) }
+        out = natMachoAppend(out, data)
+    }
+    while (len(out) < linkEditOff) { out = appendArray(out, 0) }
+    return natMachoAppend(out, rebase)
+}
+
+// natMachoAppend appends every byte of src to dst.
+func natMachoAppend(dst, src) {
+    let i = 0
+    while (i < len(src)) {
+        dst = appendArray(dst, src[i])
+        i = i + 1
+    }
+    return dst
+}
+
+// ============================================================
+// Reference cases (increment 151C2)
+// ============================================================
+
+// natMachoText, natMachoRodata and natMachoData are the same reference inputs
+// the ELF writer uses, so the two containers are exercised over identical
+// bytes and a difference between them is a container difference, not an input
+// difference.
+func natMachoText() {
+    return natHexDecode("b800000000b90a000000ba010000004801c84829d10f85f4ffffffc3")
+}
+
+func natMachoRodata() {
+    return natHexDecode("68690a0000000000")
+}
+
+func natMachoData() {
+    return natHexDecode("10000000200000000000000000000000000000000000000000000000000000")
+}
+
+// natMachoSites is the rebase-site set: .TEXT-RELATIVE offsets of the
+// pointer-sized slots a PIE must have slid.
+//
+// The 151B loop sequence has no absolute address in it, so the sites are
+// placed at plausible movabs immediate offsets -- 15 and 25, ten bytes apart,
+// which is exactly the spacing 150D's encoder note describes. A site list is
+// supplied rather than derived here because deriving it needs the value model
+// (151A); what this increment has to prove is that the WRITER places whatever
+// list it is given at the right file offsets and encodes it correctly.
+//
+// Case 3 uses an ADJACENT pair (8 apart) so the `d == 0` branch, where the
+// cursor already points at the site, is actually exercised rather than being
+// dead code in the reference corpus.
+func natMachoSites(which) {
+    if (which == 0) { return [15] }
+    if (which == 1) { return [15, 25] }
+    if (which == 2) { return [] }
+    if (which == 3) { return [15, 23] }
+    return []
+}
+
+// natMachoCorpus runs one reference case and returns "name <image-hex>".
+//
+// The cases cover the two header shapes and the two stream shapes:
+//
+//   0 - no arena, ONE rebase site: 3 segments, the pre-150D shape.
+//   1 - arena, two sites: 4 segments, so .text moves by one 72-byte load
+//       command and the site offsets must move with it.
+//   2 - arena, NO sites: a rebase stream that is just SET_TYPE + DONE. A PIE
+//       with no baked addresses still has to be a valid stream, so this is the
+//       case that catches an encoder which emits nothing at all.
+//   3 - adjacent sites (8 apart): exercises the `d == 0` branch, where the
+//       cursor already points at the next site and no reposition is emitted.
+//   4 - refusal: an unsupported text offset.
+func natMachoCorpus(which) {
+    if (which == 0) {
+        let t = natMachoTextOffset(0)
+        return "single " + natToHex(natMachoLink(natMachoText(), natMachoRodata(), [], t, t + 15, natMachoSites(0)))
+    }
+    if (which == 1) {
+        let t = natMachoTextOffset(1)
+        return "arena " + natToHex(natMachoLink(natMachoText(), natMachoRodata(), natMachoData(), t, t + 15, natMachoSites(1)))
+    }
+    if (which == 2) {
+        let t = natMachoTextOffset(1)
+        return "nosite " + natToHex(natMachoLink(natMachoText(), natMachoRodata(), natMachoData(), t, t + 15, natMachoSites(2)))
+    }
+    if (which == 3) {
+        let t = natMachoTextOffset(0)
+        return "adjacent " + natToHex(natMachoLink(natMachoText(), natMachoRodata(), [], t, t + 15, natMachoSites(3)))
+    }
+    if (which == 4) {
+        return "refuse " + natMachoLink(natMachoText(), [], [], 999, 0, natMachoSites(0))
+    }
+    return ""
+}

@@ -65,11 +65,37 @@ func KCCNativeEncodeCommand(w io.Writer, verbose bool) CommandResult {
 // arrays or strings, so it is pure serialisation and can be proven against
 // fixed input bytes.
 func KCCNativeELFCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-elf")
+}
+
+// KCCNativeMachOCommand runs the self-hosted Mach-O PIE container writer over
+// its reference cases and returns the images as hex.
+//
+// Increment 151C2, same contract as the other two container commands. Mach-O
+// is the subtle one of the three: its load-command chain is sized by its own
+// contents, and the rebase opcode stream is what makes the image a real PIE,
+// so the writer and the stream encoder are entangled rather than separable.
+func KCCNativeMachOCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-macho")
+}
+
+// kccSubcommand runs one read-only kcc measurement subcommand and returns its
+// non-empty output lines as a single message.
+//
+// It is shared by all three because they are genuinely the same shape: no
+// input file, no fallback, exit code and diagnostics passed through. The one
+// thing it deliberately does NOT do is interpret the output -- a refusal line
+// like "error[K117] ..." is DATA here, not a build failure, because the
+// reference corpus deliberately includes refusal cases.
+func kccSubcommand(w io.Writer, sub string) CommandResult {
 	bin, err := kccBinaryPath(w)
 	if err != nil {
+		// kcc unavailable is an ENVIRONMENT failure, not a compile failure.
+		// Reporting it as a compile error would blame the user's program for
+		// a missing toolchain.
 		return CommandResult{ExitCode: ExitEnv, Message: err.Error()}
 	}
-	out, code := runKCC(bin, "native-elf", "")
+	out, code := runKCC(bin, sub, "")
 	var lines []string
 	for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
 		ln = strings.TrimRight(ln, "\r")
@@ -78,5 +104,9 @@ func KCCNativeELFCommand(w io.Writer, verbose bool) CommandResult {
 		}
 		lines = append(lines, ln)
 	}
-	return CommandResult{ExitCode: code, Message: strings.Join(lines, "\n")}
+	msg := strings.Join(lines, "\n")
+	if code != 0 && msg == "" {
+		msg = "kcc " + sub + " failed with exit " + strconv.Itoa(code)
+	}
+	return CommandResult{ExitCode: code, Message: msg}
 }

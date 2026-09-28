@@ -305,7 +305,7 @@ any of them. They gate native/PM work, so they open 1.3.0 as increment 155.
 | Version | Increments | State | Blocker |
 |---|---|---|---|
 | 1.1.0 | 128–149 | **in-tree complete**, gates green | owner tag/archive ceremony |
-| 1.2.0 | 150, 151P0, 151, 152, 154, 165 | **open, in progress** - increment 150 **complete** (150A-150D); **151P0 complete** (bitwise operators, the P0 soundness precondition for 151B); 151 in progress (151D-first + 151A-1 + 151B + 151C (ELF) done, Mach-O/PE pending); 152/154/165 not started | none (151C2: Mach-O, then PE) |
+| 1.2.0 | 150, 151P0, 151, 152, 154, 165 | **open, in progress** - increment 150 **complete** (150A-150D); **151P0 complete** (bitwise operators, the P0 soundness precondition for 151B); 151 in progress (151D-first + 151A-1 + 151B + 151C (ELF) + 151C2 (Mach-O) done, PE pending); 152/154/165 not started | none (151C3: PE) |
 | 1.3.0 | 155, 156, 158, 159, 160, 161 | **planned, not baselined** — theme + exit criteria only; per-increment scope unwritten | needs the 1.2.0 native/lib baseline |
 | 1.4.0 | 153, 157, 163, 164, 175, 176 | **planned, not baselined** | needs the 1.3.0 library rows |
 | 1.5.0 | 166, 167, 168, 169, 170, 171, 172 | **planned, not baselined** | macOS signing and BSD VM are owner/community items |

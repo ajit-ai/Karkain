@@ -117,6 +117,20 @@ func main() {
         return
     }
 
+	// Phase 151C2: the self-hosted Mach-O PIE container writer. Same
+	// measurement contract as native-encode and native-elf: the cases are
+	// compiled into kcc and the gate compares the images against
+	// pkg/native's LinkMachO.
+	if (command == "native-macho") {
+        let mnames = ["single", "arena", "nosite", "adjacent", "refuse"]
+        let m = 0
+        while (m < 5) {
+            print(natMachoCorpus(m))
+            m = m + 1
+        }
+        return
+    }
+
     if (command == "verifykir") {
         if (argc < 3) {
             print("Usage: karkain verifykir <file.kark>")
