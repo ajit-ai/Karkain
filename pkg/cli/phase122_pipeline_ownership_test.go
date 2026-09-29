@@ -82,18 +82,37 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// lexer token kinds and their scan arms, the kcc kPrec table, the
 		// infix operator mapping, and the binary_op C helper block in both
 		// pkg/codegen and the self-hosted codegen emitter; kir verify
-		// passes on the new count), and now to 10264 (increment 151C2's Mach-O PIE container writer: the new src/compiler/native_macho.kark module plus its driver arm in main.kark), which itself followed 10031 (increment 151C's ELF64 container writer: native_elf.kark), which itself followed 9889 (increment 151B's native
+		// passes on the new count), and now to 10530 (increment 151C3's PE32+ container writer: the new src/compiler/native_pe.kark module plus its driver arm in main.kark), which itself followed 10264 (increment 151C2's Mach-O PIE container writer: native_macho.kark), which itself followed 10031 (increment 151C's ELF64 container writer: native_elf.kark), which itself followed 9889 (increment 151B's native
 		// machine-code encoder: the new src/compiler/native_emit.kark module
 		// plus its driver arm in main.kark; kir verify passes on the new
 		// count);
+		// and now to 10611 (LH-1, kcc `?` propagation parity: the
+		// UnaryExpr question-mark lowering in codegen.kark, the expression-level
+		// Ok/Err/Some/None cases in parsePrimary, and the Result/Option
+		// constructors and accessors in ast.kark; kir verify passes on the new
+		// count);
+		// and now to 10626 (LH-2, kcc `match` arm binding parity: the
+		// arm-local binding scope helper ckCheckArmBody in checker.kark, used
+		// by both Match branches; kir verify passes on the new count);
+		// and now to 10838 (151A Step 1, the native value/frame foundation:
+		// the new src/compiler/native_value.kark module, the frame and
+		// slot-access primitives plus selector-table entries added to
+		// native_emit.kark, and the three subcommand arms in main.kark;
+		// kir verify passes on the new count);
+		// and now to 11040 (151A Step 2, integer statement/expression
+		// lowering in kcc: the int lowering and comparison corpora plus
+		// natIntIf and the selector-table entries in native_emit.kark, the
+		// natIntBody/natIntCond helpers in native_value.kark, and the
+		// native-value-int / native-value-cmp / native-value-refuse arms
+		// in main.kark; kir verify passes on the new count);
 		// the pin is refreshed to the validated current value.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 10264 {
-			t.Errorf("whole-tree kir text = %d lines, want 10264:\n%s", got, out)
+	if got := phase121Count(t, out, "[ok] kir text: "); got != 11040 {
+		t.Errorf("whole-tree kir text = %d lines, want 11040:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

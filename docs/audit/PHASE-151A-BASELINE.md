@@ -232,3 +232,83 @@ actually earns the byte-identity the parent baseline requires.
 4. **A "temporary" delegation becomes permanent** because it passes gates. The
    gates cannot detect that, so the audit record carries it as an explicit
    carry-over against (A) rather than as a success.
+
+## 9. 151A Step 2 - integer statement/expression lowering (DONE)
+
+Step 1 built the value/frame half and left it **unconsumed**: nothing emitted
+through it. Step 2 makes int statements and expressions actually lower, so the
+frame layout is read on the default lowering path.
+
+**Scope.** `let` of an int, int arithmetic (`+ - *`), unary minus, the six
+comparisons as real branches, `return`, the `jmp` to the `$ret` label that the
+oracle emits after **every** return, and the `if !returned` zero fallback.
+Float, array, `for-in`, arena, string, `push`, record and map lowering are
+**still not claimed** -- they remain 151A work.
+
+**Gate.** `pkg/cli/phase151a2_int_test.go`, 14/14 PASS, built as the same
+**four-layer differential** Step 1 used:
+
+1. byte containment in the oracle's `.text`, which the oracle *compiled* from
+   the same source (rules out a shared transcription error);
+2. the frame numbers derived independently in the test file (rules out a
+   layout that is wrong the same way on both sides);
+3. bytes stated from the Intel SDM (catches shared drift);
+4. a refusal table matching the oracle's own refusals.
+
+**Four defects found. Two were real, and one of those had been latent since
+Step 1.**
+
+1. **`natFrBinTemp()` returned the scratch region's END, not its start.** It
+   stored `localBytes + recArgBytes + binTempBytes`, so every staged operand
+   landed 512 bytes too high: kcc emitted `[rsp+0x210]` where the oracle emits
+   `[rsp+0x10]`. **This was latent through all of Step 1**: nothing emitted
+   through `binTemp`, and Step 1's layout corpus printed only
+   `frame`/`strTemp`/`mapStage`/slot offsets, so no gate could see it. Fixing
+   it turned all six comparison cases green at once, which is the signature
+   that identifies it as the single cause.
+2. **Unary minus incremented the scratch depth.** The oracle's `emitReturn`
+   calls `emitExpr(value, 0)` and `UnaryExpr` passes the *same* depth, so the
+   nested binary in `-(3 + 4)` also lands at depth 0.
+3. **A wrong expectation in the test, not the code.** Two corpus cases were
+   declared with `nLocals: 1` when their sources contain no `let`, so the
+   oracle correctly allocates no local and its frame is 608, not 616 -- and the
+   frame layer reported the oracle's own correct frame as wrong. This is the
+   151B lesson recurring: a baseline with wrong expectations is worse than no
+   baseline. Fixed by measuring, and the expectation now derives from the
+   oracle.
+4. **The `mov r64, r64` stated bytes were backwards** (`ModRM` 0xC8 vs 0xC1),
+   caught by the third layer reporting that the *oracle* disagreed with the
+   stated bytes. kcc was right in both attempts; the test's argument order was
+   wrong. `89 /r` puts the source in `reg` and the destination in `rm`.
+
+**Non-vacuity, measured.** Reverting defect 1 reproduces the pre-fix failure
+signature exactly -- 3 int cases and all 6 comparisons fail -- and the fix
+restores 14/14. The gate is armed, not decorative.
+
+**KIR pin re-measured, never hand-edited:** 10838 -> **11040**
+(`karkain kir --verify`, 11040/11040 verify ok), and
+`TestPhase122_PipelineOwnership/KIRContinuity` PASS at 334 s on the new count.
+
+**Evidence.**
+
+| Gate | Result |
+|---|---|
+| `TestPhase151A2_IntegerLoweringByteIdentical` (5) | PASS |
+| `TestPhase151A2_ComparisonsAreBranches` (6) | PASS |
+| `TestPhase151A2_RefusalsMatchOracle` | PASS |
+| `TestPhase151A_*` (Step 1, re-run) | PASS -- unchanged, incl. the layout and primitive gates |
+| all `TestPhase151*` in `pkg/cli` + `pkg/native` (43) | PASS |
+| `pkg/native` (full) | PASS |
+| `TestPhase122_PipelineOwnership/KIRContinuity` | PASS (334 s), pin 11040 |
+| `go build ./...`, `go vet ./pkg/cli ./pkg/native ./cmd/karkain` | clean |
+| mutation: defect 1 reverted | **FAILS** (3 int + 6 cmp, the pre-fix signature) |
+
+**Still not claimed.** No whole-image parity, and **no execution evidence**:
+these are function bodies, not runnable programs -- there is no entry stub, no
+syscall tail, no PEB bootstrap, and no `print`, so there is nothing a loader
+could usefully execute. The argument remains transitive. `kccOwnsNativeTargets`
+stays `false`; 151A is **not** closed.
+
+**The next Step 2b boundary, stated so it is not discovered late:** a bare
+identifier operand (`return x` where `x` is a `let`) and the `?` propagation
+operator (`?`) have no `emitStr`/int path yet, so they are not lowered here.

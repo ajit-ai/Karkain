@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1653,12 +1653,72 @@ func main() {
 		os.Exit(result.ExitCode)
 	}
 
+	// Phase 151A Step 1: the SELF-HOSTED native value/frame foundation, same
+	// contract as native-encode and native-elf above. `native-value` prints the
+	// machine code of the two reference programs, `native-value-layout` the
+	// frame arithmetic as text, and `native-value-prims` each new encoder
+	// opcode on its own. The byte differential these feed compares kcc against
+	// the Go oracle rather than the oracle against itself.
+	if command == "native-value" {
+		result := cli.KCCNativeValueCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	if command == "native-value-layout" {
+		result := cli.KCCNativeValueLayoutCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	if command == "native-value-int" {
+		result := cli.KCCNativeValueIntCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	if command == "native-value-cmp" {
+		result := cli.KCCNativeValueCmpCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	if command == "native-value-refuse" {
+		result := cli.KCCNativeValueRefuseCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	if command == "native-value-prims" {
+		result := cli.KCCNativeValuePrimCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
 	// Phase 151C2: the SELF-HOSTED Mach-O PIE container writer, same
 	// contract again. Mach-O is the subtle one of the three containers: its
 	// header is sized by its own load-command chain, and the rebase opcode
 	// stream is what makes the image a real position-independent executable.
 	if command == "native-macho" {
 		result := cli.KCCNativeMachOCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151C3: the SELF-HOSTED PE32+ container writer, same contract
+	// again. PE is the one container a real Windows loader accepts, so it is
+	// the one whose structural evidence is worth the most.
+	if command == "native-pe" {
+		result := cli.KCCNativePECommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

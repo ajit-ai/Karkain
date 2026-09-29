@@ -1,0 +1,14 @@
+// LH-2 Test B: an Err arm binding makes the error payload available inside
+// that arm, and it must be the original payload rather than a default.
+func f(x) {
+    if (x > 0) { return Ok(42) }
+    return Err("bad")
+}
+
+func main() {
+    let r = f(0)
+    match r {
+        Ok(n) => { print("unexpected") },
+        Err(e) => { print(e) },
+    }
+}

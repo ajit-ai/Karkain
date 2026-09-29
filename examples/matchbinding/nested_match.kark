@@ -1,0 +1,31 @@
+// LH-2 Test E: a nested match inside an arm body. The inner bindings n2/e2
+// must not disturb the enclosing binding n, which is used both before and
+// after the inner match.
+//
+// Both match values are locals: `match f(1) { ... }` (a call expression as the
+// match value) is a pre-existing Go parser limitation, unrelated to bindings.
+func inner2(x) {
+    if (x > 0) { return Ok(10) }
+    return Err("inner")
+}
+
+func outer2(x) {
+    if (x > 0) { return Ok(20) }
+    return Err("outer")
+}
+
+func main() {
+    let r = outer2(1)
+    match r {
+        Ok(n) => {
+            print(n)
+            let inner = inner2(0)
+            match inner {
+                Ok(n2) => { print("n2") },
+                Err(e2) => { print(e2) },
+            }
+            print(n)
+        },
+        Err(e) => { print("no") },
+    }
+}

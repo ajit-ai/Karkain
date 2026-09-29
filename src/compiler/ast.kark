@@ -367,6 +367,54 @@ func makeFloatLit(val, line) {
     return n
 }
 
+// Phase 42 / LH-1: the Result/Option CONSTRUCTORS as expressions.
+//
+// The AST kinds already existed (NODE_OPTION_SOME/NONE, NODE_RESULT_OK/ERR =
+// 53..56) and getNodeType already named them, but nothing on this path ever
+// constructed them: the four tokens were consumed only in parseMatchExpr's
+// arm-PATTERN position. A program compiled by kcc therefore could not build a
+// Result or Option value at all -- `Ok(5)` lost its wrapper and left only the
+// parenthesised payload, which is why `let v = Ok(5)` emitted a bare
+// `;make_int(5);` and `return Ok(5)` returned mk_nil() with the payload
+// dropped as a dead statement.
+//
+// These are required for `?`: the operator is defined over Result Err /
+// Option None values, so with no way to construct one there is nothing for it
+// to inspect or propagate. Shapes mirror the Go engine (parser.go
+// ResultOkExpr/ResultErrExpr/OptionSomeExpr/OptionNoneExpr), which carry the
+// payload expression and produce the same result_ok/result_err/option_some/
+// option_none C calls.
+func makeResultOk(value, line) {
+    let n = makeNode(NODE_RESULT_OK())
+    n = appendArray(n, value)
+    n = appendArray(n, line)
+    return n
+}
+
+func makeResultErr(value, line) {
+    let n = makeNode(NODE_RESULT_ERR())
+    n = appendArray(n, value)
+    n = appendArray(n, line)
+    return n
+}
+
+func makeOptionSome(value, line) {
+    let n = makeNode(NODE_OPTION_SOME())
+    n = appendArray(n, value)
+    n = appendArray(n, line)
+    return n
+}
+
+func makeOptionNone(line) {
+    let n = makeNode(NODE_OPTION_NONE())
+    n = appendArray(n, line)
+    return n
+}
+
+func resultOkValue(n)   { return n[1] }
+func resultErrValue(n)  { return n[1] }
+func optionSomeValue(n) { return n[1] }
+
 func floatLitVal(n)  { return n[1] }
 func floatLitLine(n) { return n[2] }
 

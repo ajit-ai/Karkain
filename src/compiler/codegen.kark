@@ -234,6 +234,13 @@ func concScanExpr(state, e) {
         return
     }
     if (t == "UnaryExpr") { concScanExpr(state, unaryOperand(e)) return }
+    // LH-1: the Result/Option payloads are ordinary expressions and may hold a
+    // spawn/channel call, so the concurrency prescan has to descend into them.
+    // Without this the wrappers for a nested site would never be emitted.
+    if (t == "ResultOk") { concScanExpr(state, resultOkValue(e)) return }
+    if (t == "ResultErr") { concScanExpr(state, resultErrValue(e)) return }
+    if (t == "OptionSome") { concScanExpr(state, optionSomeValue(e)) return }
+    if (t == "OptionNone") { return }
     if (t == "Lambda") { concScanStmts(state, lambdaBody(e)) return }
     if (t == "Match") {
         concScanExpr(state, matchValue(e))
@@ -1126,6 +1133,31 @@ func emitC11Expr(state, node) {
         }
     }
 
+    // Phase 42 / LH-1: Result/Option constructors. These lower to the same C
+    // helpers the Go engine uses (codegen.go ResultOkExpr/ResultErrExpr/
+    // OptionSomeExpr/OptionNoneExpr), so the Value layout that `?` inspects
+    // (resVal.tag 0=Ok/1=Err, optVal.tag 0=None/1=Some) is identical on both
+    // engines. Without these, no Result/Option value could be constructed in a
+    // kcc-compiled program and `?` had nothing to propagate.
+    if (nt == "ResultOk") {
+        emit(state, "result_ok(")
+        emitC11Expr(state, resultOkValue(node))
+        emit(state, ")")
+    }
+    if (nt == "ResultErr") {
+        emit(state, "result_err(")
+        emitC11Expr(state, resultErrValue(node))
+        emit(state, ")")
+    }
+    if (nt == "OptionSome") {
+        emit(state, "option_some(")
+        emitC11Expr(state, optionSomeValue(node))
+        emit(state, ")")
+    }
+    if (nt == "OptionNone") {
+        emit(state, "option_none()")
+    }
+
     if (nt == "UnaryExpr") {
         let op = unaryOp(node)
         if (op == "!") {
@@ -1137,6 +1169,31 @@ func emitC11Expr(state, node) {
             emit(state, "binary_op(make_int(0), \"-\", ")
             emitC11Expr(state, unaryOperand(node))
             emit(state, ")")
+        }
+        // Phase 50 / LH-1: expr? — error/option propagation operator.
+        //
+        // The parser lowers postfix `?` to a UnaryExpr with op "?" (see
+        // parsePostfix), NOT to a dedicated node, so the lowering belongs
+        // here rather than in a NODE_PROPAGATE case — that node is never
+        // constructed on this path, which is why an earlier attempt to look
+        // for a Propagate case there would never have matched anything.
+        //
+        // Semantics mirror the Go reference (pkg/codegen/codegen.go,
+        // *parser.PropagateExpr): if the operand is a Result Err or an
+        // Option None it is propagated as the enclosing function's return
+        // value; otherwise the Ok/Some payload is unwrapped. The operand is
+        // evaluated exactly once, into a statement-expression temporary.
+        //
+        // The propagated return is deliberately a bare `return _r` with no
+        // frame_leave, matching the Go reference byte for byte. `main` is
+        // emitted as `int main(...)` by BOTH engines, so using `?` in main
+        // is a C type error on both sides — that is parity, not a gap, and
+        // adding a kcc-only frame_leave here would introduce a divergence
+        // in observable stack traces between the two engines.
+        if (op == "?") {
+            emit(state, "({Value _r = ")
+            emitC11Expr(state, unaryOperand(node))
+            emit(state, "; if (_r.type == TYPE_RESULT && _r.resVal.tag == 1) return _r; if (_r.type == TYPE_OPTION && _r.optVal.tag == 0) return _r; (_r.type == TYPE_RESULT ? *_r.resVal.okVal : (_r.type == TYPE_OPTION ? *_r.optVal.inner : _r)); })")
         }
     }
 

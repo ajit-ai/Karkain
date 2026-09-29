@@ -163,6 +163,46 @@ Order is dependency-forced: `150 → 151 → 152 → 154`, with `165` free-float
 165   free-floating: packaging/CI, NOT a compiler dependency
 ```
 
+**Named gate inside increment 151 (added 2026-09-28).** After increment 151
+completes, a **Language Hardening Checkpoint** precedes any further
+sovereignty work. It is a **verification gate, not an increment**: no number is
+assigned, no phase is redefined, and it does not alter the `1.2.0` closure
+conditions in §4.1. Definition and verification areas (LH-A to LH-G):
+`LANGUAGE-HARDENING-CHECKPOINT.md`. Developer Experience / Debugging is a
+**separate future track**: `DEVELOPER-EXPERIENCE-DEBUGGING-TRACK.md` (DX-A to
+DX-D).
+
+Per the numbering model in §0, a number is assigned only when an increment is
+scheduled and baselined, so neither of these carries one yet. Per-slice
+completion status for 151A-1/151B/151C/151C2/151C3 is recorded in `AGENTS.md`
+and summarised in §8; this plan does not restate it.
+
+**Authorized implementation slices under the checkpoint (added 2026-09-28,
+after the checkpoint audit).** The audit
+(`LANGUAGE-HARDENING-CHECKPOINT-FINAL-AUDIT.md`) confirmed two current
+kcc/backend parity defects. Those two, and only those two, are authorized for
+implementation:
+
+| Slice | Deliverable | Status |
+|---|---|---|
+| **LH-1** | kcc `?` propagation parity — the postfix `?` was parsed and then lowered to nothing, so any program using it produced malformed C | **COMPLETE** |
+| **LH-2** | kcc `match` binding parity — match-arm bindings are rejected on the self-hosted engine with `error[K102]`, so idiomatic `Result` consumption is unavailable there | **AUTHORIZED / NOT STARTED** |
+
+LH-1 evidence:
+
+- Implementation: `5dcdd80` (`feat: fix kcc question propagation`).
+- Focused local gate: 11/11 PASS (`TestLH1_`).
+- CI: `CI/CD` run **36502124716**, job **Test**, step *Run LH-1 kcc propagation parity gate* — **success**. The step is non-vacuous: it reports `ok karkain/pkg/cli` **without** the `[no tests to run]` marker, and a deliberately non-matching pattern is confirmed to print that marker.
+- Root cause was two defects, not one. The lowering lived in the `UnaryExpr` branch, not a `NODE_PROPAGATE` case, because kcc's parser lowers postfix `?` to a `UnaryExpr` whose operator is `?` — so `NODE_PROPAGATE` (57) is dead on this path. Separately, kcc had no *expression*-level `Ok`/`Err`/`Some`/`None` (the four tokens were consumed only in `parseMatchExpr`'s arm-pattern position), so no `Result`/`Option` value could be constructed and `?` had nothing to propagate. Both were required; see the slice's own gate.
+- The whole-tree KIR pin moved 10530 → 10611, and `kir verify` passes on the new count.
+
+These are **implementation slices under the existing checkpoint, not new
+numbered phases**: no number is assigned, no phase is invented, Phase 152 is
+unaffected, and the `1.2.0` closure conditions in §4.1 are unchanged. Every
+other audit finding remains a finding and is **not** authorized. Implementation
+proceeds **one slice at a time**; LH-2 is not to be implemented together with
+LH-1 unless explicitly requested. **LH-2 is not started.**
+
 | Increment | Track | Deliverable | Gate / Definition of Done | Boundaries (not this increment) |
 |---|---|---|---|---|
 | **150** | I (C-front) | Native **Value model** (boxed `Value`: arrays, `for-in`, floats, maps, structs, string ops) + register allocation + Mach-O PIE/rebase + native-split incremental cache + **`--target native-x86_64-windows` / `native-x86_64-macos`** CLI targets (listing, `--help`, per-OS build/run matrix, run only on matching hosts else exit 6) | `pkg/native` executed goldens on windows/amd64 (PE) and linux/amd64 (ELF), structural Mach-O everywhere; new `pkg/cli/phase150_native_targets_test.go` (magic per OS, run refusals, listing, incremental refusal); ELF byte-identity differential vs the 147/148/149 corpus | arm64 native; PE delay-load/TLS/SEH/resources/signing; Mach-O **execution** (no Intel-mac runner); kcc native parity (151) |
@@ -305,7 +345,7 @@ any of them. They gate native/PM work, so they open 1.3.0 as increment 155.
 | Version | Increments | State | Blocker |
 |---|---|---|---|
 | 1.1.0 | 128–149 | **in-tree complete**, gates green | owner tag/archive ceremony |
-| 1.2.0 | 150, 151P0, 151, 152, 154, 165 | **open, in progress** - increment 150 **complete** (150A-150D); **151P0 complete** (bitwise operators, the P0 soundness precondition for 151B); 151 in progress (151D-first + 151A-1 + 151B + 151C (ELF) + 151C2 (Mach-O) done, PE pending); 152/154/165 not started | none (151C3: PE) |
+| 1.2.0 | 150, 151P0, 151, 152, 154, 165 | **open, in progress** - increment 150 **complete** (150A-150D); **151P0 complete** (bitwise operators, the P0 soundness precondition for 151B); 151 in progress (151D-first + 151A-1 + 151B + 151C (ELF) + 151C2 (Mach-O) + 151C3 (PE) done); 152/154/165 not started | none (151A: the native value model) |
 | 1.3.0 | 155, 156, 158, 159, 160, 161 | **planned, not baselined** — theme + exit criteria only; per-increment scope unwritten | needs the 1.2.0 native/lib baseline |
 | 1.4.0 | 153, 157, 163, 164, 175, 176 | **planned, not baselined** | needs the 1.3.0 library rows |
 | 1.5.0 | 166, 167, 168, 169, 170, 171, 172 | **planned, not baselined** | macOS signing and BSD VM are owner/community items |

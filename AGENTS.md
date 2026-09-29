@@ -65,6 +65,72 @@ that skips when output is empty — is not evidence, and the "executed" wording 
 supports must be corrected rather than quietly inherited. The
 `docs/audit/PHASE-150-BASELINE.md` §12 entry is the worked example.
 
+## Language Hardening Checkpoint (MANDATORY RULE)
+
+**After 151C3, Language Hardening Checkpoint verification must be completed
+before implementing newly identified language-correctness work. Gap-analysis
+findings are not implementation authorization. Coding agents must work only on
+explicitly authorized roadmap phases/slices.**
+
+Concretely, for agents:
+
+* `docs/audit/KARKAIN_GAP_ANALYSIS.md` is an **inventory of hypotheses**. Its
+  entries are NOT authorization to change code. Do not implement a gap-analysis
+  finding because it is worded imperatively.
+* `docs/audit/LANGUAGE-HARDENING-CHECKPOINT.md` is a **verification gate**
+  (LH-A to LH-G), positioned after 151C3 and before further sovereignty work.
+  It authorizes **verification only** — reproduce, measure, classify.
+* **The checkpoint is documentation/verification first. Individual fixes require
+  a subsequent explicitly authorized implementation slice**, each with its own
+  baseline note per the numbering model in `KARKAIN-VERSION-PLAN.md` §0.
+* A verification finding resolving to "fixed", "intentional limitation",
+  "historical/stale", or "unable to reproduce" is a **successful** outcome. Do
+  not manufacture a fix for a finding that does not reproduce.
+* Do not invent phase numbers from either document, and do not reassign 152.
+* `docs/audit/DEVELOPER-EXPERIENCE-DEBUGGING-TRACK.md` (DX-A to DX-D) is a
+  **separate future track**. No DAP server exists in the repository; do not
+  document one as implemented, and do not begin debugging implementation from
+  that document.
+
+The gap analysis identifies potential problems. The roadmap authorizes work.
+Keeping those responsibilities separate is the purpose of this rule.
+
+**Implementation authority inside the checkpoint (2026-09-28).** The
+checkpoint audit (`LANGUAGE-HARDENING-CHECKPOINT-FINAL-AUDIT.md`) confirmed
+two current kcc/backend parity defects, and authorized exactly two slices:
+
+* **LH-1** — kcc `?` propagation parity. `src/compiler/codegen.kark` has no
+  case for `NODE_PROPAGATE`, so the operator is parsed and then lowered to
+  nothing. **AUTHORIZED / NOT STARTED.**
+* **LH-2** — kcc `match` binding parity. Match-arm bindings are rejected on
+  the self-hosted engine with `error[K102]`. **AUTHORIZED / NOT STARTED.**
+
+Rules for agents:
+
+* **The current authorized scope is limited to LH-1 and LH-2. Agents must
+  implement only the explicitly requested slice. Other audit findings remain
+  non-authorized findings unless separately approved.**
+* **LH-2 must not be implemented together with LH-1 unless explicitly
+  requested; implementation proceeds one slice at a time.**
+* These are slices under the checkpoint, **not new numbered phases**. Do not
+  assign them a phase number, do not invent Phase 152/153/154, and do not
+  redefine 151A or 152.
+* Still **not** authorized: a runtime exception system (`try` / `catch` /
+  `throw` / `panic`), enum payload semantics, borrow-checker redesign,
+  whole-program type-checking redesign, memory-model redesign, a
+  security/capability model, DAP or any debugger implementation, WASM changes,
+  package-ecosystem work, Phase 151A, and Phase 152.
+* A finding in the audit does not automatically authorize implementation. The
+  audit is evidence; this rule is the authorization, and it is narrow on
+  purpose.
+
+**Companion rule — a gate is a test file *plus* a CI entry.** Writing a gate and
+running it locally is not sufficient evidence. `ci.yml` was last wired at 146D,
+which meant four increment gates (151P0, 151B, 151C, 151C2) were written, run
+locally, reported as green in increment records, and **never executed by CI**.
+Any new gate must add its own `ci.yml` step in the same change, or it is not a
+gate.
+
 ## Roadmap
 
 **Version-wise plan (authoritative forward view):
@@ -1215,10 +1281,119 @@ type-checks the whole tree at vet level rather than only the linked binary
 (**mutation-verified**: reintroducing the overflow fails it with the same
 diagnostic). Also repaired a truncated "Must not" bullet in
 `PHASE-151-BASELINE.md` §3 whose text had been orphaned to the end of the file.
-**Next: 151A — the native value model in kcc** (frame layout, boxed kinds, arrays/
-`for-in`, floats, arena, string ops, `push`, records, maps), gated byte-identical
-Go↔kcc through the existing harness; then 151B (encoder) and 151C (three
-containers), then flip `kccOwnsNativeTargets` and re-point the seam at kcc.
+**Next: 151A Step 2 — int statement/expression lowering in kcc**, so the frame
+layout Step 1 established is actually consumed (arithmetic, comparison,
+control flow, calls). The remaining 151A scope is unchanged: floats, arrays/
+`for-in`, arena, string ops, `push`, records, maps, and — the milestone the
+baseline's platform table points at — **no kcc-produced image executes
+anywhere**, because the 151B/151C/151C2/151C3 images carry no entry stub,
+syscall tail or PEB bootstrap: those live in the value model. After 151A,
+flip `kccOwnsNativeTargets` and re-point the seam at kcc. 151B, 151C, 151C2and 151C3 are all DONE (see their records below), so the old ordering note
+that listed them as future work no longer holds.
+
+Also completed: **151A Step 1 — the native value/frame foundation in kcc**
+(increment 151, slice A step 1; verdict **COMPLETE**; NOT a numbered phase and
+not parity of a whole image). `src/compiler/native_value.kark` (new) ports the
+value/frame half of the Go oracle: the kind model (`natKindInt`…
+`natKindMap`, with `natKindUnits` = 1 for int/float/bool/struct/map and 2 for
+string/array), the frame constants (`argSpillBytes` 96, `maxBinDepth` 64),
+`natFrameLayout` reproducing the oracle's ordering **locals → recArgAreas →
+binTemp → strTemp? → mapStage? → extrasBase → Windows 16-byte rounding →
++ argSpillBytes** with the two conditional regions kept conditional, and
+`natLocalOff`. `native_emit.kark` gains the frame prologue/epilogue and
+slot-access primitives that 151B's deliberately representative subset omitted
+(`natMemRsp`, `natLoadStack`, `natStoreStack`, `natSubRegImm32`,
+`natAddRegImm32`, `natXorRegReg`, `natRet`).
+
+**Values are statically kinded and UNBOXED, and the roadmap's word "boxed" is
+not a requirement for a tagged native Value** — the oracle assigns each local
+a compile-time kind and stores a raw 8-byte unit, and `natKindInt()==0`
+preserves the `iota` numbering so every "cannot determine the kind" default
+keeps meaning int. The tagged `TYPE_RESULT`/`resVal.tag` `Value` belongs to
+the C path (it is what `?` inspects) and must not leak into the native path.
+
+**The gate is a three-way differential, and each layer exists for a stated
+reason.** Matching bytes alone cannot catch a frame layout that is wrong in the
+SAME way on both sides, so the layout NUMBERS are pinned separately against
+values derived in the test file; kcc's function bytes must also appear
+**exactly once** in the `.text` the Go oracle produced by *compiling* the same
+source (which rules out a shared transcription error in the Go-side
+reconstruction); and every case is additionally checked against bytes stated
+from the Intel SDM. `phase151a_value_test.go`, 14/14 PASS, **mutation-verified**
+(`argSpillBytes` 96→104 fails the byte-identity and layout gates while
+correctly leaving the primitive gate passing). CI: `CI/CD` run **36528760340**,
+job `Test`, step *Run 151A native value/frame foundation gate* — success, and
+verified NON-VACUOUS (it reports `ok` with no `[no tests to run]` marker, which a
+control non-matching pattern does print). KIR pin re-measured 10626 → **10838**.
+
+**Three defects found and fixed, all by a gate rather than by inspection.**
+(1) The frame layout and slot offsets were MEASURED from the oracle before any
+code was written (`let x = 42` → frame `0x268` = 8+512+96; two locals → `0x270`
+= 16+512+96), which is what made the arithmetic checkable instead of assumed.
+(2) **A selector-table collision broke 151B.** The new opcode selectors were
+first appended starting at 17, but the existing table already used 17 for
+`call rel32` — I had read only part of the table — so `natCall32` began
+emitting `0x89` (`mov`) instead of `0xE8` (`call`) and the 151B gate failed.
+Selectors now continue at 18, and the table is documented as a shared
+namespace. (3) A bulk renumber cascaded and bumped `natLoadStack` to
+`xor [rsp],rax` instead of `mov rax,[rsp]`; the byte-identity gate caught it.
+A fourth was in the TEST: the stated-bytes layer first rendered the frame
+immediate as a padded hex *string* (`00000268`) instead of four little-endian
+bytes (`68020000`), and used `mod=01`/disp8 where 616 needs `mod=10`/disp32 —
+caught by the very layer meant to catch shared errors, which is the argument
+for having it. `native_emit.kark` and `main.kark` are verified **purely
+additive** (zero removed or modified existing lines).
+
+**Still NOT claimed.** No whole-image parity, and no execution evidence: the
+reference programs are deliberately helper-free (no `print`, no arena, no entry
+stub, no syscall tail), so they are not runnable programs. Floats, arrays,
+`for-in`, `len()`, arena, string ops, `push`, records, maps, the `_start`
+stub, the Linux syscall tail and the Win64/kernel32 PEB boundary all remain
+open 151A work. `kccOwnsNativeTargets` stays `false`.
+
+Also completed: **151A Step 2 — integer statement/expression lowering in kcc**
+(increment 151, slice A step 2; verdict **COMPLETE**; NOT a numbered phase, NOT
+parity, and NOT execution evidence). Step 1 built the value/frame half and left
+it **unconsumed**; Step 2 makes int statements and expressions actually lower so
+the frame layout is read on the default path. Scope: `let` of an int, int `+ - *`,
+unary minus, all six comparisons as real branches, `return`, the `jmp` to the
+`$ret` label the oracle emits after **every** return (`program.go:3386`), and the
+`if !returned` zero fallback. Floats, arrays, `for-in`, arena, string ops, `push`,
+records and maps are **still not claimed**. Gate `pkg/cli/phase151a2_int_test.go`
+14/14 PASS as the same **four-layer differential** Step 1 used (containment in the
+oracle's `.text` which the oracle *compiled* from the same source; frame numbers
+derived independently; bytes stated from the Intel SDM; a refusal table).
+
+**Four defects found; two were real, and one had been latent since Step 1.**
+(1) **`natFrBinTemp()` returned the scratch region's END, not its start** — it
+stored `localBytes + recArgBytes + binTempBytes`, so every staged operand landed
+512 bytes too high (kcc `[rsp+0x210]` vs oracle `[rsp+0x10]`). Latent through all
+of Step 1 because nothing emitted through `binTemp` and Step 1's layout corpus
+printed only `frame`/`strTemp`/`mapStage`/slot offsets. Fixing it turned all six
+comparison cases green at once, which is the signature identifying it as the
+single cause. (2) **Unary minus incremented the scratch depth**; the oracle's
+`emitReturn` calls `emitExpr(value, 0)` and `UnaryExpr` passes the *same* depth.
+(3) **A wrong expectation in the test, not the code**: two corpus cases declared
+`nLocals: 1` for sources containing no `let`, so the oracle correctly allocates
+no local and its frame is 608, not 616 — the frame layer reported the oracle's
+own correct frame as wrong. The 151B lesson recurring; a baseline with wrong
+expectations is worse than none, and the value is now measured. (4) **The `mov
+r64, r64` stated bytes were backwards** (ModRM 0xC8 vs 0xC1), caught by the third
+layer reporting that the *oracle* disagreed with the stated bytes; `89 /r` puts
+the source in `reg` and the destination in `rm`, and kcc was right in both
+attempts. **Non-vacuity measured**: reverting defect (1) reproduces the pre-fix
+signature exactly (3 int + 6 comparison failures) and the fix restores 14/14.
+KIR pin re-measured **10838 → 11040** (`karkain kir --verify` 11040/11040, never
+hand-edited); `TestPhase122_PipelineOwnership/KIRContinuity` PASS 334 s. Regressions
+green: all 43 `TestPhase151*` in `pkg/cli` + `pkg/native` (Step 1's own gates
+unchanged), full `pkg/native`, `go build ./...`, `go vet ./pkg/cli ./pkg/native
+./cmd/karkain`. CI gains a **separate** step: `'TestPhase151A_'` does not match
+`'TestPhase151A2_'`, so a Step 2 regression cannot hide behind a green Step 1 step.
+**Still NOT claimed:** no whole-image parity and **no execution evidence** — these
+are function bodies, not runnable programs (no entry stub, no syscall tail, no PEB
+bootstrap, no `print`), so the argument remains transitive. `kccOwnsNativeTargets`
+stays `false`; 151A is **not** closed. Audit note: `docs/audit/PHASE-151A-BASELINE.md`
+§9.
 
 Also completed: **151A-1 — the native decision moves into kcc** (increment 151,
 sub-slice; verdict **COMPLETE**, and explicitly **not** parity). 151D-first made
@@ -2340,3 +2515,95 @@ CLOSED rather than restated, and it is the hardest per the baseline's risk
 register (PEB bootstrap, IAT, DIR64 relocations, 16-byte alignment).
 Report: `docs/audit/PHASE-151C2-MACHO-CONTAINER-FINAL-REPORT.md`. **Next:
 151C3 (PE), then 151A (the value model), then 151D.**
+
+Also completed: **151C3 — the PE32+ container writer in kcc** (increment 151,
+slice C3; verdict **COMPLETE — PE32+**, and the last of the three containers).
+PE is the one that matters most for the increment's purpose: it is the only
+container a Windows loader will accept and run, so it is the one whose
+structural evidence is worth the most. New `src/compiler/native_pe.kark`: the
+DOS header, PE signature, COFF header, PE32+ optional header, three section
+headers, the `.idata` body (IDT/ILT/IAT/Hint-Name/kernel32.dll), `.reloc`
+DIR64 blocks, and the four patch-class resolutions. The four patch lists are
+FLAT `[pos, value]` arrays rather than records because Karkain has no
+structs, and they are kept as FOUR lists rather than one list carrying a kind
+so the differential compares like with like. New `native-pe` subcommand +
+Go-side dispatch (`KCCNativePECommand`), reusing the shared `kccSubcommand`
+helper. **Three layout facts that are traps rather than choices**: `.idata`
+is not optional and MUST be writable (the loader writes resolved addresses
+into the IAT; a read-only `.idata` fails the load with ERROR_BAD_EXE_FORMAT,
+Phase 149 via objdump) and the arena rides inside it, which avoids a fourth
+section; `.reloc` is not decoration (the host loader rebases even with no
+relocation table — Phase 149 measured a live base of 0x7FF6... instead of the
+linked 0x140000000 — so every absolute movabs is stale without DIR64 fixups);
+and **the headers occupy EXACTLY 0x200** (`0x80+4+20+240+3*40 = 512`), so
+there is ZERO slack and the writer refuses if header growth ever overflows
+it rather than truncating. Only three data directories are claimed — import,
+base relocation, IAT — and only those three are generated. A parameter named
+`raw` had to be renamed `rawSize` because **`raw` is a reserved word** in this
+language (the `@raw` escape hatch) and the parse error names the token, not
+the parameter.
+
+Gate `pkg/native/phase151c3_pe_test.go` 9/9 PASS as a **differential against
+the real `native.LinkPE`**, with all four patch classes at **distinct** .text
+sites so a last-writer-wins bug is visible. It lives in `package native`
+rather than `pkg/cli` because `LinkPE` takes a `*Builder` whose
+patches/ipatches/apatches/hpatches fields are **unexported**, so a pkg/cli
+gate cannot construct a Builder with a chosen patch set. Byte identity held on
+all three cases on the first run after the inputs were corrected. The
+**independent structural oracle** (`peRead`/`peValidate`) is written from the
+PE/COFF specification, not from the writer: it reads every field at a
+hand-derived offset with le16/le32/le64 and recomputes every relationship,
+never calling LinkPE, natPELink, or any writer helper. It checks MZ,
+e_lfanew, PE\0\0, COFF machine/section count/timestamp/optional size/
+characteristics, optional magic, the 64-bit ImageBase, both alignments,
+subsystem and its minimum version (0 fails the load on Windows 11, Phase 149),
+DllCharacteristics, NumberOfRvaAndSizes, the three claimed directories,
+SizeOfHeaders covering the headers and file-aligned, each section's name/RVA/
+characteristics/both alignments, raw extents inside the file, .text not
+overlapping the headers, **no two sections overlapping**, SizeOfImage covering
+the virtual high-water mark and section-aligned, BaseOfCode, the entry inside
+.text, and SizeOfCode/SizeOfInitializedData against the section table.
+**Mutation verification: 15 single-field mutations plus a raw-extent mutation,
+all rejected** — and the table is also mutation-verified against the WRITER
+(writing the raw file offset instead of converting to an RVA fails the
+differential on all three cases). **One finding worth generalising: six of
+the thirteen first-draft mutations were NO-OPS.** They poked a single low byte
+at fields whose low byte was already 0 or already equal to the written value
+— SectionAlignment 0x1000, FileAlignment 0x200, SizeOfImage 0x3000,
+SizeOfHeaders 0x200, and Machine's low byte is already 0x64 — so writing 0x00
+changed nothing and the validator correctly accepted an UNMUTATED image, which
+reads exactly like a validator bug. **A mutation that changes no bytes cannot
+demonstrate anything**; the table now writes 32-bit values and the trap is
+documented in the test. Two further wrong expectations, both mine and both in
+the test: three header fields were read with le32 when they are 16-bit (so
+Machine read 0x038664, SizeOfOptionalHeader 0x002200f0, Subsystem 0x01600003 —
+PE32+ mixes 2- and 4-byte header fields, so the width is part of the
+definition), and SizeOfImage was asserted as the literal 0x3000 when the real
+high-water mark (reloc RVA + 16-byte block = 12304) rounds UP to 0x4000. The
+three size fields are now RECOMPUTED from the section table rather than
+asserted, because a literal there is a guess dressed as a requirement.
+
+**Execution evidence is stated separately and NOT claimed: PE structural
+validity was verified; execution of newly generated Phase-151C3 images was
+not established by this phase.** The reference .text is four bare `mov`
+instructions — no entry stub, no syscall tail, no PEB bootstrap — so there is
+nothing a Windows loader could usefully run.
+`TestPhase151C3_PEExecutionStatus` records this in code so it cannot be
+quietly upgraded later, and the existing PE execution evidence (increments
+145-150) is explicitly NOT substituted: those images were produced by the GO
+writer. **CI: wired, and named explicitly** rather than left implicit — the
+existing `go test ./pkg/native/ -count=1` step would have picked it up, but
+relying on that is exactly how 151P0/151B/151C/151C2 shipped without ever
+executing in CI. Regressions green: `go build ./...`, `go vet ./pkg/... ./cmd/...`,
+`pkg/native`, Phase 151/151B/151C/151C2/150D/148 gates, Phase 122 KIRContinuity
+with the pin re-pinned **10264 -> 10530**, and the kcc self-check clean.
+**Scope:** no backend, encoder, Value Model, semantic analysis,
+ownership/borrow, error model, debugger/DAP, memory-model, Phase 152 or
+`kccOwnsNativeTargets` work. `VERSION` unchanged, Phase 152 untouched, no new
+phase number invented, and the **Language Hardening Checkpoint was NOT
+started**. Report:
+`docs/audit/PHASE-151C3-PE-CONTAINER-FINAL-REPORT.md`. **Increment 151 now
+has all four mechanisms the baseline asked for** — 151B the encoder, 151C ELF,
+151C2 Mach-O, 151C3 PE — all byte-identical to the Go oracle. What remains
+inside 151 is **151A, the value model**, which is what actually produces the
+bytes these four serialise.

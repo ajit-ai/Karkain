@@ -1,0 +1,20 @@
+// LH-1: `?` also propagates Option None and unwraps Some, exercising the
+// operator's TYPE_OPTION branch on both arms. use(50) must propagate None out
+// of `use` (so the "CONTINUED" print never runs) and the None reaches main.
+func maybe(n) {
+    if (n > 10) { return None }
+    return Some(n * 2)
+}
+
+func use(n) {
+    let v = maybe(n)?
+    print("CONTINUED")
+    return v + 1
+}
+
+func main() {
+    print(use(5))
+    print(use(50))
+    print(maybe(7))
+    print(maybe(50))
+}

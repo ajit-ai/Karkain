@@ -1,0 +1,13 @@
+// LH-2 Test A: an Ok arm binding makes n available inside that arm.
+func f(x) {
+    if (x > 0) { return Ok(42) }
+    return Err("bad")
+}
+
+func main() {
+    let r = f(1)
+    match r {
+        Ok(n) => { print(n) },
+        Err(e) => { print("unexpected") },
+    }
+}

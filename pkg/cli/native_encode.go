@@ -79,6 +79,78 @@ func KCCNativeMachOCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-macho")
 }
 
+// KCCNativePECommand runs the self-hosted PE32+ container writer over its
+// reference cases and returns the images as hex.
+//
+// Increment 151C3, same contract as the other three. PE is the only one of
+// the four containers that a Windows loader will accept and RUN, which is
+// exactly why the structural evidence here is worth as much as it is: the
+// earlier native images are executed by the increment 145-150 PE gates, and
+// those images were produced by the Go writer.
+func KCCNativePECommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-pe")
+}
+
+// KCCNativeValueCommand runs the self-hosted native value/frame foundation
+// (increment 151A Step 1, src/compiler/native_value.kark) over its two
+// reference programs and returns the machine code as hex, one line each.
+//
+// Same contract as the four above: the cases are compiled into kcc, the Go
+// side never reimplements the layout, and the gate compares kcc's bytes
+// against pkg/native, which is the oracle. The reference programs are
+// deliberately helper-free -- no print, no arena, no entry stub -- because
+// those belong to later 151A slices and depending on them here would make
+// this slice's evidence unreachable.
+func KCCNativeValueCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value")
+}
+
+// KCCNativeValueLayoutCommand returns the frame arithmetic as text.
+//
+// The bytes alone are not sufficient evidence for a frame layout: if kcc and
+// the oracle computed the SAME wrong offset, their bytes would still agree.
+// This surface exposes the offsets themselves so the gate can compare them
+// against values derived independently in the test.
+func KCCNativeValueLayoutCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-layout")
+}
+
+// KCCNativeValuePrimCommand renders each encoder opcode this slice added on
+// its own, so a mismatch names the primitive instead of pointing at a whole
+// function body. Compared three ways in the gate: against the Go oracle's
+// identically named Emitter method, and against the bytes stated from the
+// Intel SDM.
+func KCCNativeValuePrimCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-prims")
+}
+
+// KCCNativeValueIntCommand is increment 151A Step 2: the self-hosted integer
+// statement/expression lowering. Returns the machine code of the
+// straight-line integer reference programs, one line each.
+//
+// The surface is the ORACLE's, not the language's. The Go implementation
+// lowers only +, - and * for integers and refuses everything else, and a
+// comparison is a branch rather than a value; those limits are reproduced
+// rather than widened, so this command is deliberately smaller than the
+// language's integer surface.
+func KCCNativeValueIntCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-int")
+}
+
+// KCCNativeValueCmpCommand returns the six integer comparisons, one program
+// per operator, so a mismatch names the operator whose jump opcode is wrong.
+func KCCNativeValueCmpCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-cmp")
+}
+
+// KCCNativeValueRefuseCommand returns the integer diagnostics the oracle
+// raises for constructs it does not lower. These are DATA, not build
+// failures: the gate asserts kcc refuses exactly what the oracle refuses, so
+// narrowing the surface must stay visible.
+func KCCNativeValueRefuseCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-refuse")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //
