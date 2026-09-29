@@ -335,6 +335,73 @@ jobs:
         with:
           go-version: '1.21'
 
+      # TEMPORARY DIAGNOSTIC - installs nothing, changes nothing, and is
+      # expected to be deleted once the runner's toolchain is known.
+      #
+      # It runs BEFORE the GMP step on purpose: the previous GMP attempt
+      # failed at `shell: msys2 {0}` with "msys2: command not found", which
+      # only proves the custom shell is unregistered -- it says nothing about
+      # which compiler the runner actually provides. The original failure
+      # (`gmp.h: No such file or directory`) came from a gcc invocation, so a
+      # gcc IS present and lacks GMP headers; that is what this establishes.
+      #
+      # Every command is guarded and the step is continue-on-error, so a
+      # missing toolchain is REPORTED rather than turned into a new failure.
+      - name: "Diagnostic: native Windows compiler toolchain"
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host "===== 1. GCC ====="
+          $gcc = Get-Command gcc -ErrorAction SilentlyContinue
+          if ($gcc) {
+            Write-Host ("gcc path: " + $gcc.Source)
+            try { (gcc --version 2>&1 | Out-String).Trim() | Write-Host } catch { Write-Host ("gcc --version failed: " + $_.Exception.Message) }
+          } else {
+            Write-Host "gcc: NOT FOUND on PATH"
+          }
+
+          Write-Host "===== 2. CLANG ====="
+          $clang = Get-Command clang -ErrorAction SilentlyContinue
+          if ($clang) {
+            Write-Host ("clang path: " + $clang.Source)
+            try { (clang --version 2>&1 | Out-String).Trim() | Write-Host } catch { Write-Host ("clang --version failed: " + $_.Exception.Message) }
+          } else {
+            Write-Host "clang: NOT FOUND on PATH"
+          }
+
+          Write-Host "===== 3. MSVC (cl) ====="
+          $cl = Get-Command cl -ErrorAction SilentlyContinue
+          if ($cl) {
+            Write-Host ("cl path: " + $cl.Source)
+            try { (cl 2>&1 | Out-String).Trim() | Write-Host } catch { Write-Host ("cl failed: " + $_.Exception.Message) }
+          } else {
+            Write-Host "cl: NOT FOUND on PATH (expected outside a VS developer prompt)"
+          }
+
+          Write-Host "===== 4. MSYS2 PATHS (existence only; pacman is NOT run) ====="
+          foreach ($p in @("C:\msys64", "C:\msys64\usr\bin\bash.exe", "C:\msys64\ucrt64\bin\gcc.exe", "C:\msys64\ucrt64\bin\pacman.exe")) {
+            Write-Host ($p + " : " + (Test-Path -LiteralPath $p))
+          }
+
+          Write-Host "===== 5. ENVIRONMENT ====="
+          foreach ($v in @("CC", "CXX")) {
+            $val = [Environment]::GetEnvironmentVariable($v)
+            if ([string]::IsNullOrEmpty($val)) { Write-Host ($v + " : <unset>") } else { Write-Host ($v + " : " + $val) }
+          }
+          Write-Host ("PATH : " + $env:PATH)
+
+          Write-Host "===== 6. DOES THE GCC ABOVE SEE gmp.h? (read-only probe) ====="
+          $tmpdir = Join-Path $env:RUNNER_TEMP "gmpprobe"
+          New-Item -ItemType Directory -Path $tmpdir -Force | Out-Null
+          $probe = Join-Path $tmpdir "probe.c"
+          Set-Content -LiteralPath $probe -Value "#include <gmp.h>`nint main(void){return 0;}" -Encoding ascii
+          if ($gcc) {
+            $pre = (gcc -E $probe 2>&1 | Out-String)
+            if ($LASTEXITCODE -eq 0) { Write-Host "gmp.h: FOUND by this gcc" } else { Write-Host ("gmp.h: NOT FOUND by this gcc -- " + $pre.Trim()) }
+          } else {
+            Write-Host "gmp.h: unknown, no gcc to probe with"
+          }
+
       # GMP for the self-hosted compiler's stage-1 build.
       #
       # The 151C3 PE tests compile src/compiler/*.kark into main.c and then
