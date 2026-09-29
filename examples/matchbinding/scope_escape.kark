@@ -1,0 +1,19 @@
+// LH-2 Test C / negative: an arm binding must NOT escape its arm. The final
+// print(n) is outside every match arm, so this program must be REJECTED by
+// both engines with an undefined-identifier diagnostic. It is never run.
+//
+// The positive fixtures in this directory deliberately use no match outside
+// the arm, so a scope leak is caught here rather than masked.
+func f(x) {
+    if (x > 0) { return Ok(42) }
+    return Err("bad")
+}
+
+func main() {
+    let r = f(1)
+    match r {
+        Ok(n) => { print(n) },
+        Err(e) => { print("x") },
+    }
+    print(n)
+}

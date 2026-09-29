@@ -464,6 +464,54 @@ func checkStmts(tab, list, loop) {
     }
 }
 
+// LH-2: check one match arm's body with its pattern binding in scope.
+//
+// Before this, the arm body was checked with the binding absent from the
+// locals table, so every reference to it was reported as K102 undefined
+// identifier -- even though the code generator already lowered the binding
+// correctly (codegen.kark emits `Value <name> = <payload>;` inside the arm's
+// own block, exactly as the Go engine does). The defect was purely semantic.
+//
+// The binding is visible inside the arm and does NOT escape it: the enclosing
+// locals are copied, the binding added, the body checked, and the original
+// locals restored. That gives an arm-local scope without introducing the
+// push/pop machinery the checker's flat locals array does not have, and it
+// keeps separate arms independent (each save/restore is its own scope).
+//
+// Only the pattern kinds that actually declare a name are added, mirroring
+// the Go generator: Some/Ok/Err carry a payload name and `x => ...` binds the
+// matched value itself. enum_variant carries "Enum.Variant" as a *pattern*,
+// never as a variable; literal and wildcard bind nothing.
+func ckCheckArmBody(tab, arm, loop) {
+    let pt = armPatternType(arm)
+    let b = armBinding(arm)
+    let binds = 0
+    if (b != "" && b != "_") {
+        if (pt == "Some" || pt == "Ok" || pt == "Err" || pt == "binding") { binds = 1 }
+    }
+
+    let saved = ckLocals(tab)
+    // Reset tab[4] to a FRESH array before copying. ckLocalAdd appends to
+    // tab[4], and `saved` still references the old array -- copying without
+    // this reset appends into the very array being iterated, so len(saved)
+    // grows on every step and the loop never ends. Observed directly: kcc died
+    // with heap corruption (0xC0000374) and an access violation (0xC0000005) on
+    // ANY program containing a match. This is the same discipline the function
+    // scope above uses.
+    tab[4] = []
+    let i = 0
+    while (i < len(saved)) {
+        ckLocalAdd(tab, saved[i])
+        i = i + 1
+    }
+    if (binds == 1) { ckLocalAdd(tab, b) }
+
+    let body = armBody(arm)
+    if (getNodeType(body) == "Block") { checkStmts(tab, blockStmts(body), loop) }
+
+    tab[4] = saved
+}
+
 func checkStmt(tab, s, loop) {
     // Empty nodes arrive from constructs the self-hosted parser cannot fully
     // realize (e.g. a bare `return` yields an empty value node). They carry no
@@ -626,8 +674,7 @@ func checkStmt(tab, s, loop) {
                 }
             }
             if (armPatternValue(arm) != []) { checkExpr(tab, armPatternValue(arm), loop) }
-            let body = armBody(arm)
-            if (getNodeType(body) == "Block") { checkStmts(tab, blockStmts(body), loop) }
+            ckCheckArmBody(tab, arm, loop)
             a = a + 1
         }
         return
@@ -709,8 +756,7 @@ func checkExpr(tab, e, loop) {
                 }
             }
             if (armPatternValue(arm) != []) { checkExpr(tab, armPatternValue(arm), loop) }
-            let body = armBody(arm)
-            if (getNodeType(body) == "Block") { checkStmts(tab, blockStmts(body), loop) }
+            ckCheckArmBody(tab, arm, loop)
             a = a + 1
         }
         return

@@ -1,0 +1,45 @@
+// LH-2 Test D: separate arms carry independent bindings, and a second match
+// reuses different names without colliding. Also covers Option Some/None
+// bindings.
+//
+// The match value is bound to a local first: a match whose value is a call
+// expression (`match f(1) { ... }`) is a pre-existing Go parser limitation and
+// is deliberately avoided here so the fixture isolates arm bindings.
+//
+// A bare-identifier pattern (`z => { ... }`) is NOT covered: the Go parser
+// advances past the identifier before testing for `=>` (pkg/parser/parser.go
+// 1779), so it consumes the arrow and then reports "expected '=>' in match
+// arm". That is a pre-existing Go parser defect with no Result or Option
+// involved, and fixing it is outside LH-2.
+func f(x) {
+    if (x > 0) { return Ok(42) }
+    return Err("bad")
+}
+
+func g(x) {
+    if (x > 0) { return Some(7) }
+    return None
+}
+
+func main() {
+    let r1 = f(1)
+    match r1 {
+        Ok(a) => { print(a) },
+        Err(b) => { print("e") },
+    }
+    let r2 = f(0)
+    match r2 {
+        Ok(c) => { print("o") },
+        Err(d) => { print(d) },
+    }
+    let r3 = g(1)
+    match r3 {
+        Some(v) => { print(v) },
+        None => { print("none") },
+    }
+    let r4 = g(0)
+    match r4 {
+        Some(w) => { print("some") },
+        None => { print("n") },
+    }
+}

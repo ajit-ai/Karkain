@@ -91,14 +91,17 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// Ok/Err/Some/None cases in parsePrimary, and the Result/Option
 		// constructors and accessors in ast.kark; kir verify passes on the new
 		// count);
+		// and now to 10626 (LH-2, kcc `match` arm binding parity: the
+		// arm-local binding scope helper ckCheckArmBody in checker.kark, used
+		// by both Match branches; kir verify passes on the new count);
 		// the pin is refreshed to the validated current value.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 10611 {
-			t.Errorf("whole-tree kir text = %d lines, want 10611:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 10626 {
+			t.Errorf("whole-tree kir text = %d lines, want 10626:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

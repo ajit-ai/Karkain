@@ -250,6 +250,12 @@ jobs:
       - name: Run LH-1 kcc propagation parity gate
         run: go test ./pkg/cli/ -run 'TestLH1_' -count=1 -timeout 30m
 
+      # LH-2, kcc `match` arm binding parity: the second authorized slice of
+      # the Language Hardening Checkpoint. Named explicitly for the same
+      # reason as the gates above.
+      - name: Run LH-2 kcc match-binding parity gate
+        run: go test ./pkg/cli/ -run 'TestLH2_' -count=1 -timeout 30m
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 
