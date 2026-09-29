@@ -402,6 +402,90 @@ jobs:
             Write-Host "gmp.h: unknown, no gcc to probe with"
           }
 
+      # TEMPORARY DIAGNOSTIC (read-only) - is there ALREADY a usable GMP under
+      # C:\vcpkg that matches this runner's C:\mingw64\bin\gcc.exe?
+      #
+      # Proven so far: the runner's gcc is standalone MinGW-w64 (MinGW-Builds
+      # 15.2.0), C:\msys64\ucrt64 does not exist, and that gcc cannot find
+      # gmp.h. C:\vcpkg is on PATH. This establishes whether vcpkg already
+      # carries a compatible GMP, WITHOUT installing anything.
+      #
+      # Include and library directories are DERIVED from where files are
+      # actually found, never guessed. Every command is guarded and the step is
+      # continue-on-error, so absence is REPORTED rather than turned into a
+      # failure.
+      - name: "Diagnostic: vcpkg GMP availability (read-only)"
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host "===== 1. VCPKG PRESENT? ====="
+          Write-Host ("C:\vcpkg            : " + (Test-Path -LiteralPath "C:\vcpkg"))
+          $vexe = "C:\vcpkg\vcpkg.exe"
+          $hasVexe = Test-Path -LiteralPath $vexe
+          Write-Host ("C:\vcpkg\vcpkg.exe  : " + $hasVexe)
+          if ($hasVexe) {
+            try { (& $vexe version 2>&1 | Out-String).Trim() | Write-Host } catch { Write-Host ("vcpkg version failed: " + $_.Exception.Message) }
+          }
+
+          Write-Host "===== 2. gmp.h UNDER C:\vcpkg ====="
+          $hdrs = @(Get-ChildItem "C:\vcpkg" -Filter "gmp.h" -Recurse -ErrorAction SilentlyContinue)
+          if ($hdrs.Count -eq 0) { Write-Host "gmp.h: NONE FOUND under C:\vcpkg" }
+          else { $hdrs | Select-Object -First 20 | ForEach-Object { Write-Host ("  " + $_.FullName) } ; Write-Host ("  total matches: " + $hdrs.Count) }
+
+          Write-Host "===== 3. GMP LIBRARIES UNDER C:\vcpkg ====="
+          foreach ($n in @("libgmp.a", "libgmp.dll.a", "gmp.lib", "gmp.dll", "libgmp-10.dll")) {
+            $hits = @(Get-ChildItem "C:\vcpkg" -Filter $n -Recurse -ErrorAction SilentlyContinue)
+            if ($hits.Count -eq 0) { Write-Host ($n + " : none") }
+            else { Write-Host ($n + " : " + $hits.Count + " match(es)"); $hits | Select-Object -First 8 | ForEach-Object { Write-Host ("    " + $_.FullName) } }
+          }
+
+          Write-Host "===== 4. INSTALLED PACKAGES ====="
+          if ($hasVexe) {
+            try { ((& $vexe list 2>&1 | Out-String).Trim() -split "`n" | Select-Object -First 40) -join "`n" | Write-Host } catch { Write-Host ("vcpkg list failed: " + $_.Exception.Message) }
+          }
+
+          Write-Host "===== 5. GMP PORT PRESENT? ====="
+          foreach ($p in @("C:\vcpkg\ports\gmp", "C:\vcpkg\ports\gmp\portfile.cmake", "C:\vcpkg\ports\gmp\CONTROL")) {
+            Write-Host ($p + " : " + (Test-Path -LiteralPath $p))
+          }
+
+          Write-Host "===== 6. MINGW TRIPLETS DEFINED IN THIS INSTALLATION ====="
+          $trip = @()
+          foreach ($d in @("C:\vcpkg\triplets", "C:\vcpkg\triplets\community")) {
+            if (Test-Path -LiteralPath $d) { $trip += @(Get-ChildItem $d -Filter "*.cmake" -ErrorAction SilentlyContinue) }
+          }
+          if ($trip.Count -eq 0) { Write-Host "no triplet definitions found" }
+          else { $trip | Where-Object { $_.Name -match "mingw" } | ForEach-Object { Write-Host ("  " + $_.Name) } ; Write-Host ("  total triplets: " + $trip.Count) }
+
+          Write-Host "===== 7. READ-ONLY COMPILE/LINK PROBE WITH THE RUNNER'S gcc ====="
+          $gccPath = "C:\mingw64\bin\gcc.exe"
+          if (-not (Test-Path -LiteralPath $gccPath)) {
+            Write-Host "runner gcc not present at $gccPath -- cannot probe"
+          } elseif ($hdrs.Count -eq 0) {
+            Write-Host "no gmp.h under C:\vcpkg, so there is nothing to probe against. NOT manufacturing paths."
+          } else {
+            $inc = $hdrs[0].DirectoryName
+            $libdir = $null
+            foreach ($n in @("libgmp.dll.a", "libgmp.a", "gmp.lib")) {
+              $h = @(Get-ChildItem "C:\vcpkg" -Filter $n -Recurse -ErrorAction SilentlyContinue)
+              if ($h.Count -gt 0) { $libdir = $h[0].DirectoryName; Write-Host ("using library: " + $h[0].FullName); break }
+            }
+            $tmpd = Join-Path $env:RUNNER_TEMP "gmpprobe2"
+            New-Item -ItemType Directory -Path $tmpd -Force | Out-Null
+            $src = Join-Path $tmpd "probe.c"
+            Set-Content -LiteralPath $src -Value "#include <gmp.h>`nint main(void){ mpz_t z; mpz_init_set_ui(z, 7); return (int)mpz_get_ui(z); }" -Encoding ascii
+            Write-Host ("include dir (derived): " + $inc)
+            Write-Host ("library dir (derived): " + $(if ($libdir) { $libdir } else { "<none found>" }))
+            $preOut = (& $gccPath -I $inc -c $src -o (Join-Path $tmpd "probe.o") 2>&1 | Out-String).Trim()
+            Write-Host ("COMPILE: " + $(if ($LASTEXITCODE -eq 0) { "OK" } else { "FAILED -- " + $preOut }))
+            if ($LASTEXITCODE -eq 0 -and $libdir) {
+              $lnOut = (& $gccPath (Join-Path $tmpd "probe.o") -o (Join-Path $tmpd "probe.exe") -L $libdir -lgmp 2>&1 | Out-String).Trim()
+              Write-Host ("LINK: " + $(if ($LASTEXITCODE -eq 0) { "OK" } else { "FAILED -- " + $lnOut }))
+            } else {
+              Write-Host "LINK: not attempted (no library dir, or compile failed)"
+            }
+          }
+
       # GMP for the self-hosted compiler's stage-1 build.
       #
       # The 151C3 PE tests compile src/compiler/*.kark into main.c and then
