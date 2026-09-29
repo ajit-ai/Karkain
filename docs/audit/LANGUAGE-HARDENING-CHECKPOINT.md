@@ -228,12 +228,47 @@ authorised for implementation:
 
 | Slice | Confirmed defect | Status |
 |---|---|---|
-| **LH-1** | kcc `?` propagation parity. The self-hosted engine has `TK_QUESTION`, `NODE_PROPAGATE` and a parser case, but `src/compiler/codegen.kark` has **no** case for it, so the operator is parsed and then lowered to nothing. The Go engine propagates correctly. | **AUTHORIZED / NOT STARTED** |
+| **LH-1** | kcc `?` propagation parity. The operator was parsed and then lowered to nothing. The Go engine propagates correctly. | **COMPLETE** |
 | **LH-2** | kcc `match` binding parity. Match-arm bindings are rejected on the self-hosted engine with `error[K102] undefined identifier`, so the idiomatic way to consume a `Result` is unavailable there while it works on the Go engine. | **AUTHORIZED / NOT STARTED** |
 
 Both are **implementation slices under this checkpoint, not new numbered
 phases.** They carry no number, do not redefine any phase, and do not alter the
 `1.2.0` closure conditions.
+
+### LH-1 closure (implementation `5dcdd80`)
+
+The audit's description of LH-1 was **partly inaccurate**, and the correction
+matters for anyone re-deriving the fix:
+
+- The construct is **not** carried by `NODE_PROPAGATE`. kcc's parser lowers
+  postfix `?` to a `UnaryExpr` whose operator is `?`, so `NODE_PROPAGATE` (57)
+  and its `Propagate` type name are **dead on the lowering path**. That is why
+  searching `codegen.kark` for a `NODE_PROPAGATE` case finds nothing, and why
+  adding one there would have changed nothing. The lowering belongs in the
+  `UnaryExpr` branch.
+- A **second, previously unrecorded** defect was the actual blocker: kcc had
+  no *expression*-level `Ok`/`Err`/`Some`/`None`. Those four tokens were
+  consumed only in `parseMatchExpr`'s arm-**pattern** position, so in
+  expression position the constructor was dropped and only the parenthesised
+  payload survived. A kcc-compiled program therefore could not build a
+  `Result` or `Option` value at all, leaving `?` with nothing to inspect or
+  propagate. This was verified with a program containing **no `?` anywhere**,
+  where `return Ok(5)` produced `return mk_nil()` plus a dead trailing
+  statement.
+
+Evidence:
+
+- Focused local gate: **11/11 PASS** (`TestLH1_`), covering successful
+  propagation, error propagation, three-boundary nesting, `Option` `Some`/`None`,
+  and `?` in call-argument, nested and arithmetic positions, on both engines.
+- CI: `CI/CD` run **36502124716**, job **Test**, step *Run LH-1 kcc propagation
+  parity gate* — **success**.
+- The CI step is **non-vacuous**: it reports `ok karkain/pkg/cli` with **no**
+  `[no tests to run]` marker, and a deliberately non-matching pattern is
+  confirmed to print that marker.
+- Mutation-verified: disabling the `?` lowering makes four independent tests
+  fail and reproduces the original diagnostic verbatim.
+- The whole-tree KIR pin moved 10530 → 10611, with `kir verify` passing.
 
 **Not yet authorised.** Every other audit finding remains evidence only,
 including: the absence of a whole-program type-checking pass on any backend;

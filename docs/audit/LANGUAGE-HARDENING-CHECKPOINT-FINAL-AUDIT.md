@@ -520,3 +520,41 @@ The project owner authorized LH-1 and LH-2 only, as implementation slices
 under the Language Hardening Checkpoint — not as new numbered phases. Nothing
 in this audit was implemented, and the remaining findings stay evidence until
 separately approved.
+
+---
+
+## LH-1 status update (2026-09-29)
+
+The note above is retained as the authorization record. LH-1 has since been
+implemented and closed:
+
+```text
+LH-1  (kcc `?` propagation parity)   COMPLETE
+LH-2  (kcc `match` binding parity)    AUTHORIZED / NOT STARTED
+All other audit findings             NOT CURRENTLY AUTHORIZED
+```
+
+```text
+Implementation:   5dcdd80  feat: fix kcc question propagation
+Focused local gate: 11/11 PASS
+CI:                CI/CD run 36502124716, job Test,
+                   step "Run LH-1 kcc propagation parity gate" -- success
+```
+
+**§3 of this audit described LH-1 inaccurately, and the error is recorded here
+rather than quietly dropped.** The audit located the defect by searching
+`codegen.kark` for a `NODE_PROPAGATE` case. That search was correct but its
+conclusion was not: kcc's parser lowers postfix `?` to a `UnaryExpr` whose
+operator is `?`, so `NODE_PROPAGATE` (57) and the `Propagate` type name are
+**dead on the lowering path**. A case added for `NODE_PROPAGATE` would never
+have executed.
+
+The audit also did not record the defect that actually prevented the operator
+from working. kcc had no **expression-level** `Ok`/`Err`/`Some`/`None`; those
+tokens were consumed only in `parseMatchExpr`'s arm-pattern position, so in
+expression position the constructor was dropped and only the parenthesised
+payload survived. With no way to construct a `Result` or `Option` value, `?`
+had nothing to inspect or propagate. This was isolated with a program
+containing no `?` at all. Both defects were required for the operator's
+semantics, and both are gate-pinned.
+

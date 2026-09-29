@@ -185,15 +185,23 @@ implementation:
 
 | Slice | Deliverable | Status |
 |---|---|---|
-| **LH-1** | kcc `?` propagation parity — the self-hosted code generator has no case for `NODE_PROPAGATE`, so the operator is parsed and then lowered to nothing | **AUTHORIZED / NOT STARTED** |
+| **LH-1** | kcc `?` propagation parity — the postfix `?` was parsed and then lowered to nothing, so any program using it produced malformed C | **COMPLETE** |
 | **LH-2** | kcc `match` binding parity — match-arm bindings are rejected on the self-hosted engine with `error[K102]`, so idiomatic `Result` consumption is unavailable there | **AUTHORIZED / NOT STARTED** |
+
+LH-1 evidence:
+
+- Implementation: `5dcdd80` (`feat: fix kcc question propagation`).
+- Focused local gate: 11/11 PASS (`TestLH1_`).
+- CI: `CI/CD` run **36502124716**, job **Test**, step *Run LH-1 kcc propagation parity gate* — **success**. The step is non-vacuous: it reports `ok karkain/pkg/cli` **without** the `[no tests to run]` marker, and a deliberately non-matching pattern is confirmed to print that marker.
+- Root cause was two defects, not one. The lowering lived in the `UnaryExpr` branch, not a `NODE_PROPAGATE` case, because kcc's parser lowers postfix `?` to a `UnaryExpr` whose operator is `?` — so `NODE_PROPAGATE` (57) is dead on this path. Separately, kcc had no *expression*-level `Ok`/`Err`/`Some`/`None` (the four tokens were consumed only in `parseMatchExpr`'s arm-pattern position), so no `Result`/`Option` value could be constructed and `?` had nothing to propagate. Both were required; see the slice's own gate.
+- The whole-tree KIR pin moved 10530 → 10611, and `kir verify` passes on the new count.
 
 These are **implementation slices under the existing checkpoint, not new
 numbered phases**: no number is assigned, no phase is invented, Phase 152 is
 unaffected, and the `1.2.0` closure conditions in §4.1 are unchanged. Every
 other audit finding remains a finding and is **not** authorized. Implementation
 proceeds **one slice at a time**; LH-2 is not to be implemented together with
-LH-1 unless explicitly requested.
+LH-1 unless explicitly requested. **LH-2 is not started.**
 
 | Increment | Track | Deliverable | Gate / Definition of Done | Boundaries (not this increment) |
 |---|---|---|---|---|
