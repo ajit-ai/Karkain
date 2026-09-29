@@ -145,6 +145,39 @@ func main() {
         return
     }
 
+	// Phase 151A Step 1: the native value/frame foundation. Same
+	// measurement contract as the four above -- the cases are compiled into
+	// kcc and the gate compares against pkg/native, which is the oracle.
+	// `native-value` prints the machine code of the two reference programs;
+	// `native-value-layout` prints the frame arithmetic as text, so the gate
+	// can pin the layout numbers themselves and not only the bytes they
+	// produced.
+	if (command == "native-value") {
+        let v = 0
+        while (v < 2) {
+            print(natValueCorpus(v))
+            v = v + 1
+        }
+        return
+    }
+    if (command == "native-value-layout") {
+        let l = 0
+        while (l < 5) {
+            print(natValueLayoutCorpus(l))
+            l = l + 1
+        }
+        return
+    }
+    if (command == "native-value-prims") {
+        let p = 0
+        while (p < 11) {
+            print(natValuePrim(p))
+            p = p + 1
+        }
+        return
+    }
+
+
     if (command == "verifykir") {
         if (argc < 3) {
             print("Usage: karkain verifykir <file.kark>")

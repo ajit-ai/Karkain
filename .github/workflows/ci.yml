@@ -256,6 +256,13 @@ jobs:
       - name: Run LH-2 kcc match-binding parity gate
         run: go test ./pkg/cli/ -run 'TestLH2_' -count=1 -timeout 30m
 
+      # 151A Step 1, the native value/frame foundation in kcc. The three-way
+      # differential (kcc vs the Go oracle's Emitter vs bytes stated from the
+      # Intel SDM) is what makes the frame layout trustworthy, so this gate is
+      # named explicitly rather than left to an incidental broader step.
+      - name: Run 151A native value/frame foundation gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A_' -count=1 -timeout 30m
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 

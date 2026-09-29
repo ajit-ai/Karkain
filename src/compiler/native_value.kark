@@ -1,0 +1,343 @@
+// ============================================================
+// Native VALUE and FRAME foundation (Phase 151A Step 1)
+//
+// The Karkain counterpart of the value/frame half of the Go oracle in
+// pkg/native/program.go. The oracle is authoritative: this file is a PORT
+// and must reproduce its conventions exactly, because increment 151's
+// contract is that kcc's images are byte-identical to the Go oracle's.
+//
+// WHAT IS HERE, and nothing else:
+//
+//   1. The native value-kind model and kindUnits -- how many 8-byte frame
+//      units a kind occupies.
+//   2. The frame layout -- the ORDER and SIZING of the frame regions.
+//   3. Local-slot addressing -- the byte offset of a local of a given kind.
+//
+// The code GENERATION that consumes these (int lowering, float, arrays,
+// arena, strings, records, maps, the entry stub and syscall tails) is later
+// 151A work and is deliberately absent. This slice's whole job is that the
+// layout be right before any bytes depend on it.
+//
+// VALUES ARE STATICALLY KEDD AND UNBOXED. The roadmap's word "boxed" does
+// NOT mean a tagged runtime Value here: the Go oracle assigns each local a
+// compile-time kind and stores a raw 8-byte unit (or two, for string and
+// array) at [rsp+off]. There is no tag word, and none is introduced. The
+// TAGGED Value with TYPE_RESULT / resVal.tag belongs to the C path, which is
+// a different model entirely (it is what the `?` operator inspects), and it
+// must not leak into the native path.
+//
+// KindInt is 0 on purpose: the Go oracle makes it `iota` so that every
+// pre-150 default -- an untyped parameter, a missing return, an unknown slot
+// -- keeps meaning int without touching any of its logic. Every
+// "cannot determine the kind" path in the oracle returns 0, so preserving
+// that value is what keeps those paths working unchanged.
+//
+// STATE REPRESENTATION. Karkain has no structs, so the frame layout is
+// returned as one array with fixed slots (natFr*), the same discipline
+// native_emit.kark uses for the encoder and kir.kark uses for `lines`.
+// ============================================================
+
+// ============================================================
+// 1. Value kinds and their unit widths.
+// ============================================================
+
+// natKindInt .. natKindMap mirror the Go oracle's KindInt..KindMap. The
+// NUMBERS are the contract, because the oracle's `iota` numbering is what
+// every default in its code compares against.
+func natKindInt()    { return 0 }   // KindInt
+func natKindString() { return 1 }   // KindString
+func natKindFloat()  { return 2 }   // KindFloat
+func natKindArray()  { return 3 }   // KindArray
+func natKindStruct() { return 4 }   // KindStruct
+func natKindMap()    { return 5 }   // KindMap
+
+// natKindUnits returns the 8-byte frame/call slots a kind occupies.
+//
+//   int 1, float 1, bool 1 (a bool IS an int here), struct 1, map 1,
+//   string 2, array 2.
+//
+// string and array are TWO units (ptr+len); everything else is one. This is
+// the oracle's kindUnits verbatim. A record and a map are one unit because
+// the value IS the address of the field area / arena header, so neither
+// copies a byte when it is passed to a function.
+func natKindUnits(kind) {
+    if (kind == natKindString()) { return 2 }
+    if (kind == natKindArray()) { return 2 }
+    return 1
+}
+
+// natKindName renders a kind for diagnostics, matching the oracle's kindName.
+func natKindName(kind) {
+    if (kind == natKindString()) { return "string" }
+    if (kind == natKindFloat()) { return "float" }
+    if (kind == natKindArray()) { return "array" }
+    if (kind == natKindStruct()) { return "struct" }
+    if (kind == natKindMap()) { return "map" }
+    return "int"
+}
+
+// ============================================================
+// 2. Fixed frame-layout constants.
+//
+// These three are the oracle's, and they are load-bearing: changing any of
+// them changes every image.
+// ============================================================
+
+// natArgSpillBytes is the fixed caller-side argument spill area: 6 args x
+// (ptr+len) = 6 x 16 = 96 bytes, always reserved.
+func natArgSpillBytes() { return 96 }
+
+// natMaxBinDepth bounds nested binary-expression evaluation. It sizes
+// binTemp, and it is a CONSTANT in the oracle (64), not a computed maximum:
+// the frame must have the same size for every program so that a slot offset
+// never depends on the program being compiled.
+func natMaxBinDepth() { return 64 }
+
+// natBinTempBytes is the binary-operand scratch area: 8 bytes per depth.
+func natBinTempBytes() { return 8 * natMaxBinDepth() }
+
+// natStrTempBytes is the string staging area: FIVE 8-byte units per nesting
+// level. Five because a concat needs two operands, a result, and two length
+// temporaries staged at once.
+func natStrTempBytes() { return 8 * 5 * natMaxBinDepth() }
+
+// natMapStageBytes is the single frame unit that carries a map key across the
+// evaluation of its value.
+func natMapStageBytes() { return 8 }
+
+// ============================================================
+// 3. The frame layout.
+//
+// Slot indices into the array returned by natFrameLayout:
+//   0 localsEnd    1 binTemp   2 strTemp   3 mapStage
+//   4 extrasBase   5 next      6 frame
+// ============================================================
+
+func natFrLocals()  { return 0 }
+func natFrBinTemp() { return 1 }
+func natFrStrTemp() { return 2 }
+func natFrMapStage() { return 3 }
+func natFrExtras() { return 4 }
+func natFrNext()   { return 5 }
+func natFrFrame()  { return 6 }
+
+// natFrameLayout reproduces the oracle's layout() ordering and sizing for one
+// function. Every parameter is a fact the oracle computed, so this function
+// makes no decision of its own:
+//
+//   locals -> recArgAreas -> binTemp -> strTemp? -> mapStage? ->
+//   extrasBase -> Windows 16-byte rounding -> + argSpillBytes
+//
+// Parameters, in the oracle's terms:
+//   localBytes   the locals region already laid out (params first, then one
+//                slot per let, strings and arrays taking two units each)
+//   recArgBytes  Phase 150B3b record field areas for literals passed
+//                straight to a call; 0 when the program has none
+//   usesStr      true when the program has a concat / string-compare /
+//                string-slice / push / string-field operation
+//   usesMap      true when the program uses maps
+//   maxExtra     the largest caller-side extras-unit count over this
+//                function's call sites (Phase 148)
+//   isWindows    whether the target is Windows
+//
+// strTemp and mapStage are CONDITIONAL in the oracle, and unconditionally
+// reserving them would grow every frame that does not need them -- which
+// would break the byte-identity of every image that does not use strings or
+// maps. The conditionals are therefore part of the contract, not an
+// optimisation, and they are reproduced exactly.
+func natFrameLayout(localBytes, recArgBytes, usesStr, usesMap, maxExtra, isWindows) {
+    let next = localBytes + recArgBytes
+    next = next + natBinTempBytes()
+    let strTemp = 0
+    if (usesStr == 1) {
+        strTemp = next
+        next = next + natStrTempBytes()
+    }
+    let mapStage = 0
+    if (usesMap == 1) {
+        mapStage = next
+        next = next + natMapStageBytes()
+    }
+    let extrasBase = next
+    next = next + maxExtra * 8
+    // Phase 149: Win64 calls fault on a misaligned stack, so the frame is
+    // rounded to 16 on Windows. Linux never noticed, because syscalls do not
+    // care -- and gating this on Windows is what keeps Linux images
+    // byte-frozen.
+    if (isWindows == 1) {
+        if (next % 16 != 0) { next = next + 8 }
+    }
+    let frame = next + natArgSpillBytes()
+
+    let f = []
+    f = appendArray(f, localBytes)
+    f = appendArray(f, localBytes + recArgBytes + natBinTempBytes())
+    f = appendArray(f, strTemp)
+    f = appendArray(f, mapStage)
+    f = appendArray(f, extrasBase)
+    f = appendArray(f, next)
+    f = appendArray(f, frame)
+    return f
+}
+
+// ============================================================
+// 4. Local-slot addressing.
+// ============================================================
+
+// natLocalOff returns the byte offset of local `index` of `kind` within the
+// locals region.
+//
+// Locals are laid out in declaration order with no gaps and no alignment
+// padding: each occupies exactly kindUnits(kind) 8-byte units, so the offset
+// of a unit-1 local is 8*index and the two-unit kinds simply consume two.
+// That contiguity is why the oracle can address a slot with a compile-time
+// displacement and never needs a relocation for it.
+func natLocalOff(index, kind) {
+    return 8 * index * natKindUnits(kind)
+}
+
+// ============================================================
+// 5. The reference program bodies.
+//
+// Step 1's evidence is the machine code for the smallest programs that
+// exercise a frame and a local slot. There is deliberately no helper, no
+// `print`, no arena and no entry stub: those are later 151A work, and
+// including them would make this slice's evidence depend on slices that do
+// not exist yet.
+//
+// The two cases are:
+//
+//   one   `let x = 42`         one int local, stored, never read
+//   two   `let x = 42; let y = x`   two int locals, load slot 0, store slot 1
+//
+// `two` is the case that actually proves the foundation: it emits a load and
+// a store at two DIFFERENT compile-time displacements, so a wrong slot
+// ordering, a wrong unit width or a wrong displacement form shows up as a
+// different byte rather than as a coincidence.
+// ============================================================
+
+// The x86-64 register numbers, matching the Go oracle's Reg constants
+// (RAX = 0 ...). They are named because a bare 0 or 4 in an encoder is a
+// bug waiting to happen.
+func natRegRAX() { return 0 }
+func natRegRSP() { return 4 }
+
+// natValueMain emits the body of `main` for the reference program.
+// `nLocals` is 1 or 2; with 2 the second local copies the first.
+//
+// The sequence is the oracle's emitFunc prologue + one or two let
+// lowerings + the return, and nothing else:
+//
+//   sub rsp, frame          prologue
+//   mov rax, 42             the initialiser
+//   mov [rsp+slot], rax     bind the local
+//   mov rax, [rsp+slot]     (two locals only) read the first local
+//   mov [rsp+slot+8], rax   bind the second local
+//   xor rax, rax            the missing-return-yields-0 rule
+//   add rsp, frame          epilogue
+//   ret
+func natValueMain(nLocals) {
+    // One int local per declaration; int is one unit each, so the locals
+    // region is 8 bytes per local. Computed through natKindUnits rather
+    // than hard-coded, so the layout cannot drift away from the kind model.
+    let localBytes = 8 * nLocals * natKindUnits(natKindInt())
+    // recArgBytes 0 (no record literal is passed to a call),
+    // usesStr 0 and usesMap 0 (no string or map operation exists yet, so
+    // those two regions are NOT reserved -- the oracle's own conditionals),
+    // maxExtra 0 (no call site), isWindows 0 (the reference case is Linux,
+    // which never rounds).
+    let f = natFrameLayout(localBytes, 0, 0, 0, 0, 0)
+    let frame = f[natFrFrame()]
+
+    let s = natNewEmitter(0)
+    s = natSubRegImm32(s, natRegRSP(), frame)
+    s = natMovImm64(s, natMovImm64Op(natRegRAX()), 42)
+    s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+    if (nLocals == 2) {
+        s = natLoadStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natStoreStack(s, natRegRAX(), natLocalOff(1, natKindInt()))
+    }
+    s = natXorRegReg(s, natRegRAX())
+    s = natAddRegImm32(s, natRegRSP(), frame)
+    s = natRet(s)
+    return s
+}
+
+// natValueLayoutCorpus reports the layout facts as text, so the gate can pin
+// the frame arithmetic itself and not only the bytes it produced. These are
+// the numbers the oracle computes for the same inputs; the gate derives them
+// independently from first principles and compares BOTH the numbers and the
+// bytes, because a layout that is wrong in the same way on both sides would
+// still produce matching bytes.
+func natValueLayoutCorpus(which) {
+    if (which == 0) {
+        // one int local
+        let f = natFrameLayout(8, 0, 0, 0, 0, 0)
+        return "int1 units=" + natKindUnits(natKindInt()) + " frame=" + f[natFrFrame()] + " slot0=" + natLocalOff(0, natKindInt())
+    }
+    if (which == 1) {
+        // two int locals
+        let f = natFrameLayout(16, 0, 0, 0, 0, 0)
+        return "int2 units=" + natKindUnits(natKindInt()) + " frame=" + f[natFrFrame()] + " slot0=" + natLocalOff(0, natKindInt()) + " slot1=" + natLocalOff(1, natKindInt())
+    }
+    if (which == 2) {
+        // kind units for every kind, in the oracle's numbering
+        return "units int=" + natKindUnits(natKindInt()) + " string=" + natKindUnits(natKindString()) + " float=" + natKindUnits(natKindFloat()) + " array=" + natKindUnits(natKindArray()) + " struct=" + natKindUnits(natKindStruct()) + " map=" + natKindUnits(natKindMap())
+    }
+    if (which == 3) {
+        // the conditional regions: reserved for a string program, skipped for
+        // an int program. The int case must report 0, because reserving
+        // them unconditionally would grow every int image.
+        let fi = natFrameLayout(8, 0, 0, 0, 0, 0)
+        let fs = natFrameLayout(8, 0, 1, 0, 0, 0)
+        let fm = natFrameLayout(8, 0, 0, 1, 0, 0)
+        return "cond int_strTemp=" + fi[natFrStrTemp()] + " int_mapStage=" + fi[natFrMapStage()] + " str_strTemp=" + fs[natFrStrTemp()] + " str_frame=" + fs[natFrFrame()] + " map_mapStage=" + fm[natFrMapStage()] + " map_frame=" + fm[natFrFrame()]
+    }
+    if (which == 4) {
+        // Windows rounds the frame to 16; Linux does not. With maxExtra 2
+        // (16 bytes) the unsized total is 8+512+16 = 536, which is 8 mod 16,
+        // so Windows adds one unit and Linux does not.
+        let fw = natFrameLayout(8, 0, 0, 0, 2, 1)
+        let fl = natFrameLayout(8, 0, 0, 0, 2, 0)
+        return "round win_frame=" + fw[natFrFrame()] + " linux_frame=" + fl[natFrFrame()]
+    }
+    return ""
+}
+
+// natValueCorpus is the measurement surface: the finished machine code of
+// each reference program, as hex. natFinish returns an error string for a
+// malformed emission, so a case that fails to encode reports that rather
+// than an empty string.
+func natValueCorpus(which) {
+    if (which == 0) { return natToHex(natFinish(natValueMain(1))) }
+    if (which == 1) { return natToHex(natFinish(natValueMain(2))) }
+    return ""
+}
+
+// natValuePrim renders one encoder opcode on its own, so each of the
+// primitives Step 1 added to native_emit.kark can be compared individually
+// against the Go oracle's identically named method. The composite program
+// above already exercises all of them, but a composite mismatch does not say
+// WHICH primitive is wrong.
+//
+// The order here is the gate's order and must stay in step with it.
+func natValuePrim(which) {
+    let s = natNewEmitter(0)
+    if (which == 0) { s = natStoreStack(s, natRegRAX(), 0) }
+    if (which == 1) { s = natLoadStack(s, natRegRAX(), 0) }
+    if (which == 2) { s = natLoadStack(s, natRegRAX(), 8) }
+    if (which == 3) { s = natStoreStack(s, natRegRAX(), 8) }
+    // 616 is the real frame size of the one-local reference program, so the
+    // wide-displacement path is exercised with a value that actually occurs.
+    if (which == 4) { s = natStoreStack(s, natRegRAX(), 616) }
+    if (which == 5) { s = natSubRegImm32(s, natRegRSP(), 616) }
+    if (which == 6) { s = natAddRegImm32(s, natRegRSP(), 616) }
+    // 16 fits in a signed byte, so this is the short (83 /digit ib) form. The
+    // oracle picks the short form too, and picking the wide one instead would
+    // be a different image.
+    if (which == 7) { s = natSubRegImm32(s, natRegRSP(), 16) }
+    if (which == 8) { s = natAddRegImm32(s, natRegRSP(), 16) }
+    if (which == 9) { s = natXorRegReg(s, natRegRAX()) }
+    if (which == 10) { s = natRet(s) }
+    return natToHex(natFinish(s))
+}

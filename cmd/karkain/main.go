@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1647,6 +1647,34 @@ func main() {
 	// comparing the Go oracle against itself.
 	if command == "native-elf" {
 		result := cli.KCCNativeELFCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 1: the SELF-HOSTED native value/frame foundation, same
+	// contract as native-encode and native-elf above. `native-value` prints the
+	// machine code of the two reference programs, `native-value-layout` the
+	// frame arithmetic as text, and `native-value-prims` each new encoder
+	// opcode on its own. The byte differential these feed compares kcc against
+	// the Go oracle rather than the oracle against itself.
+	if command == "native-value" {
+		result := cli.KCCNativeValueCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	if command == "native-value-layout" {
+		result := cli.KCCNativeValueLayoutCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	if command == "native-value-prims" {
+		result := cli.KCCNativeValuePrimCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

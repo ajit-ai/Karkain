@@ -91,6 +91,39 @@ func KCCNativePECommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-pe")
 }
 
+// KCCNativeValueCommand runs the self-hosted native value/frame foundation
+// (increment 151A Step 1, src/compiler/native_value.kark) over its two
+// reference programs and returns the machine code as hex, one line each.
+//
+// Same contract as the four above: the cases are compiled into kcc, the Go
+// side never reimplements the layout, and the gate compares kcc's bytes
+// against pkg/native, which is the oracle. The reference programs are
+// deliberately helper-free -- no print, no arena, no entry stub -- because
+// those belong to later 151A slices and depending on them here would make
+// this slice's evidence unreachable.
+func KCCNativeValueCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value")
+}
+
+// KCCNativeValueLayoutCommand returns the frame arithmetic as text.
+//
+// The bytes alone are not sufficient evidence for a frame layout: if kcc and
+// the oracle computed the SAME wrong offset, their bytes would still agree.
+// This surface exposes the offsets themselves so the gate can compare them
+// against values derived independently in the test.
+func KCCNativeValueLayoutCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-layout")
+}
+
+// KCCNativeValuePrimCommand renders each encoder opcode this slice added on
+// its own, so a mismatch names the primitive instead of pointing at a whole
+// function body. Compared three ways in the gate: against the Go oracle's
+// identically named Emitter method, and against the bytes stated from the
+// Intel SDM.
+func KCCNativeValuePrimCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-prims")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //
