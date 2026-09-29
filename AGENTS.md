@@ -1281,10 +1281,76 @@ type-checks the whole tree at vet level rather than only the linked binary
 (**mutation-verified**: reintroducing the overflow fails it with the same
 diagnostic). Also repaired a truncated "Must not" bullet in
 `PHASE-151-BASELINE.md` §3 whose text had been orphaned to the end of the file.
-**Next: 151A — the native value model in kcc** (frame layout, boxed kinds, arrays/
-`for-in`, floats, arena, string ops, `push`, records, maps), gated byte-identical
-Go↔kcc through the existing harness; then 151B (encoder) and 151C (three
-containers), then flip `kccOwnsNativeTargets` and re-point the seam at kcc.
+**Next: 151A Step 2 — int statement/expression lowering in kcc**, so the frame
+layout Step 1 established is actually consumed (arithmetic, comparison,
+control flow, calls). The remaining 151A scope is unchanged: floats, arrays/
+`for-in`, arena, string ops, `push`, records, maps, and — the milestone the
+baseline's platform table points at — **no kcc-produced image executes
+anywhere**, because the 151B/151C/151C2/151C3 images carry no entry stub,
+syscall tail or PEB bootstrap: those live in the value model. After 151A,
+flip `kccOwnsNativeTargets` and re-point the seam at kcc. 151B, 151C, 151C2
+and 151C3 are all DONE (see their records below), so the old ordering note
+that listed them as future work no longer holds.
+
+Also completed: **151A Step 1 — the native value/frame foundation in kcc**
+(increment 151, slice A step 1; verdict **COMPLETE**; NOT a numbered phase and
+not parity of a whole image). `src/compiler/native_value.kark` (new) ports the
+value/frame half of the Go oracle: the kind model (`natKindInt`…
+`natKindMap`, with `natKindUnits` = 1 for int/float/bool/struct/map and 2 for
+string/array), the frame constants (`argSpillBytes` 96, `maxBinDepth` 64),
+`natFrameLayout` reproducing the oracle's ordering **locals → recArgAreas →
+binTemp → strTemp? → mapStage? → extrasBase → Windows 16-byte rounding →
++ argSpillBytes** with the two conditional regions kept conditional, and
+`natLocalOff`. `native_emit.kark` gains the frame prologue/epilogue and
+slot-access primitives that 151B's deliberately representative subset omitted
+(`natMemRsp`, `natLoadStack`, `natStoreStack`, `natSubRegImm32`,
+`natAddRegImm32`, `natXorRegReg`, `natRet`).
+
+**Values are statically kinded and UNBOXED, and the roadmap's word "boxed" is
+not a requirement for a tagged native Value** — the oracle assigns each local
+a compile-time kind and stores a raw 8-byte unit, and `natKindInt()==0`
+preserves the `iota` numbering so every "cannot determine the kind" default
+keeps meaning int. The tagged `TYPE_RESULT`/`resVal.tag` `Value` belongs to
+the C path (it is what `?` inspects) and must not leak into the native path.
+
+**The gate is a three-way differential, and each layer exists for a stated
+reason.** Matching bytes alone cannot catch a frame layout that is wrong in the
+SAME way on both sides, so the layout NUMBERS are pinned separately against
+values derived in the test file; kcc's function bytes must also appear
+**exactly once** in the `.text` the Go oracle produced by *compiling* the same
+source (which rules out a shared transcription error in the Go-side
+reconstruction); and every case is additionally checked against bytes stated
+from the Intel SDM. `phase151a_value_test.go`, 14/14 PASS, **mutation-verified**
+(`argSpillBytes` 96→104 fails the byte-identity and layout gates while
+correctly leaving the primitive gate passing). CI: `CI/CD` run **36528760340**,
+job `Test`, step *Run 151A native value/frame foundation gate* — success, and
+verified NON-VACUOUS (it reports `ok` with no `[no tests to run]` marker, which a
+control non-matching pattern does print). KIR pin re-measured 10626 → **10838**.
+
+**Three defects found and fixed, all by a gate rather than by inspection.**
+(1) The frame layout and slot offsets were MEASURED from the oracle before any
+code was written (`let x = 42` → frame `0x268` = 8+512+96; two locals → `0x270`
+= 16+512+96), which is what made the arithmetic checkable instead of assumed.
+(2) **A selector-table collision broke 151B.** The new opcode selectors were
+first appended starting at 17, but the existing table already used 17 for
+`call rel32` — I had read only part of the table — so `natCall32` began
+emitting `0x89` (`mov`) instead of `0xE8` (`call`) and the 151B gate failed.
+Selectors now continue at 18, and the table is documented as a shared
+namespace. (3) A bulk renumber cascaded and bumped `natLoadStack` to
+`xor [rsp],rax` instead of `mov rax,[rsp]`; the byte-identity gate caught it.
+A fourth was in the TEST: the stated-bytes layer first rendered the frame
+immediate as a padded hex *string* (`00000268`) instead of four little-endian
+bytes (`68020000`), and used `mod=01`/disp8 where 616 needs `mod=10`/disp32 —
+caught by the very layer meant to catch shared errors, which is the argument
+for having it. `native_emit.kark` and `main.kark` are verified **purely
+additive** (zero removed or modified existing lines).
+
+**Still NOT claimed.** No whole-image parity, and no execution evidence: the
+reference programs are deliberately helper-free (no `print`, no arena, no entry
+stub, no syscall tail), so they are not runnable programs. Floats, arrays,
+`for-in`, `len()`, arena, string ops, `push`, records, maps, the `_start`
+stub, the Linux syscall tail and the Win64/kernel32 PEB boundary all remain
+open 151A work. `kccOwnsNativeTargets` stays `false`.
 
 Also completed: **151A-1 — the native decision moves into kcc** (increment 151,
 sub-slice; verdict **COMPLETE**, and explicitly **not** parity). 151D-first made
