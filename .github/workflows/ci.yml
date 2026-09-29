@@ -335,6 +335,29 @@ jobs:
         with:
           go-version: '1.21'
 
+      # GMP for the self-hosted compiler's stage-1 build.
+      #
+      # The 151C3 PE tests compile src/compiler/*.kark into main.c and then
+      # link it, and the generated C preamble includes <gmp.h> unconditionally.
+      # Without this the job died at
+      #   src/compiler/main.c:14:10: fatal error: gmp.h: No such file or directory
+      # which is why this job was red on consecutive runs while every gate in
+      # the ubuntu `Test` job passed.
+      #
+      # There is no Windows equivalent of the Test job's `apt-get install
+      # libgmp-dev`, so this installs the GMP package for the toolchain the
+      # runner actually uses. The failure log shows the compiler resolving
+      # C:/msys64/ucrt64/..., i.e. the runner's own MSYS2 ucrt64 gcc, so the
+      # package must be the matching ucrt64 one: that places gmp.h in
+      # C:/msys64/ucrt64/include, which is on that gcc's default include path.
+      # Installing a MinGW-w64 gmp elsewhere would not be found.
+      - name: Install GMP (MSYS2 ucrt64)
+        shell: msys2 {0}
+        run: pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-gmp
+
+      - name: Put the ucrt64 toolchain on PATH
+        run: echo "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
+
       - name: Run native suite (PE executes, ELF skips)
         run: go test ./pkg/native/ -count=1
 
