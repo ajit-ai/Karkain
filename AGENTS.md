@@ -2607,3 +2607,53 @@ has all four mechanisms the baseline asked for** — 151B the encoder, 151C ELF,
 151C2 Mach-O, 151C3 PE — all byte-identical to the Go oracle. What remains
 inside 151 is **151A, the value model**, which is what actually produces the
 bytes these four serialise.
+
+**Corrective change — `karkain run` stdout parity between the two engines**
+(verdict **COMPLETE**; NOT a new increment, no phase number, recorded per the
+Governance rule). Measured defect, not inferred: on the **default** engine
+(kcc), `karkain run prog.kark` printed two things differently from
+`--engine go`, and a user could observe both on every run. (1) The compiler's
+build banner (`[ok] <file> -> <file>.c23 (c23)`) was **prepended to the
+program's stdout**, so `karkain run p.kark | head -1` printed a compiler
+message; (2) `strings.TrimSpace` ate the program's own terminator and the CLI
+re-added it with `fmt.Println`, so the last line ended in a **bare LF (0x0a)
+where the Go engine — which streams the child with inherited stdio — emitted
+CRLF (0x0d 0x0a)**. **The compiled programs were never wrong**: a kcc-linked
+exe and a Go-linked exe emit identical bytes, so the divergence lived entirely
+in `KCCRunCommand`'s handling of the child. **Why no gate caught it:** the
+Phase 114 corpus gate builds to `main.exe` and runs that directly with build
+output captured separately, so it never exercised the CLI's own stdout
+rendering — the same class as the 151D-first silent fallback, a comparison made
+downstream of where the defect lived. **Fix** (`pkg/cli/kcc_engine.go`):
+`CombinedOutput` → separate `progOut`/`progErr` buffers, `msg` is the
+program's stdout **verbatim**, stderr is appended on failure so the Phase 100
+contract (`division by zero at <file>:<line>`) still surfaces, and the banner
+moved to **stderr under `--verbose`**; `cmd/karkain/main.go` prints a Message
+that already ends in a newline verbatim. **Gate**
+`pkg/cli/kcc_run_parity_test.go` 3 tests / 5 subtests PASS 73.2s, **every
+expectation a differential across the two engines rather than a golden** — a
+golden pins the current bytes and the defect *was* that the two engines'
+differed, so a golden on either side alone would have kept passing throughout;
+plus an explicit anti-vacuity guard (no Go stdout ⇒ fail, never compare two
+empty strings) and a failure-path test. **Mutation-verified**: the pre-fix
+body was restored in place and the gate **failed all 3 subtests with all 3
+diagnostics firing** (stdout differs / bare LF vs CRLF / banner present), then
+the tree was confirmed byte-identical to its pre-mutation state.
+**Two real docs defects fixed en route**, both caught by running
+`sphinx -b html -W` rather than by reading: a **13-char underline for the
+14-char title `1. Attribution`**, and an **inline `**gate**` span opened on
+one line and closed on the next** (docutils forbids inline markup crossing a
+line break) — both on the new `Contribution Rules` page in
+`docs/source/development/index.rst`, which also documents attribution (owner
+only; the local `.git/hooks/commit-msg` trailer-stripping hook), the branch
+loop, the definition of done, the release build matrix, CI/Pages, evidence
+discipline and what an increment is. Regressions green: `go build ./...`,
+`go vet ./pkg/cli ./cmd/karkain`, the new gate, Phase 151/151A/151A2/151B/
+151C/151C2 (no FAIL, no SKIP), `TestPhase97_`/`TestPhase96_` 272.4s,
+`TestPhase95_` 133.8s, and `sphinx -W` **0 warnings**. `gofmt -l` flags the two
+edited Go files, but that is the documented repo-wide CRLF artifact (951/951
+lines in `kcc_engine.go`); re-checked LF-normalised and **BOM-free** both are
+gofmt-clean, so only line endings are at issue. **Nothing else moved:** no
+`src/compiler/*.kark`, no KIR pin (KIR does not render this path),
+`kccOwnsNativeTargets` still `false`, `VERSION` unchanged, Phase 152
+untouched. Report: `docs/audit/KCC-RUN-STDOUT-PARITY-FIX.md`.

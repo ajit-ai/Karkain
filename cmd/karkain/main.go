@@ -1828,8 +1828,18 @@ func main() {
 		}
 	}
 
+	// A Message that already ends in a newline is printed verbatim: the
+	// program-output messages (kcc's run path in particular) carry the exact
+	// bytes the compiled program wrote, and Println would append a second
+	// terminator, making the default engine's stdout differ from the Go
+	// engine's. Messages that do not end in a newline still get one, so every
+	// diagnostic keeps its usual rendering.
 	if result.Message != "" {
-		fmt.Println(result.Message)
+		if strings.HasSuffix(result.Message, "\n") {
+			fmt.Print(result.Message)
+		} else {
+			fmt.Println(result.Message)
+		}
 	}
 	os.Exit(result.ExitCode)
 }
