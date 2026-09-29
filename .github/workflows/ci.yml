@@ -273,6 +273,15 @@ jobs:
       - name: Run 151A Step 2 native int lowering gate
         run: go test ./pkg/cli/ -run 'TestPhase151A2_' -count=1 -timeout 30m
 
+      # `karkain run` stdout parity between the default (kcc) engine and the
+      # Go engine. The kcc run path used to fold the compiler's build banner
+      # into the program's stdout and TrimSpace its output, so the last line
+      # ended in a bare LF where the Go engine emitted CRLF. Nothing else
+      # covered this: the Phase 114 corpus gate builds to main.exe and runs
+      # that directly, so it never saw what a user sees from the CLI.
+      - name: Run kcc run stdout parity gate
+        run: go test ./pkg/cli/ -run 'TestKCCRun_' -count=1 -timeout 30m
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 

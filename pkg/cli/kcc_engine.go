@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"io/fs"
@@ -790,15 +791,49 @@ func KCCRunCommand(w io.Writer, file string, cfg codegen.Config, verbose bool) C
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}
 	}
 	runCmd := exec.Command(exe)
-	runOut, err := runCmd.CombinedOutput()
-	msg := out
-	if len(runOut) > 0 {
-		if msg != "" {
-			msg += "\n"
-		}
-		msg += strings.TrimSpace(string(runOut))
+	// The program's stdout and stderr are DISTINCT streams and are kept
+	// distinct. This used to be CombinedOutput() plus
+	// strings.TrimSpace(...), which had two consequences a user could observe
+	// on every `karkain run`:
+	//
+	//   - the kcc build banner ("[ok] <file> -> <file>.c23 (c23)") was folded
+	//     into the same string as the program's output, so a build diagnostic
+	//     landed on the program's stdout and `karkain run p.kark | ...` differed
+	//     between the default engine and `--engine go`;
+	//   - TrimSpace ate the program's trailing newline, and the CLI re-added it
+	//     with fmt.Println, so the last line ended in a bare LF (0x0a) where
+	//     the Go engine -- which streams the child with inherited stdio --
+	//     emitted CRLF (0x0d 0x0a).
+	//
+	// The compiled programs were never wrong: a kcc-linked exe emits the same
+	// bytes as a Go-linked one. The divergence was introduced entirely here,
+	// which is why the Phase 114 corpus gate never saw it (it builds to
+	// main.exe and runs that directly, capturing build output separately).
+	//
+	// The banner stays available for --verbose, on stderr, where a build
+	// diagnostic belongs.
+	var progOut, progErr bytes.Buffer
+	runCmd.Stdout = &progOut
+	runCmd.Stderr = &progErr
+	runErr := runCmd.Run()
+	if verbose && out != "" {
+		fmt.Fprintln(os.Stderr, out)
 	}
-	if err != nil {
+
+	// The program's stdout verbatim: no TrimSpace, so the exact bytes the
+	// program wrote are what the CLI prints.
+	msg := progOut.String()
+	if runErr != nil {
+		if detail := strings.TrimSpace(progErr.String()); detail != "" {
+			if msg != "" {
+				msg += "\n"
+			}
+			msg += detail
+		} else if msg != "" {
+			msg += "\n"
+		} else {
+			msg = fmt.Sprintf("Execution Error: %v", runErr)
+		}
 		return CommandResult{ExitCode: ExitFailure, Message: msg}
 	}
 	return CommandResult{ExitCode: ExitSuccess, Message: msg}
