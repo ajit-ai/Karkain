@@ -1288,8 +1288,7 @@ control flow, calls). The remaining 151A scope is unchanged: floats, arrays/
 baseline's platform table points at — **no kcc-produced image executes
 anywhere**, because the 151B/151C/151C2/151C3 images carry no entry stub,
 syscall tail or PEB bootstrap: those live in the value model. After 151A,
-flip `kccOwnsNativeTargets` and re-point the seam at kcc. 151B, 151C, 151C2
-and 151C3 are all DONE (see their records below), so the old ordering note
+flip `kccOwnsNativeTargets` and re-point the seam at kcc. 151B, 151C, 151C2and 151C3 are all DONE (see their records below), so the old ordering note
 that listed them as future work no longer holds.
 
 Also completed: **151A Step 1 — the native value/frame foundation in kcc**
@@ -1351,6 +1350,50 @@ stub, no syscall tail), so they are not runnable programs. Floats, arrays,
 `for-in`, `len()`, arena, string ops, `push`, records, maps, the `_start`
 stub, the Linux syscall tail and the Win64/kernel32 PEB boundary all remain
 open 151A work. `kccOwnsNativeTargets` stays `false`.
+
+Also completed: **151A Step 2 — integer statement/expression lowering in kcc**
+(increment 151, slice A step 2; verdict **COMPLETE**; NOT a numbered phase, NOT
+parity, and NOT execution evidence). Step 1 built the value/frame half and left
+it **unconsumed**; Step 2 makes int statements and expressions actually lower so
+the frame layout is read on the default path. Scope: `let` of an int, int `+ - *`,
+unary minus, all six comparisons as real branches, `return`, the `jmp` to the
+`$ret` label the oracle emits after **every** return (`program.go:3386`), and the
+`if !returned` zero fallback. Floats, arrays, `for-in`, arena, string ops, `push`,
+records and maps are **still not claimed**. Gate `pkg/cli/phase151a2_int_test.go`
+14/14 PASS as the same **four-layer differential** Step 1 used (containment in the
+oracle's `.text` which the oracle *compiled* from the same source; frame numbers
+derived independently; bytes stated from the Intel SDM; a refusal table).
+
+**Four defects found; two were real, and one had been latent since Step 1.**
+(1) **`natFrBinTemp()` returned the scratch region's END, not its start** — it
+stored `localBytes + recArgBytes + binTempBytes`, so every staged operand landed
+512 bytes too high (kcc `[rsp+0x210]` vs oracle `[rsp+0x10]`). Latent through all
+of Step 1 because nothing emitted through `binTemp` and Step 1's layout corpus
+printed only `frame`/`strTemp`/`mapStage`/slot offsets. Fixing it turned all six
+comparison cases green at once, which is the signature identifying it as the
+single cause. (2) **Unary minus incremented the scratch depth**; the oracle's
+`emitReturn` calls `emitExpr(value, 0)` and `UnaryExpr` passes the *same* depth.
+(3) **A wrong expectation in the test, not the code**: two corpus cases declared
+`nLocals: 1` for sources containing no `let`, so the oracle correctly allocates
+no local and its frame is 608, not 616 — the frame layer reported the oracle's
+own correct frame as wrong. The 151B lesson recurring; a baseline with wrong
+expectations is worse than none, and the value is now measured. (4) **The `mov
+r64, r64` stated bytes were backwards** (ModRM 0xC8 vs 0xC1), caught by the third
+layer reporting that the *oracle* disagreed with the stated bytes; `89 /r` puts
+the source in `reg` and the destination in `rm`, and kcc was right in both
+attempts. **Non-vacuity measured**: reverting defect (1) reproduces the pre-fix
+signature exactly (3 int + 6 comparison failures) and the fix restores 14/14.
+KIR pin re-measured **10838 → 11040** (`karkain kir --verify` 11040/11040, never
+hand-edited); `TestPhase122_PipelineOwnership/KIRContinuity` PASS 334 s. Regressions
+green: all 43 `TestPhase151*` in `pkg/cli` + `pkg/native` (Step 1's own gates
+unchanged), full `pkg/native`, `go build ./...`, `go vet ./pkg/cli ./pkg/native
+./cmd/karkain`. CI gains a **separate** step: `'TestPhase151A_'` does not match
+`'TestPhase151A2_'`, so a Step 2 regression cannot hide behind a green Step 1 step.
+**Still NOT claimed:** no whole-image parity and **no execution evidence** — these
+are function bodies, not runnable programs (no entry stub, no syscall tail, no PEB
+bootstrap, no `print`), so the argument remains transitive. `kccOwnsNativeTargets`
+stays `false`; 151A is **not** closed. Audit note: `docs/audit/PHASE-151A-BASELINE.md`
+§9.
 
 Also completed: **151A-1 — the native decision moves into kcc** (increment 151,
 sub-slice; verdict **COMPLETE**, and explicitly **not** parity). 151D-first made

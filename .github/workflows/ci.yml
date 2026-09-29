@@ -263,6 +263,16 @@ jobs:
       - name: Run 151A native value/frame foundation gate
         run: go test ./pkg/cli/ -run 'TestPhase151A_' -count=1 -timeout 30m
 
+      # 151A Step 2, integer statement/expression lowering in kcc. Separate
+      # from Step 1's pattern on purpose: 'TestPhase151A_' does not match
+      # 'TestPhase151A2_', so a Step 2 regression cannot hide behind a green
+      # Step 1 step. This gate is the byte differential against the Go oracle
+      # for let/int expressions, binary operators at two depths, unary minus,
+      # all six comparisons lowered to branches, the jmp-to-$ret the oracle
+      # emits after every return, and the no-return zero fallback.
+      - name: Run 151A Step 2 native int lowering gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A2_' -count=1 -timeout 30m
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 

@@ -171,7 +171,14 @@ func natFrameLayout(localBytes, recArgBytes, usesStr, usesMap, maxExtra, isWindo
 
     let f = []
     f = appendArray(f, localBytes)
-    f = appendArray(f, localBytes + recArgBytes + natBinTempBytes())
+    // binTemp is the region START, so an operand scratch slot is
+    // binTemp + depth*8 and lands at localBytes+recArgBytes+depth*8. Recording
+    // the region END here (localBytes+recArgBytes+binTempBytes) shifted every
+    // staged operand by the whole scratch area -- 512 bytes -- which the
+    // binary-expression differential caught immediately. Step 1 did not see it
+    // because nothing emitted through binTemp and its layout corpus printed
+    // only frame/strTemp/mapStage/slot offsets.
+    f = appendArray(f, localBytes + recArgBytes)
     f = appendArray(f, strTemp)
     f = appendArray(f, mapStage)
     f = appendArray(f, extrasBase)
@@ -339,5 +346,223 @@ func natValuePrim(which) {
     if (which == 8) { s = natAddRegImm32(s, natRegRSP(), 16) }
     if (which == 9) { s = natXorRegReg(s, natRegRAX()) }
     if (which == 10) { s = natRet(s) }
+    // Phase 151A Step 2 additions, in the gate's order.
+    if (which == 11) { s = natNegReg(s, natRegRAX()) }
+    if (which == 12) { s = natCmpRegReg(s, natRegRAX(), natRegRCX()) }
+    if (which == 13) { s = natMovRegReg(s, natRegRAX(), natRegRCX()) }
+    if (which == 14) { s = natMulRegReg(s, natRegRAX(), natRegRCX()) }
     return natToHex(natFinish(s))
+}
+
+// Registers, matching the oracle's Reg constants.
+func natRegRCX() { return 1 }
+
+// ============================================================
+// 6. Integer statement and expression lowering (Step 2)
+//
+// Every sequence below is the Go oracle's, in the oracle's order, and the gate
+// compares the finished bytes against pkg/native. Each reference program's
+// SHAPE is compiled in rather than parsed -- the convention 151B/151C/151C2/
+// 151C3/Step 1 already use -- because no AST-driven native driver exists yet.
+// That boundary is real and is not papered over: what is proven here is that
+// these lowering SEQUENCES match the oracle byte for byte, not that kcc can
+// yet parse a source file and lower it.
+//
+// The oracle's surface, and this file's, is deliberately NARROWER than the
+// language, and the narrowing is preserved rather than "fixed":
+//
+//   * Integer arithmetic is +, - and * ONLY. The oracle's emitBinary refuses
+//     every other operator, `/` included, with a loud K145. That refusal is
+//     reproduced verbatim below rather than quietly implemented, because
+//     implementing division here would be a NEW capability and not a port.
+//   * A comparison is a BRANCH, not a value. emitCond sets flags and jumps on
+//     the INVERSE condition; it never leaves a boolean in RAX. There is
+//     therefore no boolean value to materialise on the native path, and
+//     inventing one would also be a new capability.
+//
+// Operand staging is the Phase-147 rule: the LEFT operand goes to the
+// depth-indexed scratch slot, the right into RAX and then RCX, the left is
+// reloaded into RAX, and the operation is applied. rsp never moves.
+// ============================================================
+
+// natIntRefusal reproduces the oracle's refusals for integer operators it does
+// not lower. These are DATA on the measurement surface rather than build
+// failures, so the gate can assert kcc refuses exactly what the oracle does.
+func natIntRefusal(which) {
+    if (which == 0) { return "error[K145]: unsupported operator '/' (want +, - or *)" }
+    if (which == 1) { return "error[K145]: unsupported operator '%' (want +, - or *)" }
+    if (which == 2) { return "error[K145]: condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats" }
+    if (which == 3) { return "error[K145]: expression nesting exceeds 64 binary levels" }
+    return ""
+}
+
+// natIntBody emits the straight-line integer reference programs. The shape
+// selector picks the program because the oracle's statement order is only
+// correct for a known shape; nLocals sizes the frame exactly as the oracle's
+// layout would.
+//
+// Prologue and epilogue are emitFunc: Mark(name), SubRsp(frame), body,
+// XorRegReg(RAX) when no return was seen, Mark(name+"$ret"), AddRsp(frame),
+// Ret(). The 150C callee-saved push/pop is emitted only for a function the
+// register allocator claimed; no reference program here qualifies, so it is
+// absent from BOTH sides -- a boundary, not an omission.
+func natIntBody(shape, nLocals) {
+    let f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+
+    let s = natNewEmitter(0)
+    s = natMark(s, "karkain_main")
+    s = natSubRegImm32(s, natRegRSP(), frame)
+    let returned = 0
+
+    // shape 0: let x = 42 ; return x   -- literal, store, load, return
+    if (shape == 0) {
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 42)
+        s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natLoadStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natJmp(s, "karkain_main$ret")
+        returned = 1
+    }
+    // shape 1: let a = 6 ; let b = 7 ; return a * b
+    if (shape == 1) {
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 6)
+        s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 7)
+        s = natStoreStack(s, natRegRAX(), natLocalOff(1, natKindInt()))
+        s = natLoadStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natStoreStack(s, natRegRAX(), bt + 0 * 8)
+        s = natLoadStack(s, natRegRAX(), natLocalOff(1, natKindInt()))
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        s = natLoadStack(s, natRegRAX(), bt + 0 * 8)
+        s = natMulRegReg(s, natRegRAX(), natRegRCX())
+        s = natJmp(s, "karkain_main$ret")
+        returned = 1
+    }
+    // shape 2: return -(3 + 4)   -- unary minus over a binary, so the nested
+    // operand lands at depth 1 and gets its OWN scratch slot
+    if (shape == 2) {
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 3)
+        s = natStoreStack(s, natRegRAX(), bt + 0 * 8)
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 4)
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        s = natLoadStack(s, natRegRAX(), bt + 0 * 8)
+        s = natAddRegReg(s, natRegRAX(), natRegRCX())
+        s = natNegReg(s, natRegRAX())
+        s = natJmp(s, "karkain_main$ret")
+        returned = 1
+    }
+    // shape 3: return (2 + 3) * (10 - 4)   -- two nested binaries, depth 0 and 1
+    if (shape == 3) {
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 2)
+        s = natStoreStack(s, natRegRAX(), bt + 1 * 8)
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 3)
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        s = natLoadStack(s, natRegRAX(), bt + 1 * 8)
+        s = natAddRegReg(s, natRegRAX(), natRegRCX())
+        s = natStoreStack(s, natRegRAX(), bt + 0 * 8)
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 10)
+        s = natStoreStack(s, natRegRAX(), bt + 1 * 8)
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 4)
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        s = natLoadStack(s, natRegRAX(), bt + 1 * 8)
+        s = natSubRegReg(s, natRegRAX(), natRegRCX())
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        s = natLoadStack(s, natRegRAX(), bt + 0 * 8)
+        s = natMulRegReg(s, natRegRAX(), natRegRCX())
+        s = natJmp(s, "karkain_main$ret")
+        returned = 1
+    }
+    // shape 4: a function body with NO return statement at all. The oracle's
+    // `if !returned { XorRegReg(RAX) }` supplies the 0, and the same single
+    // xor is what an explicit bare `return` produces (emitReturn's
+    // `n.Value == nil` branch), so this one case covers both spellings.
+    if (shape == 4) {
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 1)
+        s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        returned = 0
+    }
+
+    if (returned == 0) { s = natXorRegReg(s, natRegRAX()) }
+    s = natMark(s, "karkain_main$ret")
+    s = natAddRegImm32(s, natRegRSP(), frame)
+    s = natRet(s)
+    return s
+}
+
+// natIntExprCorpus renders the straight-line integer programs as hex.
+func natIntExprCorpus(which) {
+    if (which == 0) { return natToHex(natFinish(natIntBody(0, 1))) }
+    if (which == 1) { return natToHex(natFinish(natIntBody(1, 2))) }
+    if (which == 2) { return natToHex(natFinish(natIntBody(2, 0))) }
+    if (which == 3) { return natToHex(natFinish(natIntBody(3, 0))) }
+    if (which == 4) { return natToHex(natFinish(natIntBody(4, 1))) }
+    return ""
+}
+
+// natIntCond emits a comparison in the oracle's emitCond shape: evaluate the
+// left into the scratch slot, the right into RAX and then RCX, the left back
+// into RAX, CmpRegReg, then jump to the false label on the INVERSE condition.
+//
+// The jump opcode is the oracle's mapping, verbatim:
+//
+//	==  jumps on Jnz (not equal)      !=  jumps on Jz  (equal)
+//	<   jumps on Jge                  <=  jumps on Jg
+//	>   jumps on Jle                  >=  jumps on Jl
+//
+// The scratch slot is passed in rather than recomputed, so this composes with
+// whichever frame the enclosing function has.
+func natIntCond(s, op, falseLabel, bt) {
+    s = natMovImm64(s, natMovImm64Op(natRegRAX()), 5)
+    s = natStoreStack(s, natRegRAX(), bt + 0 * 8)
+    s = natMovImm64(s, natMovImm64Op(natRegRAX()), 9)
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natLoadStack(s, natRegRAX(), bt + 0 * 8)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    if (op == 0) { return natJnz(s, falseLabel) }
+    if (op == 1) { return natJz(s, falseLabel) }
+    if (op == 2) { return natJge(s, falseLabel) }
+    if (op == 3) { return natJg(s, falseLabel) }
+    if (op == 4) { return natJle(s, falseLabel) }
+    if (op == 5) { return natJl(s, falseLabel) }
+    return s
+}
+
+// natIntIf emits an `if` with no else branch, in the oracle's emitIf order.
+//
+// The label NAMES and their order are part of the bytes, because a rel32
+// displacement encodes the distance between the jump and its target, and
+// because a rel32 is patched at Finish(). The oracle's fresh() allocates the
+// ELSE label FIRST and the END label second, so ifelse$1 precedes ifend$2
+// even though the jump to ifelse$1 appears before the jump to ifend$2. That
+// counter order is reproduced here, not tidied.
+func natIntIf(op) {
+    let f = natFrameLayout(8, 0, 0, 0, 0, 0)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let s = natNewEmitter(0)
+    s = natMark(s, "karkain_main")
+    s = natSubRegImm32(s, natRegRSP(), frame)
+    s = natIntCond(s, op, "ifelse$1", bt)
+    // consequence: let x = 1
+    s = natMovImm64(s, natMovImm64Op(natRegRAX()), 1)
+    s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+    s = natJmp(s, "ifend$2")
+    s = natMark(s, "ifelse$1")
+    // alternative: let x = 2
+    s = natMovImm64(s, natMovImm64Op(natRegRAX()), 2)
+    s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+    s = natMark(s, "ifend$2")
+    s = natXorRegReg(s, natRegRAX())
+    s = natMark(s, "karkain_main$ret")
+    s = natAddRegImm32(s, natRegRSP(), frame)
+    s = natRet(s)
+    return s
+}
+
+// natIntIfCorpus renders the six comparison operators. One program per
+// operator, because the opcode is the only thing that varies and a single
+// case would not prove the mapping.
+func natIntIfCorpus(op) {
+    return natToHex(natFinish(natIntIf(op)))
 }

@@ -115,6 +115,16 @@ func natMask(which) {
     if (which == 23) { return 36 }                      // 0x24  SIB: scale-0, index-none, base-rsp
     if (which == 24) { return 5 }                       // 0x05  group-1 /5 = sub r/m64, imm
     if (which == 25) { return 0 }                       // 0x00  group-1 /0 = add r/m64, imm
+    // Phase 151A Step 2: the opcodes integer expression lowering needs. Same
+    // discipline as the block above -- continue the table, never renumber.
+    if (which == 26) { return 132 }                     // 0x84  jz  rel32 opcode
+    if (which == 27) { return 140 }                     // 0x8C  jl  rel32 opcode (signed)
+    if (which == 28) { return 141 }                     // 0x8D  jge rel32 opcode (signed)
+    if (which == 29) { return 142 }                     // 0x8E  jle rel32 opcode (signed)
+    if (which == 30) { return 143 }                     // 0x8F  jg  rel32 opcode (signed)
+    if (which == 31) { return 247 }                     // 0xF7  group-3: neg r/m64 is /3
+    if (which == 32) { return 57 }                      // 0x39  cmp r/m64, r64
+    if (which == 33) { return 175 }                     // 0xAF  imul r64, r/m64
     if (which == 17) { return 232 }                     // 0xE8  call rel32
     return 0
 }
@@ -249,6 +259,84 @@ func natXorRegReg(s, r) {
 // natRet emits ret (C3).
 func natRet(s) {
     return natByte(s, natMask(4))
+}
+
+// Phase 151A Step 2 — integer expression lowering primitives. Each is the
+// byte-for-byte counterpart of the identically named Go method.
+
+// natNegReg emits neg r64: REX.W + F7 /3 (two's complement).
+func natNegReg(s, r) {
+    s = natRex(s, 1, 0, r)
+    s = natByte(s, natMask(31))
+    return natModrm(s, 3, 3, r)
+}
+
+// natMovRegReg emits mov r64, r64: REX.W + 89 /r.
+//
+// The oracle passes (src, dst) to rex() here and (dst, src) to rex() in
+// MulRegReg. That asymmetry is reproduced rather than tidied: for rax/rcx both
+// spellings yield the same 0x48, and "tidying" it would silently diverge from
+// the oracle the moment a high register is involved.
+func natMovRegReg(s, dst, src) {
+    s = natRex(s, 1, src, dst)
+    s = natByte(s, natMask(18))      // 0x89, the same selector natStoreStack uses
+    return natModrm(s, 3, src, dst)
+}
+
+// natMulRegReg emits imul r64, r64: REX.W + 0F AF /r.
+func natMulRegReg(s, dst, src) {
+    s = natRex(s, 1, dst, src)
+    s = natByte(s, natMask(7))       // 0x0F two-byte escape
+    s = natByte(s, natMask(33))      // 0xAF
+    return natModrm(s, 3, dst, src)
+}
+
+// natCmpRegReg emits cmp r64, r64: REX.W + 39 /r, comparing dst against src.
+// It sets flags only; no value is produced, which is exactly why the oracle
+// reaches a boolean only by BRANCHING rather than by materialising one.
+func natCmpRegReg(s, dst, src) {
+    s = natRex(s, 1, src, dst)
+    s = natByte(s, natMask(32))
+    return natModrm(s, 3, src, dst)
+}
+
+// natJcc emits a near condition-code jump: 0F 8x cd. The near form is
+// uniform with natJnz, which is what the oracle uses for every conditional
+// branch; a short (8-bit displacement) form would be a different byte.
+//
+// `op` selects the condition, matching the Go Emitter's methods exactly:
+//
+//   natJccOpJz 0x84   natJccOpJnz 0x85   natJccOpJl  0x8C
+//   natJccOpJge 0x8D   natJccOpJle 0x8E   natJccOpJg  0x8F
+func natJcc(s, op, label) {
+    s = natByte(s, natMask(7))
+    s = natByte(s, op)
+    // natRel32 returns the [state, pos] PAIR, not the state, so the state has
+    // to be taken back out. The 151B natJnz below does the same thing.
+    let r = natRel32(s, label)
+    return r[0]
+}
+
+// The five condition selectors this slice adds beyond 151B's natJnz, as
+// selector numbers into natMask. Jnz is deliberately absent: natJnz already
+// existed and is unchanged.
+func natJccOpJz()  { return natMask(26) }
+func natJccOpJl()  { return natMask(27) }
+func natJccOpJge() { return natMask(28) }
+func natJccOpJle() { return natMask(29) }
+func natJccOpJg()  { return natMask(30) }
+
+func natJz(s, label)  { return natJcc(s, natJccOpJz(), label) }
+func natJl(s, label)  { return natJcc(s, natJccOpJl(), label) }
+func natJge(s, label) { return natJcc(s, natJccOpJge(), label) }
+func natJle(s, label) { return natJcc(s, natJccOpJle(), label) }
+func natJg(s, label)  { return natJcc(s, natJccOpJg(), label) }
+
+// natJmp emits jmp rel32: E9 cd.
+func natJmp(s, label) {
+    s = natByte(s, natMask(5))
+    let r = natRel32(s, label)
+    return r[0]
 }
 
 func natAddRegReg(s, dst, src) {

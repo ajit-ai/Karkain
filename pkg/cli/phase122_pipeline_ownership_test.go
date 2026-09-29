@@ -99,14 +99,20 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// slot-access primitives plus selector-table entries added to
 		// native_emit.kark, and the three subcommand arms in main.kark;
 		// kir verify passes on the new count);
+		// and now to 11040 (151A Step 2, integer statement/expression
+		// lowering in kcc: the int lowering and comparison corpora plus
+		// natIntIf and the selector-table entries in native_emit.kark, the
+		// natIntBody/natIntCond helpers in native_value.kark, and the
+		// native-value-int / native-value-cmp / native-value-refuse arms
+		// in main.kark; kir verify passes on the new count);
 		// the pin is refreshed to the validated current value.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 10838 {
-			t.Errorf("whole-tree kir text = %d lines, want 10838:\n%s", got, out)
+	if got := phase121Count(t, out, "[ok] kir text: "); got != 11040 {
+		t.Errorf("whole-tree kir text = %d lines, want 11040:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

@@ -124,6 +124,33 @@ func KCCNativeValuePrimCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-prims")
 }
 
+// KCCNativeValueIntCommand is increment 151A Step 2: the self-hosted integer
+// statement/expression lowering. Returns the machine code of the
+// straight-line integer reference programs, one line each.
+//
+// The surface is the ORACLE's, not the language's. The Go implementation
+// lowers only +, - and * for integers and refuses everything else, and a
+// comparison is a branch rather than a value; those limits are reproduced
+// rather than widened, so this command is deliberately smaller than the
+// language's integer surface.
+func KCCNativeValueIntCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-int")
+}
+
+// KCCNativeValueCmpCommand returns the six integer comparisons, one program
+// per operator, so a mismatch names the operator whose jump opcode is wrong.
+func KCCNativeValueCmpCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-cmp")
+}
+
+// KCCNativeValueRefuseCommand returns the integer diagnostics the oracle
+// raises for constructs it does not lower. These are DATA, not build
+// failures: the gate asserts kcc refuses exactly what the oracle refuses, so
+// narrowing the surface must stay visible.
+func KCCNativeValueRefuseCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-refuse")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //

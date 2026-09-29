@@ -327,8 +327,13 @@ func TestPhase151A_FrameLayoutNumbers(t *testing.T) {
 func TestPhase151A_NewEncoderPrimitivesMatchOracle(t *testing.T) {
 	karkain := phase130Karkain(t)
 	got := runKCCValueLines(t, karkain, "native-value-prims")
-	if len(got) != 11 {
-		t.Fatalf("kcc native-value-prims produced %d lines, want 11:\n%v", len(got), got)
+	// 15, not 11: 151A Step 2 added four primitives to this shared corpus
+	// (NegReg / CmpRegReg / MovRegReg / MulRegReg) for integer expression
+	// lowering. Each is listed in `cases` below and so is checked three ways
+	// like every other entry -- the count is a completeness check, not a
+	// licence to leave the four new lines unexamined.
+	if len(got) != 15 {
+		t.Fatalf("kcc native-value-prims produced %d lines, want 15:\n%v", len(got), got)
 	}
 
 	cases := []struct {
@@ -352,6 +357,21 @@ func TestPhase151A_NewEncoderPrimitivesMatchOracle(t *testing.T) {
 		{"addsmall", func(e *native.Emitter) { e.AddRegImm32(native.RSP, 16) }, "4883c410"},
 		{"xor", func(e *native.Emitter) { e.XorRegReg(native.RAX) }, "4831c0"},
 		{"ret", func(e *native.Emitter) { e.Ret() }, "c3"},
+		// Added by 151A Step 2 for integer expression lowering. Stated from the
+		// SDM: F7 /3 is neg r64 (REX.W + F7 + ModRM.reg=3); 39 /r is cmp r/m64,
+		// r64 (REX.W + 39 + ModRM with reg=RAX, rm=RCX); 89 /r is mov r/m64,
+		// r64 (REX.W + 89 + ModRM reg=RAX, rm=RCX); 0F AF /r is imul r64, r/m64.
+		//
+		// The mov case states ModRM 0xC1, not 0xC8, and the first draft had it
+		// backwards: MovRegReg(dst, src) puts SRC in the reg field and DST in
+		// rm, so MovRegReg(RCX, RAX) is "mov rax -> rcx". The three-way layer
+		// caught it by reporting that the oracle disagreed with the stated bytes,
+		// which is precisely the mistake this layer exists to catch -- kcc was
+		// right and the expectation was wrong.
+		{"neg", func(e *native.Emitter) { e.NegReg(native.RAX) }, "48f7d8"},
+		{"cmp", func(e *native.Emitter) { e.CmpRegReg(native.RAX, native.RCX) }, "4839c8"},
+		{"movrr", func(e *native.Emitter) { e.MovRegReg(native.RAX, native.RCX) }, "4889c8"},
+		{"imul", func(e *native.Emitter) { e.MulRegReg(native.RAX, native.RCX) }, "480fafc1"},
 	}
 
 	for i, tc := range cases {
