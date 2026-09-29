@@ -1612,6 +1612,38 @@ func parsePrimary(state) {
         return parseLambda(state)
     }
 
+    // Phase 42 / LH-1: Result/Option constructors in EXPRESSION position.
+    // These tokens were previously recognised only as match-arm patterns
+    // (parseMatchExpr), so in expression position the token was consumed and
+    // the constructor dropped, leaving only the parenthesised payload. The
+    // payload is a full expression, so it is parsed with parseExpr -- not by
+    // taking a bare literal token -- which is what keeps `Ok(n * 2)` working.
+    if (kind == TK_OK()) {
+        psAdvance(state)
+        if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
+        let v = parseExpr(state)
+        if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+        return makeResultOk(v, line)
+    }
+    if (kind == TK_ERR()) {
+        psAdvance(state)
+        if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
+        let v = parseExpr(state)
+        if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+        return makeResultErr(v, line)
+    }
+    if (kind == TK_SOME()) {
+        psAdvance(state)
+        if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
+        let v = parseExpr(state)
+        if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+        return makeOptionSome(v, line)
+    }
+    if (kind == TK_NONE()) {
+        psAdvance(state)
+        return makeOptionNone(line)
+    }
+
     // Phase 121: alloc(T, n) / free(x) in expression position.
     if (kind == TK_ALLOC()) {
         return parseAlloc(state)

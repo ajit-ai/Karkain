@@ -1,0 +1,19 @@
+// LH-1 Case B: `?` on an Err Result returns the original error out of the
+// enclosing function and must NOT continue execution. The "CONTINUED" print
+// sits after the propagating line, so its absence is the direct evidence that
+// control flow left the function; the Err payload proves the error value came
+// back unchanged rather than being replaced.
+func step2(n) {
+    if (n > 10) { return Err("too_big") }
+    return Ok(n * 2)
+}
+
+func step1(n) {
+    let v = step2(n)?
+    print("CONTINUED")
+    return Ok(v + 1)
+}
+
+func main() {
+    print(step1(50))
+}

@@ -242,6 +242,14 @@ jobs:
       - name: Run Phase 151C3 PE container gate
         run: go test ./pkg/native/ -run 'TestPhase151C3' -count=1 -timeout 20m -v
 
+      # LH-1, kcc `?` propagation parity: an authorised slice of the
+      # Language Hardening Checkpoint (not a numbered phase). Named
+      # explicitly for the same reason as the gate above -- a gate that is
+      # only picked up incidentally by a broader step is a gate that can
+      # silently stop running.
+      - name: Run LH-1 kcc propagation parity gate
+        run: go test ./pkg/cli/ -run 'TestLH1_' -count=1 -timeout 30m
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 

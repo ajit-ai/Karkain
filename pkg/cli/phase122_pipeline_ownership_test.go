@@ -86,14 +86,19 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// machine-code encoder: the new src/compiler/native_emit.kark module
 		// plus its driver arm in main.kark; kir verify passes on the new
 		// count);
+		// and now to 10611 (LH-1, kcc `?` propagation parity: the
+		// UnaryExpr question-mark lowering in codegen.kark, the expression-level
+		// Ok/Err/Some/None cases in parsePrimary, and the Result/Option
+		// constructors and accessors in ast.kark; kir verify passes on the new
+		// count);
 		// the pin is refreshed to the validated current value.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 10530 {
-			t.Errorf("whole-tree kir text = %d lines, want 10530:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 10611 {
+			t.Errorf("whole-tree kir text = %d lines, want 10611:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

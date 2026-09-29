@@ -1,0 +1,17 @@
+// LH-1 Case A: `?` on a successful Result yields the unwrapped payload.
+// print_value renders a Result as Ok(<payload>) / Err(<payload>) on both
+// engines, so the observable result needs no match arm -- deliberately, since
+// match-arm bindings are the separate, not-yet-authorised LH-2 slice.
+func step2(n) {
+    if (n > 10) { return Err("too_big") }
+    return Ok(n * 2)
+}
+
+func step1(n) {
+    let v = step2(n)?
+    return Ok(v + 1)
+}
+
+func main() {
+    print(step1(5))
+}

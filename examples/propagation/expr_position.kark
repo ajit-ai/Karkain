@@ -1,0 +1,31 @@
+// LH-1: `?` in expression positions other than a plain `let` binding -- as a
+// call argument, and two of them inside a single expression. This exercises
+// nested statement-expression temporaries, whose local names must not collide.
+// Every `?` is inside a function that can propagate; see expr_main_boundary
+// for why `?` cannot appear in main itself.
+func get(n) {
+    if (n > 0) { return Ok(n) }
+    return Err("nonpos")
+}
+
+func sum(a, b) {
+    return Ok(a + b)
+}
+
+func total() {
+    return sum(get(3)?, get(4)?)?
+}
+
+func add_two() {
+    return get(9)? + get(1)?
+}
+
+func erroring() {
+    return sum(get(0)?, get(2)?)
+}
+
+func main() {
+    print(total())
+    print(add_two())
+    print(erroring())
+}

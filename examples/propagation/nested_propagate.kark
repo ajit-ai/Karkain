@@ -1,0 +1,23 @@
+// LH-1 Case C: propagation across more than one function boundary. step3
+// fails, and the error travels up through step2 and step1 untouched, so three
+// separate `?` sites are exercised for the error path. The success path
+// exercises the same three sites for unwrapping.
+func step3(n) {
+    if (n > 10) { return Err("too_big") }
+    return Ok(n * 2)
+}
+
+func step2(n) {
+    let v = step3(n)?
+    return Ok(v + 1)
+}
+
+func step1(n) {
+    let v = step2(n)?
+    return Ok(v + 1)
+}
+
+func main() {
+    print(step1(2))
+    print(step1(50))
+}
