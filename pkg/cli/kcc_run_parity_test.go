@@ -9,6 +9,20 @@ import (
 	"testing"
 )
 
+// trailingTerminator returns the line terminator b ends with, "" if it ends
+// with neither. It is deliberately platform-agnostic: a Windows host sees CRLF
+// from both engines, a POSIX host sees LF from both, and the assertion that
+// matters is that they AGREE, not that either one is a particular value.
+func trailingTerminator(b []byte) string {
+	if len(b) >= 2 && b[len(b)-2] == '\r' && b[len(b)-1] == '\n' {
+		return "\r\n"
+	}
+	if len(b) >= 1 && b[len(b)-1] == '\n' {
+		return "\n"
+	}
+	return ""
+}
+
 // Gate for the `karkain run` stdout-parity fix in KCCRunCommand.
 //
 // The defect: the kcc run path folded the compiler's build banner into the
@@ -119,15 +133,22 @@ func TestKCCRun_StdoutIsByteIdenticalToTheGoEngine(t *testing.T) {
 			}
 
 			// The specific corruption, asserted independently of the
-			// differential so the failure message names the cause. The Go
-			// engine streams the child with inherited stdio, so the program's
-			// own terminator is authoritative.
-			if !bytes.HasSuffix(gOut, []byte("\n")) {
+			// differential so the failure message names the cause. The
+			// terminator is compared BETWEEN the two engines and NOT
+			// hardcoded to CRLF: on a POSIX host both engines emit a bare LF,
+			// because text mode does not translate it, so "must be CRLF" is a
+			// Windows-only expectation that fails on Linux for a program
+			// behaving perfectly correctly. The first draft of this gate
+			// asserted CRLF and CI rejected it -- the 151B lesson, third
+			// occurrence: a wrong expectation in the test is worse than none.
+			kTerm, gTerm := trailingTerminator(kOut), trailingTerminator(gOut)
+			if gTerm == "" {
 				t.Errorf("go stdout does not end in a newline: %q", gOut)
 			}
-			if bytes.HasSuffix(kOut, []byte("\n")) && !bytes.HasSuffix(kOut, []byte("\r\n")) {
-				t.Errorf("kcc stdout ends in a bare LF where go ends in CRLF "+
-					"(the trailing terminator was stripped and re-added):\n kcc = %q\n go  = %q", kOut, gOut)
+			if kTerm != gTerm {
+				t.Errorf("kcc stdout terminator %q differs from go %q "+
+					"(the trailing terminator was stripped and re-added):\n kcc = %q\n go  = %q",
+					kTerm, gTerm, kOut, gOut)
 			}
 
 			// Defect 2: the compiler's build banner must not be on the
