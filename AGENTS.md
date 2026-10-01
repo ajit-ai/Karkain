@@ -1395,6 +1395,59 @@ bootstrap, no `print`), so the argument remains transitive. `kccOwnsNativeTarget
 stays `false`; 151A is **not** closed. Audit note: `docs/audit/PHASE-151A-BASELINE.md`
 §9.
 
+stays `false`; 151A is **not** closed. Audit note: `docs/audit/PHASE-151A-BASELINE.md`
+§9.
+
+Also completed: **151A Step 2b — bare assignment statements and `?` refusal
+parity** (increment 151, slice A step 2b; verdict **COMPLETE**; NOT a numbered
+phase, NOT parity of a whole image, and NOT execution evidence). Step 2's
+closing note named two items for Step 2b; **both were re-measured before any
+code was written, and the measurement corrected the note.** **Bare `x = 2`
+assignment to an existing int local is ACCEPTED by the Go oracle** (247-byte
+`.text` for `let x = 1; x = 2; return x`), and it is lowered **through the
+ordinary `let` path** — the frame is the one-local frame, unchanged, because a
+reassignment allocates nothing. Two `natIntBody` shapes cover it: a
+reassigned local read bare, and read as a binary operand (which takes the same
+depth-indexed `binTemp` staging path as a freshly bound one, so being
+reassigned earlier puts it on no different lowering). The `?` propagation
+operator is **REFUSED**, not lowered — there is no `PropagateExpr` case in
+`pkg/native` and no Result/Option in the native value model to propagate to.
+
+**A discriminator falsified by measurement, recorded because the error is the
+instructive kind.** The first draft claimed the refusal message depends on the
+`?` being *textually in return position*. Two measured cases falsify that:
+`let x = 1?` is textually a `let` yet reports the RETURN message, while
+`x = 1?` on an already-bound local is followed by `return x` yet reports the
+plain EXPRESSION message. **The real rule is reachability from a return, not
+textual position**: the oracle runs a return-kind inference pass before emission
+and `retKindOfExpr` follows an `Identifier` back to its `let` initializer
+so a `let` propagates its initializer's return-reachability. `while 1? { }`
+never reaches `?` at all and is refused as a non-comparison condition.
+
+Gate `pkg/cli/phase151a2_int_test.go` — 8 tests green, the same four-layer
+differential plus two new checks: `TestPhase151A2b_ReassignmentSharesLetLowering`
+(the frame is the one-local frame and shape 5 has exactly 2 slot stores while the
+let-only shape has 1) and `TestPhase151A2_PropagateRefusalsMatchOracle` (which
+**measures the oracle live** via `oracleErr` rather than hardcoding, and asserts
+the two `?` messages actually differ, so a kcc that emitted one string for
+everything could not satisfy it). **Both new corpus cases are independently
+mutation-verified**: dropping shape 5's reassignment store fails
+`reassign_then_read` and leaves the other six green, and staging shape 6's left
+operand at `bt+1` so the store and reload disagree fails `reassign_in_binary`
+and leaves the other six green. KIR pin re-measured **11040 → 11069**
+(`karkain kir --verify` 11069/11069, never hand-edited);
+`TestPhase122_PipelineOwnership/KIRContinuity` PASS 292 s on the new count.
+Regressions green: `go build ./...`, `go vet ./pkg/cli ./pkg/native
+./cmd/karkain`, all 43 `TestPhase151*` in `pkg/cli` + `pkg/native`,
+`pkg/native`, `TestPhase151A*` (Step 1 and Step 2 gates unchanged). One
+intermittent failure of `TestPhase151P0_BitwiseCorrectOnBothEngines/go` in one
+combined run reproduced **green in isolation and green on a re-run of the
+combined family** — the documented ~4 GB host flake class, not a regression.
+**Still NOT claimed:** no whole-image parity and no execution evidence, for the
+same reason as Step 2 — these are function bodies, not runnable programs.
+`kccOwnsNativeTargets` stays `false`; 151A is **not** closed. Audit note:
+`docs/audit/PHASE-151A-BASELINE.md` §10.
+
 Also completed: **151A-1 — the native decision moves into kcc** (increment 151,
 sub-slice; verdict **COMPLETE**, and explicitly **not** parity). 151D-first made
 the refusal honest but kept it in Go: the marker `kccProducedImage` looked for was

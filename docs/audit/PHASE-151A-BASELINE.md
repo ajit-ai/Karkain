@@ -312,3 +312,171 @@ stays `false`; 151A is **not** closed.
 **The next Step 2b boundary, stated so it is not discovered late:** a bare
 identifier operand (`return x` where `x` is a `let`) and the `?` propagation
 operator (`?`) have no `emitStr`/int path yet, so they are not lowered here.
+
+---
+
+## 10. 151A Step 2b — bare assignment statements and `?` refusal parity
+
+Step 2's closing note named two items for Step 2b. **Both were re-measured
+before any code was written, and the measurement corrects the note.**
+
+### 10.1 What the oracle actually does (measured, not read off the switch)
+
+A temporary probe compiled each construct with `native.CompileProgramForOS`:
+
+| Construct | Oracle result |
+|---|---|
+| `let x = 42; return x` | **ACCEPTED**, 233-byte `.text` |
+| `let x = 1; x = 2; return x` | **ACCEPTED**, 247-byte `.text` |
+| `let x = 3; x = 4; return x + 1` | **ACCEPTED**, 273-byte `.text` |
+| `let x = 1?` | **REFUSED** `error[K145]: unsupported **return** expression *parser.PropagateExpr` |
+| `return 1?` | **REFUSED** `error[K145]: unsupported **return** expression *parser.PropagateExpr` |
+| `print(1?)` | **REFUSED** `error[K145]: unsupported expression *parser.PropagateExpr` |
+| `let x = 1` then `x = 1?` then `return x` | **REFUSED** `error[K145]: unsupported expression *parser.PropagateExpr` |
+| `let s = "a" + 1?` | **REFUSED** `error[K145]: unsupported **return** expression *parser.PropagateExpr` |
+| `while 1? { }` | **REFUSED** `error[K145]: condition must be a comparison ...` (never reaches `?`) |
+
+**CORRECTION — this section's own first draft had the discriminator wrong, and
+the error is instructive enough to record.** The draft claimed the message
+depends on the `?` being **textually in return position**. Measurement says
+otherwise, and two of the rows above falsify it directly: `let x = 1?` is
+textually a `let` yet reports the RETURN message, while `x = 1?` on an
+already-bound local is followed by `return x` yet reports the plain EXPRESSION
+message.
+
+**The real rule is reachability from a return, not textual position.** The
+oracle runs a return-kind inference pass *before* emission: `walkReturns`
+(`program.go:1788`) calls `retKindOfExpr` (`program.go:1881`), and that helper
+**follows an `Identifier` back to its `let` initializer**
+(`program.go:1920`). So:
+
+* a `?` **reachable from a return statement** → `unsupported RETURN expression`
+  (refused during kind inference, at `retKindOfExpr`'s `default:`, line 1971,
+  and never reaching emission);
+* any other `?` → `unsupported expression` (`exprKind` line 4325, or `emitExpr`
+  line 4451).
+
+A **reassignment** does not update the table that walk reads — `vars` is built
+from `let` bindings — which is exactly why `x = 1?; return x` reports the
+non-return wording. The general lesson is the 151B one again: the discriminator
+had to be *measured*, because reading the three `default:` sites suggests a
+positional rule that the actual control flow does not implement.
+
+**The consequence for the gate is a hardening, not just a doc fix.** The first
+draft of `natIntRefusal` and its test both **hardcoded** the two message
+strings — two transcriptions of the same belief, which is precisely the 151C2
+defect class (`LC_DYLD_INFO_ONLY` written wrong in two places). The strings are
+now **measured from the oracle at test time** by
+`TestPhase151A2_PropagateRefusalsMatchOracle`, which compiles four real
+programs and requires kcc to emit exactly what the oracle produced. That test
+is what caught this section's own wrong table.
+
+**Two corrections to Step 2's closing note.**
+
+1. **A bare identifier operand is ALREADY lowered.** Shape 0 emits
+   `mov rax,42` / `mov [rsp],rax` / `mov rax,[rsp]` / `jmp $ret` for exactly
+   `let x = 42; return x`, and shape 1 already uses `a` and `b` as **binary
+   operands** (load both slots, stage through `binTemp`, multiply). The
+   identifier-as-value and identifier-as-operand paths both exist. The note was
+   written from the shape list rather than from a measurement, and the 151B
+   lesson applies: a baseline with wrong expectations is worse than none.
+
+2. **`?` is NOT lowered by the oracle, and is not Step 2b lowering work at
+   all.** `?` desugars to `PropagateExpr` (`pkg/parser/ast.go:209`), and
+   `emitExpr` has no case for it, so it lands in the `default:` branch
+   (`program.go:4450`). There is **no `PropagateExpr` case anywhere in
+   `pkg/native`** — a grep for `Propagate` across the backend returns
+   nothing. The increment-150 native value model has no Result/Option
+   representation, so there is nothing to propagate *to*.
+
+   So the honest 151A Step 2b deliverable for `?` is **refusal parity**, not
+   lowering: kcc must refuse it with the **same message the oracle does**, and
+   there are **two distinct messages at three distinct sites**, which is the
+   part that is easy to get wrong:
+
+   | Site | Function | Message |
+   |---|---|---|
+   | 1 | `exprKind` (`program.go:4325`) | `unsupported expression %T` |
+   | 2 | `retKindOfExpr` (`program.go:1971`) | `unsupported return expression %T` |
+   | 3 | `emitExpr` (`program.go:4451`) | `unsupported expression %T` |
+
+   `%T` renders as `*parser.PropagateExpr`. **Correction to the paragraph the
+   first draft wrote here**, which repeated the same positional mistake: a `?`
+   is not refused at site 2 because it is *in return position*, but because it
+   is **reachable from a return** — the inference walk resolves an identifier
+   back to its `let` initializer, so `let x = 1?` + `return x` takes site 2
+   while `x = 1?` + `return x` takes site 1/3. See the correction block above.
+
+### 10.2 The real Step 2b gap: bare assignment statements
+
+With the identifier path already covered, the genuine gap Step 2b closes is
+**a bare `x = 2` assignment to an existing int local** — an `ExprStmt` whose
+expression is a `BinaryExpr` with operator `=`, which `emitExprStmt` handles
+(`program.go:3422`) and which no Step 2 shape exercises. Its bytes are
+measured, not assumed:
+
+```
+reassign_then_read   4881ec68020000 48b80100000000000000 48890424
+                     48b80200000000000000 48890424 488b0424 e900000000
+                     4881c468020000 c3
+```
+
+Two `mov rax, imm64` + `mov [rsp], rax` pairs, then the read. The frame is
+**unchanged at 0x268** — a reassignment writes an existing slot and allocates
+nothing, which is the property worth pinning.
+
+And with a binary operand (`x + 1`), the identifier goes through the ordinary
+staging path:
+
+```
+reassign_in_binary   ... 488b0424 4889442408 48b80100000000000000
+                     4889c1 488b442408 4801c8 e900000000
+```
+
+`mov rax,[rsp]` (read the local) / `mov [rsp+8],rax` (stage at
+`binTemp + 0*8`) / literal / `mov rcx,rax` / reload / `add` — identical in
+shape to shape 1, which is the point: **a reassigned local takes exactly the
+same lowering path as a freshly bound one.**
+
+### 10.3 Exit criteria for 151A Step 2b
+
+- [x] kcc emits the reassignment bodies **byte-identical** to the oracle's
+      `.text`, by the same three layers Step 2 used.
+      *Measured:* `reassign_then_read` 52 bytes
+      `sha256=6e38af60…`, `reassign_in_binary` 78 bytes `sha256=07c039d4…`,
+      each occurring **exactly once** in the oracle's compiled `.text`.
+- [x] kcc refuses `?` with the **oracle's exact message, per site** — both
+      the expression-position and the return-position wording, **measured from
+      the oracle** rather than hardcoded (see the hardening note in §10.1).
+      *Measured:* four constructs compiled against `native.CompileProgramForOS`;
+      kcc's two slots match; the two messages are provably distinguishable.
+- [x] The gate is **non-vacuous**: reverting the new kcc code fails it.
+      *Mutation-verified, three mutations, each reverted and hash-confirmed:*
+      shape 5's reassigned literal `2 → 9` → differential reports **0
+      occurrences** *and* the stated bytes go missing; shape 6's staging offset
+      `bt+0*8 → bt+1*8` → same two layers fire; the expression-message slot
+      rewritten to the return wording → the refusal test fires. A **fourth**
+      mutation on the *test's own* expectation for `let_then_return` — i.e.
+      re-encoding this section's original wrong table — is caught by the new
+      measured differential, which is the direct evidence that the hardening
+      works and the old hardcoded pair could not have caught it.
+- [x] KIR pin re-measured, never hand-edited. **11040 → 11069**
+      (`TestPhase122_PipelineOwnership/KIRContinuity` PASS, 457.5s).
+- [x] Step 1 and Step 2 gates unchanged and green.
+      *Measured:* `TestPhase151A2_*` and the full `TestPhase151A*` set pass,
+      `pkg/native` green (18.1s), `go vet ./pkg/cli/` clean, `gofmt` clean
+      once LF-normalised (the only remaining flag is the repo-wide CRLF
+      artifact; re-checking found and fixed one real missing blank line).
+
+### 10.4 Explicitly NOT claimed
+
+No `?` lowering, because the oracle has none. No whole-image parity, and **no
+execution evidence** — these remain function bodies, with no entry stub, no
+syscall tail and no PEB bootstrap, so nothing a loader could run. The argument
+stays transitive. `kccOwnsNativeTargets` stays `false`; 151A is **not** closed.
+
+The reassignment shapes add **no new capability to the compiler's surface**:
+there is still no AST-driven native driver, so `natIntBody(5|6, …)` remains a
+compiled-in shape rather than a general statement lowering. What Step 2b
+establishes is that the *shape* matches the oracle for this construct, and that
+the oracle's behaviour was measured rather than assumed.

@@ -182,6 +182,8 @@ func main() {
         print(natIntExprCorpus(2))
         print(natIntExprCorpus(3))
         print(natIntExprCorpus(4))
+        print(natIntExprCorpus(5))
+        print(natIntExprCorpus(6))
         return
     }
     if (command == "native-value-cmp") {
@@ -194,7 +196,7 @@ func main() {
     }
     if (command == "native-value-refuse") {
         let r = 0
-        while (r < 4) {
+        while (r < 6) {
             print(natIntRefusal(r))
             r = r + 1
         }

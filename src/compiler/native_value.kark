@@ -393,6 +393,19 @@ func natIntRefusal(which) {
     if (which == 1) { return "error[K145]: unsupported operator '%' (want +, - or *)" }
     if (which == 2) { return "error[K145]: condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats" }
     if (which == 3) { return "error[K145]: expression nesting exceeds 64 binary levels" }
+    // Step 2b: the `?` propagation operator is REFUSED by the oracle, not
+    // lowered. `?` desugars to *parser.PropagateExpr and there is no
+    // PropagateExpr case anywhere in pkg/native -- the native value model has
+    // no Result/Option representation, so there is nothing to propagate to.
+    // Implementing it here would be a NEW capability, not a port, so it stays
+    // a refusal.
+    //
+    // The two messages DIFFER, and the difference is load-bearing rather than
+    // cosmetic: a `?` in RETURN position is refused by retKindOfExpr during
+    // kind inference, which runs before emitExpr, so it never reaches the
+    // emission site's own wording.
+    if (which == 4) { return "error[K145]: unsupported expression *parser.PropagateExpr" }
+    if (which == 5) { return "error[K145]: unsupported return expression *parser.PropagateExpr" }
     return ""
 }
 
@@ -483,6 +496,40 @@ func natIntBody(shape, nLocals) {
         returned = 0
     }
 
+    // shape 5: let x = 1 ; x = 2 ; return x   -- Step 2b. A bare assignment
+    // to an EXISTING int local takes exactly the same lowering path as the
+    // `let` that bound it: emitExprStmt evaluates the right side into RAX and
+    // stores to the slot that is already there, so the frame is UNCHANGED at
+    // one local. That "unchanged" is the property worth pinning -- a
+    // reassignment allocates nothing -- and the gate's frame layer checks it.
+    if (shape == 5) {
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 1)
+        s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 2)
+        s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natLoadStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natJmp(s, "karkain_main$ret")
+        returned = 1
+    }
+    // shape 6: let x = 3 ; x = 4 ; return x + 1  -- Step 2b. A REASSIGNED local
+    // read as a binary operand goes through the ordinary depth-indexed staging
+    // path (shape 1), which is the point: being reassigned earlier must not put
+    // the local on any different lowering than a freshly bound one.
+    if (shape == 6) {
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 3)
+        s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 4)
+        s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natLoadStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
+        s = natStoreStack(s, natRegRAX(), bt + 0 * 8)
+        s = natMovImm64(s, natMovImm64Op(natRegRAX()), 1)
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        s = natLoadStack(s, natRegRAX(), bt + 0 * 8)
+        s = natAddRegReg(s, natRegRAX(), natRegRCX())
+        s = natJmp(s, "karkain_main$ret")
+        returned = 1
+    }
+
     if (returned == 0) { s = natXorRegReg(s, natRegRAX()) }
     s = natMark(s, "karkain_main$ret")
     s = natAddRegImm32(s, natRegRSP(), frame)
@@ -497,6 +544,11 @@ func natIntExprCorpus(which) {
     if (which == 2) { return natToHex(natFinish(natIntBody(2, 0))) }
     if (which == 3) { return natToHex(natFinish(natIntBody(3, 0))) }
     if (which == 4) { return natToHex(natFinish(natIntBody(4, 1))) }
+    // Step 2b: the bare-assignment shapes. Both have one local, and the frame
+    // layer independently recomputes that, so an accidental extra local would
+    // show up as a frame mismatch rather than as plausible-looking bytes.
+    if (which == 5) { return natToHex(natFinish(natIntBody(5, 1))) }
+    if (which == 6) { return natToHex(natFinish(natIntBody(6, 1))) }
     return ""
 }
 

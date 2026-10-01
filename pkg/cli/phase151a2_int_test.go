@@ -31,9 +31,15 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
+
+	"karkain/pkg/lexer"
+	"karkain/pkg/native"
+	"karkain/pkg/parser"
 )
 
 func runKCCStep2(t *testing.T, karkain, sub string) []string {
@@ -100,6 +106,24 @@ var intCorpus = []struct {
 		src:     "func main() {\n    let x = 1\n}\n",
 		nLocals: 1,
 		stated:  []string{"4831c0"},
+	},
+	{
+		// Step 2b: a bare `x = 2` assignment to an existing int local. The
+		// frame is UNCHANGED at one local, which the frame layer checks: a
+		// reassignment allocates nothing.
+		name:    "reassign_then_read",
+		src:     "func main() {\n    let x = 1\n    x = 2\n    return x\n}\n",
+		nLocals: 1,
+		stated:  []string{"48b80100000000000000", "48890424", "48b80200000000000000", "48890424", "488b0424"},
+	},
+	{
+		// Step 2b: a REASSIGNED local read as a binary operand must take the
+		// SAME staging path as a freshly bound one (shape 1), so the scratch
+		// store at bt+0 and the reload are present and the add is `add rax,rcx`.
+		name:    "reassign_in_binary",
+		src:     "func main() {\n    let x = 3\n    x = 4\n    return x + 1\n}\n",
+		nLocals: 1,
+		stated:  []string{"48b80300000000000000", "48890424", "48b80400000000000000", "48890424", "4889442408", "4889c1", "488b442408", "4801c8"},
 	},
 }
 
@@ -221,17 +245,216 @@ func TestPhase151A2_ComparisonsAreBranches(t *testing.T) {
 func TestPhase151A2_RefusalsMatchOracle(t *testing.T) {
 	karkain := phase130Karkain(t)
 	got := runKCCStep2(t, karkain, "native-value-refuse")
-	if len(got) != 4 {
-		t.Fatalf("kcc native-value-refuse produced %d lines, want 4:\n%v", len(got), got)
+	if len(got) != 6 {
+		t.Fatalf("kcc native-value-refuse produced %d lines, want 6:\n%v", len(got), got)
 	}
+
+	// Measured from the oracle, not written down here.
+	propagateExpr, propagateRet, merr := measuredPropagateRefusals()
+	if merr != nil {
+		t.Fatalf("propagate refusal measurement: %v", merr)
+	}
+
 	for i, want := range []string{
 		"error[K145]: unsupported operator '/' (want +, - or *)",
 		"error[K145]: unsupported operator '%' (want +, - or *)",
 		"error[K145]: condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats",
 		"error[K145]: expression nesting exceeds 64 binary levels",
+		// Slots 4 and 5 are the `?` propagation refusals. They are NOT
+		// spelled out here: TestPhase151A2_PropagateRefusalsMatchOracle
+		// derives BOTH from the oracle by compiling real programs. Hardcoding
+		// them on both sides is the 151C2 defect class -- two transcriptions
+		// of the same belief, wrong together.
+		propagateExpr,
+		propagateRet,
 	} {
 		if got[i] != want {
 			t.Errorf("refusal %d:\n kcc = %q\n want= %q", i, got[i], want)
 		}
+	}
+}
+
+// propagateRefusalCases tie each `?` refusal to a REAL program the oracle is
+// actually given, so the expected message is MEASURED rather than believed.
+//
+// The discriminator is subtle, and the first draft of the Step 2b baseline
+// got it backwards: it claimed the message depends on the `?` being TEXTUALLY
+// in return position. Measurement says otherwise. The oracle runs a
+// return-kind inference pass (retKindOfExpr, reached from walkReturns) BEFORE
+// emission, and that helper FOLLOWS AN IDENTIFIER BACK TO ITS `let`
+// INITIALIZER (program.go:1920). So the real rule is:
+//
+//	a `?` REACHABLE FROM a return  -> "unsupported RETURN expression"
+//	any other `?`                 -> "unsupported expression"
+//
+// Hence `let x = 1?` + `return x` reports the RETURN message even though the
+// `?` is textually in the `let`, while `x = 1?` on an already-bound local
+// reports the plain EXPRESSION message even when that local is returned -- a
+// reassignment does not update the table the inference walk reads.
+var propagateRefusalCases = []struct {
+	name string
+	src  string
+	want string
+}{
+	{
+		name: "expr_position",
+		src:  "func main() {\n    print(1?)\n}\n",
+		want: "error[K145]: unsupported expression *parser.PropagateExpr",
+	},
+	{
+		name: "return_position",
+		src:  "func main() {\n    return 1?\n}\n",
+		want: "error[K145]: unsupported return expression *parser.PropagateExpr",
+	},
+	{
+		name: "let_then_return",
+		src:  "func main() {\n    let x = 1?\n    return x\n}\n",
+		want: "error[K145]: unsupported return expression *parser.PropagateExpr",
+	},
+	{
+		name: "assign_then_return",
+		src:  "func main() {\n    let x = 1\n    x = 1?\n    return x\n}\n",
+		want: "error[K145]: unsupported expression *parser.PropagateExpr",
+	},
+}
+
+// The two strings kcc must emit, MEASURED from the oracle rather than written
+// down. Measured lazily through a sync.Once rather than by one test filling a
+// global for another: Go runs tests in source order, so a producer/consumer
+// pair across two test functions would silently compare against empty strings
+// on a fresh run. The measurement is cheap (four tiny programs through an
+// in-process compiler), so doing it once on demand costs nothing.
+var (
+	propagateOnce    sync.Once
+	propagateExprMsg string
+	propagateRetMsg  string
+	propagateErr     error
+)
+
+func measuredPropagateRefusals() (exprMsg, retMsg string, err error) {
+	propagateOnce.Do(func() {
+		for _, tc := range propagateRefusalCases {
+			msg := measureOracleErr(tc.src)
+			if msg == "" {
+				propagateErr = fmt.Errorf("oracle accepted a program it must refuse (%s):\n%s", tc.name, tc.src)
+				return
+			}
+			switch tc.name {
+			case "expr_position":
+				propagateExprMsg = msg
+			case "return_position":
+				propagateRetMsg = msg
+			}
+			if msg != tc.want {
+				propagateErr = fmt.Errorf("oracle message for %s:\n got = %q\nwant = %q", tc.name, msg, tc.want)
+				return
+			}
+		}
+		if propagateExprMsg == "" || propagateRetMsg == "" {
+			propagateErr = fmt.Errorf("propagate refusal measurement incomplete")
+			return
+		}
+		// Both messages must be reachable, or a kcc that emitted ONE string
+		// for every `?` would satisfy a one-element corpus.
+		if propagateExprMsg == propagateRetMsg {
+			propagateErr = fmt.Errorf("the two propagate refusals are indistinguishable (%q); the corpus cannot discriminate", propagateExprMsg)
+		}
+	})
+	return propagateExprMsg, propagateRetMsg, propagateErr
+}
+
+// oracleErr compiles src with the Go oracle and returns its error text. This
+// is what makes the two propagate refusals a DIFFERENTIAL: the expected string
+// comes from the same pkg/native the increment's contract is stated against,
+// not from a second copy of the same belief.
+func oracleErr(t *testing.T, src string) string {
+	t.Helper()
+	msg := measureOracleErr(src)
+	if msg == "" {
+		t.Fatalf("oracle ACCEPTED a program it must refuse:\n%s", src)
+	}
+	return msg
+}
+
+// measureOracleErr is oracleErr without the *testing.T, so the shared
+// measurement can run inside a sync.Once.
+func measureOracleErr(src string) string {
+	p := parser.New(lexer.New(src))
+	prog := p.ParseProgram()
+	if len(p.Errors) > 0 {
+		return ""
+	}
+	_, err := native.CompileProgramForOS(prog, native.OSLinux)
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// TestPhase151A2_PropagateRefusalsMatchOracle measures the oracle's `?`
+// refusals from real programs and requires kcc to emit exactly those strings.
+// This is the layer the hardcoded table could not be.
+func TestPhase151A2_PropagateRefusalsMatchOracle(t *testing.T) {
+	karkain := phase130Karkain(t)
+	got := runKCCStep2(t, karkain, "native-value-refuse")
+	if len(got) != 6 {
+		t.Fatalf("kcc native-value-refuse produced %d lines, want 6:\n%v", len(got), got)
+	}
+	propagateExpr, propagateRet, merr := measuredPropagateRefusals()
+	if merr != nil {
+		t.Fatalf("propagate refusal measurement: %v", merr)
+	}
+
+	// Per-case subtests: each construct is named, so a regression says WHICH
+	// program changed behaviour rather than only that a string moved.
+	for _, tc := range propagateRefusalCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if gotMsg := oracleErr(t, tc.src); gotMsg != tc.want {
+				t.Errorf("oracle message for %s:\n got = %q\nwant = %q", tc.name, gotMsg, tc.want)
+			}
+		})
+	}
+
+	// Both messages must actually be reachable, or a kcc that emitted one
+	// string for everything would satisfy a one-element corpus.
+	if propagateExpr == propagateRet {
+		t.Fatalf("the two propagate refusals are indistinguishable (%q); the corpus cannot discriminate", propagateExpr)
+	}
+
+	// kcc's two slots must carry the measured strings.
+	if got[4] != propagateExpr {
+		t.Errorf("kcc propagate (expression) slot:\n kcc = %q\nwant = %q", got[4], propagateExpr)
+	}
+	if got[5] != propagateRet {
+		t.Errorf("kcc propagate (return) slot:\n kcc = %q\nwant = %q", got[5], propagateRet)
+	}
+}
+
+// TestPhase151A2b_ReassignmentSharesLetLowering states the Step 2b property
+// rather than the bytes: a reassigned local is lowered EXACTLY like the `let`
+// that bound it. It compares the store structure of the two shapes, so it
+// fails if a future change gives reassignment its own path.
+func TestPhase151A2b_ReassignmentSharesLetLowering(t *testing.T) {
+	karkain := phase130Karkain(t)
+	got := runKCCStep2(t, karkain, "native-value-int")
+	if len(got) < 7 {
+		t.Fatalf("kcc native-value-int produced %d lines, want >= 7:\n%v", len(got), got)
+	}
+
+	// shape 0 is `let x = 42; return x`; shape 5 is `let x = 1; x = 2;
+	// return x`. The frame must be the ONE-LOCAL frame in both: a
+	// reassignment allocates nothing, which is the property worth pinning.
+	letHex, reHex := got[0], got[5]
+	frame := le32Hex(refFrameOf(1))
+	if !strings.Contains(reHex, frame) {
+		t.Errorf("reassignment frame is not the one-local frame %s:\n kcc = %s", frame, reHex)
+	}
+	store := "48890424" // mov [rsp], rax
+	if n := countOccurrences([]byte(reHex), []byte(store)); n != 2 {
+		t.Errorf("reassignment shape has %d slot stores, want 2 (the let plus the reassignment):\n kcc = %s", n, reHex)
+	}
+	if n := countOccurrences([]byte(letHex), []byte(store)); n != 1 {
+		t.Errorf("let-only shape has %d slot stores, want 1 (sanity on the comparison):\n kcc = %s", n, letHex)
 	}
 }
