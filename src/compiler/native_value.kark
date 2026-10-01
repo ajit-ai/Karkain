@@ -618,3 +618,520 @@ func natIntIf(op) {
 func natIntIfCorpus(op) {
     return natToHex(natFinish(natIntIf(op)))
 }
+
+// ============================================================
+// 7. Control-flow lowering: while / for / break / continue (Step 3)
+// ============================================================
+//
+// The oracle's structure, reproduced from pkg/native:
+//
+//   emitWhile (program.go:3720)
+//     loopLabel = fresh("while"); endLabel = fresh("whileend")
+//     Mark(loopLabel); push loops{brk:endLabel, cont:loopLabel}
+//     emitCond(cond, endLabel); body; pop
+//     Jmp(loopLabel); Mark(endLabel)
+//
+//   emitFor (program.go:3742)
+//     init (inline, BEFORE any label)
+//     loopLabel = fresh("for"); postLabel = fresh("forpost"); endLabel = fresh("forend")
+//     Mark(loopLabel); push loops{brk:endLabel, cont:POSTLabel}
+//     cond (if present); body
+//     Mark(postLabel); post; pop
+//     Jmp(loopLabel); Mark(endLabel)
+//
+//   break    -> Jmp(loops[top].brk)   (program.go:3403)
+//   continue -> Jmp(loops[top].cont)   (program.go:3409)
+//
+// Four facts the MEASURED label table settled, each recorded because it is
+// easy to get wrong and each verified against the oracle rather than assumed:
+//
+//  1. `fresh()` is ONE counter shared by every prefix, and it is incremented
+//     where the construct is ENTERED, not where it is emitted. So a nested
+//     loop numbers $3/$4 while its parent keeps $1/$2, and the parent's end
+//     label -- emitted last -- is still the LOWER number.
+//     Measured: nested_while has while$1=214, while$3=265, whileend$4=379,
+//     whileend$2=418.
+//  2. `for` allocates THREE labels in the order for, forpost, forend, so the
+//     POST label is $2 and the END label is $3. Reading it as
+//     for/forend/forpost renumbers every jump in the program.
+//  3. `break` targets the loop's END label; `continue` targets the loop's
+//     continuation label, which is the HEAD for `while` and the POST label
+//     for a C-style `for`. That asymmetry is the oracle's (loops[] carries
+//     cont:postLabel for `for`, program.go:3752) and is why a `continue` in a
+//     `for` still runs the post clause.
+//  4. An `if` inside a loop allocates BOTH of its labels even with no else
+//     branch, and with an empty consequence they land on the SAME offset.
+//     Measured: while_break has ifelse$3 == ifend$4 == 315.
+//
+// Operand lowering is UNCHANGED from Step 2: the left operand is staged in the
+// depth-indexed scratch slot, the right is evaluated into RAX and moved to
+// RCX, the left is reloaded, and the operation is applied. A loop changes
+// nothing about that, because the scratch slot is written before it is read on
+// every iteration. rsp never moves.
+//
+// emitCond passes depth 1 to emitExpr for its operands but stores the staged
+// left operand at b.binTemp (the region START, depth 0), which is why the
+// condition and a depth-0 body expression share the same scratch slot.
+
+// natLoopOpAdd is the only binary operator the reference programs use in a
+// loop body. It reuses natAddRegReg, the Step 2 primitive.
+func natLoopOpAdd() { return 0 }
+
+// natLoopStageLocal parks the LEFT operand of a comparison or an assignment:
+// read the local, store it into the depth-indexed scratch slot.
+func natLoopStageLocal(s, slot, bt, depth) {
+    s = natLoadStack(s, natRegRAX(), slot)
+    s = natStoreStack(s, natRegRAX(), bt + depth * 8)
+    return s
+}
+
+// natLoopStageLit parks a LITERAL left operand by the same two instructions,
+// so a condition over two constants has the same shape as one over a local.
+func natLoopStageLit(s, v, bt, depth) {
+    s = natMovImm64(s, natMovImm64Op(natRegRAX()), v)
+    s = natStoreStack(s, natRegRAX(), bt + depth * 8)
+    return s
+}
+
+// natLoopLit emits a literal into RAX. Used as a RIGHT operand, which is
+// never staged: it goes straight to RAX and then to RCX.
+func natLoopLit(s, v) {
+    return natMovImm64(s, natMovImm64Op(natRegRAX()), v)
+}
+
+// natLoopLoad emits an identifier read into RAX. Used as a RIGHT operand.
+func natLoopLoad(s, slot) {
+    return natLoadStack(s, natRegRAX(), slot)
+}
+
+// natLoopFinishCmp completes `staged <cmp> rightInRax` and branches to
+// falseLabel on the INVERSE condition, exactly as natIntCond does. The cmp
+// MUST precede the branch: a branch ahead of its cmp is a correct-looking
+// sequence testing stale flags.
+func natLoopFinishCmp(s, op, falseLabel, bt, depth) {
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natLoadStack(s, natRegRAX(), bt + depth * 8)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    if (op == 0) { return natJnz(s, falseLabel) }
+    if (op == 1) { return natJz(s, falseLabel) }
+    if (op == 2) { return natJge(s, falseLabel) }
+    if (op == 3) { return natJg(s, falseLabel) }
+    if (op == 4) { return natJle(s, falseLabel) }
+    if (op == 5) { return natJl(s, falseLabel) }
+    return s
+}
+
+
+// natLoopFinishAdd completes `staged + rightInRax`, the Step 2 binary shape.
+func natLoopFinishAdd(s, bt, depth) {
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natLoadStack(s, natRegRAX(), bt + depth * 8)
+    return natAddRegReg(s, natRegRAX(), natRegRCX())
+}
+
+// natLoopCondLocal emits `local <op> literal`, the condition shape every
+// reference loop uses. The false label is the loop's END label, because that
+// is what the oracle passes to emitCond.
+func natLoopCondLocal(s, op, falseLabel, bt, slot, lit) {
+    s = natLoopStageLocal(s, slot, bt, 0)
+    s = natLoopLit(s, lit)
+    return natLoopFinishCmp(s, op, falseLabel, bt, 0)
+}
+
+// natLoopAssignAddLit emits `slot = src + lit`, the reassignment shape Step 2b
+// established: evaluate the right side into RAX, then store to the slot that
+// already exists. The frame does not change.
+func natLoopAssignAddLit(s, bt, slot, srcSlot, lit) {
+    s = natLoopStageLocal(s, srcSlot, bt, 0)
+    s = natLoopLit(s, lit)
+    s = natLoopFinishAdd(s, bt, 0)
+    s = natStoreStack(s, natRegRAX(), slot)
+    return s
+}
+
+// natLoopAssignAddLocal emits `dst = src + other`, where the right operand is
+// a local rather than a literal. Same staging, different right-operand source.
+func natLoopAssignAddLocal(s, bt, dst, src, other) {
+    s = natLoopStageLocal(s, src, bt, 0)
+    s = natLoopLoad(s, other)
+    s = natLoopFinishAdd(s, bt, 0)
+    s = natStoreStack(s, natRegRAX(), dst)
+    return s
+}
+
+// natLoopLet emits `let slot = v`.
+func natLoopLet(s, slot, v) {
+    s = natMovImm64(s, natMovImm64Op(natRegRAX()), v)
+    s = natStoreStack(s, natRegRAX(), slot)
+    return s
+}
+
+// natLoopEpilogue closes a reference program: the `return slot` read, the jmp
+// to the $ret label the oracle emits after EVERY return, the $ret mark, and
+// the frame teardown. Every reference program here returns explicitly, so the
+// `if !returned` xor of Step 2 does not apply.
+func natLoopEpilogue(s, frame, retSlot) {
+    s = natLoadStack(s, natRegRAX(), retSlot)
+    s = natJmp(s, "karkain_main$ret")
+    s = natMark(s, "karkain_main$ret")
+    s = natAddRegImm32(s, natRegRSP(), frame)
+    s = natRet(s)
+    return s
+}
+
+// natLoopFrame computes the reference frame for a function with nLocals int
+// locals: locals, binTemp, no strTemp, no mapStage, no extras, Linux (no
+// 16-byte rounding), plus the fixed arg spill.
+func natLoopFrame(nLocals) {
+    let f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0)
+    return f
+}
+
+// natLoopPrologue emits Mark(karkain_main) + SubRsp(frame).
+func natLoopPrologue(nLocals) {
+    let f = natLoopFrame(nLocals)
+    let s = natNewEmitter(0)
+    s = natMark(s, "karkain_main")
+    s = natSubRegImm32(s, natRegRSP(), f[natFrFrame()])
+    return s
+}
+
+
+// ------------------------------------------------------------
+// The ten reference programs, in the corpus order the gate uses.
+//
+// Slot assignment is the oracle's: locals are numbered in DECLARATION order,
+// so in `let i = 0 ; let s = 0` i is slot 0 and s is slot 1. The `for` init's
+// `let i` is declared AFTER `let s`, which is why for_full has s at slot 0.
+// ------------------------------------------------------------
+
+// natLoopWhileSimple: let i = 0 ; while i < 5 { i = i + 1 } ; return i
+// Measured: frame 616 (1 local), while$1=199, whileend$2=274, $ret=283.
+func natLoopWhileSimple() {
+    let f = natLoopFrame(1)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let i0 = natLocalOff(0, natKindInt())
+    let s = natLoopPrologue(1)
+    s = natLoopLet(s, i0, 0)
+    s = natMark(s, "while$1")
+    s = natLoopCondLocal(s, 2, "whileend$2", bt, i0, 5)
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    s = natJmp(s, "while$1")
+    s = natMark(s, "whileend$2")
+    return natLoopEpilogue(s, frame, i0)
+}
+
+// natLoopWhileArith: let i = 0 ; let s = 0 ;
+//   while i < 5 { s = s + i ; i = i + 1 } ; return s
+// Measured: frame 624 (2 locals), while$1=214, whileend$2=319, $ret=329.
+func natLoopWhileArith() {
+    let f = natLoopFrame(2)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let i0 = natLocalOff(0, natKindInt())
+    let s0 = natLocalOff(1, natKindInt())
+    let s = natLoopPrologue(2)
+    s = natLoopLet(s, i0, 0)
+    s = natLoopLet(s, s0, 0)
+    s = natMark(s, "while$1")
+    s = natLoopCondLocal(s, 2, "whileend$2", bt, i0, 5)
+    // s = s + i : the RIGHT operand is a local here, not a literal
+    s = natLoopAssignAddLocal(s, bt, s0, s0, i0)
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    s = natJmp(s, "while$1")
+    s = natMark(s, "whileend$2")
+    return natLoopEpilogue(s, frame, s0)
+}
+
+// natLoopWhileBreak: let i = 0 ; while i < 10 { i = i + 1 ; if i == 5 { break } }
+//   ; return i
+// Measured: frame 616 (1 local), while$1=199, whileend$2=320,
+//           ifelse$3=315, ifend$4=315, $ret=329.
+//
+// The break jumps to whileend$2 -- the loop's END label, not the head. The
+// `if` allocates ifelse$3 and ifend$4 AFTER the while's own two labels,
+// because the shared counter is incremented at loop ENTRY.
+func natLoopWhileBreak() {
+    let f = natLoopFrame(1)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let i0 = natLocalOff(0, natKindInt())
+    let s = natLoopPrologue(1)
+    s = natLoopLet(s, i0, 0)
+    s = natMark(s, "while$1")
+    s = natLoopCondLocal(s, 2, "whileend$2", bt, i0, 10)
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    // if i == 5 { break }
+    s = natLoopCondLocal(s, 0, "ifelse$3", bt, i0, 5)
+    s = natJmp(s, "whileend$2")
+    // emitIf's own unconditional jump to the end label, BEFORE Mark(ifelse$3).
+    // It is 5 bytes and it is easy to miss: the `if` has no else branch, so the
+    // next two marks land on the SAME offset and the jump reads like a no-op.
+    s = natJmp(s, "ifend$4")
+    s = natMark(s, "ifelse$3")
+    s = natMark(s, "ifend$4")
+    s = natJmp(s, "while$1")
+    s = natMark(s, "whileend$2")
+    return natLoopEpilogue(s, frame, i0)
+}
+
+// natLoopWhileContinue: let i = 0 ; let s = 0 ;
+//   while i < 6 { i = i + 1 ; if i == 3 { continue } ; s = s + i } ; return s
+// Measured: frame 624 (2 locals), while$1=214, whileend$2=365,
+//           ifelse$3=330, ifend$4=330, $ret=375.
+//
+// The continue jumps back to while$1 -- the loop HEAD. Continuing to the end
+// label would exit the loop, so the two targets are not interchangeable.
+func natLoopWhileContinue() {
+    let f = natLoopFrame(2)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let i0 = natLocalOff(0, natKindInt())
+    let s0 = natLocalOff(1, natKindInt())
+    let s = natLoopPrologue(2)
+    s = natLoopLet(s, i0, 0)
+    s = natLoopLet(s, s0, 0)
+    s = natMark(s, "while$1")
+    s = natLoopCondLocal(s, 2, "whileend$2", bt, i0, 6)
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    // if i == 3 { continue }
+    s = natLoopCondLocal(s, 0, "ifelse$3", bt, i0, 3)
+    s = natJmp(s, "while$1")
+    // emitIf's own unconditional jump to the end label (see natLoopWhileBreak)
+    s = natJmp(s, "ifend$4")
+    s = natMark(s, "ifelse$3")
+    s = natMark(s, "ifend$4")
+    s = natLoopAssignAddLocal(s, bt, s0, s0, i0)
+    s = natJmp(s, "while$1")
+    s = natMark(s, "whileend$2")
+    return natLoopEpilogue(s, frame, s0)
+}
+
+
+// natLoopForSimple: let i = 0 ; for (i = 0; i < 5; i = i + 1) { } ; return i
+// Measured: frame 616 (1 local), for$1=213, forpost$2=249, forend$3=288, $ret=297.
+//
+// The init clause is emitted BEFORE for$1 is marked. It is a bare assignment to
+// an already-bound local, so it lowers exactly like Step 2b shape 5 and the
+// frame does NOT grow.
+func natLoopForSimple() {
+    let f = natLoopFrame(1)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let i0 = natLocalOff(0, natKindInt())
+    let s = natLoopPrologue(1)
+    s = natLoopLet(s, i0, 0)
+    // for init: i = 0
+    s = natLoopLet(s, i0, 0)
+    s = natMark(s, "for$1")
+    s = natLoopCondLocal(s, 2, "forend$3", bt, i0, 5)
+    s = natMark(s, "forpost$2")
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    s = natJmp(s, "for$1")
+    s = natMark(s, "forend$3")
+    return natLoopEpilogue(s, frame, i0)
+}
+
+// natLoopForFull: let s = 0 ; for (let i = 0; i < 5; i = i + 1) { s = s + i }
+//   ; return s
+// Measured: frame 624 (2 locals), for$1=214, forpost$2=280, forend$3=321, $ret=330.
+//
+// s is slot 0 and i is slot 1, because `let s` is declared first and the
+// for-init's `let i` second.
+func natLoopForFull() {
+    let f = natLoopFrame(2)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let s0 = natLocalOff(0, natKindInt())
+    let i0 = natLocalOff(1, natKindInt())
+    let s = natLoopPrologue(2)
+    s = natLoopLet(s, s0, 0)
+    // for init: let i = 0
+    s = natLoopLet(s, i0, 0)
+    s = natMark(s, "for$1")
+    s = natLoopCondLocal(s, 2, "forend$3", bt, i0, 5)
+    // body: s = s + i
+    s = natLoopAssignAddLocal(s, bt, s0, s0, i0)
+    // forpost$2: the post clause, AFTER the body
+    s = natMark(s, "forpost$2")
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    s = natJmp(s, "for$1")
+    s = natMark(s, "forend$3")
+    return natLoopEpilogue(s, frame, s0)
+}
+
+// natLoopForBreak: let i = 0 ; for (i = 0; i < 10; i = i + 1) { if i == 5 { break } }
+//   ; return i
+// Measured: frame 616 (1 local), for$1=213, forpost$2=295, forend$3=334,
+//           ifelse$4=295, ifend$5=295, $ret=343.
+//
+// The break targets forend$3. Note ifelse$4 / ifend$5 / forpost$2 all share
+// offset 295: the if's consequence is a single break, the alternative is empty,
+// and the post label immediately follows the body.
+func natLoopForBreak() {
+    let f = natLoopFrame(1)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let i0 = natLocalOff(0, natKindInt())
+    let s = natLoopPrologue(1)
+    s = natLoopLet(s, i0, 0)
+    s = natLoopLet(s, i0, 0)
+    s = natMark(s, "for$1")
+    s = natLoopCondLocal(s, 2, "forend$3", bt, i0, 10)
+    // if i == 5 { break }
+    s = natLoopCondLocal(s, 0, "ifelse$4", bt, i0, 5)
+    s = natJmp(s, "forend$3")
+    // emitIf's own unconditional jump to the end label (see natLoopWhileBreak)
+    s = natJmp(s, "ifend$5")
+    s = natMark(s, "ifelse$4")
+    s = natMark(s, "ifend$5")
+    s = natMark(s, "forpost$2")
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    s = natJmp(s, "for$1")
+    s = natMark(s, "forend$3")
+    return natLoopEpilogue(s, frame, i0)
+}
+
+// natLoopForContinue: let s = 0 ; for (let i = 0; i < 6; i = i + 1) {
+//   if i == 3 { continue } ; s = s + i } ; return s
+// Measured: frame 624 (2 locals), for$1=214, forpost$2=327, forend$3=368,
+//           ifelse$4=298, ifend$5=298, $ret=377.
+//
+// THE ASYMMETRY CASE: here `continue` targets forpost$2, NOT for$1, because
+// a C-style for's continuation label is its post clause (program.go:3752
+// pushes loopTgt{brk: endLabel, cont: postLabel}). Jumping to the head would
+// skip the increment and loop forever.
+func natLoopForContinue() {
+    let f = natLoopFrame(2)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let s0 = natLocalOff(0, natKindInt())
+    let i0 = natLocalOff(1, natKindInt())
+    let s = natLoopPrologue(2)
+    s = natLoopLet(s, s0, 0)
+    s = natLoopLet(s, i0, 0)
+    s = natMark(s, "for$1")
+    s = natLoopCondLocal(s, 2, "forend$3", bt, i0, 6)
+    // if i == 3 { continue }
+    s = natLoopCondLocal(s, 0, "ifelse$4", bt, i0, 3)
+    s = natJmp(s, "forpost$2")
+    // emitIf's own unconditional jump to the end label (see natLoopWhileBreak)
+    s = natJmp(s, "ifend$5")
+    s = natMark(s, "ifelse$4")
+    s = natMark(s, "ifend$5")
+    s = natLoopAssignAddLocal(s, bt, s0, s0, i0)
+    s = natMark(s, "forpost$2")
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    s = natJmp(s, "for$1")
+    s = natMark(s, "forend$3")
+    return natLoopEpilogue(s, frame, s0)
+}
+
+
+// natLoopNestedWhile: let i = 0 ; let t = 0 ;
+//   while i < 3 { let j = 0 ; while j < 2 { t = t + 1 ; j = j + 1 } ; i = i + 1 }
+//   ; return t
+// Measured: frame 632 (3 locals), while$1=214, while$3=265,
+//           whileend$4=379, whileend$2=418, $ret=428.
+//
+// THREE locals (i, t, j) -- the inner `let j` is declared inside the outer
+// body but still occupies a frame slot. The OUTER end label is $2 even though
+// it is marked last, because fresh() allocated it when the outer loop was
+// entered. Nesting is what proves the counter is shared, not per-prefix.
+func natLoopNestedWhile() {
+    let f = natLoopFrame(3)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let i0 = natLocalOff(0, natKindInt())
+    let t0 = natLocalOff(1, natKindInt())
+    let j0 = natLocalOff(2, natKindInt())
+    let s = natLoopPrologue(3)
+    s = natLoopLet(s, i0, 0)
+    s = natLoopLet(s, t0, 0)
+    s = natMark(s, "while$1")
+    s = natLoopCondLocal(s, 2, "whileend$2", bt, i0, 3)
+    // outer body prologue: let j = 0
+    s = natLoopLet(s, j0, 0)
+    s = natMark(s, "while$3")
+    s = natLoopCondLocal(s, 2, "whileend$4", bt, j0, 2)
+    s = natLoopAssignAddLit(s, bt, t0, t0, 1)
+    s = natLoopAssignAddLit(s, bt, j0, j0, 1)
+    s = natJmp(s, "while$3")
+    s = natMark(s, "whileend$4")
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    s = natJmp(s, "while$1")
+    s = natMark(s, "whileend$2")
+    return natLoopEpilogue(s, frame, t0)
+}
+
+// natLoopNestedForWhile: let t = 0 ; for (let i = 0; i < 2; i = i + 1) {
+//   let j = 0 ; while j < 2 { t = t + 1 ; j = j + 1 } } ; return t
+// Measured: frame 632 (3 locals), for$1=214, forpost$2=378, forend$3=419,
+//           while$4=266, whileend$5=378, $ret=428.
+//
+// A `for` OUTER and a `while` INNER, which is the case that pins BOTH shared-
+// counter rules at once: the for takes $1/$2/$3 and the while, entered later,
+// continues the same counter at $4/$5 rather than restarting.
+func natLoopNestedForWhile() {
+    let f = natLoopFrame(3)
+    let frame = f[natFrFrame()]
+    let bt = f[natFrBinTemp()]
+    let t0 = natLocalOff(0, natKindInt())
+    let i0 = natLocalOff(1, natKindInt())
+    let j0 = natLocalOff(2, natKindInt())
+    let s = natLoopPrologue(3)
+    s = natLoopLet(s, t0, 0)
+    s = natLoopLet(s, i0, 0)
+    s = natMark(s, "for$1")
+    s = natLoopCondLocal(s, 2, "forend$3", bt, i0, 2)
+    s = natLoopLet(s, j0, 0)
+    s = natMark(s, "while$4")
+    s = natLoopCondLocal(s, 2, "whileend$5", bt, j0, 2)
+    s = natLoopAssignAddLit(s, bt, t0, t0, 1)
+    s = natLoopAssignAddLit(s, bt, j0, j0, 1)
+    s = natJmp(s, "while$4")
+    s = natMark(s, "whileend$5")
+    s = natMark(s, "forpost$2")
+    s = natLoopAssignAddLit(s, bt, i0, i0, 1)
+    s = natJmp(s, "for$1")
+    s = natMark(s, "forend$3")
+    return natLoopEpilogue(s, frame, t0)
+}
+
+// natLoopLabels reports the label NAMES each reference program uses, in
+// allocation order, so the gate can pin the fresh() numbering as DATA.
+//
+// A rel32 encodes only a displacement, so a renumbered label can produce a
+// byte stream that is coincidentally equal -- the displacement might come out
+// the same. The names are the layer that catches that, and they are why this
+// surface reports labels separately from code.
+func natLoopLabels(which) {
+    if (which == 0) { return "while$1 whileend$2" }
+    if (which == 1) { return "while$1 whileend$2" }
+    if (which == 2) { return "while$1 whileend$2 ifelse$3 ifend$4" }
+    if (which == 3) { return "while$1 whileend$2 ifelse$3 ifend$4" }
+    if (which == 4) { return "for$1 forpost$2 forend$3" }
+    if (which == 5) { return "for$1 forpost$2 forend$3" }
+    if (which == 6) { return "for$1 forpost$2 forend$3 ifelse$4 ifend$5" }
+    if (which == 7) { return "for$1 forpost$2 forend$3 ifelse$4 ifend$5" }
+    if (which == 8) { return "while$1 whileend$2 while$3 whileend$4" }
+    if (which == 9) { return "for$1 forpost$2 forend$3 while$4 whileend$5" }
+    return ""
+}
+
+// natLoopCorpus renders the ten control-flow reference programs as hex, in the
+// same order the gate and the label corpus use.
+func natLoopCorpus(which) {
+    if (which == 0) { return natToHex(natFinish(natLoopWhileSimple())) }
+    if (which == 1) { return natToHex(natFinish(natLoopWhileArith())) }
+    if (which == 2) { return natToHex(natFinish(natLoopWhileBreak())) }
+    if (which == 3) { return natToHex(natFinish(natLoopWhileContinue())) }
+    if (which == 4) { return natToHex(natFinish(natLoopForSimple())) }
+    if (which == 5) { return natToHex(natFinish(natLoopForFull())) }
+    if (which == 6) { return natToHex(natFinish(natLoopForBreak())) }
+    if (which == 7) { return natToHex(natFinish(natLoopForContinue())) }
+    if (which == 8) { return natToHex(natFinish(natLoopNestedWhile())) }
+    if (which == 9) { return natToHex(natFinish(natLoopNestedForWhile())) }
+    return ""
+}

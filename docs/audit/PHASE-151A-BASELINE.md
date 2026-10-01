@@ -480,3 +480,56 @@ there is still no AST-driven native driver, so `natIntBody(5|6, …)` remains a
 compiled-in shape rather than a general statement lowering. What Step 2b
 establishes is that the *shape* matches the oracle for this construct, and that
 the oracle's behaviour was measured rather than assumed.
+
+## 11. 151A Step 3 - control-flow lowering in kcc (DONE)
+
+Step 2/2b made statements lower; Step 3 adds the loop forms so control flow is
+produced by the same differential rather than assumed.
+
+**Scope.** `while`, C-style `for`, `break`, `continue`, and nesting. Int
+operands only; integer arithmetic in a body is `+` only, reusing the Step 2
+primitive. No float, array, string, map or record operand reaches a loop, and
+none of those lowerings exists yet.
+
+**Gate** `pkg/cli/phase151a3_loop_test.go`: 3 tests / 18 subtests PASS, 10
+reference programs byte-identical. Four independent layers:
+
+1. kcc's bytes vs the `.text` the oracle produced by *compiling* the same
+   source (the corpus is Karkain source, not expected bytes);
+2. the frame immediate, derived independently in the test file;
+3. opcodes stated from the Intel SDM;
+4. label names and allocation order.
+
+**Layer 4 is load-bearing, and that was measured, not assumed.** A `rel32`
+encodes only a displacement, so renumbering a label can leave every byte
+identical while the label discipline is wrong. Mutating `nested_while`'s
+second loop pair from `$3/$4` to `$1/$2` - exactly what a per-loop counter
+would produce - left layer 1 **green on all ten cases** and failed layer 4
+only. That is the case the other three layers cannot catch, and it is why
+`native-value-loop-labels` is a separate surface.
+
+A second mutation (stating `0f8c`/`jl` where the oracle emits `0f8d`/`jge`)
+failed layer 3 with layers 1 and 4 green, confirming the SDM layer does
+independent work rather than restating layer 1. Both mutations were reverted;
+neither is in the tree.
+
+The gate also records a correction found while writing it: the first draft of
+`TestPhase151A3_BreakAndContinuePresent` asserted five labels and index 2 for
+the `if` pair on all four break/continue cases. The oracle settled it - a
+`while` allocates two loop labels and a `for` three, so the `if` pair starts at
+index 2 for a `while` and index 3 for a `for`. An expectation written from
+memory rather than from the oracle is precisely what this gate exists to catch.
+
+**KIR pin re-measured**, never hand-edited: 11069 -> **11373**
+(`karkain kir --verify`, 11373/11373 verify ok);
+`TestPhase122_PipelineOwnership/KIRContinuity` PASS at 215 s.
+
+**Regressions.** `TestPhase151A_` 3/3 PASS; `TestPhase151A2_` 4/4 PASS;
+`TestPhase151A2b_` 1/1 PASS (note it is *not* matched by the `TestPhase151A2_`
+pattern, so it was run explicitly); `go vet ./pkg/cli/` clean.
+
+**Still not claimed.** No whole-image parity and no execution evidence: these
+are function bodies, not runnable programs. `kccOwnsNativeTargets` stays
+`false`; 151A is **not** closed. Floats, arrays, `for-in`, arena, string ops,
+`push`, records and maps remain open, as does the entry stub / syscall tail /
+PEB bootstrap that a runnable image needs.

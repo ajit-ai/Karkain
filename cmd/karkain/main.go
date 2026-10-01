@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1696,6 +1696,23 @@ func main() {
 	}
 	if command == "native-value-prims" {
 		result := cli.KCCNativeValuePrimCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	// Phase 151A Step 3: control flow, same measurement contract as the
+	// steps above. The label names are reported as their own surface because
+	// a rel32 carries only a displacement.
+	if command == "native-value-loop" {
+		result := cli.KCCNativeValueLoopCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+	if command == "native-value-loop-labels" {
+		result := cli.KCCNativeValueLoopLabelsCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

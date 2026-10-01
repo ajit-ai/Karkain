@@ -202,6 +202,29 @@ func main() {
         }
         return
     }
+	// Phase 151A Step 3: control flow. `native-value-loop` renders the ten
+	// loop reference programs; `native-value-loop-labels` reports the fresh()
+	// label NAMES each one uses. Loops are the first surface whose byte
+	// identity depends on LABEL NAMES rather than only on opcode bytes,
+	// because a rel32 encodes just a displacement and a renumbered label can
+	// produce a coincidentally equal stream -- so the names are reported as
+	// their own surface and gated as data.
+	if (command == "native-value-loop") {
+        let q = 0
+        while (q < 10) {
+            print(natLoopCorpus(q))
+            q = q + 1
+        }
+        return
+    }
+    if (command == "native-value-loop-labels") {
+        let n = 0
+        while (n < 10) {
+            print(natLoopLabels(n))
+            n = n + 1
+        }
+        return
+    }
 
 
     if (command == "verifykir") {

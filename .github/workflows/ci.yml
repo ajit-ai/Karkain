@@ -273,6 +273,18 @@ jobs:
       - name: Run 151A Step 2 native int lowering gate
         run: go test ./pkg/cli/ -run 'TestPhase151A2_' -count=1 -timeout 30m
 
+      # 151A Step 3, control-flow lowering in kcc: while, C-style for, break
+      # and continue, int operands only. Separate again on purpose --
+      # 'TestPhase151A2_' does not match 'TestPhase151A3_', so a Step 3
+      # regression cannot hide behind a green Step 2 step. This gate is the
+      # four-layer differential against the Go oracle for the ten loop
+      # reference programs (byte containment, independently derived frames,
+      # Intel-SDM-stated opcodes) PLUS the label-name/allocation-order layer,
+      # which exists because a rel32 carries only a displacement and a
+      # renumbered label can otherwise produce an equal byte stream.
+      - name: Run 151A Step 3 control-flow lowering gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A3_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line

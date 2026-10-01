@@ -1448,6 +1448,45 @@ same reason as Step 2 — these are function bodies, not runnable programs.
 `kccOwnsNativeTargets` stays `false`; 151A is **not** closed. Audit note:
 `docs/audit/PHASE-151A-BASELINE.md` §10.
 
+Also completed: **151A Step 3 - control-flow lowering in kcc** (increment 151,
+slice A step 3; verdict **COMPLETE**; NOT a numbered phase, NOT parity, and NOT
+execution evidence). Adds `while`, C-style `for`, `break`, `continue` and
+nesting to the self-hosted lowering. Int operands only; integer arithmetic in a
+body is `+` only, reusing the Step 2 primitive - no float, array, string, map or
+record operand reaches a loop, and none of those lowerings exists yet. Gate
+`pkg/cli/phase151a3_loop_test.go` 3 tests / 18 subtests PASS, 10 reference
+programs byte-identical, built as the same four-layer differential Steps 1 and 2
+used (byte containment in the oracle's `.text` which the oracle *compiled* from
+the same source; independently derived frames; Intel-SDM-stated opcodes) PLUS a
+**label-name/allocation-order layer**.
+
+**That fourth layer is load-bearing, and this was measured rather than assumed.**
+A `rel32` encodes only a displacement, so renumbering a label can leave every
+byte identical while the label discipline is wrong. Mutating `nested_while`'s
+second loop pair from `$3/$4` to `$1/$2` - exactly what a per-loop counter would
+produce - left the byte differential **green on all ten cases** and failed only
+the label layer. That is the situation the other three layers cannot catch.
+A second mutation (stating `0f8c`/`jl` where the oracle emits `0f8d`/`jge`)
+failed the SDM layer with the other layers green, confirming it does independent
+work rather than restating the byte check. Both mutations reverted; neither is in
+the tree. The gate also records a correction found while writing it: the first
+draft of `TestPhase151A3_BreakAndContinuePresent` asserted five labels and index
+2 for the `if` pair on all four break/continue cases, but the oracle settles it -
+a `while` allocates two loop labels and a `for` three, so the `if` pair starts at
+index 2 for a `while` and index 3 for a `for`. An expectation written from memory
+rather than from the oracle is what this gate exists to catch.
+
+KIR pin re-measured **11069 -> 11373** (`karkain kir --verify` 11373/11373, never
+hand-edited); `TestPhase122_PipelineOwnership/KIRContinuity` PASS 215 s.
+Regressions green: `TestPhase151A_` 3/3, `TestPhase151A2_` 4/4, `TestPhase151A2b_`
+1/1 (run explicitly - the `TestPhase151A2_` pattern does **not** match it),
+`go vet ./pkg/cli/` clean. CI gains a **separate** step: `'TestPhase151A2_' does
+not match 'TestPhase151A3_'`, so a Step 3 regression cannot hide behind a green
+Step 2 step. **Still NOT claimed:** no whole-image parity and no execution
+evidence - these are function bodies, not runnable programs (no entry stub, no
+syscall tail, no PEB bootstrap). `kccOwnsNativeTargets` stays `false`; 151A is
+**not** closed. Audit note: `docs/audit/PHASE-151A-BASELINE.md` §11.
+
 Also completed: **151A-1 — the native decision moves into kcc** (increment 151,
 sub-slice; verdict **COMPLETE**, and explicitly **not** parity). 151D-first made
 the refusal honest but kept it in Go: the marker `kccProducedImage` looked for was

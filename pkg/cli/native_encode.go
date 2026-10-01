@@ -151,6 +151,26 @@ func KCCNativeValueRefuseCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-refuse")
 }
 
+// KCCNativeValueLoopCommand renders the ten control-flow reference programs:
+// simple/arithmetic while, while with break, while with continue, simple and
+// full C-style for, for with break, for with continue, nested whiles, and a
+// nested for/while pair.
+//
+// Loops are the first surface whose byte-identity depends on LABEL NAMES and
+// not only on opcode bytes: a rel32 encodes just a displacement, so a
+// renumbered label can produce a coincidentally equal byte stream.
+func KCCNativeValueLoopCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-loop")
+}
+
+// KCCNativeValueLoopLabelsCommand reports the fresh() label names each
+// control-flow reference program uses, in allocation order. This is the layer
+// that catches a wrong label counter even when the displacements happen to
+// come out equal.
+func KCCNativeValueLoopLabelsCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-loop-labels")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //
