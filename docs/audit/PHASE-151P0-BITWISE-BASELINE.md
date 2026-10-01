@@ -173,12 +173,27 @@ the hard way:
   Every mask in a ported encoder must be written in decimal, which is why
   the encoder draft wrapped its constants in named accessors with the hex
   preserved in the comments.
-- **A zero-argument call in expression position is dropped by the kcc C
-  codegen.** `let a = zero()` compiles on the Go engine and emits a bare
-  `zero;` on kcc. One-argument calls are fine. This is a separate defect
-  from the bitwise one; it does not block 151B (the encoder draft works
-  around it with one-argument accessors) but it is a real parity bug and
-  should be filed.
+- **CORRECTED 2026-09-30 — the "zero-argument call is dropped" defect does
+  not exist.** Both this baseline and the final report recorded it as a real
+  parity bug that "should be filed", on the basis that `let a = zero()`
+  "emits a bare `zero;` on kcc". Re-measured against the current tree, it
+  does not reproduce. `kcc build` of
+
+      func zero() { return 7 }
+      func main() { let a = zero(); print(a) }
+
+  emits the call correctly, in initializer position:
+
+      Value a =
+      karkain_user_zero();print_value(a  ); printf("\n");
+
+  and both engines print `7`. (The newline between `Value a =` and the call
+  is a pre-existing cosmetic formatting artifact of kcc's codegen, present
+  for every `let`, not a dropped call.) The defect is therefore **withdrawn**,
+  not filed. It is left recorded rather than deleted because a claim that
+  turned out to be wrong is worth as much as one that turned out to be
+  right: the next reader needs to know it was checked and cleared, or they
+  will re-investigate it from scratch.
 
 The encoder draft is preserved outside the repository at
 `%TEMP%\\opencode\\p151\\native_emit.kark.wip` and is **not** committed,

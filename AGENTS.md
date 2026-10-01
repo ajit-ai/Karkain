@@ -1537,12 +1537,18 @@ exceed Go's 10m default and panic on timeout, a harness artifact rather
 than a regression), Phase 122 KIRContinuity with the pin re-pinned
 **9574 -> 9642** for the new lexer/parser/codegen lines and `kir verify`
 passing on the new count, Phase 148/150D/151 gates, and the self-hosted
-`check` of `src/compiler/main.kark` clean. Also recorded: **a zero-argument
-call in expression position is dropped by the kcc C codegen** (`let a =
-zero()` compiles on Go and emits a bare `zero;` on kcc; one-argument calls
-are fine) — a separate real parity bug, worked around in the 151B draft
-with one-argument accessors, not yet fixed or filed. **151B is now
-unblocked** but the encoder draft is still uncommitted.)
+`check` of `src/compiler/main.kark` clean. Also recorded, and **corrected
+2026-09-30**: this entry originally carried a real parity bug — *a
+zero-argument call in expression position is dropped by the kcc C codegen*
+(`let a = zero()` emitting a bare `zero;` on kcc). **It does not reproduce.**
+`kcc build` emits the call in initializer position (`Value a =
+karkain_user_zero();`) and both engines print `7`, so the claim is
+**withdrawn, not filed**; the cosmetic newline after `Value a =` that made
+it look dropped is a formatting artifact of kcc's codegen present for every
+`let`. Evidence in `docs/audit/PHASE-151P0-BITWISE-BASELINE.md`. A claim
+found to be wrong is recorded rather than deleted so the next reader knows
+it was checked instead of re-investigating it. **151B is now unblocked** but
+the encoder draft is still uncommitted.)
 
 Also completed: **150D — Mach-O PIE + native OS targets + incremental decision**
 (increment 150, slice D of 8; verdict **COMPLETE**). Increment 149's Mach-O was

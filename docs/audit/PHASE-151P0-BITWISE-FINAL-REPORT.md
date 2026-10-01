@@ -140,15 +140,17 @@ count, and the pin is re-pinned with a note naming the cause.
 Both are real, and both are in the baseline so they are not rediscovered
 the hard way:
 
-1. **A zero-argument call in expression position is dropped by the kcc C
-   codegen.** `let a = zero()` compiles on Go and emits a bare `zero;` on
-   kcc. One-argument calls are fine on both. Not a blocker — the 151B
-   encoder draft works around it with one-argument accessors — but it is a
-   genuine parity bug and should be filed.
+1. **WITHDRAWN 2026-09-30 — a zero-argument call in expression position is
+   NOT dropped by the kcc C codegen.** This report originally recorded it as
+   a genuine parity bug that should be filed, on the basis that `let a =
+   zero()` "emits a bare `zero;` on kcc". Re-measured, it does not
+   reproduce: `kcc build` emits `Value a =\nkarkain_user_zero();` — the call
+   is in initializer position — and both engines print `7`. See
+   PHASE-151P0-BITWISE-BASELINE.md for the emitted C and the full note.
 2. **Karkain has no hex literals.** `0xFF` lexes as the identifier `xFF`.
    Every mask in a ported encoder must be decimal, which is why the encoder
-   draft wraps its constants in named accessors with the hex preserved in
-   the comments.
+   draft wraps its constants in named accessors with the hex preserved
+   in the comments.
 
 ## 9. Governance
 
