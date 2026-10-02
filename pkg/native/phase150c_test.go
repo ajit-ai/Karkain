@@ -61,7 +61,7 @@ if _, err := b.retKindOf(name); err != nil {
 t.Fatalf("retKindOf(%s): %v", name, err)
 }
 }
-b.usesFloat, b.usesConcat, b.usesStrEq, b.usesStrSlice, b.usesPush, b.pushInLoop, b.heapSize = scanValueUsage(prog)
+b.usesFloat, b.usesConcat, b.usesStrEq, b.usesStrSlice, b.usesPush, b.pushInLoop, b.concatInLoop, b.heapSize = scanValueUsage(prog)
 b.usesStrField = scanStructUsage(prog)
 b.prog = prog
 out := map[string]Reg{}

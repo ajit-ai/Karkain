@@ -301,6 +301,13 @@ type Builder struct {
 	// is not bounded at compile time, so the arena bound cannot cover it and
 	// it is refused with a loud K145 instead.
 	pushInLoop bool
+	// concatInLoop: a string `+` reached from inside a loop body. Phase 152-A.
+	// The concat arena bound is `sites * totalLiteralBytes`, whose proof
+	// requires each site to run at most once; inside a loop the same site runs
+	// once per iteration, so the bound does not hold and the arena would be
+	// exhausted mid-loop, trapping at an arbitrary iteration. Refused by name,
+	// on exactly the same rule as pushInLoop.
+	concatInLoop bool
 	// Phase 150B: the bump arena. Layout is a 16-byte header followed by
 	// heapSize usable bytes: [cursor][limit][data...]. cursor and limit
 	// are ABSOLUTE addresses held in the arena itself, so the allocator
@@ -823,9 +830,9 @@ func scanMapUsage(prog *parser.Program) (usesMap bool, inLoop bool, capacity, he
 	return true, inLoop, capacity, heapBytes
 }
 
-func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, usesStrSlice, usesPush, pushInLoop bool, heapSize int) {
+func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, usesStrSlice, usesPush, pushInLoop, concatInLoop bool, heapSize int) {
 	var concatSites, concatHeap int
-	concatSites, concatHeap = scanConcatSites(prog)
+	concatSites, concatHeap, concatInLoop = scanConcatSites(prog)
 	usesConcat = concatSites > 0
 	heapSize = concatHeap
 	usesStrEq = false
@@ -931,7 +938,7 @@ func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, use
 		}
 	}
 	walkStmts(prog.Statements)
-	return usesFloat, usesConcat, usesStrEq, usesStrSlice, usesPush, pushInLoop, heapSize
+	return usesFloat, usesConcat, usesStrEq, usesStrSlice, usesPush, pushInLoop, concatInLoop, heapSize
 }
 
 // scanPushSites counts push() call sites, records the largest array-literal
@@ -1099,7 +1106,7 @@ func isStrFieldDot(strFields map[string]bool, n parser.Node) bool {
 	return strFields[d.Right]
 }
 
-func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
+func scanConcatSites(prog *parser.Program) (sites, heapSize int, inLoop bool) {
 	strNames := map[string]bool{}
 	strFields := stringFieldNames(prog)
 	// strKind reports whether n is a string-typed expression, using the
@@ -1135,39 +1142,46 @@ func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
 	// ordering.
 	seeded := false
 	totalLit := 0
-	var countExpr func(n parser.Node)
-	countExpr = func(n parser.Node) {
+	var countExpr func(n parser.Node, depth int)
+	countExpr = func(n parser.Node, depth int) {
 		switch x := n.(type) {
 		case *parser.StringLiteral:
 			totalLit += len(x.Value)
 		case *parser.BinaryExpr:
 			if x.Operator == "+" && strKind(x.Left) && strKind(x.Right) {
 				sites++
+				// Phase 152-A: a concat reached from a loop body can execute
+				// once per iteration, so the sites*totalLit arena bound below
+				// does not hold for it. Recorded, then refused by name in
+				// emitStrConcat -- the same rule scanPushSites applies to push().
+				if depth > 0 {
+					inLoop = true
+				}
 			}
-			countExpr(x.Left)
-			countExpr(x.Right)
+			countExpr(x.Left, depth)
+			countExpr(x.Right, depth)
 		case *parser.UnaryExpr:
-			countExpr(x.Operand)
+			countExpr(x.Operand, depth)
 		case *parser.CallExpr:
 			for _, a := range x.Args {
-				countExpr(a)
+				countExpr(a, depth)
 			}
 		case *parser.IndexExpr:
-			countExpr(x.Left)
-			countExpr(x.Index)
+			countExpr(x.Left, depth)
+			countExpr(x.Index, depth)
 		case *parser.ArrayLiteral:
 			for _, e := range x.Elements {
-				countExpr(e)
+				countExpr(e, depth)
 			}
 		case *parser.VarDeclStmt:
 			if strKind(x.Value) {
 				strNames[x.Name] = true
 			}
-			countExpr(x.Value)
+			countExpr(x.Value, depth)
 		}
 	}
-	var walkStmts func(stmts []parser.Node)
-	walkStmts = func(stmts []parser.Node) {
+	var walkStmts func(stmts []parser.Node, depth int)
+	walkStmts = func(stmts []parser.Node, depth int) {
 		for _, s := range stmts {
 			switch x := s.(type) {
 			case *parser.FuncDecl:
@@ -1176,38 +1190,41 @@ func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
 						strNames[x.Params[i]] = true
 					}
 				}
-				walkStmts(x.Body)
+				walkStmts(x.Body, depth)
 			case *parser.VarDeclStmt:
-				countExpr(x)
+				countExpr(x, depth)
 			case *parser.PrintStmt:
-				countExpr(x.Value)
+				countExpr(x.Value, depth)
 			case *parser.ExprStmt:
-				countExpr(x.Expression)
+				countExpr(x.Expression, depth)
 			case *parser.ReturnStmt:
-				countExpr(x.Value)
+				countExpr(x.Value, depth)
 			case *parser.IfStmt:
-				countExpr(x.Condition)
-				walkStmts(x.Consequence)
-				walkStmts(x.Alternative)
+				countExpr(x.Condition, depth)
+				// A conditional body is NOT a loop: a concat there runs at most
+				// once per entry, which the site count already bounds. Same
+				// rule scanPushSites applies to push().
+				walkStmts(x.Consequence, depth)
+				walkStmts(x.Alternative, depth)
 			case *parser.WhileStmt:
-				countExpr(x.Condition)
-				walkStmts(x.Body)
+				countExpr(x.Condition, depth)
+				walkStmts(x.Body, depth+1)
 			case *parser.ForStmt:
-				countExpr(x.Condition)
-				countExpr(x.Init)
-				countExpr(x.Post)
-				walkStmts(x.Body)
+				countExpr(x.Condition, depth)
+				countExpr(x.Init, depth)
+				countExpr(x.Post, depth)
+				walkStmts(x.Body, depth+1)
 			case *parser.ForInStmt:
-				countExpr(x.Iter)
-				walkStmts(x.Body)
+				countExpr(x.Iter, depth)
+				walkStmts(x.Body, depth+1)
 			case *parser.BlockStmt:
-				walkStmts(x.Statements)
+				walkStmts(x.Statements, depth)
 			}
 		}
 	}
 	for pass := 0; pass < 8; pass++ {
 		before := len(strNames)
-		walkStmts(prog.Statements)
+		walkStmts(prog.Statements, 0)
 		if seeded && len(strNames) == before {
 			break
 		}
@@ -1220,12 +1237,20 @@ func scanConcatSites(prog *parser.Program) (sites, heapSize int) {
 		// the sum of all runtime allocations, which is what makes the
 		// allocator's exhaustion trap unreachable for a program that
 		// compiles.
+		//
+		// Phase 152-A: that argument assumes each concat site executes AT MOST
+		// ONCE, and only a site outside every loop can promise that. A concat
+		// reached from a loop body can execute once per iteration, so the
+		// bound is not an upper bound at all and the arena would be exhausted
+		// mid-loop, trapping at an arbitrary iteration. Such a program is
+		// refused by name (emitStrConcat) rather than compiled into a trap,
+		// exactly as push() inside a loop is refused.
 		heapSize = sites * totalLit
 		if heapSize < heapMinSize {
 			heapSize = heapMinSize
 		}
 	}
-	return sites, heapSize
+	return sites, heapSize, inLoop
 }
 
 // collectStringNames returns every name bound to a string value, so the
@@ -1453,7 +1478,7 @@ func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
 			return nil, err
 		}
 	}
-	b.usesFloat, b.usesConcat, b.usesStrEq, b.usesStrSlice, b.usesPush, b.pushInLoop, b.heapSize = scanValueUsage(prog)
+	b.usesFloat, b.usesConcat, b.usesStrEq, b.usesStrSlice, b.usesPush, b.pushInLoop, b.concatInLoop, b.heapSize = scanValueUsage(prog)
 	// Phase 150B3b: a string-field assignment needs the string staging area
 	// (and no heap). Kept as its own pre-pass so the record path cannot
 	// silently depend on a string flag some other feature happened to set.
@@ -1712,6 +1737,36 @@ func (b *Builder) paramKind(fd *parser.FuncDecl, i int) int {
 	return KindInt
 }
 
+// nativeSocketBuiltins are the Phase-125A socket builtins. The C23 runtime
+// implements them over Winsock (Windows, via -lws2_32) and BSD sockets
+// elsewhere; the native backend has no socket syscall layer at all -- its only
+// syscalls are write and exit -- so there is nothing to lower them onto.
+var nativeSocketBuiltins = map[string]bool{
+	"net_connect": true, "net_listen": true, "net_accept": true,
+	"net_read": true, "net_write": true, "net_close": true,
+	"net_last_error": true,
+}
+
+// nativeCapabilityRefusal reports why a KNOWN builtin cannot be lowered on the
+// native target, or nil when the name is not a known-unsupported builtin.
+//
+// Phase 152-A: sockets are a deliberate capability boundary, not a gap and not a
+// work-in-progress. The program is rejected BY NAME at check time rather than
+// emitting a call to a label that does not exist. That distinction matters: the
+// generic "undefined function" message a missing ftab entry produces cannot tell
+// "this target has no sockets" from "this program is invalid", so a caller
+// cannot act on it. The C23 path is untouched and keeps the full std.net surface.
+//
+// The stdlib wrappers (net_dial, net_serve, ...) are ordinary Karkain functions
+// once the module is assembled, so the refusal fires on the builtin inside their
+// bodies -- which names the actual missing primitive.
+func nativeCapabilityRefusal(name string) error {
+	if nativeSocketBuiltins[name] {
+		return fmt.Errorf("error[K145]: '%s' is not available on the native target (the native runtime has no socket syscalls; only write and exit exist). The C23 path keeps the full std.net surface -- build with --target c23", name)
+	}
+	return nil
+}
+
 // retKindOf infers the value kind a function returns: every `return` in
 // its body (descending into control flow) must agree; no returns means
 // int (the missing-return-yields-0 rule). Cyclic call graphs that never
@@ -1732,6 +1787,13 @@ func (b *Builder) retKindVisit(name string, visiting map[string]bool) (int, erro
 	}
 	fd, ok := b.ftab[name]
 	if !ok {
+		// Phase 152-A: name a known-but-unsupported builtin for what it is
+		// before falling back to the generic undefined-function diagnostic.
+		// This is checked during KIND INFERENCE, which is why a std.net
+		// program meets the socket boundary before any emission limit.
+		if err := nativeCapabilityRefusal(name); err != nil {
+			return KindInt, err
+		}
 		return KindInt, fmt.Errorf("error[K145]: undefined function '%s'", name)
 	}
 	visiting[name] = true
@@ -5030,6 +5092,15 @@ func (b *Builder) emitStrConcat(x *parser.BinaryExpr, depth int) error {
 	if b.heapSize <= 0 {
 		return fmt.Errorf("error[K145]: internal: string concatenation reached emission with no heap arena (the concat pre-pass missed this site)")
 	}
+	// Phase 152-A: a concat reached from a loop body can run once per
+	// iteration, which the compile-time arena size cannot cover -- the same
+	// unsoundness push() inside a loop has. Refuse it by name rather than let
+	// the program exhaust the arena and trap at an arbitrary iteration. The
+	// bound's own proof (scanConcatSites) states the at-most-once assumption
+	// this closes.
+	if b.concatInLoop {
+		return fmt.Errorf("error[K145]: string concatenation inside a loop is not supported on the native target (the heap arena is sized at compile time, so a repeated concatenation cannot be bounded)")
+	}
 	// Five staging units per depth: left ptr/len, right ptr/len, and the
 	// allocated block. This is a dedicated area (strTemp), not the int
 	// path's 8-byte-per-depth bin scratch, which would be overrun.
@@ -5209,6 +5280,11 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 	}
 	fd, ok := b.ftab[x.Function]
 	if !ok {
+		// Phase 152-A: the capability boundary, checked before the generic
+		// undefined-function message so the diagnostic names the boundary.
+		if err := nativeCapabilityRefusal(x.Function); err != nil {
+			return err
+		}
 		return fmt.Errorf("error[K145]: undefined function '%s'", x.Function)
 	}
 	// Phase 148: exact arity (previously unchecked — a short call read

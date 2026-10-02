@@ -256,6 +256,18 @@ jobs:
       - name: Run LH-2 kcc match-binding parity gate
         run: go test ./pkg/cli/ -run 'TestLH2_' -count=1 -timeout 30m
 
+      # Increment 152-A, the no-C closure gate. Named explicitly rather than
+      # relying on the broad `./pkg/cli/` run, for the same reason as the gates
+      # above: the gate PROVES gcc/clang/cl are unusable (by resolving them to
+      # failing stubs and running them), and a skipped or unreported gate would
+      # be indistinguishable from a pass. The pkg/native half covers the
+      # concat-in-loop refusal and the socket capability boundary.
+      - name: Run Increment 152-A no-C closure gate
+        run: go test ./pkg/cli/ -run 'TestPhase152A_' -count=1 -timeout 30m
+
+      - name: Run Increment 152-A native safety and capability gate
+        run: go test ./pkg/native/ -run 'TestNativeStrConcat|TestNativeSocket|TestNativeOrdinaryUndefined|TestNativeNonSocket' -count=1
+
       # 151A Step 1, the native value/frame foundation in kcc. The three-way
       # differential (kcc vs the Go oracle's Emitter vs bytes stated from the
       # Intel SDM) is what makes the frame layout trustworthy, so this gate is

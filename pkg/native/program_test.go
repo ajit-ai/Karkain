@@ -572,7 +572,19 @@ func TestNativeStrConcatExec(t *testing.T) {
 		{"returned", "func join() {\n    return \"re\" + \"turn\"\n}\nfunc main() {\n    print(join())\n}\n", "return\n"},
 		{"many_sites", "func main() {\n    print(\"1\" + \"2\")\n    print(\"3\" + \"4\")\n    print(\"5\" + \"6\")\n    print(\"7\" + \"8\")\n}\n", "12\n34\n56\n78\n"},
 		{"long_operand", "func main() {\n    let a = \"abcdefghijklmnopqrstuvwxyz0123456789\"\n    print(a + a)\n}\n", "abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz0123456789\n"},
-		{"in_loop", "func main() {\n    let i = 0\n    while (i < 3) {\n        print(\"it\" + \"er\")\n        i = i + 1\n    }\n}\n", "iter\niter\niter\n"},
+		// Phase 152-A: a concat inside a loop used to be listed HERE as an
+		// executed golden, and it did pass -- which is exactly why it was
+		// misleading. Its arena bound is sites*totalLit = 1*4 = 4 bytes,
+		// raised to heapMinSize (1024), while three iterations need 12. The
+		// golden passed because the 1024-byte floor happened to cover three
+		// four-byte copies, NOT because the bound was sound: the loop count
+		// is a runtime value, so no compile-time size can bound it. Measured
+		// with the refusal disabled, the same program shape with 2000
+		// iterations printed ~250 lines, CORRUPTED several of them (the bump
+		// cursor overran live bytes), then died with STATUS_BREAKPOINT
+		// (0xC0000003) -- the allocator's exhaustion trap -- at an arbitrary
+		// iteration. Such programs are now refused by name; see
+		// TestNativeStrConcatInLoopRefused.
 	}
 	for _, c := range cases {
 		c := c
