@@ -474,3 +474,85 @@ func TestPassNames(t *testing.T) {
 		}
 	}
 }
+
+// TestFoldConst_MixedKindNotFolded pins the correction to evalBinOp. An Operand
+// carries every payload field regardless of CstKind, so folding on a.CstKind
+// alone read the right operand's unused field: a float constant has IntVal == 0,
+// so `1 == 1.0` folded as `1 == 0` and produced false. The same comparison with
+// a variable operand survived folding and reached binary_op, which promotes to
+// double and produced true, so literals and variables disagreed. Mixed-kind
+// comparisons must be left for binary_op to answer.
+//
+// Note bool is deliberately excluded from the "must fold" cases: bool mixing is
+// a separate pre-existing divergence (Go's binary_op int block requires
+// TYPE_INT on both sides while the self-hosted engine also accepts TYPE_BOOL),
+// and this test only pins that the folder stops guessing, not that any specific
+// answer is correct.
+func TestFoldConst_MixedKindNotFolded(t *testing.T) {
+	mixed := []struct {
+		name string
+		a, b Operand
+	}{
+		{"int_eq_flt", ConstInt(1), ConstFlt(1.0)},
+		{"flt_eq_int", ConstFlt(1.0), ConstInt(1)},
+		{"int_eq_bool", ConstInt(1), ConstBool(true)},
+		{"int_lt_flt", ConstInt(1), ConstFlt(2.0)},
+		{"int_eq_str", ConstInt(1), ConstStr("1")},
+	}
+	for _, tc := range mixed {
+		t.Run(tc.name, func(t *testing.T) {
+			fn := NewFunction("fold_mixed")
+			d := fn.NewReg("d")
+			fn.Entry.Emit(Instr{Op: OpBinOp, Dest: d, Ty: Value, Args: []Operand{tc.a, tc.b}, OpStr: "=="})
+			fn.Entry.Emit(Instr{Op: OpRet, Args: []Operand{Reg(d)}})
+
+			FoldConstPass{}.Run(fn)
+
+			got := fn.Entry.Instrs[0]
+			if got.Op == OpConst {
+				t.Errorf("mixed-kind %v == %v folded to %v; want it left as OpBinOp for binary_op to answer",
+					tc.a, tc.b, got)
+			}
+			if got.Op != OpBinOp || got.OpStr != "==" {
+				t.Errorf("mixed-kind comparison rewritten to %v; want an intact OpBinOp \"==\"", got)
+			}
+		})
+	}
+}
+
+// TestFoldConst_SameKindStillFolded is the anti-vacuity guard for the guard
+// above: same-kind constants must continue to fold, otherwise the correction
+// would silently disable constant folding for every numeric literal.
+func TestFoldConst_SameKindStillFolded(t *testing.T) {
+	cases := []struct {
+		name string
+		a, b Operand
+		op   string
+		want Operand
+	}{
+		{"int_eq_int", ConstInt(1), ConstInt(1), "==", ConstBool(true)},
+		{"int_ne_int", ConstInt(1), ConstInt(2), "!=", ConstBool(true)},
+		{"int_add", ConstInt(3), ConstInt(4), "+", ConstInt(7)},
+		{"int_eq_zero", ConstInt(1), ConstInt(0), "==", ConstBool(false)},
+		{"flt_eq_flt", ConstFlt(1.0), ConstFlt(1.0), "==", ConstBool(true)},
+		{"flt_lt_flt", ConstFlt(2.5), ConstFlt(1.5), "<", ConstBool(false)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fn := NewFunction("fold_same")
+			d := fn.NewReg("d")
+			fn.Entry.Emit(Instr{Op: OpBinOp, Dest: d, Ty: tc.want.CstKind, Args: []Operand{tc.a, tc.b}, OpStr: tc.op})
+			fn.Entry.Emit(Instr{Op: OpRet, Args: []Operand{Reg(d)}})
+
+			FoldConstPass{}.Run(fn)
+
+			got := fn.Entry.Instrs[0]
+			if got.Op != OpConst {
+				t.Fatalf("same-kind %v %s %v did not fold (got %v)", tc.a, tc.op, tc.b, got)
+			}
+			if got.Args[0] != tc.want {
+				t.Errorf("same-kind fold = %v, want %v", got.Args[0], tc.want)
+			}
+		})
+	}
+}

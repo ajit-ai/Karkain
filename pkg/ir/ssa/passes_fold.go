@@ -134,6 +134,19 @@ func algebraicSimplify(in Instr) (Instr, bool) {
 }
 
 func evalBinOp(op string, a, b Operand) (Operand, bool) {
+	// Only fold when both operands are the same kind of constant. An Operand
+	// carries every payload field regardless of its kind, so dispatching on
+	// a.CstKind alone and then reading the matching field out of b folds a
+	// mixed comparison against b's unused field: a float constant has
+	// IntVal == 0, so `1 == 1.0` folded as `1 == 0` and produced false, while
+	// the same comparison with a variable operand survived folding and
+	// reached binary_op -- which promotes to double -- and produced true.
+	// Bool mixes had the same shape. Declining to fold sends mixed literals
+	// down that same runtime path, so literals and variables agree with each
+	// other and with the documented promotion rule.
+	if a.CstKind != b.CstKind {
+		return Operand{}, false
+	}
 	switch a.CstKind {
 	case I:
 		return evalIntBinOp(op, a.IntVal, b.IntVal)
