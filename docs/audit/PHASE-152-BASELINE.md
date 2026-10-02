@@ -420,3 +420,39 @@ green.
 kcc native ownership (`kccOwnsNativeTargets` is still `false`), increment 151,
 the C23 backend (`pkg/codegen` untouched), `src/compiler/native_*.kark`, any
 1.3.0 stdlib module, and increment 154.
+
+### 152-B0 — native runtime-error reporting (IMPLEMENTED, NOT COMMITTED)
+
+Prerequisite for 152-B1. The dependency report found the native target could not
+express the Phase-100 contract at all: no message infrastructure existed, and
+all six native `Int3` traps are internal invariant/bounds checks with no text
+and no exit code. Array indexing and string slicing therefore already diverged
+from the contract, independently of the codecs.
+
+**Shipped:** `karkain_runtime_error(kind, file, line)` emitted inside the
+existing helper architecture and gated on a `usesRuntimeError` pre-pass (an
+intentional over-approximation: any index expression, because the pre-pass runs
+before type inference and a missing reporter is a link-time failure while an
+unused one only costs bytes). Source-filename plumbing via
+`CompileProgramForOSSource`, using `filepath.Base` to mirror C23's
+`sourceBaseC()` so both engines print the same location. The array-index trap
+is replaced by the real diagnostic; Win64 handle selection is parameterised so
+`STD_ERROR_HANDLE` is reachable at all (the Windows write path had hardcoded
+`STD_OUTPUT_HANDLE`).
+
+**Unresolved and deliberately untouched:** string-slice bounds. C23's
+`karkain_slice` *clamps* out-of-range bounds instead of raising, so there is no
+reference diagnostic for native to match. Native still traps. Settling this
+requires an explicit language-semantics decision (should slicing clamp, matching
+C23? — in which case the native trap is the bug) and is outside 152-B0. No new
+roadmap phase was created for it.
+
+**Two completion conditions are unproven on this host.**
+`GetStdHandle(STD_ERROR_HANDLE)` returns `INVALID_HANDLE_VALUE` for these
+minimal PE images while `GetStdHandle(STD_OUTPUT_HANDLE)` resolves through
+byte-identical code. Measured four ways: Go `exec` with a piped stderr, with
+an inherited stderr, `cmd /c image.exe 2>file` from a real console, and with a
+sign-extended 64-bit immediate. The diagnostic is therefore emitted correctly
+but cannot be *captured* from a PE image here; the Linux leg is where the text
+is compared byte for byte. Recorded rather than worked around, because routing a
+runtime error to stdout to make it visible would break the Phase-100 contract.

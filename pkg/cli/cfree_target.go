@@ -66,7 +66,7 @@ func cfreeBuildForOS(prog *parser.Program, sourceFile string, outputPath string,
 		fmt.Printf("=== [%s] BUILD (no C compiler) ===\n", targetName)
 	}
 
-	img, err := native.CompileProgramForOS(prog, osName)
+	img, err := native.CompileProgramForOSSource(prog, osName, sourceFile)
 	if err != nil {
 		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("Native Build Error: %v", err)}
 	}
@@ -111,7 +111,7 @@ func cfreeRunForOS(prog *parser.Program, sourceFile string, osName string, targe
 			targetName, runtime.GOOS, runtime.GOARCH, targetName)}
 	}
 
-	img, err := native.CompileProgramForOS(prog, osName)
+	img, err := native.CompileProgramForOSSource(prog, osName, sourceFile)
 	if err != nil {
 		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("Native Build Error: %v", err)}
 	}

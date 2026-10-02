@@ -3,6 +3,7 @@ package native
 import (
 	"fmt"
 	"math"
+	"path/filepath"
 	"strconv"
 
 	"karkain/pkg/parser"
@@ -44,6 +45,16 @@ const (
 	OSLinux   = "linux"
 	OSWindows = "windows"
 	OSMacOS   = "macos"
+)
+
+// Win32 standard-handle pseudo-handles, in the form GetStdHandle takes them
+// (the two negative values). Phase 152-B0: the Windows write path resolved
+// GetStdHandle(STD_OUTPUT_HANDLE) unconditionally, so a diagnostic aimed at
+// stderr could not be emitted on PE at all. emitWriteStderr now selects the
+// stream explicitly; emitWrite's stdout sequence is untouched.
+const (
+	stdOutHandle uint32 = 0xFFFFFFF5
+	stdErrHandle uint32 = 0xFFFFFFF6
 )
 
 // sysWrite returns the write syscall number for the target OS
@@ -308,6 +319,19 @@ type Builder struct {
 	// exhausted mid-loop, trapping at an arbitrary iteration. Refused by name,
 	// on exactly the same rule as pushInLoop.
 	concatInLoop bool
+	// usesRuntimeError: the program contains an operation that can raise a
+	// Phase-100 runtime error. Phase 152-B0: gates the reporter helper, so a
+	// program that cannot fail keeps its exact increment-149 bytes. The test
+	// is deliberately an over-approximation (ANY index expression), because
+	// the pre-pass runs before type inference and an unused reporter costs
+	// bytes while a missing one costs a link failure.
+	usesRuntimeError bool
+	// sourceFile: the .kark path this image was compiled from, used only to
+	// build the `file:line` part of a runtime-error diagnostic. Phase
+	// 152-B0: the native target previously had no notion of a source file at
+	// all, which is why the C23 basename semantics had to be mirrored here
+	// (filepath.Base) so the two engines' diagnostics compare identically.
+	sourceFile string
 	// Phase 150B: the bump arena. Layout is a 16-byte header followed by
 	// heapSize usable bytes: [cursor][limit][data...]. cursor and limit
 	// are ABSOLUTE addresses held in the arena itself, so the allocator
@@ -1446,8 +1470,24 @@ func CompileProgram(prog *parser.Program) ([]byte, error) {
 // lowering feed per-OS containers, syscall numbers (or the kernel32
 // boundary on Windows) and entry tails. Anything else is a K145 error.
 func CompileProgramForOS(prog *parser.Program, osName string) ([]byte, error) {
+	return CompileProgramForOSSource(prog, osName, "")
+}
+
+// CompileProgramForOSSource is CompileProgramForOS with the originating
+// .kark path, needed only by the Phase-152-B0 runtime-error diagnostic, which
+// carries `file:line`. An empty sourceFile (every pre-152-B0 caller) means no
+// diagnostic can name a location, and the emitted bytes are unchanged.
+//
+// The basename semantics deliberately mirror the C23 generator's
+// sourceBaseC() -- filepath.Base -- so a native and a C23 build of the same
+// file produce identical diagnostic text.
+func CompileProgramForOSSource(prog *parser.Program, osName, sourceFile string) ([]byte, error) {
 	b := newBuilder()
 	b.goos = osName
+	if sourceFile != "" {
+		b.sourceFile = filepath.Base(sourceFile)
+	}
+	b.usesRuntimeError = scanRuntimeErrorUsage(prog)
 	switch osName {
 	case OSLinux, OSWindows, OSMacOS:
 	default:
@@ -2092,7 +2132,7 @@ func (b *Builder) emitWinWrite() {
 	// pushes (24 bytes) above it, rsp%16 lands on 0 before the call,
 	// which is what Win64 requires.
 	b.e.SubRsp(32)
-	b.e.MovRegImm32(RCX, 0xFFFFFFF5) // STD_OUTPUT_HANDLE
+	b.e.MovRegImm32(RCX, stdOutHandle) // STD_OUTPUT_HANDLE
 	b.iatCall(IATGetStdHandle)
 	b.e.AddRsp(32)
 	b.e.PopReg(RDX)
@@ -2115,6 +2155,51 @@ func (b *Builder) emitWinWrite() {
 	b.e.PopReg(RBX)
 }
 
+// emitWriteStderr emits (RDI=fd, RSI=ptr, RDX=len) to the standard error
+// stream.
+//
+// Phase 152-B0: emitWrite honours the fd only where the fd is real -- the
+// Linux/macOS raw write syscall takes it in RDI. The Windows path resolved
+// GetStdHandle(STD_OUTPUT_HANDLE) unconditionally, so on PE "write to fd 2"
+// silently went to STDOUT. A runtime-error diagnostic written to the wrong
+// stream is not the Phase-100 contract, so the handle is parameterised here:
+// the syscall path sets RDI to the fd, and the Windows path is given the
+// matching STD_* handle. emitWrite itself is unchanged.
+func (b *Builder) emitWriteStderr() {
+	if b.goos == OSWindows {
+		b.emitWinWriteHandle(stdErrHandle)
+		return
+	}
+	b.e.MovRegImm32(RDI, 2)
+	b.e.MovRegImm32(RAX, b.sysWrite())
+	b.e.Syscall()
+}
+
+// emitWinWriteHandle is emitWrite's Windows body with the std handle chosen by
+// the caller instead of hardcoded to stdout. Split out of emitWinWrite so the
+// stdout path keeps its exact byte sequence.
+func (b *Builder) emitWinWriteHandle(handle uint32) {
+	b.e.PushReg(RBX)
+	b.e.PushReg(RSI)
+	b.e.PushReg(RDX)
+	b.e.SubRsp(32)
+	b.e.MovRegImm32(RCX, stdErrHandle)
+	b.iatCall(IATGetStdHandle)
+	b.e.AddRsp(32)
+	b.e.PopReg(RDX)
+	b.e.PopReg(RSI)
+	b.e.MovRegReg(RCX, RAX)
+	b.e.MovRegReg(R8, RDX)
+	b.e.MovRegReg(RDX, RSI)
+	b.e.SubRsp(48)
+	b.e.LeaRegStack(R9, 24)
+	b.e.XorRegReg(RAX)
+	b.e.StoreStack(RAX, 32)
+	b.iatCall(IATWriteFile)
+	b.e.AddRsp(48)
+	b.e.PopReg(RBX)
+}
+
 // emitWindowsExit emits the _start tail on Windows: ExitProcess(main's
 // value). Win64 requires caller shadow even for a single argument
 // (entry alignment itself is fixed by AndRspNeg16 before the main call).
@@ -2122,6 +2207,26 @@ func (b *Builder) emitWindowsExit() {
 	b.e.MovRegReg(RCX, RAX)
 	b.e.SubRsp(32)
 	b.iatCall(IATExitProcess)
+}
+
+// emitExitWithCode terminates the process with an explicit code, on either
+// container. Phase 152-B0: the Phase-100 runtime-error contract ends in
+// exit(1), and the only exit the native target had was the _start tail
+// (ExitProcess on PE, the exit syscall elsewhere) which runs once, after main
+// returns. A runtime error must terminate from inside a function body, so the
+// same two mechanisms are reused here as a callable sequence.
+//
+// It does not return: both paths end the process.
+func (b *Builder) emitExitWithCode(code int32) {
+	if b.goos == OSWindows {
+		b.e.MovRegImm32(RCX, uint32(code))
+		b.e.SubRsp(32)
+		b.iatCall(IATExitProcess)
+		return
+	}
+	b.e.MovRegImm32(RDI, uint32(code))
+	b.e.MovRegImm32(RAX, b.sysExit())
+	b.e.Syscall()
 }
 
 // emitWinBootstrap emits the loader-independent kernel32 bootstrap
@@ -2346,6 +2451,212 @@ func (b *Builder) emitHelpers() {
 	if b.usesMap {
 		b.emitMapHelpers()
 	}
+
+	// Phase 152-B0: the runtime-error reporter, emitted only when the program
+	// contains an operation that can raise. Same gating rationale as
+	// print_float and alloc: an unused reporter costs bytes, never
+	// correctness, and keeping it out is what preserves the increment-149
+	// byte-identity pins for every program that cannot fail.
+	if b.usesRuntimeError {
+		b.emitRuntimeErrorHelper()
+	}
+}
+
+// scanRuntimeErrorUsage reports whether the program contains an operation that
+// can raise a Phase-100 runtime error, gating the reporter helper.
+//
+// Phase 152-B0. The test is an over-approximation on purpose: ANY index
+// expression counts. The pre-pass runs before type inference, so it cannot know
+// whether the target is an array, a string or a map, and narrowing it would
+// need the same kind pass the value model only builds during layout. Over-
+// approximating is the safe direction here and matches how this file already
+// treats the float formatter ("an unused formatter costs bytes, never
+// correctness"), while a MISSING reporter would fail at link time on a call to
+// a label that was never emitted.
+//
+// The 152-B0 raising site is the array-index bounds check. Division and the
+// string-slice bounds are deliberately NOT included: C23's karkain_slice clamps
+// slice bounds instead of raising, so a native slice diagnostic would have no
+// reference text to match (see docs/audit/PHASE-152-BASELINE.md).
+func scanRuntimeErrorUsage(prog *parser.Program) bool {
+	found := false
+	var walkExpr func(n parser.Node)
+	walkExpr = func(n parser.Node) {
+		if n == nil || found {
+			return
+		}
+		switch x := n.(type) {
+		case *parser.IndexExpr:
+			found = true
+			return
+		case *parser.BinaryExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Right)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				walkExpr(a)
+			}
+		case *parser.DotExpr:
+			walkExpr(x.Left)
+		case *parser.SliceExpr:
+			walkExpr(x.Target)
+			walkExpr(x.Start)
+			walkExpr(x.End)
+		case *parser.ArrayLiteral:
+			for _, e := range x.Elements {
+				walkExpr(e)
+			}
+		case *parser.VarDeclStmt:
+			walkExpr(x.Value)
+		case *parser.PrintStmt:
+			walkExpr(x.Value)
+		case *parser.ExprStmt:
+			walkExpr(x.Expression)
+		case *parser.ReturnStmt:
+			walkExpr(x.Value)
+		}
+	}
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				walkStmts(x.Body)
+			case *parser.IfStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Consequence)
+				walkStmts(x.Alternative)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Body)
+			case *parser.ForStmt:
+				walkExpr(x.Condition)
+				walkExpr(x.Init)
+				walkExpr(x.Post)
+				walkStmts(x.Body)
+			case *parser.ForInStmt:
+				walkExpr(x.Iter)
+				walkStmts(x.Body)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements)
+			case *parser.MatchExpr:
+				walkExpr(x.Value)
+				for _, arm := range x.Arms {
+					walkExpr(arm.Body)
+					walkExpr(arm.Pattern.Value)
+				}
+			default:
+				walkExpr(s)
+			}
+		}
+	}
+	walkStmts(prog.Statements)
+	return found
+}
+
+// emitRuntimeErrorHelper emits the Phase-100 runtime-error reporter.
+//
+//	karkain_runtime_error(kindPtr, kindLen, filePtr, fileLen, line)
+//
+// It reproduces the C23 diagnostic byte for byte:
+//
+//	runtime error: <kind> at <file>:<line>\n
+//
+// written to STDERR, then exit(1). The five arguments arrive in the native
+// user-call convention (RDI, RSI, RDX, RCX, R8 -- units 0-4 of argRegs, the
+// same packing emitCallValue uses), with a string passed as its (ptr, len)
+// pair, exactly as everywhere else in this backend.
+//
+// It deliberately does NOT reproduce the Phase-101 stack trace: frame
+// bookkeeping (karkain_frame_enter/leave) is a separate contract and the
+// codecs' diagnostics are the Phase-100 shape.
+//
+// The incoming arguments are spilled to the frame first because every write
+// goes through emitWriteStderr, which on PE calls two kernel32 functions that
+// clobber RCX/RDX/R8-R11.
+func (b *Builder) emitRuntimeErrorHelper() {
+	const (
+		offKindPtr = 0
+		offKindLen = 8
+		offFilePtr = 16
+		offFileLen = 24
+		offLine    = 32
+		offDigits  = 40 // 24 bytes of digit scratch, written backwards from +64
+		frameBytes = 64
+	)
+	b.e.Mark("karkain_runtime_error")
+	b.e.SubRsp(frameBytes)
+	b.e.StoreStack(RDI, offKindPtr)
+	b.e.StoreStack(RSI, offKindLen)
+	b.e.StoreStack(RDX, offFilePtr)
+	b.e.StoreStack(RCX, offFileLen)
+	b.e.StoreStack(R8, offLine)
+
+	// "runtime error: "
+	b.e.MovRegImm32(RDI, 2)
+	b.rodataRef(RSI, "runtime error: ")
+	b.e.MovRegImm32(RDX, uint32(len("runtime error: ")))
+	b.emitWriteStderr()
+
+	// <kind>
+	b.e.LoadStack(RSI, offKindPtr)
+	b.e.LoadStack(RDX, offKindLen)
+	b.e.MovRegImm32(RDI, 2)
+	b.emitWriteStderr()
+
+	// " at "
+	b.e.MovRegImm32(RDI, 2)
+	b.rodataRef(RSI, " at ")
+	b.e.MovRegImm32(RDX, uint32(len(" at ")))
+	b.emitWriteStderr()
+
+	// <file>
+	b.e.LoadStack(RSI, offFilePtr)
+	b.e.LoadStack(RDX, offFileLen)
+	b.e.MovRegImm32(RDI, 2)
+	b.emitWriteStderr()
+
+	// ":"
+	b.e.MovRegImm32(RDI, 2)
+	b.rodataRef(RSI, ":")
+	b.e.MovRegImm32(RDX, 1)
+	b.emitWriteStderr()
+
+	// <line> as decimal. The same divide-by-10 digit loop print_int uses:
+	// value in RAX, divisor 10 in RCX, digits written backwards from the top
+	// of the frame so the count is end-pointer minus start-pointer. The line is
+	// always > 0 (a call site with no line reports the kind alone), so no sign
+	// handling is needed and the loop cannot underflow the digit area.
+	b.e.LoadStack(RAX, offLine)
+	b.e.LeaRegStack(RSI, frameBytes)
+	b.e.MovRegImm32(RCX, 10)
+	loopLbl := b.fresh("rtline$loop")
+	b.e.Mark(loopLbl)
+	b.e.Cqo()
+	b.e.DivReg(RCX)
+	b.e.AddRegImm32(RDX, '0')
+	b.e.DecReg(RSI)
+	b.e.StoreMem8(RSI, RDX)
+	b.e.TestRegReg(RAX, RAX)
+	b.e.Jnz(loopLbl)
+	// RDX = byte count = (frame top) - RSI, with RSI still the start pointer.
+	b.e.LeaRegStack(RDX, frameBytes)
+	b.e.SubRegReg(RDX, RSI)
+	b.e.MovRegImm32(RDI, 2)
+	b.emitWriteStderr()
+
+	// "\n"
+	b.e.MovRegImm32(RDI, 2)
+	b.rodataRef(RSI, "\n")
+	b.e.MovRegImm32(RDX, 1)
+	b.emitWriteStderr()
+
+	// exit(1) -- Phase 100 ends the diagnostic with exit code 1.
+	b.emitExitWithCode(1)
+	b.e.AddRsp(frameBytes)
+	b.e.Ret()
 }
 
 // emitAllocHelper emits the Phase-150B bump allocator.
@@ -4800,11 +5111,20 @@ func (b *Builder) emitFieldWrite(x *parser.DotExpr, val parser.Node) error {
 }
 
 // emitArrayIndex lowers arr[i] over int arrays (Phase 150A): bounds
-// are checked against the header length with a loud K145-style Int3
-// trap on violation (negative or past-the-end), matching the C
-// backend's checked-index contract (exit 1 there; Int3 here because
-// the native target has no stderr runtime diagnostic yet — 150B
-// wires the message). rsp never moves; only RAX/RCX/RBX die.
+// are checked against the header length, with a Phase-100 runtime
+// error on violation (negative or past-the-end), matching the C
+// backend's karkain_checked_get/set contract exactly: the same
+// "array index out of range" kind, the same `file:line`, on the same
+// stream, ending in exit(1).
+//
+// Phase 152-B0: this used to be an Int3 trap, which the 150A comment
+// recorded as temporary ("the native target has no stderr runtime
+// diagnostic yet — 150B wires the message"). The reporter now exists, so
+// the trap is replaced by the real diagnostic.
+//
+// string SLICE bounds are deliberately left as an Int3: C23's
+// karkain_slice clamps bounds instead of raising, so there is no reference
+// diagnostic to match and the semantics need an explicit language decision.
 func (b *Builder) emitArrayIndex(x *parser.IndexExpr, depth int) error {
 	base, ok := x.Left.(*parser.Identifier)
 	if !ok {
@@ -4823,16 +5143,55 @@ func (b *Builder) emitArrayIndex(x *parser.IndexExpr, depth int) error {
 	b.e.MovRegReg(RCX, RAX)
 	b.e.LoadStack(RBX, off)
 	b.e.LoadStack(RAX, off+8)
-	// Bounds: 0 <= i < len, else Int3 (loud, never wraparound).
+	// Bounds: 0 <= i < len, else the Phase-100 runtime error. Both arms jump to
+	// the same block, which never returns (it ends in exit(1)).
+	if err := b.requireRuntimeErrorSite("array index out of range", x.Line); err != nil {
+		return err
+	}
 	b.e.TestRegReg(RCX, RCX)
 	badLbl := b.fresh("idxbad")
+	doneLbl := b.fresh("idxok")
 	b.e.Jns(badLbl + "$neg")
-	b.e.Mark(badLbl)
-	b.e.Int3()
+	b.e.Jmp(badLbl + "$fail")
 	b.e.Mark(badLbl + "$neg")
 	b.e.CmpRegReg(RCX, RAX)
-	b.e.Jge(badLbl)
+	b.e.Jge(badLbl + "$fail")
 	b.e.LoadScaled64(RAX, RBX, RCX, 8, 0)
+	b.e.Jmp(doneLbl)
+	b.e.Mark(badLbl + "$fail")
+	// Arguments: kind (ptr,len), file (ptr,len), line -- the native user-call
+	// convention, units 0-4 of argRegs.
+	b.rodataRef(RDI, "array index out of range")
+	b.e.MovRegImm32(RSI, uint32(len("array index out of range")))
+	b.rodataRef(RDX, b.sourceBase())
+	b.e.MovRegImm32(RCX, uint32(len(b.sourceBase())))
+	b.e.MovRegImm32(R8, uint32(x.Line))
+	b.e.Call("karkain_runtime_error")
+	// The reporter ends in exit(1) and does not return, but the emitter does
+	// not assume that: mark the join so the success path can never fall into
+	// the diagnostic block. (Its absence was a real regression -- every
+	// array-using PE golden then ran the diagnostic on a VALID index.)
+	b.e.Mark(doneLbl)
+	return nil
+}
+
+// sourceBase is the basename of the originating source file, or the empty
+// string when the caller supplied none. Phase 152-B0: mirrors the C23
+// generator's sourceBaseC() so both engines print the same location. An empty
+// name still produces `at :LINE`, which is the same degradation C23 makes when
+// sourceFile is unset (it passes "").
+func (b *Builder) sourceBase() string {
+	return b.sourceFile
+}
+
+// requireRuntimeErrorSite guards the one precondition the reporter needs: it
+// must actually be emitted. Reaching a call to a label that was never emitted
+// would panic at link time, so a site that can raise without the reporter
+// present is a loud internal error instead.
+func (b *Builder) requireRuntimeErrorSite(kind string, line int) error {
+	if !b.usesRuntimeError {
+		return fmt.Errorf("error[K145]: internal: a runtime-error site (%s) reached emission but usesRuntimeError is false (the pre-pass missed this program)", kind)
+	}
 	return nil
 }
 
