@@ -1,0 +1,27 @@
+// LH-2 negative: a bare arm body must be CHECKED, not skipped.
+//
+// `nope` is declared nowhere. Before this fix the checker walked only Block arm
+// bodies, so this ExprStmt body was never examined and the program was
+// accepted -- the arm was never looked at. K102 is emitted from exactly one
+// place (checkExpr's identifier case), so a skipped body could never report it.
+//
+// The gate for this fixture therefore asserts the CODE and the NAME, not merely
+// a non-zero exit: that is what distinguishes "checked and rejected" from
+// "never examined". A gate that only checked the exit status would pass on the
+// unfixed checker, because that checker accepts the program.
+//
+// Statement position on purpose: the value of a bare arm is not what is under
+// test here, and keeping the match in statement position removes the
+// expression-position dependency from the negative case.
+func f(x) {
+    if (x > 0) { return Ok(42) }
+    return Err("bad")
+}
+
+func main() {
+    let r = f(1)
+    match r {
+        Ok(n) => nope,
+        Err(e) => 0,
+    }
+}

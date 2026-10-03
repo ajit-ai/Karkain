@@ -18,6 +18,13 @@ package cli
 //   nested_match    Test E  an inner match must not disturb the enclosing
 //                          binding, which is used before and after it
 //   scope_escape    Test C  NEGATIVE: a binding must not escape its arm
+//   bare_binding    Test F  bare (non-block) arm bodies keep their binding in
+//                          scope: Ok(n) => n, Ok(n) => n + 1, Some(v) => v,
+//                          and Ok(n) => print(n)
+//   err_bare_binding Test G NEGATIVE: an undefined identifier in a bare arm
+//                          body is reported as K102 naming it. This is what
+//                          keeps Test F from passing vacuously -- see the note
+//                          on that test.
 //
 // A parity-only gate would pass on two engines that are wrong together, so each
 // positive case pins an explicit expected value derived from the language
@@ -92,6 +99,7 @@ var lh2Cases = []struct {
 	{"err_binding", "bad", "Test B: Err(e) makes e the original error payload"},
 	{"multi_arm", "42bad7n", "Test D: per-arm bindings stay independent; Some/None also bind"},
 	{"nested_match", "20inner20", "Test E: the inner match leaves the enclosing binding intact"},
+	{"bare_binding", "4243742", "Test F: bare (non-block) arm bodies bind too: n, n+1, v, print(n)"},
 }
 
 // TestLH2_MatchBindingParity is the main gate: for every positive fixture both
@@ -189,5 +197,45 @@ func TestLH2_BindingIsArmLocal(t *testing.T) {
 	// emitted per arm, guarded by the same tag test the Ok arm is.
 	if !strings.Contains(src, "_match_val.resVal.tag == 0") {
 		t.Errorf("generated C does not guard the arm with the Ok tag test")
+	}
+}
+
+// TestLH2_BareArmBodyIsChecked is the negative regression for the bare
+// (non-block) arm body (Test G). The parser wraps `Ok(n) => nope` in an
+// ExprStmt, and the checker used to walk only Block bodies, so that body was
+// never examined and the program was ACCEPTED.
+//
+// This is why the assertions below are on the diagnostic's code and the name
+// rather than on the exit status alone: the unfixed checker accepts the
+// program, so an exit-status-only assertion would fail loudly here but a
+// future regression that reintroduced the skip would satisfy nothing. Requiring
+// "K102" and "nope" is what distinguishes "the body was checked and rejected"
+// from "the body was never looked at" -- K102 is emitted from exactly one
+// place, reached only while checking an identifier.
+//
+// As with Test C, the two engines reject with DIFFERENT diagnostics and that is
+// expected: Go's resolver does not walk match arms at all (pkg/sema/resolve.go
+// checkStmt/checkExpr have no MatchExpr case), so Go rejects `nope` later, at C
+// compile. Both agree the program is invalid, which is the property under test.
+func TestLH2_BareArmBodyIsChecked(t *testing.T) {
+	fixture := lh2Fixture(t, "err_bare_binding")
+
+	var goOut, goErr bytes.Buffer
+	goRes := RunCommand(fixture, codegen.Config{Stdout: &goOut, Stderr: &goErr}, false)
+	if goRes.ExitCode == ExitSuccess {
+		t.Errorf("Go engine: undefined identifier in a bare arm body was accepted (exit=%d stdout=%q)",
+			goRes.ExitCode, goOut.String())
+	}
+
+	kccRes := KCCRunCommand(nil, fixture, codegen.Config{}, false)
+	if kccRes.ExitCode == ExitSuccess {
+		t.Fatalf("kcc engine: the bare arm body was skipped, so `nope` was never checked "+
+			"(exit=%d output=%q)", kccRes.ExitCode, lastGoldenLine(kccRes.Message))
+	}
+	if !strings.Contains(kccRes.Message, "K102") {
+		t.Errorf("kcc engine: expected a K102 diagnostic, got %q", kccRes.Message)
+	}
+	if !strings.Contains(kccRes.Message, "nope") {
+		t.Errorf("kcc engine: expected the diagnostic to name 'nope', got %q", kccRes.Message)
 	}
 }

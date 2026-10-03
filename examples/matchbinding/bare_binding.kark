@@ -1,0 +1,64 @@
+// LH-2 bare-arm coverage: an arm body that is NOT a block must still be
+// semantically checked, with its pattern binding in scope.
+//
+// Every other fixture in this directory uses `=> { ... }`. The parser wraps a
+// bare arm body in makeExprStmt instead, and the checker used to walk only
+// Block bodies -- so `Ok(n) => n` was accepted because it was never looked at,
+// not because it was correct. K102 is emitted from exactly one place
+// (checkExpr's identifier case), so a skipped body could never report it.
+//
+// These cases pin the binding's VALUE in a bare arm. They prove the binding is
+// in scope for codegen and for the checker; that the body is actually CHECKED
+// is proved by the negative fixture err_bare_binding.kark, since a positive
+// case cannot distinguish "checked and correct" from "never examined".
+//
+// The match value is bound to a local first: a match whose value is a call
+// expression (`match f(1) { ... }`) is a pre-existing Go parser limitation and
+// is deliberately avoided so the fixture isolates arm bindings. Expression
+// position with bare bodies is not exotic -- conformance/012_enums_test.kark
+// already uses `let r = match c { Color.Red => 100, ... }` on both engines.
+func f(x) {
+    if (x > 0) { return Ok(42) }
+    return Err("bad")
+}
+
+func g(x) {
+    if (x > 0) { return Some(7) }
+    return None
+}
+
+func main() {
+    // Case 1: `Ok(n) => n` -- the binding is the whole arm value.
+    let r1 = f(1)
+    let a1 = match r1 {
+        Ok(n) => n,
+        Err(e) => 0,
+    }
+    print(a1)
+
+    // Case 2: `Ok(n) => n + 1` -- the binding used inside a larger expression.
+    // This is the shape that forces real identifier resolution in the arm.
+    let r2 = f(1)
+    let a2 = match r2 {
+        Ok(n) => n + 1,
+        Err(e) => 0,
+    }
+    print(a2)
+
+    // Case 3: `Some(v) => v` -- Option payload, same bare shape.
+    let r3 = g(1)
+    let a3 = match r3 {
+        Some(v) => v,
+        None => 0,
+    }
+    print(a3)
+
+    // Case 4: `Ok(n) => print(n)` -- the third body shape codegen supports
+    // (Block, ExprStmt, Print). The corpus covers the Some spelling of this
+    // in examples/01-fundamentals/10_match.kark; this pins the Ok spelling.
+    let r4 = f(1)
+    match r4 {
+        Ok(n) => print(n),
+        Err(e) => print("unexpected"),
+    }
+}

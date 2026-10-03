@@ -115,15 +115,22 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// natLoopAssignAddLit helpers, natLoopLabels (reported as its own
 		// surface because a rel32 carries only a displacement), and the
 		// native-value-loop / native-value-loop-labels arms in main.kark;
-		// kir verify passes on the new count).
+		// kir verify passes on the new count);
+		// and now to 11377 (LH-2 bare match-arm body checking: ckCheckArmBody
+		// now dispatches on the arm-body node shape rather than accepting only
+		// Block, so the ExprStmt and Print bodies codegen already supports are
+		// semantically checked too. +4, not the +2 code lines the diff shows:
+		// KIR renders `else if` as a nested If inside the else field, which
+		// costs more than one line. Measured, not predicted. kir verify passes
+		// on the new count);
 		// the pin is refreshed to the validated current value.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 11373 {
-			t.Errorf("whole-tree kir text = %d lines, want 11373:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 11377 {
+			t.Errorf("whole-tree kir text = %d lines, want 11377:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

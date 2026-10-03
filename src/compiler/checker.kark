@@ -506,8 +506,28 @@ func ckCheckArmBody(tab, arm, loop) {
     }
     if (binds == 1) { ckLocalAdd(tab, b) }
 
+    // Dispatch on the arm body's node shape, mirroring emitMatchArmBody so the
+    // checker and the lowering agree on which body shapes exist.
+    //
+    // Previously only Block was checked, but parseMatchExpr wraps a bare arm
+    // body (`Ok(n) => n + 1`) in makeExprStmt, so identifiers inside bare arm
+    // expressions bypassed checking entirely: K102 is emitted from exactly one
+    // place -- checkExpr's identifier case -- so a skipped body could never
+    // report it. A block body was checked and a bare body was not, so two
+    // spellings of the same arm were treated differently.
+    //
+    // ExprStmt and Print both reach checkExpr through checkStmt: its ExprStmt
+    // case ends in checkExpr(tab, e, loop), and its Print case calls
+    // checkExpr(tab, printVal(s), loop). So both route through checkStmt.
+    //
+    // The taint and return walkers deliberately keep their own Block-only
+    // gate: an expression arm can neither declare a `let` nor contain a
+    // `return`, so for those two passes the restriction is correct. Only
+    // identifier resolution needs the wider set of shapes.
     let body = armBody(arm)
-    if (getNodeType(body) == "Block") { checkStmts(tab, blockStmts(body), loop) }
+    let bt = getNodeType(body)
+    if (bt == "Block") { checkStmts(tab, blockStmts(body), loop) }
+    else if (bt == "ExprStmt" || bt == "Print") { checkStmt(tab, body, loop) }
 
     tab[4] = saved
 }
