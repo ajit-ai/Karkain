@@ -300,6 +300,22 @@ func (e *Emitter) XorRegReg(r Reg) {
 	e.modrm(3, r.low(), r.low())
 }
 
+// XorRegReg2 emits xor dst, src: REX.W + 31 /r with dst in the rm field, the
+// same dst/src shape AndRegReg and OrRegReg already use.
+//
+// Phase 152-B1: added because implementation evidence disproved the §11.1
+// measurement that claimed XOR was already available. XorRegReg above takes a
+// SINGLE register -- it is the `xor r, r` zeroing form -- so it cannot combine
+// two distinct registers. SHA-256 needs that in every one of its four mixing
+// steps: Sigma0 and Sigma1 XOR two rotations, Ch is (e&f) ^ (~e & g), and Maj
+// is (a&b) ^ (a&c) ^ (b&c). There is no way to express them without it, which
+// is the "implementation evidence proves one is unavoidable" case.
+func (e *Emitter) XorRegReg2(dst, src Reg) {
+	e.rex(true, src, dst)
+	e.byte(0x31)
+	e.modrm(3, src.low(), dst.low())
+}
+
 // NegReg emits neg r64 (two's complement): REX.W + F7 /3.
 func (e *Emitter) NegReg(r Reg) {
 	e.rex(true, 0, r)

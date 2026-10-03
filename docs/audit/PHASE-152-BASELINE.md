@@ -310,25 +310,35 @@ logical shift-right and 32-bit modular addition. Inventoried against the real
 
 | SHA-256 need | Existing emitter primitive | Encoding |
 |---|---|---|
-| XOR | `XorRegReg(dst, src)` | `REX.W 31 /r` |
+| XOR (two registers) | **`XorRegReg` is the ONE-operand `xor r,r` zeroing form — it CANNOT combine two distinct registers.** `XorRegReg2(dst, src)` added 2026-10-03 | `REX.W 31 /r` |
 | AND | `AndRegReg(dst, src)` | `REX.W 21 /r` |
 | OR | `OrRegReg(dst, src)` | `REX.W 09 /r` |
 | SHL | `ShlRegImm(r, imm)` | `REX.W C1 /4 ib` |
 | SHR (logical) | `ShrRegImm(r, imm)` | `REX.W C1 /5 ib` |
 | ROL | `RolRegImm(r, imm)` | `REX.W C1 /0 ib` |
-| NOT | **absent** | would need `REX.W F3 0F /r` |
+| NOT | absent → `NotReg` added | `REX.W F7 /2` |
 
-Six of the seven **already exist** — they arrived with the 152-B1 hex/base64
-codec helpers, which needed the same operations. The single gap is `NotReg`,
-a four-byte `not` encoding. Modulo-2^32 addition is already correct on a 64-bit
-unit, because addition wraps at 2^64 and the low 32 bits are unaffected.
+**Correction (2026-10-03).** This section originally recorded XOR as already
+available via `XorRegReg(dst, src)`. **That signature does not exist.** The real
+`XorRegReg` takes a single register and emits the `xor r, r` zeroing form, so
+it cannot express the two-register XOR that Sigma0, Sigma1, Ch and Maj all
+require. The error was a transcription mistake in the measurement, caught by
+implementation rather than review. Five of the seven primitives were genuinely
+already present; the gap is **two**, not one: `NotReg` and `XorRegReg2`. Both
+are emitter primitives, so the decision below is unchanged in kind — SHA-256
+still needs **no** language-level bitwise operator.
+
+The other five **already exist** — they arrived with the 152-B1 hex/base64
+codec helpers, which needed the same operations. Modulo-2^32 addition is already
+correct on a 64-bit unit, because addition wraps at 2^64 and the low 32 bits are
+unaffected.
 
 **Decision:** implement `sha256_hex` as a **gated helper** in machine code
-(`karkain_sha256_hex`), using the existing primitives plus one new `NotReg`,
-with 32-bit discipline enforced by masking rather than by new language
-operators. This adds **no** language-level bitwise surface: the operations stay
-inside the emitter, which is what keeps 151's `& | ^ << >>` language work
-untouched and honours the §6 non-scope.
+(`karkain_sha256_hex`), using the existing primitives plus `NotReg` and
+`XorRegReg2`, with 32-bit discipline enforced by masking rather than by new
+language operators. This adds **no** language-level bitwise surface: the
+operations stay inside the emitter, which is what keeps 151's `& | ^ << >>`
+language work untouched and honours the §6 non-scope.
 
 ---
 

@@ -53,6 +53,13 @@ func TestEmitArith(t *testing.T) {
 	// register -- the modrm low-3 field alone would resolve to r12 as r4.
 	want(t, "not rax", hexOf(t, func(e *Emitter) { e.NotReg(RAX) }), 0x48, 0xF7, 0xD0)
 	want(t, "not r12", hexOf(t, func(e *Emitter) { e.NotReg(R12) }), 0x49, 0xF7, 0xD4)
+	// Phase 152-B1: the two-operand XOR, `xor dst, src`. It shares the 31 /r
+	// opcode with the zeroing XorRegReg above but puts src in the reg field and
+	// dst in rm, exactly as AndRegReg/OrRegReg already do. `xor rax, r12` also
+	// pins REX.R: in the 21/09/31 /r group the source is the reg field, so an
+	// extended SOURCE needs REX.R (0x4C), not REX.B.
+	want(t, "xor rax,rcx", hexOf(t, func(e *Emitter) { e.XorRegReg2(RAX, RCX) }), 0x48, 0x31, 0xC8)
+	want(t, "xor rax,r12", hexOf(t, func(e *Emitter) { e.XorRegReg2(RAX, R12) }), 0x4C, 0x31, 0xE0)
 	want(t, "dec rsi", hexOf(t, func(e *Emitter) { e.DecReg(RSI) }), 0x48, 0xFF, 0xCE)
 	want(t, "cqo", hexOf(t, func(e *Emitter) { e.Cqo() }), 0x48, 0x99)
 	want(t, "div rcx", hexOf(t, func(e *Emitter) { e.DivReg(RCX) }), 0x48, 0xF7, 0xF1)
