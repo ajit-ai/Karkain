@@ -357,6 +357,13 @@ func natValuePrim(which) {
 // Registers, matching the oracle's Reg constants.
 func natRegRCX() { return 1 }
 
+// RDI is the first System V integer argument register, and the only argument
+// register the Linux exit tail needs (the exit status). The oracle's Reg
+// numbering is the architectural one, so RDI is 7 -- the accessor is named
+// rather than written as the literal so the gate can pin it against
+// pkg/native.RDI independently.
+func natRegRDI() { return 7 }
+
 // ============================================================
 // 6. Integer statement and expression lowering (Step 2)
 //
@@ -1133,5 +1140,69 @@ func natLoopCorpus(which) {
     if (which == 7) { return natToHex(natFinish(natLoopForContinue())) }
     if (which == 8) { return natToHex(natFinish(natLoopNestedWhile())) }
     if (which == 9) { return natToHex(natFinish(natLoopNestedForWhile())) }
+    return ""
+}
+
+// ============================================================
+// 7. The `_start` entry stub and the Linux exit tail
+//
+// The Go oracle emits `_start` first thing in pkg/native/program.go:
+//
+//	b.e.Mark("_start")
+//	if b.goos == OSWindows { b.e.AndRspNeg16(); b.emitWinBootstrap() }
+//	b.e.Call("karkain_main")
+//	if b.goos == OSWindows { b.emitWindowsExit() } else {
+//	    b.e.MovRegReg(RDI, RAX)
+//	    b.e.MovRegImm32(RAX, b.sysExit())
+//	    b.e.Syscall()
+//	}
+//
+// This slice is the Linux half ONLY. The Windows alignment fix, the PEB
+// bootstrap and the Windows exit tail are deliberately absent, and the macOS
+// exit number is absent: each is separately recorded as open 151A work, and
+// emitting them here would be inventing scope rather than porting it. The
+// corpus therefore cannot be run -- it has no `main` body, no `print` and no
+// arena -- and the gate claims BYTES, not execution.
+//
+// The `karkain_main` label is placed immediately after the tail, so the corpus
+// is self-contained: natRel32 must still resolve a real forward reference,
+// which is the property 151B introduced it for. The resulting displacement is
+// therefore 10 -- offset(karkain_main)=15 minus offset(next instruction)=5 --
+// which is a property of this corpus and NOT of a real image, where
+// `karkain_main` sits at its own offset. The gate pins that arithmetic
+// separately from the instruction bytes for exactly that reason. (This comment
+// first said 12; the arithmetic is 15-5. The gate DERIVED 10 from the
+// encodings and passed, so the wrong number was here, not there.)
+func natStartStub() {
+    let s = natNewEmitter(0)
+    s = natMark(s, "_start")
+    s = natCall32(s)
+    let r = natRel32(s, "karkain_main")
+    s = r[0]
+    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+    // 60 is __NR_exit on Linux. macOS uses 0x2000001 and is out of scope.
+    s = natMovRegImm32(s, natRegRAX(), 60)
+    s = natSyscall(s)
+    s = natMark(s, "karkain_main")
+    return s
+}
+
+// natStartCorpus renders the `_start` stub, the syscall primitive alone, and
+// the exit tail without its call -- three shapes so the gate can separate the
+// instruction bytes from the rel32 fixup.
+func natStartCorpus(which) {
+    if (which == 0) { return natToHex(natFinish(natStartStub())) }
+    if (which == 1) {
+        let s = natNewEmitter(0)
+        return natToHex(natFinish(natSyscall(s)))
+    }
+    if (which == 2) {
+        let s = natNewEmitter(0)
+        s = natMark(s, "_start")
+        s = natMovRegReg(s, natRegRDI(), natRegRAX())
+        s = natMovRegImm32(s, natRegRAX(), 60)
+        s = natSyscall(s)
+        return natToHex(natFinish(s))
+    }
     return ""
 }

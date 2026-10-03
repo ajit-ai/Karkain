@@ -126,6 +126,14 @@ func natMask(which) {
     if (which == 32) { return 57 }                      // 0x39  cmp r/m64, r64
     if (which == 33) { return 175 }                     // 0xAF  imul r64, r/m64
     if (which == 17) { return 232 }                     // 0xE8  call rel32
+    // Phase 151A: the Linux exit tail in `_start`. These are the first kcc
+    // bytes that are not a frame/local operation -- `syscall` is an
+    // operating-system boundary, and it is the byte-for-byte counterpart of
+    // the identically named Go Emitter.Syscall. Same discipline as the blocks
+    // above: continue the table at 34 rather than renumbering, because
+    // natMask is a shared namespace.
+    if (which == 34) { return 15 }                      // 0x0F  syscall escape byte
+    if (which == 35) { return 5 }                       // 0x05  syscall opcode
     return 0
 }
 
@@ -642,6 +650,21 @@ func natSeqLoop(s) {
 // verify the relationship instead of reading the byte.
 func natCall32(s) {
     return natByte(s, natMask(17))
+}
+
+// natSyscall emits syscall (0F 05): the two-byte opcode with no REX prefix
+// and no ModRM. It is the counterpart of the identically named Go
+// Emitter.Syscall, and it exists because the Linux exit tail of `_start` is
+// the first kcc native code that leaves the instruction set and enters the
+// kernel ABI.
+//
+// The bytes are stated here rather than derived, because a two-byte opcode has
+// no ModRM to catch a swapped pair -- the 151B record shows how a wrong
+// constant table produced output that was not x86 at all, silently.
+func natSyscall(s) {
+    s = natByte(s, natMask(34))
+    s = natByte(s, natMask(35))
+    return s
 }
 
 // natSeqMulti: three fixups, two forward and one backward, plus an imm64

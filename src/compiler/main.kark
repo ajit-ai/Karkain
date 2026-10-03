@@ -145,6 +145,23 @@ func main() {
         return
     }
 
+	// Phase 151A: the `_start` entry stub and the Linux exit tail. Same
+    // measurement contract as the four encoder/container commands above -- the
+    // cases are compiled into kcc and the gate compares them against the real
+    // pkg/native Emitter, which is the oracle. NO INPUT FILE, and no Go
+    // fallback: a Go-side encoder producing the same bytes would pass the
+    // comparison while proving nothing about kcc, which is the exact dishonesty
+    // 151 was opened to remove.
+    if (command == "native-value-start") {
+        let snames = ["start", "syscall", "tail"]
+        let sn = 0
+        while (sn < 3) {
+            print(natStartCorpus(sn))
+            sn = sn + 1
+        }
+        return
+    }
+
 	// Phase 151A Step 1: the native value/frame foundation. Same
 	// measurement contract as the four above -- the cases are compiled into
 	// kcc and the gate compares against pkg/native, which is the oracle.

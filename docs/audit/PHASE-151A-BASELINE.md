@@ -533,3 +533,96 @@ are function bodies, not runnable programs. `kccOwnsNativeTargets` stays
 `false`; 151A is **not** closed. Floats, arrays, `for-in`, arena, string ops,
 `push`, records and maps remain open, as does the entry stub / syscall tail /
 PEB bootstrap that a runnable image needs.
+
+## 12. 151A Step 4 - the `_start` entry stub and the Linux exit tail (AUTHORIZED)
+
+Step 1/2/2b/3 built and consumed the value, frame and control-flow layers;
+none of them emit an entry sequence, so every program built so far is a
+function body rather than a runnable image. This section **authorizes the slice
+that supplies the entry point and the Linux exit path.**
+
+This section is the **owner phase decision** that gives the work its
+authorization. Until it existed, the `_start` implementation was present in the
+working tree with **no authorizing definition anywhere in the repository**:
+`PHASE-151-BASELINE.md` §4 defines 151A/151B/151C/151D without sub-stepping
+151A, and neither `KARKAIN-VERSION-PLAN.md` nor `docs/release/v1.2.0-CHECKLIST.md`
+mentions an entry stub. The absence of authorization was a governance gap, not a
+scope error - the substance of this slice was already named as open work by
+Step 1 ("the `_start` stub, the Linux syscall tail ... remain open 151A work").
+This section closes that gap by giving the work a number, a scope and exit
+criteria. It does not widen scope.
+
+**Scope.** The Linux half of the entry sequence only:
+
+1. the `_start` entry stub - `natMark(s, "_start")`, the `rel32` call to
+   `karkain_main`, and the return jump to `karkain_main$ret`;
+2. the bare `syscall` primitive - `natSyscall`, selectors 34 (`0x0F`) and 35
+   (`0x05`), continuing the shared `natMask` namespace rather than renumbering;
+3. the Linux syscall exit tail - `mov rdi, rax`, `mov rax, 60`, `syscall`;
+4. the `natRegRDI` accessor, named rather than written as the literal so the
+   gate can pin it against `pkg/native.RDI` independently.
+
+`natStartStub`, `natStartCorpus`, `natSyscall` and `natRegRDI` in
+`src/compiler/native_value.kark` / `native_emit.kark`, plus the
+`native-value-start` dispatch in `src/compiler/main.kark`,
+`pkg/cli/native_encode.go` and `cmd/karkain/main.go`, are the deliverable. All
+`src/compiler` changes are **purely additive** - zero removed or modified
+existing lines - which preserves the property Step 1 established.
+
+**Explicitly deferred - and deliberately not implemented here:**
+
+* **Windows entry** - the 16-byte stack alignment fix (`and rsp, -16`);
+* **Windows exit** - the Win64 `exit`/IAT tail;
+* **PEB bootstrap** - PEB to Ldr to the export-table walk publishing
+  ExitProcess/GetStdHandle/WriteFile;
+* **macOS entry/exit** - including the macOS exit number `0x2000001`.
+
+Emitting any of them would be inventing scope rather than porting it. Each is
+separately open 151A work.
+
+**Gate.** `pkg/cli/phase151a4_start_test.go` is the structural/differential
+gate: 5 tests built as the same four-layer discipline Steps 1-3 used -
+
+1. kcc's bytes vs the real `pkg/native.Emitter` building the same sequence (a
+   differential, not a golden: a golden pins kcc against a transcription of the
+   Go code and passes when both copies are wrong together);
+2. the `rel32` displacement derived from first principles in the test file;
+3. opcodes stated from the Intel SDM;
+4. the exit tail occurring verbatim in the `.text` of a **real** oracle image
+   that compiled a reference program.
+
+Layer 4 compares only the bytes **after** the call. That exclusion is
+deliberate, not convenient: a `rel32` encodes a displacement whose value depends
+on where the compiler placed `karkain_main` in that program, so kcc's
+self-contained corpus displacement (10) must not equal a real image's, while the
+bytes after the call are layout-independent and must match exactly.
+
+**Exit criteria.**
+
+1. The structural/differential gate above is present and passing for the five
+   `TestPhase151A4_*` tests.
+2. A **dedicated CI step** runs `go test ./pkg/cli/ -run 'TestPhase151A4_'`,
+   per the `AGENTS.md` companion rule - a gate is a test file *plus* a CI entry.
+   The pattern is deliberately distinct: `TestPhase151A3_` does not match
+   `TestPhase151A4_`, so a Step 4 regression cannot hide behind a green Step 3
+   step.
+3. The **KIR pin transition `11377 -> 11412` is coupled atomically** with this
+   slice. The pin is monotonic and shared, so the code and the pin must move
+   together or not at all: committing these `src/compiler` files without the pin
+   at 11412 breaks `TestPhase122_PipelineOwnership/KIRContinuity`, and moving the
+   pin without the files breaks it identically. The pin is re-measured with
+   `karkain kir --verify`, never hand-edited. `11373 -> 11377` is **LH-2**
+   (match-arm body checking) and is **not** part of this slice; 151A Step 4
+   owns only `11377 -> 11412`.
+4. Evidence is **structural and byte-level differential only**. **No native
+   execution evidence is claimed or achievable for this slice**: the corpus has
+   no `main` body, no `print` and no arena, so it is not a runnable program.
+   The argument that the bytes are correct is transitive - kcc's bytes are
+   byte-identical to `pkg/native`'s, whose PE images do execute on the
+   increment 145-150 gates - and the transitive form is stated rather than
+   upgraded to a direct claim.
+
+**Still not claimed.** No whole-image parity. No execution evidence. No Windows
+or macOS entry or exit. No PEB bootstrap. `kccOwnsNativeTargets` stays `false`
+and 151A remains **not** closed; floats, arrays, `for-in`, arena, string ops,
+`push`, records and maps all remain open 151A work.

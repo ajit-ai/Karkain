@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1713,6 +1713,19 @@ func main() {
 	}
 	if command == "native-value-loop-labels" {
 		result := cli.KCCNativeValueLoopLabelsCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A: the `_start` entry stub and the Linux exit tail. Same
+	// measurement contract as the encoder and container commands. This is a
+	// STRUCTURAL slice: the emitted sequence has no `main` body, no `print`
+	// and no arena, so the corpus is not a runnable program and no execution is
+	// claimed for it.
+	if command == "native-value-start" {
+		result := cli.KCCNativeValueStartCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

@@ -171,6 +171,18 @@ func KCCNativeValueLoopLabelsCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-loop-labels")
 }
 
+// KCCNativeValueStartCommand runs the 151A `_start` measurement: the Linux
+// entry stub (call karkain_main, mov rdi,rax, mov rax,60, syscall), the bare
+// syscall primitive, and the exit tail without its call.
+//
+// There is deliberately no Go fallback here. This command exists so the gate
+// can compare kcc's bytes against pkg/native's, and a Go-side emitter that
+// produced the expected bytes itself would make that comparison vacuous while
+// still looking green.
+func KCCNativeValueStartCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-start")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //

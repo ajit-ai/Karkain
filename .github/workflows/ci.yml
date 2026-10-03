@@ -311,6 +311,20 @@ jobs:
       - name: Run 151A Step 3 control-flow lowering gate
         run: go test ./pkg/cli/ -run 'TestPhase151A3_' -count=1 -timeout 30m
 
+      # 151A `_start` structural emission and the Linux exit tail. Separate on
+      # purpose for the same reason as Steps 2 and 3: 'TestPhase151A3_' does
+      # not match 'TestPhase151A4_', so a regression in the entry stub cannot
+      # hide behind a green Step 3 step. This gate is the four-layer
+      # differential against the Go oracle (byte equality with the real
+      # pkg/native Emitter, an independently derived rel32 displacement,
+      # Intel-SDM-stated exit-tail bytes, and the tail occurring verbatim in
+      # the .text of a REAL compiled oracle image). STRUCTURAL ONLY -- the
+      # corpus has no main body, no print and no arena, so it is not a runnable
+      # program and this gate claims bytes, not execution.
+
+      - name: Run 151A _start entry-stub and Linux exit-tail gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A4_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line
