@@ -307,6 +307,21 @@ func (e *Emitter) NegReg(r Reg) {
 	e.modrm(3, 3, r.low())
 }
 
+// NotReg emits not r64 (bitwise complement): REX.W + F7 /2.
+//
+// Phase 152-B1: this is the one machine-code operation SHA-256 needs that the
+// emitter did not already have. It exists for `Ch(e,f,g) = (e&f) ^ (~e & g)`
+// inside the karkain_sha256_hex helper, and it is deliberately NOT a language
+// operator -- the rotation, shift, AND, OR and XOR operations SHA-256 needs
+// all already existed as emitter primitives (XorRegReg, AndRegReg, OrRegReg,
+// ShlRegImm, ShrRegImm, RolRegImm), so only this one was missing. See
+// docs/audit/PHASE-152-BASELINE.md §11.1.1.
+func (e *Emitter) NotReg(r Reg) {
+	e.rex(true, 0, r)
+	e.byte(0xF7)
+	e.modrm(3, 2, r.low())
+}
+
 // DecReg emits dec r64: REX.W + FF /1.
 func (e *Emitter) DecReg(r Reg) {
 	e.rex(true, 0, r)

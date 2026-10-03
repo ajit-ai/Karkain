@@ -48,6 +48,11 @@ func TestEmitArith(t *testing.T) {
 	want(t, "sub rsp,40", hexOf(t, func(e *Emitter) { e.SubRsp(40) }), 0x48, 0x83, 0xEC, 0x28)
 	want(t, "xor rax,rax", hexOf(t, func(e *Emitter) { e.XorRegReg(RAX) }), 0x48, 0x31, 0xC0)
 	want(t, "neg rax", hexOf(t, func(e *Emitter) { e.NegReg(RAX) }), 0x48, 0xF7, 0xD8)
+	// Phase 152-B1: `not` is REX.W + F7 /2, the sibling of `neg`'s F7 /3.
+	// `not r12` also pins that the REX.B bit is emitted for an extended
+	// register -- the modrm low-3 field alone would resolve to r12 as r4.
+	want(t, "not rax", hexOf(t, func(e *Emitter) { e.NotReg(RAX) }), 0x48, 0xF7, 0xD0)
+	want(t, "not r12", hexOf(t, func(e *Emitter) { e.NotReg(R12) }), 0x49, 0xF7, 0xD4)
 	want(t, "dec rsi", hexOf(t, func(e *Emitter) { e.DecReg(RSI) }), 0x48, 0xFF, 0xCE)
 	want(t, "cqo", hexOf(t, func(e *Emitter) { e.Cqo() }), 0x48, 0x99)
 	want(t, "div rcx", hexOf(t, func(e *Emitter) { e.DivReg(RCX) }), 0x48, 0xF7, 0xF1)
