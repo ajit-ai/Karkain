@@ -298,6 +298,38 @@ native realisation without adding bitwise operators to `pkg/native`? If not, the
 increment's largest single item changes shape, and that should be a recorded
 decision rather than a surprise discovered mid-implementation.
 
+#### 11.1.1 Measurement result (2026-10-03, measured)
+
+**`sha256_hex` DOES have a native realisation, and it does NOT require
+adding bitwise operators to the language.** Recorded here because §11.1 makes
+this measurement a precondition for fixing §5.1's shape.
+
+The SHA-256 compression function needs XOR, AND, NOT, rotate-left, shift-left,
+logical shift-right and 32-bit modular addition. Inventoried against the real
+`pkg/native/emit.go` primitive set:
+
+| SHA-256 need | Existing emitter primitive | Encoding |
+|---|---|---|
+| XOR | `XorRegReg(dst, src)` | `REX.W 31 /r` |
+| AND | `AndRegReg(dst, src)` | `REX.W 21 /r` |
+| OR | `OrRegReg(dst, src)` | `REX.W 09 /r` |
+| SHL | `ShlRegImm(r, imm)` | `REX.W C1 /4 ib` |
+| SHR (logical) | `ShrRegImm(r, imm)` | `REX.W C1 /5 ib` |
+| ROL | `RolRegImm(r, imm)` | `REX.W C1 /0 ib` |
+| NOT | **absent** | would need `REX.W F3 0F /r` |
+
+Six of the seven **already exist** — they arrived with the 152-B1 hex/base64
+codec helpers, which needed the same operations. The single gap is `NotReg`,
+a four-byte `not` encoding. Modulo-2^32 addition is already correct on a 64-bit
+unit, because addition wraps at 2^64 and the low 32 bits are unaffected.
+
+**Decision:** implement `sha256_hex` as a **gated helper** in machine code
+(`karkain_sha256_hex`), using the existing primitives plus one new `NotReg`,
+with 32-bit discipline enforced by masking rather than by new language
+operators. This adds **no** language-level bitwise surface: the operations stay
+inside the emitter, which is what keeps 151's `& | ^ << >>` language work
+untouched and honours the §6 non-scope.
+
 ---
 
 ## 12. Completion criteria
