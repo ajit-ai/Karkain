@@ -645,3 +645,82 @@ sign-extended 64-bit immediate. The diagnostic is therefore emitted correctly
 but cannot be *captured* from a PE image here; the Linux leg is where the text
 is compared byte for byte. Recorded rather than worked around, because routing a
 runtime error to stdout to make it visible would break the Phase-100 contract.
+### `std.db` classification (criterion 6 — RESOLVED)
+
+**`std.db` CANNOT work on the native target, and this is a property of the
+target, not a missing feature.** The classification required by §12.6 is
+therefore: *carries a documented reason it cannot*.
+
+**Measured reason.** The native backend's entire syscall surface is two calls:
+`sysWrite` and `sysExit` (`pkg/native/program.go` — `func (b *Builder) sysWrite`
+and `func (b *Builder) sysExit` are the only such functions in the file). There
+is no `open`, no `read`, and no file-creating `write`. `std.db`'s persistence
+surface depends on exactly that: `db_save(db)` resolves a path from the database
+map and writes the serialised tables to a file, and the documented
+`#karkain-db-v1` persistence is pipe-delimited **file** I/O
+(`stdlib/db/db.kark`). A program that calls `db_save` on the native target has
+nowhere to write and no way to read back, so a correct implementation is not
+reachable without adding filesystem syscalls.
+
+**Why that is out of scope, not deferred-by-choice.** §6 non-scope forbids
+introducing filesystem syscalls for Increment 152, and §5 lists no filesystem
+work. Adding them would breach the increment boundary and would need its own
+baseline, risk register and gates — the same discipline §11.1 applied before
+committing to the SHA-256 shape. The C23 path keeps the full `std.db` surface
+and is unchanged by this classification; `TestPhase152A_C23TargetStillWorks`
+continues to pin that.
+
+**Consequence for the native surface.** Purely in-memory `std.db` usage
+(`db_create`, `db_insert`, `db_select`, `db_update`, `db_delete`,
+`db_execute`, plus the `db_result` cursor) has no filesystem dependency and is
+### Increment 152 closure status (criterion 10)
+
+**Increment 152 is NOT CLOSED.** Recording the measured position rather than a
+claim, per `AGENTS.md`: *"A version is not closed as 'green except X'."*
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | `hello` builds and runs with gcc/clang/cl **proven** unavailable | **PASS** | CI `37116430285` step 45 (152-A no-C gate) |
+| 2 | `stdlib_v2` builds and runs in the same environment | **FAIL** | blocked by `sha256_hex` + `split`, both unimplemented natively |
+| 3 | one `std.net` program, deterministic socket rejection | **PASS** | CI `37116430285` steps 45–46 |
+| 4 | `--target c23` still registered, builds and links | **PASS** | CI `37116430285` step 45 (`C23TargetStillWorks`) |
+| 5 | concat-in-loop refused, no unsound arena bound | **PASS** | 152-A closure; CI step 45 |
+| 6 | `std.db` classified explicitly | **PASS** | this file, `std.db` classification section above |
+| 7 | Phase-114 both-engine golden unchanged | **PASS** | CI `37116430285` step 10 |
+| 8 | gate exists, has its own CI step, anti-vacuity assertions | **PASS** | CI steps 45–46; stubs asserted to resolve and to fail |
+| 9 | unknown targets fail deterministically | **PASS** | CI `37116430285` step 45 |
+| 10 | this closure record | **PASS** | this section |
+
+**Nine of ten criteria PASS. Criterion 2 fails.**
+
+**What criterion 2 needs.** `stdlib_v2` uses exactly two builtins that the
+native target cannot yet reach: `str_split` (its `string[]` result has no
+native representation) and `sha256` (unimplemented natively). Both are inside
+Increment 152 and neither is deferred to 154.
+
+**Prepared but not landed:**
+
+* `sha256_hex` — §11.1.1 records that it is expressible without any
+  language-level bitwise operator. The two emitter primitives it needs are
+  committed and golden-tested (`NotReg`, `XorRegReg2`), the frame/arena/gating
+  design is settled, and `pkg/native/sha256_harness_test.go` carries the four
+  authoritative vectors and passes. The helper itself is **not** implemented.
+  Two attempts were written and deleted: both produced emitter code that could
+  not be verified (one contained an `xor r, r` that silently zeroed a value
+  inside Σ0, plus a non-existent instruction). A SHA-256 helper that compiles
+  and emits plausible hex while being wrong is worse than none, so neither was
+  committed.
+* `split` — **not started.** The representation decision must be recorded first,
+  per §11.1's precedent: a Karkain native value is one 8-byte unit while a
+  string is two, and native arrays are `(base, len)` with 8-byte elements. Every
+  existing array literal, index, `len`, print path and golden depends on that
+  width, so the decision is the increment's largest remaining design choice and
+  is recorded before code rather than discovered in it.
+
+**Closure requires:** criterion 2 to pass with native `stdlib_v2` output
+byte-identical to its existing both-engine golden, plus green CI on `develop`
+and `main`. Nothing else in §12 is outstanding.
+the part that could be reached natively in future work. What is refused here is
+specifically **persistence** — `db_save` / `db_load` — not the query engine.
+No capability was added, removed, or silently narrowed to make this criterion
+satisfiable.
