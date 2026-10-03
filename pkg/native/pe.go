@@ -35,11 +35,25 @@ const (
 	peOptSize    = 240
 	peSectSize   = 40
 	peTextRVA    = 0x1000
-	peIdataRVA   = 0x2000
-	peRelocRVA   = 0x3000
 	peNumImports = 3
 	peNumSections = 3
 )
+
+// peIdataRVA is NOT where LinkPE places .idata any more. That placement is
+// computed from the real end of .text; see the RVA derivation in LinkPE.
+//
+// A fixed pair (0x2000, 0x3000) silently assumed .text never exceeds one
+// 0x1000-byte page. A program emitting two codec helpers does, and the two
+// sections then overlapped, giving the loader an image it rejects as "not a
+// valid Win32 application" -- with no error from buildReloc, ParsePE or the
+// build itself, because every one of those checks was satisfied.
+//
+// It survives only so program.go's PE heapBase expression keeps compiling: it
+// calls the zero-argument buildIdata() below. That expression is dead on
+// Windows -- the Windows branch returns from LinkPE before heapBase is used,
+// and LinkPE derives the arena address from the real idataRVA itself -- so it
+// is left compiling rather than kept as a second, wrong source of truth.
+const peIdataRVA = 0x2000
 
 // peTextOff locates .text: headers (0x80+4+20+240+80 = 472) padded to
 // the 0x200 file alignment.
@@ -76,7 +90,13 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 	}
 	codeLen := len(text) + len(rodata)
 	textRaw := peAlignUp(codeLen, peFileAlign)
-	idata := buildIdata()
+	// .idata follows the ACTUAL end of .text, aligned up to peSectAlign, and
+	// buildIdataAt bakes that RVA into the IDT/ILT/IAT/name pointers it
+	// writes, so the two can never disagree. .reloc is then placed after
+	// .idata the same way (below). Previously both RVAs were fixed constants,
+	// which only held while .text fitted in one page -- see peIdataRVA.
+	idataRVA := peAlignUp(peTextRVA+codeLen, peSectAlign)
+	idata := buildIdataAt(idataRVA)
 	idataFileOff := peTextOff + textRaw
 	// Phase 150B: the heap arena rides inside .idata, which is already
 	// R/W (0xC0000040) and proven writable at load time. No fourth section,
@@ -88,19 +108,20 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 	}
 	idataTotal := len(idata) + arenaLen
 	idataRaw := peAlignUp(idataTotal, peFileAlign)
+	relocRVA := peAlignUp(idataRVA+idataTotal, peSectAlign)
 	reloc, relocBlocks := buildReloc(b)
 	relocFileOff := idataFileOff + idataRaw
 	relocRaw := peAlignUp(len(reloc), peFileAlign)
 	// SizeOfImage must cover the WHOLE image, and .idata is no longer a
 	// fixed size: Phase 150B grows it by the arena, and .reloc sits AFTER
-	// .idata. Computing the total from peRelocRVA alone therefore
+	// .idata. Computing the total from the .reloc RVA alone therefore
 	// under-reports whenever an arena is present, so the loader maps an
 	// image whose tail (including the arena) is not backed by memory --
 	// hence the access violations every allocating PE program hit.
 	// The high-water mark is the end of whichever section ends last.
-	imageEnd := peIdataRVA + idataTotal
-	if peRelocRVA+relocBlocks > imageEnd {
-		imageEnd = peRelocRVA + relocBlocks
+	imageEnd := idataRVA + idataTotal
+	if relocRVA+relocBlocks > imageEnd {
+		imageEnd = relocRVA + relocBlocks
 	}
 	sizeOfImage := peAlignUp(imageEnd, peSectAlign)
 
@@ -143,13 +164,13 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 	put64(opt[88:], 0x100000)          // heap reserve
 	put64(opt[96:], 0x1000)            // heap commit
 	put32(opt[108:], 16) // NumberOfRvaAndSizes
-	put32(opt[120:], uint32(peIdataRVA))
+	put32(opt[120:], uint32(idataRVA))
 	put32(opt[124:], 40) // import table (entry 1): RVA + IDT size
-	put32(opt[152:], uint32(peRelocRVA))
+	put32(opt[152:], uint32(relocRVA))
 	put32(opt[156:], uint32(relocBlocks)) // base relocation table (entry 5)
 	// Phase-149 diagnosis: some loader paths consult the IAT directory
 	// (entry 12); gcc sets it, so we do too (IAT RVA + slots size).
-	put32(opt[208:], uint32(peIdataRVA+peIATOff))
+	put32(opt[208:], uint32(idataRVA+peIATOff))
 	put32(opt[212:], uint32(peNumImports*8))
 	out = append(out, opt...)
 
@@ -164,8 +185,8 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 		out = append(out, s...)
 	}
 	sect(".text", codeLen, peTextRVA, textRaw, peTextOff, 0x60000020)
-	sect(".idata", idataTotal, peIdataRVA, idataRaw, idataFileOff, 0xC0000040)
-	sect(".reloc", relocBlocks, peRelocRVA, relocRaw, relocFileOff, 0x42000040)
+	sect(".idata", idataTotal, idataRVA, idataRaw, idataFileOff, 0xC0000040)
+	sect(".reloc", relocBlocks, relocRVA, relocRaw, relocFileOff, 0x42000040)
 	if len(out) > peTextOff {
 		return nil, fmt.Errorf("native backend: headers overflow .text start (%d > %d)", len(out), peTextOff)
 	}
@@ -187,7 +208,7 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 		img[peTextOff+p.pos+6] = byte(v >> 48)
 		img[peTextOff+p.pos+7] = byte(v >> 56)
 	}
-	idataBase := uint64(PEBaseAddr + peIdataRVA)
+	idataBase := uint64(PEBaseAddr + idataRVA)
 	for _, p := range b.ipatches {
 		v := idataBase + uint64(peIATOff+p.index*8)
 		img[peTextOff+p.pos] = byte(v)
@@ -244,20 +265,26 @@ const (
 	peHNOff  = 104
 )
 
-func buildIdata() []byte {
+// buildIdataAt lays out .idata with every self-relative pointer -- IDT's
+// OriginalFirstThunk/Name/FirstThunk, the ILT and IAT slots, and the
+// Hint/Name and DLL-name RVAs -- expressed against the RVA the section will
+// actually be placed at. Taking it as a parameter is what makes it impossible
+// for the pointers baked into .idata to disagree with where LinkPE put the
+// section, which is precisely the bug the former fixed RVA allowed.
+func buildIdataAt(idataRVA int) []byte {
 	hnSizes := [peNumImports]int{16, 16, 12}
 	hnOff := peHNOff
 	hnRVAs := [peNumImports]int{}
 	for i := range peImportNames {
-		hnRVAs[i] = peIdataRVA + hnOff
+		hnRVAs[i] = idataRVA + hnOff
 		hnOff += hnSizes[i]
 	}
 	dllOff := hnOff
 	idata := make([]byte, dllOff+13)
 
-	put32(idata[peIDTOff+0:], uint32(peIdataRVA+peILTOff))  // OriginalFirstThunk
-	put32(idata[peIDTOff+12:], uint32(peIdataRVA+dllOff))   // Name
-	put32(idata[peIDTOff+16:], uint32(peIdataRVA+peIATOff)) // FirstThunk
+	put32(idata[peIDTOff+0:], uint32(idataRVA+peILTOff))  // OriginalFirstThunk
+	put32(idata[peIDTOff+12:], uint32(idataRVA+dllOff))   // Name
+	put32(idata[peIDTOff+16:], uint32(idataRVA+peIATOff)) // FirstThunk
 
 	for i := 0; i < peNumImports; i++ {
 		put64(idata[peILTOff+i*8:], uint64(hnRVAs[i]))
@@ -272,6 +299,13 @@ func buildIdata() []byte {
 	copy(idata[dllOff:], "kernel32.dll\x00")
 	return idata
 }
+
+// buildIdata is the legacy zero-argument form, retained only so
+// program.go's PE heapBase expression keeps compiling. See peIdataRVA for why
+// that expression is dead on the Windows path. It must not be used to lay out
+// a real image: the RVAs it writes would be the fixed ones, not the section's
+// actual position. LinkPE calls buildIdataAt with the computed RVA instead.
+func buildIdata() []byte { return buildIdataAt(peIdataRVA) }
 
 // buildReloc emits the .reloc section body: one DIR64 block per 4KB page
 // covering every absolute movabs site (rodata + IAT patches live at
@@ -386,7 +420,16 @@ func ParsePE(img []byte) (entry uint64, textOff int, err error) {
 	if textRVA != peTextRVA || textFile != peTextOff {
 		return 0, 0, fmt.Errorf("unexpected .text layout")
 	}
-	if idataRVA != peIdataRVA || textFile+textRaw > idataFile || idataFile+idataRaw > relocSecFile {
+	// Section placement is validated structurally, not against fixed RVAs:
+	// each section must be section-aligned, must begin at or after the
+	// previous section's ALIGNED end (the rule the old fixed 0x2000/0x3000
+	// pair silently violated once .text outgrew one page), and the data
+	// directories must name their own section. Comparing against constants
+	// here would have accepted the overlapping image this check exists to
+	// reject.
+	if idataRVA%uint64(peSectAlign) != 0 ||
+		idataRVA < textRVA+uint64(textRaw) ||
+		textFile+textRaw > idataFile || idataFile+idataRaw > relocSecFile {
 		return 0, 0, fmt.Errorf("unexpected .idata layout")
 	}
 	if entryRVA < textRVA {
@@ -395,7 +438,11 @@ func ParsePE(img []byte) (entry uint64, textOff int, err error) {
 	if importRVA != idataRVA || importSize != 40 {
 		return 0, 0, fmt.Errorf("bad import directory")
 	}
-	if relocRVA != peRelocRVA || relocSize == 0 || relocSecRVA != peRelocRVA || relocSecFile+relocSecRaw > len(img) {
+	if relocSize == 0 ||
+		relocSecRVA != relocRVA ||
+		relocSecRVA%uint64(peSectAlign) != 0 ||
+		relocSecRVA < idataRVA+uint64(idataRaw) ||
+		relocSecFile+relocSecRaw > len(img) {
 		return 0, 0, fmt.Errorf("bad relocation directory")
 	}
 	// Walk the relocation blocks: sane pages inside the image, type-10

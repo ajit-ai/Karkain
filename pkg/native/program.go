@@ -12,13 +12,13 @@ import (
 // Straight-line program lowering, Phase 145.
 //
 // Supported surface (gate-pinned, everything else is a deterministic
-// K145 error): top-level `func` declarations (≤6 params; int params and
+// K145 error): top-level `func` declarations (Γëñ6 params; int params and
 // int returns only), `let` bindings of ints and strings, int/string
 // literals, `+ - *` on ints, unary minus, calls, `print(expr)` of an int
 // or string, and `return` (main's value becomes the process exit code;
 // a missing trailing return yields 0). Slot kinds are tracked so a
 // string never flows into int code: that is a K145 error, never a
-// miscompile. Types are otherwise trusted from the source — callers
+// miscompile. Types are otherwise trusted from the source ΓÇö callers
 // validate first; the gate fixtures are fixed programs.
 //
 // Values live in stack slots ([rsp+off], 8 bytes each): params, then one
@@ -30,7 +30,7 @@ import (
 // registers and may clobber anything.
 //
 // Native calling convention (Phase 148): argument 8-byte units pack in
-// order — ints take one unit, strings two (ptr+len). Units 0-5 travel in
+// order ΓÇö ints take one unit, strings two (ptr+len). Units 0-5 travel in
 // RDI,RSI,RDX,RCX,R8,R9; further units travel in the caller-frame extras
 // array whose address reaches the callee in R10 (set with lea just before
 // the call; the callee homes stack units at entry, before R10 can die).
@@ -82,7 +82,7 @@ const argSpillBytes = 96
 
 // maxBinDepth bounds nested binary-expression evaluation. Binary operands
 // stage through depth-indexed scratch slots (never push: pushing moves rsp
-// and silently shifts every frame-relative slot address — the Phase-147
+// and silently shifts every frame-relative slot address ΓÇö the Phase-147
 // `add(20,22) = 40` defect, where the right operand re-read slot a).
 // Nesting deeper than this is a loud K145 error, never a silent miscompile.
 const maxBinDepth = 64
@@ -295,7 +295,7 @@ type Builder struct {
 	usesConcat bool
 	// usesStrEq: the program compares two strings for equality, which also
 	// needs the string scratch area. Kept apart from usesConcat because only
-	// concatenation needs the heap — comparison reads bytes in place.
+	// concatenation needs the heap ΓÇö comparison reads bytes in place.
 	usesStrEq bool
 	// usesStrSlice: the program slices a string, which also needs the string
 	// staging area (and, like comparison, no heap).
@@ -332,6 +332,21 @@ type Builder struct {
 	// all, which is why the C23 basename semantics had to be mirrored here
 	// (filepath.Base) so the two engines' diagnostics compare identically.
 	sourceFile string
+	// Phase 152-B1: the native string-codec builtins. One flag per builtin so
+	// each helper is emitted only when the program actually calls it, which
+	// keeps every other image byte-identical. See scanStringCodecs.
+	usesTrim         bool
+	usesHexDecode    bool
+	usesBase64Encode bool
+	usesBase64Decode bool
+	stringCodecSites int
+	stringCodecMaxIn int
+	// codecArenaBytes is the heap contribution the codec helpers need, computed
+	// in CompileProgramForOSSource from stringCodecSites and stringCodecMaxIn.
+	codecArenaBytes int
+	// codecTemp is the frame offset of the five-unit staging area used by a
+	// string-codec call site (arg ptr, arg len, file ptr, file len, line).
+	codecTemp int
 	// Phase 150B: the bump arena. Layout is a 16-byte header followed by
 	// heapSize usable bytes: [cursor][limit][data...]. cursor and limit
 	// are ABSOLUTE addresses held in the arena itself, so the allocator
@@ -575,7 +590,7 @@ const (
 // anywhere", a superset of "some print can actually print a float": a float
 // value can only originate at one of those two roots, because exprKind
 // derives float from a literal, from a float-typed variable/parameter, or
-// from a call whose inferred return kind is float — and that inference
+// from a call whose inferred return kind is float ΓÇö and that inference
 // bottoms out in the same two roots.
 //
 // The arena bound is a true upper bound on every runtime allocation, which is
@@ -1062,7 +1077,7 @@ func scanPushSites(prog *parser.Program) (sites, maxLit int, inLoop bool) {
 // A site is a `+` whose two operands are both strings, so the pre-pass needs
 // a (syntactic) string classifier. It is deliberately conservative in the
 // *safe* direction: anything it cannot prove is a string is treated as not a
-// string, so it never invents a concat site that emission would not make —
+// string, so it never invents a concat site that emission would not make ΓÇö
 // which would cost a needless writable segment. A missed site is the
 // dangerous direction, so emitStrConcat also refuses loudly if it is ever
 // reached with no arena (see its heapSize guard).
@@ -1488,6 +1503,25 @@ func CompileProgramForOSSource(prog *parser.Program, osName, sourceFile string) 
 		b.sourceFile = filepath.Base(sourceFile)
 	}
 	b.usesRuntimeError = scanRuntimeErrorUsage(prog)
+	b.usesTrim, b.usesHexDecode, b.usesBase64Encode, b.usesBase64Decode, b.stringCodecSites, b.stringCodecMaxIn = scanStringCodecs(prog)
+	// Phase 152-B1: the two decoding codecs raise Phase-100 runtime errors, so
+	// a program that only calls them still needs the reporter. scanRuntimeErrorUsage
+	// looks for index expressions, which such a program has none of.
+	b.usesRuntimeError = b.usesRuntimeError || b.usesHexDecode || b.usesBase64Decode
+	// Phase 152-B1: arena bound for the codec builtins. Three of the four
+	// allocate a result string; trim is a view and allocates nothing.
+	//
+	// The bound reuses concat's closure argument: in a closed program every
+	// string value derives from literals, so no input can be longer than the
+	// total literal bytes. Each result is at most twice its input (base64
+	// encode is the worst case at 4/3; hex decode is 1/2, base64 decode is
+	// 3/4), so sites * 2 * totalLiteralBytes + a terminator slack is an upper
+	// bound for all of them. Being an over-estimate is safe here: the arena
+	// only has to be large enough, and its exhaustion trap must stay
+	// unreachable for a program that compiles.
+	if b.stringCodecSites > 0 {
+		b.codecArenaBytes = b.stringCodecSites * (2*b.stringCodecMaxIn + 16)
+	}
 	switch osName {
 	case OSLinux, OSWindows, OSMacOS:
 	default:
@@ -1532,6 +1566,13 @@ func CompileProgramForOSSource(prog *parser.Program, osName, sourceFile string) 
 		b.mapCap = mapCap
 		b.heapSize += mapHeap
 	}
+	// The codec arena requirement is ADDITIVE for the same reason the map one
+	// is. This was MISSING when the codecs were first written: codecArenaBytes
+	// was computed by the pre-pass but never applied, so a program whose only
+	// allocation was a byte-transforming codec had heapSize == 0, the alloc
+	// helper was never emitted, and the codec's `call alloc` panicked at link
+	// with an undefined label.
+	b.heapSize += b.codecArenaBytes
 	b.emitHelpers()
 	for _, stmt := range prog.Statements {
 		if fd, ok := stmt.(*parser.FuncDecl); ok {
@@ -2024,7 +2065,7 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 		// Phase 150A: arithmetic inherits float when either operand is
 		// float, exactly like exprKind. Returning KindInt here would let a
 		// float-valued expression be inferred as an int return while the
-		// body leaves f64 bits in RAX — a silent type confusion, so the
+		// body leaves f64 bits in RAX ΓÇö a silent type confusion, so the
 		// classification must agree with emission.
 		// Phase 150B: `a + b` over two STRINGS is concatenation and yields
 		// a string, exactly as it does in emitStr. Without this the function
@@ -2055,7 +2096,7 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 			// Phase 150A: arithmetic inherits float when either operand is
 			// float, exactly like exprKind. Returning KindInt here would let a
 			// float-valued expression be inferred as an int return while the
-			// body leaves f64 bits in RAX — a silent type confusion, so the
+			// body leaves f64 bits in RAX ΓÇö a silent type confusion, so the
 			// classification must agree with emission.
 			if lk == KindFloat || rk == KindFloat {
 				return KindFloat, nil
@@ -2068,6 +2109,15 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 	case *parser.UnaryExpr:
 		return b.retKindOfExpr(x.Operand, vars, pstr, rsn, visiting)
 	case *parser.CallExpr:
+		// Phase 152-B1: the string builtins return a string, and they are not
+		// user functions, so they must not fall through to retKindVisit
+		// (which reports "undefined function" for a name with no ftab entry).
+		if x.Module == "" && !x.IsCFunc {
+			switch x.Function {
+			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes":
+				return KindString, nil
+			}
+		}
 		return b.retKindVisit(x.Function, visiting)
 	default:
 		return KindInt, fmt.Errorf("error[K145]: unsupported return expression %T", n)
@@ -2098,7 +2148,7 @@ func (b *Builder) emitWrite() {
 	}
 	b.e.MovRegImm32(RAX, b.sysWrite())
 	b.e.Syscall()
-	// NOTE: keep this body as raw emitter calls — the 148C replaceAll
+	// NOTE: keep this body as raw emitter calls ΓÇö the 148C replaceAll
 	// that introduced emitWrite once rewrote this branch into infinite
 	// self-recursion. Do not route through emitWrite here.
 }
@@ -2106,8 +2156,8 @@ func (b *Builder) emitWrite() {
 // emitWinWrite emits write(1, RSI, RDX) through kernel32 WriteFile.
 // Win64 passes the first four args in RCX,RDX,R8,R9 with a 32-byte
 // caller shadow; kernel calls preserve RBX/RBP/RDI/RSI/R12-R15
-// (callee-saved) but may clobber everything else — including RCX/RDX
-// on return — so ptr/len ride the stack across the GetStdHandle call
+// (callee-saved) but may clobber everything else ΓÇö including RCX/RDX
+// on return ΓÇö so ptr/len ride the stack across the GetStdHandle call
 // and registers reload after it. print_float issues several small
 // writes back-to-back (sign, int part, ".", fraction, newline), so
 // preserving RSI across this boundary is load-bearing: without it the
@@ -2261,7 +2311,7 @@ func (b *Builder) emitWinBootstrap() {
 	b.e.Jnz(nextLbl)
 	b.e.LoadBaseOff(RDX, RBX, 0x60) // BaseDllName.Buffer
 	// Phase-149 ground truth: BaseDllName arrives UPPERCASE
-	// (KERNEL32.DLL — read live from the PEB), so fold each WCHAR
+	// (KERNEL32.DLL ΓÇö read live from the PEB), so fold each WCHAR
 	// with 0x20 before comparing against lowercase (folding is a
 	// no-op for the digits and dots in this alphabet).
 	for k, ch := range "kernel32.dll" {
@@ -2292,7 +2342,7 @@ func (b *Builder) emitWinResolve(name string, slot int) {
 	b.e.MovRegReg(RDX, R10)
 	b.e.AddRegReg(RDX, RCX) // RDX = NT headers
 	// Phase-149 ground truth: the export directory is at NT+136
-	// (COFF 24 + Optional 112 — the +96 shape is the 32-bit header;
+	// (COFF 24 + Optional 112 ΓÇö the +96 shape is the 32-bit header;
 	// verified live against kernel32: dir[0] VA 0xA65F0). The old +120
 	// read garbage and faulted the first namesPtr load.
 	b.e.LoadBaseOff32(RCX, RDX, 136) // export directory RVA
@@ -2336,7 +2386,7 @@ func (b *Builder) emitWinResolve(name string, slot int) {
 	b.e.AddRegReg(RDX, RAX)
 	// Phase-149 correction: 48 A3 stores RAX specifically (moffs form
 	// is accumulator-only), so the resolved address moves RDX -> RAX
-	// first — storing RDX's predecessor (the raw funcRVA) was silently
+	// first ΓÇö storing RDX's predecessor (the raw funcRVA) was silently
 	// publishing garbage into the slot.
 	b.e.MovRegReg(RAX, RDX)
 	pos := b.e.StoreAbs64Placeholder()
@@ -2423,13 +2473,13 @@ func (b *Builder) emitHelpers() {
 
 	// print_float: exact %g-compatible formatter for binary64.
 	// Input: RDI = f64 bit pattern. Output: decimal text + '\n' to stdout.
-	// Scratch: 20 × 8-byte limb array at [RSP+FRAME_LIMBS], digit buffer
+	// Scratch: 20 ├ù 8-byte limb array at [RSP+FRAME_LIMBS], digit buffer
 	// at [RSP+FRAME_DIGITS], plus a few scalar slots.
-	// Algorithm: exact binary64 decomposition → 20-limb big-int (limb[i]
-	// is u64, base 2^64) → repeated multiply by 10 with full-limb
-	// carry → extract 7th digit + sticky for round-half-even → format
-	// per %g (fixed if -4 ≤ X < 6 else scientific) → trim trailing
-	// zeros → write via emitWrite.
+	// Algorithm: exact binary64 decomposition ΓåÆ 20-limb big-int (limb[i]
+	// is u64, base 2^64) ΓåÆ repeated multiply by 10 with full-limb
+	// carry ΓåÆ extract 7th digit + sticky for round-half-even ΓåÆ format
+	// per %g (fixed if -4 Γëñ X < 6 else scientific) ΓåÆ trim trailing
+	// zeros ΓåÆ write via emitWrite.
 	//
 	// Phase 150A: emitted only when the program can produce a float at all
 	// (scanFloatUsage). print_float is the sole consumer of that state, and
@@ -2460,6 +2510,183 @@ func (b *Builder) emitHelpers() {
 	if b.usesRuntimeError {
 		b.emitRuntimeErrorHelper()
 	}
+	// Phase 152-B1: the string codecs. trim allocates nothing (it is a view),
+	// so it is emitted independently of the arena; the three byte-transforming
+	// codecs need alloc, so the arena must exist first -- exactly the ordering
+	// constraint emitMapHelpers already documents.
+	if b.usesTrim {
+		b.emitTrimHelper()
+	}
+	// The byte-transforming codecs allocate, so they must come after the
+	// arena; emitHexDecodeHelper calls both `alloc` and the runtime-error
+	// reporter. Each is gated on its own pre-pass flag so a program that uses
+	// only trim still carries neither. The reporter is guaranteed present
+	// whenever usesHexDecode is set -- the same pre-pass ORs the decoding
+	// codecs into usesRuntimeError -- so no second guard is needed here.
+	if b.usesHexDecode {
+		b.emitHexDecodeHelper()
+	}
+	if b.usesBase64Encode {
+		b.emitBase64EncodeHelper()
+	}
+	if b.usesBase64Decode {
+		b.emitBase64DecodeHelper()
+	}
+}
+
+// scanStringCodecs reports which of the Phase-152-B1 string builtins the program
+// calls, how many call sites there are, and the largest literal length reachable
+// at any of them.
+//
+// Phase 152-B1. The four builtins are ordinary call sites in the assembled
+// program, so the stdlib wrappers (`str_trim` -> `trim`, `hex_decode` ->
+// `hex_decode_bytes`, ...) reach the native backend as plain calls to these names.
+// They are the ONLY names handled: `split` is deliberately absent because its
+// `string[]` result has no native representation yet, and `sha256_hex` is absent
+// because it needs the bitwise-strategy decision.
+func scanStringCodecs(prog *parser.Program) (trim, hexDec, b64Enc, b64Dec bool, sites, maxLit int) {
+	var totalLit int
+	isCodec := func(n parser.Node) (string, bool) {
+		c, ok := n.(*parser.CallExpr)
+		if !ok || c.Module != "" || c.IsCFunc {
+			return "", false
+		}
+		switch c.Function {
+		case "trim":
+			return "trim", true
+		case "hex_decode_bytes":
+			return "hex_decode_bytes", true
+		case "base64_encode_bytes":
+			return "base64_encode_bytes", true
+		case "base64_decode_bytes":
+			return "base64_decode_bytes", true
+		}
+		return "", false
+	}
+	// litLen is the largest string LITERAL reachable as an argument, using the
+	// same closure argument as the concat bound: an input cannot exceed the
+	// program's total literal bytes. Concatenations of literals are measured as
+	// the sum of their operands' literal bytes.
+	var litLen func(n parser.Node) int
+	litLen = func(n parser.Node) int {
+		switch x := n.(type) {
+		case *parser.StringLiteral:
+			return len(x.Value)
+		case *parser.BinaryExpr:
+			if x.Operator == "+" {
+				return litLen(x.Left) + litLen(x.Right)
+			}
+		}
+		return 0
+	}
+	var walkExpr func(n parser.Node)
+	walkExpr = func(n parser.Node) {
+		if n == nil {
+			return
+		}
+		// Every string value in a program derives from literals, so the total
+		// literal bytes is an upper bound on what ANY codec can be handed. It is
+		// tracked here and used to widen maxIn below, because the literal-size
+		// measurement above only sees a literal written AT the call site: a
+		// codec applied to a variable (`let s = "..."; f(s)`) measured zero,
+		// sized the arena for nothing, and the allocator trapped at run time.
+		if lit, ok := n.(*parser.StringLiteral); ok {
+			totalLit += len(lit.Value)
+		}
+		if name, ok := isCodec(n); ok {
+			sites++
+			c := n.(*parser.CallExpr)
+			if l := litLen(c.Args[0]); l > maxLit {
+				maxLit = l
+			}
+			switch name {
+			case "trim":
+				trim = true
+			case "hex_decode_bytes":
+				hexDec = true
+			case "base64_encode_bytes":
+				b64Enc = true
+			case "base64_decode_bytes":
+				b64Dec = true
+			}
+		}
+		switch x := n.(type) {
+		case *parser.BinaryExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Right)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				walkExpr(a)
+			}
+		case *parser.IndexExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Index)
+		case *parser.SliceExpr:
+			walkExpr(x.Target)
+			walkExpr(x.Start)
+			walkExpr(x.End)
+		case *parser.DotExpr:
+			walkExpr(x.Left)
+		case *parser.ArrayLiteral:
+			for _, e := range x.Elements {
+				walkExpr(e)
+			}
+		}
+	}
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				walkStmts(x.Body)
+			case *parser.VarDeclStmt:
+				walkExpr(x.Value)
+			case *parser.PrintStmt:
+				walkExpr(x.Value)
+			case *parser.ExprStmt:
+				walkExpr(x.Expression)
+			case *parser.ReturnStmt:
+				walkExpr(x.Value)
+			case *parser.IfStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Consequence)
+				walkStmts(x.Alternative)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Body)
+			case *parser.ForStmt:
+				walkExpr(x.Condition)
+				walkExpr(x.Init)
+				walkExpr(x.Post)
+				walkStmts(x.Body)
+			case *parser.ForInStmt:
+				walkExpr(x.Iter)
+				walkStmts(x.Body)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements)
+			case *parser.MatchExpr:
+				walkExpr(x.Value)
+				for _, arm := range x.Arms {
+					walkExpr(arm.Body)
+					walkExpr(arm.Pattern.Value)
+				}
+			default:
+				walkExpr(s)
+			}
+		}
+	}
+	walkStmts(prog.Statements)
+	// The arena bound must hold for a codec whose argument is a variable, not
+	// just one written inline, so widen the measured maximum to the program's
+	// total literal bytes. Over-estimating is safe here: the arena only has to
+	// be large enough, and its exhaustion trap must stay unreachable for a
+	// program that compiles.
+	if totalLit > maxLit {
+		maxLit = totalLit
+	}
+	return trim, hexDec, b64Enc, b64Dec, sites, maxLit
 }
 
 // scanRuntimeErrorUsage reports whether the program contains an operation that
@@ -2554,6 +2781,799 @@ func scanRuntimeErrorUsage(prog *parser.Program) bool {
 	}
 	walkStmts(prog.Statements)
 	return found
+}
+
+// checkStringCodecArgs validates the single string receiver of a Phase-152-B1
+// string builtin. A wrong arity or a non-string argument is a loud K145 rather
+// than a silent read of the wrong pair, matching how checkLenArgs and
+// checkPushArgs behave.
+func (b *Builder) checkStringCodecArgs(x *parser.CallExpr) error {
+	if len(x.Args) != 1 {
+		return fmt.Errorf("error[K145]: %s() takes 1 argument (got %d)", x.Function, len(x.Args))
+	}
+	k, err := b.exprKind(x.Args[0])
+	if err != nil {
+		return err
+	}
+	if k != KindString {
+		return fmt.Errorf("error[K145]: %s() requires a string argument (got %s)", x.Function, kindName(k))
+	}
+	return nil
+}
+
+// emitStringCodec lowers one Phase-152-B1 string builtin.
+//
+// The argument is a string, so it occupies two units (ptr, len) and the result
+// comes back the same way. The call therefore uses the native user-call
+// convention: units 0-1 in RDI/RSI, and the per-site diagnostic constants
+// (file pointer, file length, line) in units 2-4, which is exactly what
+// karkain_runtime_error takes after its two kind units.
+//
+// Every operand is staged through the frame first: evaluating the argument runs
+// arbitrary expression code, and the diagnostic constants must survive it. The
+// three staging slots live in the caller's frame below rsp, reached with
+// lea, so rsp itself never moves.
+func (b *Builder) emitStringCodec(x *parser.CallExpr, depth int) error {
+	if err := b.checkStringCodecArgs(x); err != nil {
+		return err
+	}
+	// Only the two DECODING builtins can raise: the reference reports
+	// "invalid hex string" / "invalid base64 string". trim is a pure scan and
+	// base64_encode_bytes always succeeds, so neither needs the reporter.
+	needsReporter := x.Function == "hex_decode_bytes" || x.Function == "base64_decode_bytes"
+	if needsReporter && !b.usesRuntimeError {
+		return fmt.Errorf("error[K145]: internal: %s() needs the runtime-error reporter but usesRuntimeError is false (the pre-pass missed this program)", x.Function)
+	}
+	// Five staging units at the call site: arg ptr, arg len, file ptr, file
+	// length, line. Evaluating the argument runs arbitrary expression code, so
+	// the constants are materialised only afterwards.
+	base := b.codecTemp
+	if err := b.emitStr(x.Args[0], 0); err != nil {
+		return err
+	}
+	b.e.StoreStack(RDI, base)
+	b.e.StoreStack(RSI, base+8)
+	b.rodataRef(RCX, b.sourceBase())
+	b.e.StoreStack(RCX, base+16)
+	b.e.MovRegImm32(RCX, uint32(len(b.sourceBase())))
+	b.e.StoreStack(RCX, base+24)
+	b.e.MovRegImm32(RCX, uint32(x.Line))
+	b.e.StoreStack(RCX, base+32)
+
+	// Units: RDI=ptr, RSI=len, RDX=filePtr, RCX=fileLen, R8=line. This is
+	// exactly what karkain_runtime_error consumes after its two kind units.
+	b.e.LoadStack(RDI, base)
+	b.e.LoadStack(RSI, base+8)
+	b.e.LoadStack(RDX, base+16)
+	b.e.LoadStack(RCX, base+24)
+	b.e.LoadStack(R8, base+32)
+	b.e.Call(codecHelperLabel(x.Function))
+	// The helpers return in the user-call convention (RAX=ptr, RDX=len);
+	// move the pair into the string-value convention callers expect.
+	b.e.MovRegReg(RDI, RAX)
+	b.e.MovRegReg(RSI, RDX)
+	return nil
+}
+
+// hexValueTable is a 256-entry lookup that maps a byte to its hex nibble
+// value, with 0xFF marking every byte that is not a hex digit. Accepted input
+// is exactly what the C23 reference accepts: 0-9, a-f and A-F.
+//
+// A table is used rather than a comparison chain because the backend already
+// has a byte-indexed load (LoadScaled8) and no branchless range test, and
+// because a wrong table is a *data* error that a differential against the
+// reference catches on the first invalid input.
+var hexValueTable = func() string {
+	var t [256]byte
+	for i := range t {
+		t[i] = 0xFF
+	}
+	for c := byte('0'); c <= '9'; c++ {
+		t[c] = c - '0'
+	}
+	for c := byte('a'); c <= 'f'; c++ {
+		t[c] = c - 'a' + 10
+	}
+	for c := byte('A'); c <= 'F'; c++ {
+		t[c] = c - 'A' + 10
+	}
+	return string(t[:])
+}()
+
+// base64Alphabet is the standard alphabet the C23 reference uses, including
+// the '+' and '/' tail characters rather than the URL-safe '-_' variant.
+// karkain_base64Encode in pkg/codegen/codegen.go names it inline; keeping one
+// copy here is what lets the table lookup and the reference be compared
+// character for character in the gate.
+const base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+// emitBase64EncodeHelper emits karkain_base64_encode_bytes.
+//
+//	karkain_base64_encode_bytes(ptr, len, filePtr, fileLen, line) -> (ptr, len)
+//
+// It mirrors `karkain_base64Encode` in pkg/codegen/codegen.go. Like the hex
+// decoder it is byte-oriented and must never route through runes: the input is
+// an arbitrary byte string and every byte has to survive.
+//
+// The (filePtr, fileLen, line) units are accepted and ignored. emitStringCodec
+// stages them uniformly for all four codecs, and this one cannot fail, so it
+// has nothing to report -- the reference returns an empty string rather than
+// raising.
+func (b *Builder) emitBase64EncodeHelper() {
+	const (
+		offIn     = 0
+		offN      = 8
+		offOut    = 16
+		offI      = 24
+		offJ      = 32
+		offAlpha  = 40
+		offOutLen = 48
+		offV      = 56
+		// 72 is the smallest frame that covers offV (so the frame must reach 64)
+		// AND has the parity a calling helper needs: 72 % 16 == 8, which leaves
+		// rsp 16-byte aligned at this helper's outgoing `call alloc`. See
+		// emitHexDecodeHelper for the measurement behind the rule -- frames of
+		// 0 (mod 16) fault with STATUS_ACCESS_VIOLATION inside the callee.
+		frameBytes = 72
+	)
+	groupLbl := b.fresh("b64$group")
+	tailLbl := b.fresh("b64$tail")
+	doneLbl := b.fresh("b64$done")
+	oneLeft := b.fresh("b64$oneleft")
+	tailDone := b.fresh("b64$taildone")
+
+	b.e.Mark("karkain_base64_encode_bytes")
+	b.e.SubRsp(frameBytes)
+	b.e.StoreStack(RDI, offIn)
+	b.e.StoreStack(RSI, offN)
+
+	// outLen = ((n + 2) / 3) * 4, the same expression the reference uses, so
+	// the zero-length case allocates zero and returns an empty string.
+	b.e.LoadStack(RAX, offN)
+	b.e.AddRegImm32(RAX, 2)
+	b.e.Cqo()
+	b.e.MovRegImm32(RCX, 3)
+	b.e.DivReg(RCX)
+	b.e.ShlRegImm(RAX, 2)
+	b.e.StoreStack(RAX, offOutLen)
+	b.e.MovRegReg(RDI, RAX)
+	b.e.Call("alloc")
+	b.e.StoreStack(RAX, offOut)
+	b.rodataRef(R9, base64Alphabet)
+	b.e.StoreStack(R9, offAlpha)
+
+	b.e.XorRegReg(RAX)
+	b.e.StoreStack(RAX, offI)
+	b.e.StoreStack(RAX, offJ)
+
+	// Complete 3-byte groups: while i + 2 < n.
+	b.e.Mark(groupLbl)
+	b.e.LoadStack(R9, offI)
+	b.e.LoadStack(R10, offN)
+	b.e.AddRegImm32(R9, 2)
+	b.e.CmpRegReg(R9, R10)
+	b.e.Jae(tailLbl)
+	// v = in[i]<<16 | in[i+1]<<8 | in[i+2], held in R9 for all four symbols.
+	b.e.LoadStack(R10, offI)
+	b.e.LoadStack(R11, offIn)
+	b.e.LoadScaled8(RAX, R11, R10, 1, 0)
+	b.e.ShlRegImm(RAX, 16)
+	b.e.MovRegReg(R9, RAX)
+	b.e.LoadStack(R10, offI)
+	b.e.IncReg(R10)
+	b.e.LoadStack(R11, offIn)
+	b.e.LoadScaled8(RAX, R11, R10, 1, 0)
+	b.e.ShlRegImm(RAX, 8)
+	b.e.OrRegReg(R9, RAX)
+	b.e.LoadStack(R10, offI)
+	b.e.AddRegImm32(R10, 2)
+	b.e.LoadStack(R11, offIn)
+	b.e.LoadScaled8(RAX, R11, R10, 1, 0)
+	b.e.OrRegReg(R9, RAX)
+	b.e.StoreStack(R9, offV)
+	b.emitBase64Symbol(18, offOut, offJ, offAlpha, offV, 0)
+	b.emitBase64Symbol(12, offOut, offJ, offAlpha, offV, 1)
+	b.emitBase64Symbol(6, offOut, offJ, offAlpha, offV, 2)
+	b.emitBase64Symbol(0, offOut, offJ, offAlpha, offV, 3)
+	b.e.LoadStack(R9, offI)
+	b.e.AddRegImm32(R9, 3)
+	b.e.StoreStack(R9, offI)
+	b.e.LoadStack(R9, offJ)
+	b.e.AddRegImm32(R9, 4)
+	b.e.StoreStack(R9, offJ)
+	b.e.Jmp(groupLbl)
+
+	// Remainder: 1 byte -> "XY==", 2 bytes -> "XYZ=". The main loop advances
+	// by 3, so this runs at most once, but it is written as a loop so no
+	// separate "already handled" state is needed.
+	b.e.Mark(tailLbl)
+	b.e.LoadStack(R9, offI)
+	b.e.LoadStack(R10, offN)
+	b.e.CmpRegReg(R9, R10)
+	b.e.Jae(doneLbl)
+	b.e.LoadStack(R10, offI)
+	b.e.LoadStack(R11, offIn)
+	b.e.LoadScaled8(RAX, R11, R10, 1, 0)
+	b.e.ShlRegImm(RAX, 16)
+	b.e.StoreStack(RAX, offV)
+	b.emitBase64Symbol(18, offOut, offJ, offAlpha, offV, 0)
+	// Is a second input byte present? R9 is free here precisely because the
+	// group lives in the frame: keeping it in a register meant this check
+	// overwrote it and every remainder case encoded from the CURSOR.
+	b.e.LoadStack(R9, offI)
+	b.e.IncReg(R9)
+	b.e.LoadStack(R10, offN)
+	b.e.CmpRegReg(R9, R10)
+	b.e.Jae(oneLeft)
+	b.e.LoadStack(R10, offI)
+	b.e.IncReg(R10)
+	b.e.LoadStack(R11, offIn)
+	b.e.LoadScaled8(RAX, R11, R10, 1, 0)
+	b.e.ShlRegImm(RAX, 8)
+	b.e.LoadStack(R9, offV)
+	b.e.OrRegReg(R9, RAX)
+	b.e.StoreStack(R9, offV)
+	b.emitBase64Symbol(12, offOut, offJ, offAlpha, offV, 1)
+	b.emitBase64Symbol(6, offOut, offJ, offAlpha, offV, 2)
+	b.emitBase64Pad(offOut, offJ, 3)
+	b.e.Jmp(tailDone)
+	b.e.Mark(oneLeft)
+	b.emitBase64Symbol(12, offOut, offJ, offAlpha, offV, 1)
+	b.emitBase64Pad(offOut, offJ, 2)
+	b.emitBase64Pad(offOut, offJ, 3)
+	b.e.Mark(tailDone)
+	b.e.LoadStack(R9, offJ)
+	b.e.AddRegImm32(R9, 4)
+	b.e.StoreStack(R9, offJ)
+	b.e.LoadStack(R9, offI)
+	b.e.IncReg(R9)
+	b.e.StoreStack(R9, offI)
+	b.e.Jmp(tailLbl)
+
+	b.e.Mark(doneLbl)
+	b.e.LoadStack(RAX, offOut)
+	b.e.LoadStack(RDX, offOutLen)
+	b.e.AddRsp(frameBytes)
+	b.e.Ret()
+}
+
+// emitBase64Symbol writes one output symbol for the 24-bit group held in the
+// frame at offV: out[j+slot] = alphabet[(v >> shift) & 63].
+//
+// The group is read from the frame rather than held in a register because the
+// remainder path needs R9 for the input cursor between emitting symbol 0 and
+// symbol 1. Keeping v in a register there silently encoded the CURSOR instead.
+func (b *Builder) emitBase64Symbol(shift byte, offOut, offJ, offAlpha, offV, slot int) {
+	b.e.LoadStack(RAX, offV)
+	b.e.ShrRegImm(RAX, shift)
+	b.e.MovRegImm32(R10, 63)
+	b.e.AndRegReg(RAX, R10)
+	b.e.LoadStack(R11, offAlpha)
+	b.e.LoadScaled8(RAX, R11, RAX, 1, 0)
+	b.e.LoadStack(R10, offOut)
+	b.e.LoadStack(R11, offJ)
+	b.e.StoreScaled8(RAX, R10, R11, 1, slot)
+}
+
+// emitBase64Pad writes the '=' filler at out[j+slot].
+func (b *Builder) emitBase64Pad(offOut, offJ, slot int) {
+	b.e.MovRegImm32(RAX, '=')
+	b.e.LoadStack(R10, offOut)
+	b.e.LoadStack(R11, offJ)
+	b.e.StoreScaled8(RAX, R10, R11, 1, slot)
+}
+
+// base64ValueTable maps a byte to its 6-bit Base64 value, with 0xFF marking
+// every byte that is not part of the accepted alphabet.
+//
+// '=' maps to 0, exactly as the C23 reference does. That is not an oversight:
+// karkain_base64Decode treats '=' as a zero-valued symbol and decides how many
+// output bytes to emit by testing in[i+2] and in[i+3] against '=' directly. See
+// emitBase64DecodeHelper for what that implies for padding.
+var base64ValueTable = func() string {
+	var t [256]byte
+	for i := range t {
+		t[i] = 0xFF
+	}
+	for c := byte('A'); c <= 'Z'; c++ {
+		t[c] = c - 'A'
+	}
+	for c := byte('a'); c <= 'z'; c++ {
+		t[c] = c - 'a' + 26
+	}
+	for c := byte('0'); c <= '9'; c++ {
+		t[c] = c - '0' + 52
+	}
+	t['+'] = 62
+	t['/'] = 63
+	t['='] = 0
+	return string(t[:])
+}()
+
+// emitBase64DecodeHelper emits karkain_base64_decode_bytes.
+//
+//	karkain_base64_decode_bytes(ptr, len, filePtr, fileLen, line) -> (ptr, len)
+//
+// It mirrors `karkain_base64Decode` in pkg/codegen/codegen.go, and that
+// reference is the specification here. Validation is exactly the reference's
+// two checks: the length must be a multiple of four, and every character must be
+// in the alphabet or be '='.
+//
+// It does NOT check that padding is well formed, and neither does the
+// reference. Because '=' decodes to the value 0 and the output count is decided
+// by testing in[i+2]/in[i+3] against '=', these inputs are ACCEPTED and
+// produce NUL bytes rather than raising:
+//
+//	"===="  "A==="  -> one 0x00 byte
+//	"=AAA"  "AA=A"  -> two 0x00 bytes
+//
+// Adding RFC 4648 padding validation here would reject inputs the C23 engine
+// accepts, which is a cross-engine divergence and not a fix. The leniency is
+// pinned by TestPhase152B1_Base64DecodeLenientPadding so that it reads as a
+// deliberate parity decision rather than an oversight.
+func (b *Builder) emitBase64DecodeHelper() {
+	const (
+		offIn    = 0
+		offN     = 8
+		offOut   = 16
+		offI     = 24
+		offO     = 32
+		offTab   = 40
+		offV     = 48
+		offFile  = 56
+		offFileN = 64
+		offLine  = 72
+		// 88 is the smallest frame that covers offLine (so the frame must reach
+		// 80 bytes) with the parity a CALLING helper needs: 88 % 16 == 8, which
+		// leaves rsp 16-byte aligned at this helper's outgoing `call alloc`.
+		// Phase 149's "round the frame to 16" rule is written for a LEAF helper,
+		// which makes no call and is alignment-agnostic. This helper calls both
+		// `alloc` and the reporter. Measured, not assumed: frames of 8 (mod 16)
+		// work, frames of 0 (mod 16) fault with STATUS_ACCESS_VIOLATION inside
+		// the callee. See emitHexDecodeHelper for the same measurement.
+		frameBytes = 88
+	)
+	loopLbl := b.fresh("b64d$loop")
+	doneLbl := b.fresh("b64d$done")
+	notBad := b.fresh("b64d$notbad")
+	lenLbl := b.fresh("b64d$badlen")
+	symLbl := b.fresh("b64d$badsym")
+	noByte2 := b.fresh("b64d$nob2")
+	noByte3 := b.fresh("b64d$nob3")
+	withByte2 := b.fresh("b64d$wb2")
+	withByte3 := b.fresh("b64d$wb3")
+
+	b.e.Mark("karkain_base64_decode_bytes")
+	b.e.SubRsp(frameBytes)
+	b.e.StoreStack(RDI, offIn)
+	b.e.StoreStack(RSI, offN)
+	b.e.StoreStack(RDX, offFile)
+	b.e.StoreStack(RCX, offFileN)
+	b.e.StoreStack(R8, offLine)
+
+	// n % 4 != 0 is refused BEFORE anything is allocated, matching the
+	// reference's ordering.
+	b.e.LoadStack(RAX, offN)
+	b.e.MovRegImm32(RCX, 3)
+	b.e.AndRegReg(RAX, RCX)
+	b.e.TestRegReg(RAX, RAX)
+	b.e.Jz(notBad)
+	b.e.Jmp(lenLbl)
+	b.e.Mark(notBad)
+
+	// out = alloc(n / 4 * 3). The shift is exact because n % 4 == 0 here.
+	b.e.LoadStack(RAX, offN)
+	b.e.ShrRegImm(RAX, 2)
+	b.e.MovRegReg(RCX, RAX)
+	b.e.AddRegReg(RAX, RCX)
+	b.e.AddRegReg(RAX, RCX)
+	b.e.MovRegReg(RDI, RAX)
+	b.e.Call("alloc")
+	b.e.StoreStack(RAX, offOut)
+	b.rodataRef(R9, base64ValueTable)
+	b.e.StoreStack(R9, offTab)
+	b.e.XorRegReg(RAX)
+	b.e.StoreStack(RAX, offI)
+	b.e.StoreStack(RAX, offO)
+
+	b.e.Mark(loopLbl)
+	b.e.LoadStack(R9, offI)
+	b.e.LoadStack(R10, offN)
+	b.e.CmpRegReg(R9, R10)
+	b.e.Jae(doneLbl)
+	b.e.XorRegReg(RAX)
+	b.e.StoreStack(RAX, offV)
+
+	// v = v0<<18 | v1<<12 | v2<<6 | v3, kept in a frame slot so the cursor and
+	// table loads below cannot clobber it.
+	b.emitBase64Value(0, 18, offIn, offI, offTab, offV, b.fresh("b64d$v0"), symLbl)
+	b.emitBase64Value(1, 12, offIn, offI, offTab, offV, b.fresh("b64d$v1"), symLbl)
+	b.emitBase64Value(2, 6, offIn, offI, offTab, offV, b.fresh("b64d$v2"), symLbl)
+	b.emitBase64Value(3, 0, offIn, offI, offTab, offV, b.fresh("b64d$v3"), symLbl)
+
+	b.emitBase64OutByte(16, offV, offOut, offO)
+
+	// Byte 1 exists when in[i+2] != '='; byte 2 when in[i+3] != '='. These are
+	// TWO INDEPENDENT conditions in the reference, not nested. Nesting them
+	// only differs on malformed input -- "AA=A", where in[2] is '=' but in[3] is
+	// not, and the reference still emits the third byte -- which is why every
+	// well-formed vector passes either way and only the parity-pinned cases
+	// catch it.
+	b.e.LoadStack(R10, offI)
+	b.e.AddRegImm32(R10, 2)
+	b.e.LoadStack(R11, offIn)
+	b.e.LoadScaled8(RAX, R11, R10, 1, 0)
+	b.e.CmpRegImm32(RAX, '=')
+	b.e.Jnz(withByte2)
+	b.e.Jmp(noByte2)
+	b.e.Mark(withByte2)
+	b.emitBase64OutByte(8, offV, offOut, offO)
+	b.e.Mark(noByte2)
+
+	b.e.LoadStack(R10, offI)
+	b.e.AddRegImm32(R10, 3)
+	b.e.LoadStack(R11, offIn)
+	b.e.LoadScaled8(RAX, R11, R10, 1, 0)
+	b.e.CmpRegImm32(RAX, '=')
+	b.e.Jnz(withByte3)
+	b.e.Jmp(noByte3)
+	b.e.Mark(withByte3)
+	b.emitBase64OutByte(0, offV, offOut, offO)
+	b.e.Mark(noByte3)
+
+	b.e.LoadStack(R9, offI)
+	b.e.AddRegImm32(R9, 4)
+	b.e.StoreStack(R9, offI)
+	b.e.Jmp(loopLbl)
+	b.e.Mark(doneLbl)
+
+	// The result is the cursor, not n/4*3: padding shortens the output.
+	b.e.LoadStack(RAX, offOut)
+	b.e.LoadStack(RDX, offO)
+	b.e.AddRsp(frameBytes)
+	b.e.Ret()
+
+	b.e.Mark(symLbl)
+	b.raiseCodecError("invalid base64 string", offFile, offFileN, offLine)
+	b.e.Mark(lenLbl)
+	b.raiseCodecError("invalid base64 string (length)", offFile, offFileN, offLine)
+}
+
+// emitBase64Value decodes in[i+idx] through the value table and ORs
+// (value << shift) into the 24-bit group in the frame slot offV.
+//
+// A table entry of 0xFF is not an accepted symbol and branches to errLbl.
+// hasLbl must be unique per call site.
+func (b *Builder) emitBase64Value(idx, shift byte, offIn, offI, offTab, offV int, hasLbl, errLbl string) {
+	b.e.LoadStack(R10, offI)
+	b.e.AddRegImm32(R10, int32(idx))
+	b.e.LoadStack(R11, offIn)
+	b.e.LoadScaled8(RAX, R11, R10, 1, 0)
+	b.e.LoadStack(R11, offTab)
+	b.e.LoadScaled8(RAX, R11, RAX, 1, 0)
+	b.e.CmpRegImm32(RAX, 0xFF)
+	b.e.Jnz(hasLbl)
+	b.e.Jmp(errLbl)
+	b.e.Mark(hasLbl)
+	b.e.LoadStack(R9, offV)
+	b.e.ShlRegImm(RAX, shift)
+	b.e.OrRegReg(R9, RAX)
+	b.e.StoreStack(R9, offV)
+}
+
+// emitBase64OutByte stores (v >> shift)'s low byte at out[o] and advances o.
+func (b *Builder) emitBase64OutByte(shift byte, offV, offOut, offO int) {
+	b.e.LoadStack(R9, offV)
+	b.e.ShrRegImm(R9, shift)
+	b.e.LoadStack(R10, offOut)
+	b.e.LoadStack(R11, offO)
+	b.e.StoreScaled8(R9, R10, R11, 1, 0)
+	b.e.LoadStack(R9, offO)
+	b.e.IncReg(R9)
+	b.e.StoreStack(R9, offO)
+}
+
+// emitHexDecodeHelper emits karkain_hex_decode_bytes.
+//
+//	karkain_hex_decode_bytes(ptr, len, filePtr, fileLen, line) -> (ptr, len)
+//
+// It mirrors `karkain_hexDecode` in pkg/codegen/codegen.go, including the two
+// DISTINCT diagnostics that reference emits: an odd length reports
+// "invalid hex string (odd length)" and a bad digit reports
+// "invalid hex string". Collapsing them would be a parity defect, not a
+// simplification.
+//
+// Unlike trim this cannot be a view: the result is n/2 bytes that do not
+// exist contiguously in the input, so it allocates from the arena. That is why
+// the codec arena contribution is added to heapSize.
+func (b *Builder) emitHexDecodeHelper() {
+	const (
+		offIn    = 0
+		offN     = 8
+		offFile  = 16
+		offFileN = 24
+		offLine  = 32
+		offI     = 40
+		offOut   = 48
+		offTab   = 56
+		offH     = 64
+		// The frame is 88, not a round 96, and the reason is load-bearing.
+		// Phase 149's rule ("round the frame to 16 on Windows") is written for
+		// a LEAF helper, which makes no call and so is alignment-agnostic. This
+		// helper calls two others (alloc and the reporter), so its OUTGOING call
+		// site must be 16-byte aligned -- a Win64 requirement, since kernel32
+		// faulted on misaligned entry. A helper is entered with rsp == 8 (mod
+		// 16) after the call pushed the return address, so the frame must be
+		// 8 (mod 16) to leave rsp == 0 at that call site.
+		//
+		// Measured, not assumed: frameBytes 88 and 104 (both 8 mod 16) make the
+		// reporter work; 96 and 112 (both 0 mod 16) fault with
+		// STATUS_ACCESS_VIOLATION inside karkain_runtime_error. 88 is the
+		// smallest value above the highest slot (offH = 64, so 72 would do)
+		// that also has the required parity.
+		frameBytes = 88
+	)
+	loopLbl := b.fresh("hex$loop")
+	doneLbl := b.fresh("hex$done")
+	notOdd := b.fresh("hex$notodd")
+	oddLbl := b.fresh("hex$odd")
+	badLbl := b.fresh("hex$bad")
+	haveH := b.fresh("hex$haveh")
+	haveL := b.fresh("hex$havel")
+
+	b.e.Mark("karkain_hex_decode_bytes")
+	b.e.SubRsp(frameBytes)
+	b.e.StoreStack(RDI, offIn)
+	b.e.StoreStack(RSI, offN)
+	b.e.StoreStack(RDX, offFile)
+	b.e.StoreStack(RCX, offFileN)
+	b.e.StoreStack(R8, offLine)
+
+	// Odd length is refused before anything is allocated, matching the
+	// reference's ordering.
+	b.e.LoadStack(RAX, offN)
+	b.e.MovRegImm32(RCX, 1)
+	b.e.AndRegReg(RAX, RCX)
+	b.e.TestRegReg(RAX, RAX)
+	b.e.Jz(notOdd)
+	b.e.Jmp(oddLbl)
+	b.e.Mark(notOdd)
+
+	// out = alloc(n / 2)
+	b.e.LoadStack(RAX, offN)
+	b.e.ShrRegImm(RAX, 1)
+	b.e.MovRegReg(RDI, RAX)
+	b.e.Call("alloc")
+	b.e.StoreStack(RAX, offOut)
+	b.rodataRef(R9, hexValueTable)
+	b.e.StoreStack(R9, offTab)
+
+	b.e.XorRegReg(RAX)
+	b.e.StoreStack(RAX, offI)
+	b.e.Mark(loopLbl)
+	b.e.LoadStack(R9, offI)
+	b.e.LoadStack(R10, offN)
+	b.e.CmpRegReg(R9, R10)
+	b.e.Jae(doneLbl)
+
+	// high nibble = tab[in[i]]
+	b.e.LoadStack(R10, offIn)
+	b.e.LoadScaled8(RAX, R10, R9, 1, 0)
+	b.e.LoadStack(R11, offTab)
+	b.e.LoadScaled8(RAX, R11, RAX, 1, 0)
+	b.e.CmpRegImm32(RAX, 0xFF)
+	b.e.Jnz(haveH)
+	b.e.Jmp(badLbl)
+	b.e.Mark(haveH)
+	b.e.StoreStack(RAX, offH)
+
+	// low nibble = tab[in[i+1]]
+	b.e.LoadStack(R9, offI)
+	b.e.IncReg(R9)
+	b.e.LoadStack(R10, offIn)
+	b.e.LoadScaled8(RAX, R10, R9, 1, 0)
+	b.e.LoadStack(R11, offTab)
+	b.e.LoadScaled8(RAX, R11, RAX, 1, 0)
+	b.e.CmpRegImm32(RAX, 0xFF)
+	b.e.Jnz(haveL)
+	b.e.Jmp(badLbl)
+	b.e.Mark(haveL)
+
+	// out[i/2] = (h << 4) | l
+	b.e.LoadStack(R9, offH)
+	b.e.ShlRegImm(R9, 4)
+	b.e.OrRegReg(R9, RAX)
+	b.e.LoadStack(R10, offI)
+	b.e.ShrRegImm(R10, 1)
+	b.e.LoadStack(R11, offOut)
+	b.e.StoreScaled8(R9, R11, R10, 1, 0)
+
+	b.e.LoadStack(R9, offI)
+	b.e.AddRegImm32(R9, 2)
+	b.e.StoreStack(R9, offI)
+	b.e.Jmp(loopLbl)
+	b.e.Mark(doneLbl)
+
+	// Result: the allocated block and n/2 bytes, in the string-return
+	// convention (RAX=ptr, RDX=len).
+	b.e.LoadStack(RAX, offOut)
+	b.e.LoadStack(RDX, offN)
+	b.e.ShrRegImm(RDX, 1)
+	b.e.AddRsp(frameBytes)
+	b.e.Ret()
+
+	// Both diagnostics go through the shared Phase-152-B0 reporter, which
+	// exits with code 1. The AddRsp/Ret after each call is unreachable in
+	// practice and exists only so the frame is balanced if it ever returns.
+	b.e.Mark(badLbl)
+	b.raiseCodecError("invalid hex string", offFile, offFileN, offLine)
+	b.e.Mark(oddLbl)
+	b.raiseCodecError("invalid hex string (odd length)", offFile, offFileN, offLine)
+}
+
+// raiseCodecError loads the two argument forms karkain_runtime_error takes --
+// (kindPtr, kindLen) in RDI/RSI and (filePtr, fileLen, line) in RDX/RCX/R8 --
+// and calls it. R9 is the scratch for the rodata pointer because RSI is about
+// to hold the length.
+func (b *Builder) raiseCodecError(kind string, offFile, offFileN, offLine int) {
+	b.e.MovRegImm32(RDI, 2)
+	b.rodataRef(R9, kind)
+	b.e.MovRegReg(RSI, R9)
+	b.e.AddRegImm32(RSI, int32(len(kind)))
+	b.e.LoadStack(RDX, offFile)
+	b.e.LoadStack(RCX, offFileN)
+	b.e.LoadStack(R8, offLine)
+	b.e.Call("karkain_runtime_error")
+}
+
+func codecHelperLabel(fn string) string {
+	switch fn {
+	case "trim":
+		return "karkain_trim"
+	case "hex_decode_bytes":
+		return "karkain_hex_decode_bytes"
+	case "base64_encode_bytes":
+		return "karkain_base64_encode_bytes"
+	case "base64_decode_bytes":
+		return "karkain_base64_decode_bytes"
+	}
+	return "karkain_trim"
+}
+
+// emitTrimHelper emits karkain_trim.
+//
+//	karkain_trim(ptr, len) -> (ptr, len)
+//
+// Mirrors `Value karkain_trim(Value str)` in pkg/codegen/codegen.go: leading and
+// trailing SPACE, TAB, CR and LF are removed. It differs from the C version in
+// one deliberate, non-observable way: the C version mallocs a copy, while this
+// returns a VIEW of the same bytes, exactly as Phase 150B2's string slice already
+// does. Karkain strings are immutable (ptr, len) pairs with no mutation surface,
+// so the two are indistinguishable to a program, and a view needs no allocation
+// and therefore no arena bound.
+//
+// The empty and whitespace-only cases need no special branch: the leading scan
+// runs past the end pointer, `end` stays below `start`, and the result length
+// computes to zero.
+func (b *Builder) emitTrimHelper() {
+	const frameBytes = 64
+	offPtr := 0
+	offEnd := 8
+	offStart := 16
+	offArgLen := 24
+
+	b.e.Mark("karkain_trim")
+	b.e.SubRsp(frameBytes)
+	b.e.StoreStack(RDI, offPtr)
+	b.e.StoreStack(RSI, offArgLen)
+	// end = ptr + len - 1; for len == 0 this underflows to ptr-1, which is
+	// exactly what makes every comparison below fail and yields length 0.
+	b.e.MovRegReg(RAX, RDI)
+	b.e.AddRegReg(RAX, RSI)
+	b.e.DecReg(RAX)
+	b.e.StoreStack(RAX, offEnd)
+	// start = ptr
+	//
+	// start and end are BOTH absolute byte POINTERS into the string, never
+	// indices. That is what makes the rest of the helper consistent: the
+	// trailing scan reads the byte AT its cursor, IncReg/DecReg move a cursor
+	// by one byte, and the result length is `end - start + 1` -- a difference
+	// of two pointers. Reading the leading cursor with the scaled SIB form
+	// (`[rdi + rcx]`, treating it as an index) therefore computed
+	// `[ptr + ptr]`, a wild address that faulted with STATUS_ACCESS_VIOLATION
+	// on every non-empty input. The empty input never faulted because the
+	// guard `start > end` is true before the first read.
+	b.e.MovRegReg(RAX, RDI)
+	b.e.StoreStack(RAX, offStart)
+
+	// Leading scan: while start <= end and the byte IS white, start++.
+	// Each whitespace test jumps to the shared advance label on a MATCH, and
+	// a single fall-through `Jmp(leadDone)` exits the scan. See the note on
+	// that fall-through for why chaining per-test exits does not work.
+	leadLoop := b.fresh("trim$lead")
+	leadDone := b.fresh("trim$leaddone")
+	leadAdvance := b.fresh("trim$leadadv")
+	b.e.Mark(leadLoop)
+	b.e.LoadStack(RCX, offStart)
+	b.e.LoadStack(RAX, offEnd)
+	b.e.CmpRegReg(RCX, RAX)
+	b.e.Jg(leadDone)
+	b.e.MovzxRegMem8(RAX, RCX, 0)
+	b.e.CmpRegImm32(RAX, ' ')
+	b.e.Jz(leadAdvance)
+	b.e.CmpRegImm32(RAX, '\t')
+	b.e.Jz(leadAdvance)
+	b.e.CmpRegImm32(RAX, '\n')
+	b.e.Jz(leadAdvance)
+	b.e.CmpRegImm32(RAX, '\r')
+	b.e.Jz(leadAdvance)
+	// Not whitespace: the scan is done. This fall-through is required --
+	// chaining `cmp; jnz exit` instead would exit on the FIRST character that
+	// is not the one just tested, so a space would exit on the tab test and
+	// the loop would never advance anything.
+	b.e.Jmp(leadDone)
+	b.e.Mark(leadAdvance)
+	b.e.IncReg(RCX)
+	b.e.StoreStack(RCX, offStart)
+	b.e.Jmp(leadLoop)
+	b.e.Mark(leadDone)
+
+	// Trailing scan: while end >= start and the byte IS white, end--.
+	tailLoop := b.fresh("trim$tail")
+	tailDone := b.fresh("trim$taildone")
+	tailAdvance := b.fresh("trim$tailadv")
+	b.e.Mark(tailLoop)
+	b.e.LoadStack(RCX, offEnd)
+	b.e.LoadStack(RAX, offStart)
+	b.e.CmpRegReg(RCX, RAX)
+	b.e.Jl(tailDone)
+	// The trailing cursor is an ABSOLUTE pointer (offEnd holds ptr+len-1),
+	// not an index, so it must be read base+disp. Feeding it as a SIB index
+	// computed [rdi + (ptr+len-1)] -- a wild address, and the program died
+	// with STATUS_ACCESS_VIOLATION on the first trailing byte.
+	b.e.MovzxRegMem8(RAX, RCX, 0)
+	b.e.CmpRegImm32(RAX, ' ')
+	b.e.Jz(tailAdvance)
+	b.e.CmpRegImm32(RAX, '\t')
+	b.e.Jz(tailAdvance)
+	b.e.CmpRegImm32(RAX, '\n')
+	b.e.Jz(tailAdvance)
+	b.e.CmpRegImm32(RAX, '\r')
+	b.e.Jz(tailAdvance)
+	b.e.Jmp(tailDone)
+	b.e.Mark(tailAdvance)
+	b.e.DecReg(RCX)
+	b.e.StoreStack(RCX, offEnd)
+	b.e.Jmp(tailLoop)
+	b.e.Mark(tailDone)
+
+	// Result length = end - start + 1 when end >= start, else 0.
+	finalLbl := b.fresh("trim$final")
+	b.e.LoadStack(RCX, offEnd)
+	b.e.LoadStack(RAX, offStart)
+	b.e.CmpRegReg(RCX, RAX)
+	emptyLbl := b.fresh("trim$empty")
+	b.e.Jl(emptyLbl)
+	b.e.SubRegReg(RCX, RAX)
+	b.e.IncReg(RCX)
+	b.e.Jmp(finalLbl)
+	b.e.Mark(emptyLbl)
+	b.e.XorRegReg(RCX)
+	b.e.Mark(finalLbl)
+
+	// Return (start, length) in the native user-call convention, which is
+	// RAX=ptr, RDX=len -- NOT the (RDI, RSI) ARGUMENT convention. emitStr
+	// moves the pair across afterwards.
+	//
+	// The length is computed in RCX, so it MUST be moved to RDX here: the
+	// sub-expression and the two exit paths leave it in RCX and nothing else
+	// writes RDX, so omitting this silently returns whatever the caller had
+	// left there, which prints the string followed by NULs to the end of the
+	// page.
+	b.e.MovRegReg(RDX, RCX)
+	b.e.LoadStack(RAX, offStart)
+	b.e.AddRsp(frameBytes)
+	b.e.Ret()
 }
 
 // emitRuntimeErrorHelper emits the Phase-100 runtime-error reporter.
@@ -2670,7 +3690,7 @@ func (b *Builder) emitRuntimeErrorHelper() {
 // free(): the arena is bump-only, which is sufficient for the compile-time
 // bounded allocations 150B performs (string concat results, push results)
 // and keeps the invariant "total live bytes <= arena size" checkable at
-// compile time. Exhaustion is an Int3 — loud, never a silent overlap.
+// compile time. Exhaustion is an Int3 ΓÇö loud, never a silent overlap.
 func (b *Builder) emitAllocHelper() {
 	haveLbl := b.fresh("alloc$have")
 	oomLbl := b.fresh("alloc$oom")
@@ -3278,7 +4298,7 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	for i, p := range fd.Params {
 		// Phase 148: string parameters occupy two slots (ptr+len).
 		// Phase 150A: array parameters occupy two slots (ptr+len) as
-		// well, but no annotation syntax names them yet — a body that
+		// well, but no annotation syntax names them yet ΓÇö a body that
 		// indexes a parameter is a loud K145 (150B work).
 		b.slots[p] = next
 		b.kinds[p] = b.paramKind(fd, i)
@@ -3328,6 +4348,14 @@ func (b *Builder) layout(fd *parser.FuncDecl) error {
 	if b.usesMap {
 		b.mapStage = next
 		next += 8
+	}
+	// Phase 152-B1: one five-unit staging area for a string-codec call site
+	// (arg ptr, arg len, file ptr, file len, line). Conditional for the same
+	// reason strTemp and mapStage are: a program with no codec call must keep
+	// its exact frame, and therefore its exact bytes.
+	if b.stringCodecSites > 0 {
+		b.codecTemp = next
+		next += 8 * 5
 	}
 	// Phase 148: caller-frame extras area for argument units past the six
 	// register units (sized by the hungriest call site in this function).
@@ -3450,7 +4478,7 @@ func (b *Builder) scanMaxExtras(stmts []parser.Node) int {
 
 // into control-flow bodies and C-for initializers (Phase 148: loop bodies
 // may declare variables; slots are function-wide, first declaration wins
-// a slot and shadowing writes through — v1 semantics, documented). The
+// a slot and shadowing writes through ΓÇö v1 semantics, documented). The
 // first isStringExpr failure is recorded and returned by layout; emission
 // re-validates every node anyway, so the diagnostic is identical.
 func (b *Builder) scanLets(stmts []parser.Node, next int) int {
@@ -3543,13 +4571,13 @@ func (b *Builder) scanLets(stmts []parser.Node, next int) int {
 		case *parser.ForInStmt:
 			// Phase 150A: the loop variable owns a plain int slot and
 			// the hidden index owns 8 bytes reserved after it, so every
-			// loop — including a nested one — gets its own pair. Keying
+			// loop ΓÇö including a nested one ΓÇö gets its own pair. Keying
 			// the index by the statement node (not a shared name) is
 			// what keeps nesting correct: one shared slot would let the
 			// inner loop resume its parent with the inner counter.
 			// Registration runs before the body scan so the body can
 			// read the variable. Other slot names are function-wide with
-			// first-declaration-wins, so shadowing writes through — the
+			// first-declaration-wins, so shadowing writes through ΓÇö the
 			// documented v1 semantics.
 			if n.KeyName == "" && n.VarName != "" {
 				if _, seen := b.slots[n.VarName]; !seen {
@@ -3791,7 +4819,7 @@ func (b *Builder) emitStmt(s parser.Node, fname string) (bool, error) {
 // emitExprStmt lowers an expression statement: plain value expressions
 // evaluate and discard, while `x = <int>` reassigns a slot variable
 // (Phase 148: loop counters need reassignment; strings are immutable
-// through this form — declare a fresh variable instead).
+// through this form ΓÇö declare a fresh variable instead).
 func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
 	if be, ok := n.Expression.(*parser.BinaryExpr); ok && be.Operator == "=" {
 		// Phase 150B3b: `rec.field = value` is an assignment through the
@@ -3941,7 +4969,7 @@ func (b *Builder) emitCond(cond parser.Node, falseLabel string) error {
 		return err
 	} else if isStr {
 		// Phase 150B: strings compare by content. Only equality and
-		// inequality exist in v1 — ordering needs a lexicographic helper
+		// inequality exist in v1 ΓÇö ordering needs a lexicographic helper
 		// that lands with the map work, and a loud refusal is better than
 		// a silent pointer comparison.
 		if be.Operator != "==" && be.Operator != "!=" {
@@ -4008,7 +5036,7 @@ func (b *Builder) emitCond(cond parser.Node, falseLabel string) error {
 // emitFloatCond lowers a float64 relation, jumping to falseLabel when it does
 // NOT hold. ucomisd is unordered-aware: it sets CF=ZF=PF=1 when either
 // operand is NaN, so every ordered form below reports a NaN relation as
-// false — which is what C's `<` does and what pkg/codegen's binary_op
+// false ΓÇö which is what C's `<` does and what pkg/codegen's binary_op
 // computes (`l < r` on NaN is false). The 150A surface cannot produce NaN
 // (division by zero yields 0.0, not an infinity), so this is a defined
 // answer rather than an accidental one.
@@ -4136,7 +5164,7 @@ func (b *Builder) emitFor(n *parser.ForStmt, fname string) error {
 	b.e.Mark(postLabel)
 	if n.Post != nil {
 		// The parser reads the post clause as a bare expression, so a
-		// `i = i + 1` post arrives as BinaryExpr("="), not an ExprStmt —
+		// `i = i + 1` post arrives as BinaryExpr("="), not an ExprStmt ΓÇö
 		// wrap it so the assignment path handles it identically.
 		post := n.Post
 		if be, ok := post.(*parser.BinaryExpr); ok && be.Operator == "=" {
@@ -4286,7 +5314,7 @@ func (b *Builder) emitForInMap(n *parser.ForInStmt, base *parser.Identifier, fna
 // after at [off+16 + i*8]. The loop keeps a hidden 8-byte index slot
 // reserved after the element area; bound checks read the header length
 // in place (CmpMemReg) and elements load via the scaled form with the
-// array base as SIB base — never rsp — so rsp never moves inside the
+// array base as SIB base ΓÇö never rsp ΓÇö so rsp never moves inside the
 // loop and every frame slot address stays stable (Phase 147's rule).
 // `break`/`continue` reuse the loop-label stack, so control flow nests
 // with while/C-for bodies identically. Map iteration (KeyName != "")
@@ -4326,7 +5354,7 @@ func (b *Builder) checkPushArgs(x *parser.CallExpr) error {
 //
 // push is functional: it allocates a *new* (base, len+1) array in the arena,
 // copies the old elements, and appends v. The old array is untouched (the
-// arena is bump-only, so nothing is freed or moved) — which means indexing,
+// arena is bump-only, so nothing is freed or moved) ΓÇö which means indexing,
 // len and for-in all keep working on the result through the unchanged
 // two-slot header, and the pre-existing source array is still readable.
 //
@@ -4389,7 +5417,7 @@ func (b *Builder) emitPush(name string, x *parser.CallExpr) error {
 	b.e.IncReg(RDX)
 	b.e.Jmp(loop)
 	b.e.Mark(done)
-	// Append v at [newbase + oldlen*8] — a scaled store with the old length
+	// Append v at [newbase + oldlen*8] ΓÇö a scaled store with the old length
 	// as the index, so no separate address computation is needed.
 	b.e.LoadStack(RAX, stage)
 	b.e.StoreScaled64(RAX, R10, R9, 8, 0)
@@ -4616,6 +5644,17 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 	case *parser.UnaryExpr:
 		return b.exprKind(x.Operand)
 	case *parser.CallExpr:
+		// Phase 152-B1: the string codecs are string -> string, so their kind
+		// must be KindString or the result flows into the int path.
+		if x.Module == "" && !x.IsCFunc {
+			switch x.Function {
+			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes":
+				if err := b.checkStringCodecArgs(x); err != nil {
+					return KindInt, err
+				}
+				return KindString, nil
+			}
+		}
 		// len(arr) classifies int; push(arr, v) classifies array. Both
 		// are validated here rather than accepted blindly, so an
 		// unsupported receiver is rejected by the classifier that every
@@ -4644,7 +5683,7 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		return KindInt, nil
 	case *parser.SliceExpr:
 		// Phase 150B: s[a:b] over a string yields a string (a view into the
-		// same bytes — no copy, and no allocation). Slicing an array or an
+		// same bytes ΓÇö no copy, and no allocation). Slicing an array or an
 		// int stays a loud refusal: the element-size and bounds rules differ
 		// and deserve their own executed goldens rather than a shared path.
 		tk, err := b.exprKind(x.Target)
@@ -4798,6 +5837,13 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		if x.Function == "len" && x.Module == "" && !x.IsCFunc {
 			return b.emitLen(x)
 		}
+		// Phase 152-B1: the string builtins, before the user-call path.
+		if x.Module == "" && !x.IsCFunc {
+			switch x.Function {
+			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes":
+				return b.emitStringCodec(x, depth)
+			}
+		}
 		return b.emitCallValue(x, depth)
 	case *parser.ArrayLiteral:
 		return b.emitArrayLit(x)
@@ -4832,7 +5878,7 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 // the element count. Elements evaluate through the int path one at a
 // time (RAX) and store through the scaled form with the base as SIB
 // base; rsp never moves. Non-int elements are a loud K145 naming the
-// index — never a silent truncation. The literal pattern is the only
+// index ΓÇö never a silent truncation. The literal pattern is the only
 // array constructor in 150A; push() returns a new array (see emitPush)
 // because 150A arrays are fixed-footprint frame values.
 func (b *Builder) emitArrayLit(x *parser.ArrayLiteral) error {
@@ -4840,7 +5886,7 @@ func (b *Builder) emitArrayLit(x *parser.ArrayLiteral) error {
 }
 
 // checkLenArgs validates the single-array receiver of the len builtin.
-// Phase 150A: len() reads an array header length and nothing else — a
+// Phase 150A: len() reads an array header length and nothing else ΓÇö a
 // string receiver (whose length is the second unit) and a wrong arity are
 // loud K145 rather than a silent read of the wrong slot.
 func (b *Builder) checkLenArgs(x *parser.CallExpr) error {
@@ -5119,7 +6165,7 @@ func (b *Builder) emitFieldWrite(x *parser.DotExpr, val parser.Node) error {
 //
 // Phase 152-B0: this used to be an Int3 trap, which the 150A comment
 // recorded as temporary ("the native target has no stderr runtime
-// diagnostic yet — 150B wires the message"). The reporter now exists, so
+// diagnostic yet ΓÇö 150B wires the message"). The reporter now exists, so
 // the trap is replaced by the real diagnostic.
 //
 // string SLICE bounds are deliberately left as an Int3: C23's
@@ -5196,7 +6242,7 @@ func (b *Builder) requireRuntimeErrorSite(kind string, line int) error {
 }
 
 // emitFloat lowers a float64 expression, leaving the IEEE-754 bit pattern in
-// RAX — the approved Phase-150A representation (float64 -> bits -> RAX), one
+// RAX ΓÇö the approved Phase-150A representation (float64 -> bits -> RAX), one
 // 8-byte unit exactly like an int.
 //
 // Phase 150A: literals, float variables, the four arithmetic operators,
@@ -5212,8 +6258,8 @@ func (b *Builder) emitFloat(n parser.Node, depth int) error {
 		if err != nil {
 			return fmt.Errorf("error[K145]: invalid float literal '%s'", x.Value)
 		}
-		// The parsed pattern is materialized verbatim — no rounding and no
-		// sign-bit normalization — so the bits of 0.0 and -0.0 stay
+		// The parsed pattern is materialized verbatim ΓÇö no rounding and no
+		// sign-bit normalization ΓÇö so the bits of 0.0 and -0.0 stay
 		// distinct (the parser lexes a leading '-' as TokenMinus, so a
 		// negative literal arrives here without its sign; see the
 		// unary-minus guard in emitExpr).
@@ -5280,8 +6326,8 @@ func (b *Builder) emitFloat(n parser.Node, depth int) error {
 }
 
 // emitFloatNeg flips the sign bit of the f64 pattern in RAX. XOR with 1<<63
-// is exact for every finite value — both zeros and NaN payloads keep their
-// magnitude — so -0.0 stays -0.0 where a 0.0 - x or an integer NegReg would
+// is exact for every finite value ΓÇö both zeros and NaN payloads keep their
+// magnitude ΓÇö so -0.0 stays -0.0 where a 0.0 - x or an integer NegReg would
 // silently destroy it. Shared by emitExpr's int/float dispatch and emitFloat's
 // unary case so the two paths cannot drift.
 func (b *Builder) emitFloatNeg() {
@@ -5321,6 +6367,15 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 		b.e.LoadStack(RSI, off+8)
 		return nil
 	case *parser.CallExpr:
+		// Phase 152-B1: the string builtins already leave their result in the
+		// (RDI, RSI) string convention, which is exactly what this function
+		// wants -- unlike a user call, which returns (RAX=ptr, RDX=len).
+		if x.Module == "" && !x.IsCFunc {
+			switch x.Function {
+			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes":
+				return b.emitStringCodec(x, depth)
+			}
+		}
 		// Phase 148: a string-returning call leaves (RAX=ptr, RDX=len);
 		// move the pair into the (RDI, RSI) string-value convention.
 		if err := b.emitCallValue(x, depth); err != nil {
@@ -5344,7 +6399,7 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 		return b.emitStrSlice(x)
 	case *parser.BinaryExpr:
 		// Phase 150B: `a + b` on two strings allocates a result in the heap
-		// arena and concatenates. Any other operator is a loud K145 — there
+		// arena and concatenates. Any other operator is a loud K145 ΓÇö there
 		// is no implicit int conversion, same rule as the numeric paths.
 		if x.Operator != "+" {
 			return fmt.Errorf("error[K145]: unsupported string operator '%s' (only + concatenates)", x.Operator)
@@ -5359,7 +6414,7 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 // (s.ptr + a, b - a), so no copy and no allocation happen. A missing `b`
 // (open-ended `s[a:]`) means "to the end of the string".
 //
-// Bounds are 0 <= a <= b <= len, checked with a loud Int3 on violation —
+// Bounds are 0 <= a <= b <= len, checked with a loud Int3 on violation ΓÇö
 // the same contract as the array index, rather than a silent clamp.
 func (b *Builder) emitStrSlice(x *parser.SliceExpr) error {
 	if err := b.emitStr(x.Target, 0); err != nil {
@@ -5424,7 +6479,7 @@ func (b *Builder) emitStrSlice(x *parser.SliceExpr) error {
 // slots before the allocation, for the same reason the int path stages its
 // operands (Phase 147): the second operand's evaluation must not disturb the
 // first, and rsp never moves. The copy is byte-wise because the lengths are
-// runtime values — a constant-offset load cannot address them. The second
+// runtime values ΓÇö a constant-offset load cannot address them. The second
 // copy's destination is reached by advancing the destination *pointer* by the
 // left length rather than by an indexed displacement, since the SIB disp is a
 // compile-time field in every x86-64 memory form.
@@ -5554,7 +6609,7 @@ func (b *Builder) emitBinary(x *parser.BinaryExpr, depth int) error {
 	}
 	// Phase 147: stage the left operand through the depth-indexed scratch
 	// slot. The old code pushed rax, which moved rsp and shifted every
-	// frame-relative slot address — the right operand then re-read the
+	// frame-relative slot address ΓÇö the right operand then re-read the
 	// left's slot (`add(20,22)` yielded 40). rsp never moves now.
 	if err := b.emitExpr(x.Left, depth+1); err != nil {
 		return err
@@ -5581,7 +6636,7 @@ func (b *Builder) emitBinary(x *parser.BinaryExpr, depth int) error {
 // Operands stage through the int path's depth-indexed scratch slot: an XMM
 // value is a plain 64-bit pattern, so the existing GP store/load spills it
 // and rsp never moves (Phase 147's rule). No register allocator and no
-// conversions — each step is a single SSE2 scalar instruction.
+// conversions ΓÇö each step is a single SSE2 scalar instruction.
 func (b *Builder) emitFloatBinary(x *parser.BinaryExpr, depth int) error {
 	if x.Operator != "+" && x.Operator != "-" && x.Operator != "*" && x.Operator != "/" {
 		return fmt.Errorf("error[K145]: unsupported float operator '%s' (want +, -, * or /)", x.Operator)
@@ -5617,7 +6672,7 @@ func (b *Builder) emitFloatBinary(x *parser.BinaryExpr, depth int) error {
 // pkg/codegen's binary_op returns 0.0 rather than trapping
 // (`r != 0.0 ? l / r : 0.0`), so a zero divisor is short-circuited to a
 // positive zero instead of producing an infinity that would poison every
-// later step. ucomisd reports ZF=1 for 0.0, -0.0 and NaN — all three
+// later step. ucomisd reports ZF=1 for 0.0, -0.0 and NaN ΓÇö all three
 // compare unequal to zero in C, so all three take the short-circuit, which
 // is exactly the `r != 0.0` guard the C backend writes.
 func (b *Builder) emitFloatDiv(num, den XmmReg) {
@@ -5646,7 +6701,7 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 		}
 		return fmt.Errorf("error[K145]: undefined function '%s'", x.Function)
 	}
-	// Phase 148: exact arity (previously unchecked — a short call read
+	// Phase 148: exact arity (previously unchecked ΓÇö a short call read
 	// uninitialized slots, a long one silently dropped arguments).
 	if len(x.Args) != len(fd.Params) {
 		return fmt.Errorf("error[K145]: call to '%s' has %d args (want %d)", x.Function, len(x.Args), len(fd.Params))

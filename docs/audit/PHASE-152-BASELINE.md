@@ -403,13 +403,104 @@ and the *real* compiler found, silently voiding the proof.
 byte-identity differential at **zero drift**; Phase 148 + Phase 150D CLI gates
 green.
 
-### Still open for 152-B
+### 152-B1 — native string-codec builtins (IMPLEMENTED, UNCOMMITTED)
 
-* `trim`, `split`, `hex_decode_bytes`, `base64_encode_bytes`,
-  `base64_decode_bytes` — no native implementation yet.
-* `sha256_hex` — deferred; needs a bitwise strategy decision (§11.1).
-* `split` — additionally blocked: its `string[]` return has no native
+Four of the five codecs listed as open above are now **implemented**. The
+"Still open for 152-B" list below was written before this work landed and has
+been corrected; the two functions it still describes as open are genuinely open
+and their blocker/deferral decisions are **unchanged**.
+
+| Function | Implementation | Helper | Allocates? |
+|---|---|---|---|
+| `trim` | `emitStringCodec` → `karkain_trim` | `emitTrimHelper` | **No** — a view (ptr/len adjust) |
+| `hex_decode_bytes` | `emitStringCodec` → `karkain_hex_decode_bytes` | `emitHexDecodeHelper` | Yes — n/2 bytes, cannot be a view |
+| `base64_encode_bytes` | `emitStringCodec` → `karkain_base64_encode_bytes` | `emitBase64EncodeHelper` | Yes |
+| `base64_decode_bytes` | `emitStringCodec` → `karkain_base64_decode_bytes` | `emitBase64DecodeHelper` | Yes |
+
+**Gating.** One flag per builtin (`usesTrim`, `usesHexDecode`,
+`usesBase64Encode`, `usesBase64Decode`) set by a `scanStringCodecs` pre-pass, so
+each helper is emitted **only** when the program actually calls it and every
+other image stays byte-identical. `codecArenaBytes` and `codecTemp` (the
+five-unit staging area per call site) are likewise reserved only on demand.
+Arithmetic diagnostics are raised through `raiseCodecError` against the same
+reporter 152-B0 introduced; only the two decoders need it (`trim` is a pure
+scan and `base64_encode_bytes` always succeeds).
+
+**Stdlib path.** The stdlib wrappers (`str_trim` → `trim`, `hex_decode` →
+`hex_decode_bytes`, ...) reach the backend as plain calls to these names, so
+`scanStringCodecs` matches on the builtin names, not the wrappers.
+
+**Companion PE fix, required by this work (real defect, found by it).**
+`pkg/native/pe.go`: `.idata`/`.reloc` RVAs were fixed constants
+(`0x2000`/`0x3000`), which silently assumed `.text` never exceeded one 0x1000
+page. Emitting two codec helpers **does** exceed it, and the two sections then
+overlapped — the loader rejected the image as "not a valid Win32 application"
+with **no** error from `buildReloc`, `ParsePE` or the build itself, because every
+one of those checks was satisfied. `LinkPE` now derives both RVAs from the real
+end of `.text` (`peAlignUp`), `buildIdataAt(idataRVA)` bakes that RVA into every
+self-relative pointer in `.idata` so the two cannot disagree, and `ParsePE`
+validates placement **structurally** (section-aligned, non-overlapping,
+directories naming their own section) instead of against constants — comparing
+against constants would have accepted the very image the check exists to
+reject. `buildIdata()`/`peIdataRVA` survive only so `program.go`'s PE
+`heapBase` expression keeps compiling; that expression is dead on the Windows
+path (the branch returns before `heapBase` is used) and is deliberately not a
+second source of truth.
+
+**Evidence status — stated precisely, and deliberately not upgraded:**
+
+* **Implementation present** — yes, for all four functions.
+* **Tests present** — yes: `pkg/native/phase152b1_codec_test.go`, 13 test
+  functions (trim; hex decode + rejects + message-differentiation; base64
+  encode + binary + length; base64 decode + binary + lenient-padding + rejects
+  + message-differentiation).
+* **Tests executed and passing — measured, locally on Windows/amd64:**
+  * focused gate `go test ./pkg/native/ -run 'TestPhase152B1_' -count=1 -v`
+    → **97 PASS / 0 FAIL / 0 SKIP** across 13 test functions, `9.508s`;
+  * full suite `go test ./pkg/native/ -count=1` → **PASS, `55.438s`, no FAIL**.
+* **These are local Windows/amd64 results.** The dedicated CI step for this gate
+  has been added (see below), but the **Linux `ubuntu-latest` execution of it is
+  not yet independently verified** until CI actually runs it — where these tests
+  take the ELF path rather than the PE path measured here. Recorded as an open
+  measurement, **not** as a blocker: the neighbouring 152-A `pkg/native` step
+  runs on the same runner, so the pattern is sound, but per evidence discipline
+  that is inference and must not be recorded as verified.
+* **Native execution evidence** — **none claimed for 152-B1** beyond the local
+  Windows PE runs above. The reject tests' stderr is empty on this host by the
+  152-B0 `GetStdHandle(STD_ERROR_HANDLE)` limitation, so they assert exit code,
+  stdout route and interned text rather than captured stderr.
+* **Byte-identity differential evidence** — **none claimed for 152-B1.** The
+  19-image legacy-ELF zero-drift differential is the *incremental-150*
+  invariant and is not evidence about these four functions.
+
+#### 152-B1 — reconciliation note (2026-10-03)
+
+A reconciliation pass established that this section was **stale in both
+directions**: it listed the four implemented codecs as "no native
+implementation yet", and described 152-B0 as uncommitted when it is committed as
+`da1dc86`. Both are corrected above. No blocker decision was altered.
+
+**Scope discipline.** 152-B1 is `pkg/native` plus one dedicated CI gate:
+`program.go`, `pe.go`, `phase152b1_codec_test.go`, and a named step in
+`.github/workflows/ci.yml` (`Run Increment 152-B1 native string-codec gate`,
+`-run 'TestPhase152B1_'`). That step is required by the `AGENTS.md` companion
+rule — *a gate is a test file plus a CI entry* — and was added in the same change
+for exactly that reason. It deliberately touches **no** `src/compiler/*.kark`
+file and therefore requires **no** KIR pin change. The working tree additionally
+contains an **unauthorized** `_start` / `phase151a4` slice which is *not* part of
+152-B1 and is excluded from it; that work has no roadmap authorization (no "151A
+Step 4" exists in `PHASE-151-BASELINE.md`, `KARKAIN-VERSION-PLAN.md`,
+`v1.2.0-CHECKLIST.md` or `AGENTS.md`), so the KIR pin in
+`pkg/cli/phase122_pipeline_ownership_test.go` (11373 → 11377 → 11412) belongs to
+that slice and to LH-2, **not** to 152-B1.
+
+### Still open for 152-B (corrected)
+
+* `split` — **blocked**, unchanged: its `string[]` return has no native
   representation (arrays are int-only), so string arrays are a prerequisite.
+  No implementation exists.
+* `sha256_hex` — **deferred**, unchanged: needs a bitwise strategy decision
+  (§11.1). No implementation exists.
 * Native map returns (`net_endpoint` returns a map literal) — a separate
   unsupported case, not part of the socket boundary.
 * `stdlib_v2` as a whole still cannot run natively: it needs both `split` and
@@ -421,7 +512,12 @@ kcc native ownership (`kccOwnsNativeTargets` is still `false`), increment 151,
 the C23 backend (`pkg/codegen` untouched), `src/compiler/native_*.kark`, any
 1.3.0 stdlib module, and increment 154.
 
-### 152-B0 — native runtime-error reporting (IMPLEMENTED, NOT COMMITTED)
+### 152-B0 — native runtime-error reporting (IMPLEMENTED, COMMITTED)
+
+**Commit status corrected.** This entry previously read "IMPLEMENTED, NOT
+COMMITTED". That was stale: 152-B0 is committed on `main` as **`da1dc86`**
+(*feat(native): add runtime error reporting*). The shipped-work description
+below is unchanged.
 
 Prerequisite for 152-B1. The dependency report found the native target could not
 express the Phase-100 contract at all: no message infrastructure existed, and

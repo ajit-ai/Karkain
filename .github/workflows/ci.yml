@@ -268,6 +268,20 @@ jobs:
       - name: Run Increment 152-A native safety and capability gate
         run: go test ./pkg/native/ -run 'TestNativeStrConcat|TestNativeSocket|TestNativeOrdinaryUndefined|TestNativeNonSocket' -count=1
 
+      # Increment 152-B1, the native string-codec builtins (trim, hex_decode_bytes,
+      # base64_encode_bytes, base64_decode_bytes). Named explicitly rather than
+      # relying on the broad `go test ./pkg/native/ -count=1` step above, for the
+      # same reason as the 152-A steps: a gate that runs only inside a broader
+      # step is not a separately reported conclusion. `TestPhase152B1_` matches
+      # none of the existing patterns (not TestPhase151, TestPhase152A_, or
+      # TestPhase151A4_), so this is a distinct gate rather than a duplicate.
+      # The pkg/native half asserts per-function behaviour plus the arithmetic
+      # rejection paths; on this host the decoders' stderr is empty because of
+      # the 152-B0 GetStdHandle(STD_ERROR_HANDLE) limitation, so those tests
+      # assert exit code, stdout route and interned text instead.
+      - name: Run Increment 152-B1 native string-codec gate
+        run: go test ./pkg/native/ -run 'TestPhase152B1_' -count=1 -timeout 20m
+
       # 151A Step 1, the native value/frame foundation in kcc. The three-way
       # differential (kcc vs the Go oracle's Emitter vs bytes stated from the
       # Intel SDM) is what makes the frame layout trustworthy, so this gate is
