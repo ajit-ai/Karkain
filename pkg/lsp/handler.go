@@ -179,48 +179,65 @@ func (h *Handler) publishDiagnostics(uri string) {
 // pipeline, so editor squiggles and CLI reports can never diverge again.
 // Errors and warnings both publish; LSP severities map from the structured
 // field (error → red, warning → yellow, anything else → info).
+// convertDiagnostics maps structured compiler diagnostics onto LSP diagnostics.
+// Each diagnostic keeps ITS OWN severity: the adapter must not stamp one
+// severity onto a whole slice, or a note/help finding would be published as a
+// warning even when the compiler marked it differently.
+func convertDiagnostics(diags []diagnostics.Diagnostic) []Diagnostic {
+	lspDiags := make([]Diagnostic, 0, len(diags))
+	for _, d := range diags {
+		startLine := d.Line - 1
+		if startLine < 0 {
+			startLine = 0
+		}
+		startChar := d.Column - 1
+		if startChar < 0 {
+			startChar = 0
+		}
+		endLine := startLine
+		endChar := startChar + 1
+		if d.EndColumn > d.Column {
+			endChar = d.EndColumn - 1
+		}
+		lspDiags = append(lspDiags, Diagnostic{
+			Range: Range{
+				Start: Position{Line: startLine, Character: startChar},
+				End:   Position{Line: endLine, Character: endChar},
+			},
+			Severity: lspDiagSeverity(d.Severity),
+			Source:   "karkain",
+			Message:  d.Message,
+		})
+	}
+	return lspDiags
+}
+
 func (h *Handler) runDiagnostics(uri, text string) []Diagnostic {
 	errDiags, warnDiags, _ := cli.AnalyzeSource("", text, nil)
 	lspDiags := make([]Diagnostic, 0, len(errDiags)+len(warnDiags))
-	appendDiags := func(diags []diagnostics.Diagnostic, severity int) {
-		for _, d := range diags {
-			startLine := d.Line - 1
-			if startLine < 0 {
-				startLine = 0
-			}
-			startChar := d.Column - 1
-			if startChar < 0 {
-				startChar = 0
-			}
-			endLine := startLine
-			endChar := startChar + 1
-			if d.EndColumn > d.Column {
-				endChar = d.EndColumn - 1
-			}
-			lspDiags = append(lspDiags, Diagnostic{
-				Range: Range{
-					Start: Position{Line: startLine, Character: startChar},
-					End:   Position{Line: endLine, Character: endChar},
-				},
-				Severity: severity,
-				Source:   "karkain",
-				Message:  d.Message,
-			})
-		}
-	}
-	appendDiags(errDiags, lspDiagSeverity(diagnostics.SeverityError))
-	appendDiags(warnDiags, lspDiagSeverity(diagnostics.SeverityWarning))
+	lspDiags = append(lspDiags, convertDiagnostics(errDiags)...)
+	lspDiags = append(lspDiags, convertDiagnostics(warnDiags)...)
 	return lspDiags
 }
 
 // lspDiagSeverity maps a structured diagnostic severity onto the LSP
-// DiagnosticSeverity scale.
+// DiagnosticSeverity scale (protocol constants; no numeric literals here).
+// Every severity the compiler defines has an explicit mapping. An unrecognized
+// value keeps the pre-existing safe fallback of Information rather than being
+// escalated to Error or downgraded to Hint.
 func lspDiagSeverity(s diagnostics.Severity) int {
 	switch s {
 	case diagnostics.SeverityError:
 		return DiagError
 	case diagnostics.SeverityWarning:
 		return DiagWarning
+	case diagnostics.SeverityInfo, diagnostics.SeverityNote:
+		// A note carries context about a primary finding, like info; neither is
+		// a problem in its own right.
+		return DiagInfo
+	case diagnostics.SeverityHelp:
+		// Help is remediation text: the lowest-emphasis tier.
+		return DiagHint
 	default:
 		return DiagInfo
 	}
