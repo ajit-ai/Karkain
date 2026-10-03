@@ -334,6 +334,19 @@ jobs:
       - name: Run kcc run stdout parity gate
         run: go test ./pkg/cli/ -run 'TestKCCRun_' -count=1 -timeout 30m
 
+      # P1 (docs/audit/KARKAIN-1.1.0-MATURITY-MATRIX.md §12): map key
+      # equality on the self-hosted engine. kcc compared map keys with strcmp
+      # against k.strVal, so every integer key collapsed onto the empty string:
+      # m[1] and m[2] both answered with the last-stored value, len(m)
+      # under-counted, and hasKey/delete were equally blind - all with exit
+      # code 0. The gate is a differential (kcc output == Go output ==
+      # expected lines), because a single-engine golden kept passing while the
+      # engines disagreed. The companion corpus fixture is
+      # examples/01-fundamentals/09_maps.kark, which now carries integer keys,
+      # so the pinned Phase 114 corpus can fail on this class too.
+      - name: Run P1 map-key equality gate
+        run: go test ./pkg/cli/ -run 'TestP1_' -count=1 -timeout 30m
+
       - name: Run Phase 141 SSA unit gate
         run: go test ./pkg/ir/ssa/ -count=1
 

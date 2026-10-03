@@ -17,7 +17,7 @@ the self-hosted `kcc` engine, and is pinned by
 | 6    | `06_loops.kark`               | `while` loops, counters, accumulation      |
 | 7    | `07_strings.kark`             | concatenation, `len`, indexing, `str()`    |
 | 8    | `08_arrays.kark`              | literals, `push`, slices, 2D arrays        |
-| 9    | `09_maps.kark`                | map literals, updates, `std.collections`   |
+| 9    | `09_maps.kark`                | map literals, string/integer keys, updates, `std.collections` |
 | 10   | `10_structs.kark`             | `type` records, construction, field access |
 | 11   | `11_match.kark`               | `match`, `Some`/`None` Options            |
 | 12   | `12_casts.kark`               | `int(f)`, `str(n)`, int/float division     |

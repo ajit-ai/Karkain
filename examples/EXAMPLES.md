@@ -45,7 +45,7 @@ Authoritative list of the 15-category example corpus. Jargon:
 | 01-fundamentals/06_loops.kark | Runnable | both | while loops | gcc | 0..4 55 [3, 2, 1] |
 | 01-fundamentals/07_strings.kark | Runnable | both | concat/len/index/slice | gcc | karkain 7 k i kark computed: 42 |
 | 01-fundamentals/08_arrays.kark | Runnable | both | arrays, slices, 2D | gcc | 5 2 11 [3, 5, 7] 0 [0, 1, 4, 9, 16] 5 3 |
-| 01-fundamentals/09_maps.kark | Runnable | both | maps + std.collections | gcc, std | 92 84 97 2 1 0 3 ana bob cam |
+| 01-fundamentals/09_maps.kark | Runnable | both | maps, string/integer keys + std.collections | gcc, std | 92 84 97 2 1 0 3 ana bob cam http https alt 3 11 20 1 0 1 80 443 8080 |
 | 01-fundamentals/10_structs.kark | Runnable | both | struct records | gcc | ana 100 150 150 130 |
 | 01-fundamentals/11_match.kark | Runnable | both | match + Options | gcc | 300 7 1000000 three |
 | 01-fundamentals/12_casts.kark | Runnable | both | int/float/str casts | gcc | 3 3.4 4.5 9 7 256 3 3.5 640 0 |

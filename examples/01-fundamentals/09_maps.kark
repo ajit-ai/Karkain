@@ -2,10 +2,11 @@
 // Engine: both (Go front end + self-hosted kcc)
 // Category: 01 Fundamentals
 //
-// Maps store key -> value associations, indexed with map[key]. Enumeration
-// helpers (map_keys, map_contains_key) live in std.collections. String
-// arrays print with different bracket styles per engine, so enumerate
-// element-by-element for byte-identical output.
+// Maps store key -> value associations, indexed with map[key]. Keys may be
+// strings or integers and are compared by VALUE on both engines. Enumeration
+// helpers (map_keys, map_contains_key) live in std.collections. Arrays print
+// with different bracket styles per engine, so enumerate element-by-element
+// for byte-identical output.
 //
 // Run:  karkain run examples/01-fundamentals/09_maps.kark
 
@@ -33,5 +34,31 @@ func main() {
     while (i < len(names)) {
         print(names[i])
         i = i + 1
+    }
+
+    // Integer keys are compared by VALUE: distinct keys never collide.
+    let ports = { 80: "http", 443: "https" }
+    ports[8080] = "alt"
+    print(ports[80])
+    print(ports[443])
+    print(ports[8080])
+    print(len(ports))
+
+    let seen = {}
+    seen[1] = 10
+    seen[2] = 20
+    seen[1] = 11
+    print(seen[1])
+    print(seen[2])
+    print(map_contains_key(seen, 2))
+    print(map_contains_key(seen, 9))
+    delete(seen, 1)
+    print(len(seen))
+
+    let nums = map_keys(ports)
+    let j = 0
+    while (j < len(nums)) {
+        print(nums[j])
+        j = j + 1
     }
 }

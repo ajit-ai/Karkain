@@ -607,6 +607,15 @@ Dependency ordering only. This is **not** a ranking of desirability and no score
 
 **Ordering note:** P7 is listed after P1 only because P1 was discovered first. Logically P7 should precede further value-model work, since it is what makes such work verifiable.
 
+**Status (2026-10-01, recorded after this audit).** P1 and P7 are **closed**. kcc
+now compares map keys with the engine's own `values_equal` (typed key storage, no
+`strcmp` coercion), the pinned corpus carries an int-keyed map fixture
+(`examples/01-fundamentals/09_maps.kark`), and a dedicated differential gate
+(`pkg/cli/p1_map_key_test.go`, CI step *Run P1 map-key equality gate*) pins both
+halves. P3's stated prerequisite is therefore met. Evidence and mutation
+verification: `docs/audit/KCC-MAP-KEY-EQUALITY-FIX.md`. The remaining candidates
+(P2–P6, P8) are untouched by that change and keep their ordering above.
+
 ---
 
 ## 13. Recommended Next Slice

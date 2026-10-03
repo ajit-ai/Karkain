@@ -36,7 +36,7 @@ var phase114Examples = map[string]struct {
 	"01-fundamentals/06_loops.kark":          {"0\n1\n2\n3\n4\n55\n[3, 2, 1]\n", ""},
 	"01-fundamentals/07_strings.kark":        {"karkain\n7\nk\ni\nkark\ncomputed: 42\n", ""},
 	"01-fundamentals/08_arrays.kark":         {"5\n2\n11\n[3, 5, 7]\n0\n[0, 1, 4, 9, 16]\n5\n3\n", ""},
-	"01-fundamentals/09_maps.kark":           {"92\n84\n97\n2\n1\n0\n3\nana\nbob\ncam\n", ""},
+	"01-fundamentals/09_maps.kark":           {"92\n84\n97\n2\n1\n0\n3\nana\nbob\ncam\nhttp\nhttps\nalt\n3\n11\n20\n1\n0\n1\n80\n443\n8080\n", ""},
 	"01-fundamentals/10_structs.kark":        {"ana\n100\n150\n150\n130\n", ""},
 	"01-fundamentals/11_match.kark":          {"300\n7\n1000000\nthree\n", ""},
 	"01-fundamentals/13_enums.kark":          {"1\n1\n100\n200\n300\n0\n", ""},

@@ -35,7 +35,7 @@ modules → application layout`) also lives under ``examples/language_foundation
    * - ``08_arrays.kark``
      - Index access, mutation, slices, 2-D arrays, iteration
    * - ``09_maps.kark``
-     - Map construction/access plus ``std.collections`` helpers
+     - Map construction/access with string and integer keys, plus ``std.collections`` helpers
    * - ``10_structs.kark``
      - Record types, literals, field reads and mutation
    * - ``11_match.kark``
