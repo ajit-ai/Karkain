@@ -698,6 +698,71 @@ native target cannot yet reach: `str_split` (its `string[]` result has no
 native representation) and `sha256` (unimplemented natively). Both are inside
 Increment 152 and neither is deferred to 154.
 
+### `split` native representation decision (recorded BEFORE implementation)
+
+Recorded per §11.1's precedent: the representation is decided and written down
+first, so the implementation does not have to discover it. Nothing below is
+implemented yet.
+
+**Measured facts about the native value model** (`pkg/native/program.go`):
+
+* `KindInt = iota`, then `KindString`, `KindFloat`, `KindArray`, `KindStruct`,
+  `KindMap` — the kind is a compile-time property of a binding, not a runtime
+  tag stored in the value.
+* A Karkain value is **one 8-byte unit**. A string is therefore **not** one
+  value: it occupies **two** units, `(pointer, length)`, returned in
+  `(RAX, RDX)`.
+* An array is `(base, len)`, and its elements are addressed with **scale 8**
+  (`LoadScaled64` / `StoreScaled64` at scale 8, `offW`-style fixed offsets).
+  There is no element-kind tag anywhere in the element itself.
+
+**The collision this decision must resolve.** `split(str, delim)` returns
+`string[]`. Under the current model an array element is a single 8-byte unit, so
+a string element has nowhere to live: the element is half the size of what a
+string needs. That is the whole reason `split` is blocked.
+
+**Two candidate representations.**
+
+| Option | Element stays 8 bytes? | Effect on existing arrays/goldens |
+|---|---|---|
+| **A — widen elements to 16 bytes** (`(ptr,len)` inline) | ❌ no | **Breaks everything**: every array literal, index, `len`, print path and golden assumes scale 8. Rejected. |
+| **B — box** (element stays 8 bytes and holds a pointer to a heap `(ptr,len)` pair, plus an **element-kind discriminator** on the array) | ✅ yes | Int arrays are byte-for-byte unchanged; only `arr[i]`, `len` and print gain a string branch. |
+
+**Decision: B — boxing with an element-kind discriminator on the array.**
+
+Rationale: it confines the change to the array *element-access* paths rather
+than to the array *layout*. Every existing int array keeps its 8-byte stride,
+its `(base, len)` header and its emitted bytes, so the 19-image legacy-ELF
+byte-identity differential and the Phase-114 corpus goldens are unaffected by
+construction rather than by luck. It also matches how `KindStruct`/`KindMap`
+already resolve to a heap-region pointer, so boxed strings are not a new idea
+in this backend.
+
+**What the implementation must then satisfy.**
+
+1. A string element is a pointer to a 16-byte arena cell holding `(ptr, len)`;
+   the array gains an element-kind field so `arr[i]` knows to dereference.
+2. `len(arr)` is unchanged — it already reads the array header.
+3. `arr[i]` on a string array loads the box pointer, then loads `(ptr, len)`
+   from it; on an int array the existing single scaled load is untouched.
+4. Printing a string element follows the existing string path; printing an int
+   element is unchanged.
+5. Array **literals** must keep emitting int elements unboxed, so no existing
+   golden shifts.
+
+**`strtok` semantics are the behavioural contract and are unchanged by this.**
+The C23 reference `karkain_split` (`pkg/codegen/codegen.go`) treats the
+delimiter as a **character set**, not a substring; it **collapses** runs of
+delimiters; and an input with no tokens yields an **empty array**. The native
+implementation must reproduce those exactly, and the parity is checked against
+the C23 reference rather than against intuition.
+
+**Arena bound.** A `split` allocates one 16-byte cell per returned element plus
+a 16-byte array header. Elements are bounded by the input length (each token is
+at least one byte), so the existing `stringCodecSites × (2×maxIn + 16)` bound
+already dominates it — this must be confirmed at implementation time and
+corrected if the measured bound is tighter.
+
 **Prepared but not landed:**
 
 * `sha256_hex` — §11.1.1 records that it is expressible without any
