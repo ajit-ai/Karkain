@@ -30,6 +30,7 @@ package cli
 // (parity preserved). Free-variable capture works for plain variables only.
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,9 +72,18 @@ func buildKarkainErr(t *testing.T, binOut *string) error {
 	cmd.Dir = repoRoot(t)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		// Preserve the build output in the error. `exec.ExitError.Error()` is
+		// only "exit status N", so returning err alone discarded the single
+		// piece of evidence that identifies what actually failed — which is how
+		// CI run 37104520407 reported four failures as a bare "exit status 1"
+		// with no compiler or linker diagnostic. The capture below already
+		// existed and was dropped on the floor; this only stops throwing it
+		// away, and only on the failure path.
+		if msg := strings.TrimSpace(string(out)); msg != "" {
+			return fmt.Errorf("go build failed: %w\n%s", err, msg)
+		}
 		return err
 	}
-	_ = out
 	*binOut = bin
 	return nil
 }
