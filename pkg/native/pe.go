@@ -208,7 +208,12 @@ func LinkPE(b *Builder, text, rodata []byte, textOffset, entryOffset int) ([]byt
 		img[peTextOff+p.pos+6] = byte(v >> 48)
 		img[peTextOff+p.pos+7] = byte(v >> 56)
 	}
-	idataBase := uint64(PEBaseAddr + idataRVA)
+	// PE address arithmetic must be done in uint64, not by adding PEBaseAddr to
+	// an int-typed RVA: that mixture makes the untyped constant adopt `int`, and
+	// 0x140000000 overflows a 32-bit int (GOARCH=386/arm vet). idataRVA is an
+	// int because peAlignUp returns int, so the conversion has to be explicit.
+	// Same idiom as ParsePE below. Mirrors the MachoBase fix.
+	idataBase := uint64(PEBaseAddr) + uint64(idataRVA)
 	for _, p := range b.ipatches {
 		v := idataBase + uint64(peIATOff+p.index*8)
 		img[peTextOff+p.pos] = byte(v)

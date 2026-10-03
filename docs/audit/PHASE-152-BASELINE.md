@@ -494,6 +494,57 @@ Step 4" exists in `PHASE-151-BASELINE.md`, `KARKAIN-VERSION-PLAN.md`,
 `pkg/cli/phase122_pipeline_ownership_test.go` (11373 → 11377 → 11412) belongs to
 that slice and to LH-2, **not** to 152-B1.
 
+### 152-B1 — corrective change: PE address width on 32-bit vet
+
+Recorded per the `AGENTS.md` Governance rule: a corrective change against the
+frozen 152-B1 baseline. **Not a new phase**, and it does not edit the original
+152-B1 completion claim above.
+
+**1. Owning layer.** `pkg/native/pe.go`, `LinkPE` — the PE address-patching
+loop that resolves the IAT against the image base. Line 211.
+
+**2. The demonstrated failure (CI, not inference).** Run `37103637541`
+(`CI/CD`, push of `3f39b26`), job `Test`, step *Cross-arch vet (32-bit hosts)*,
+exit 1:
+
+```
+pkg/native/pe.go:211:22: PEBaseAddr (untyped int constant 5368709120) overflows int
+```
+
+Reproduced locally with the same command before the fix. That step is the
+12th of ~60, so its failure skipped every later step in the job — including the
+152-B1, 151A-4 and P1 gates, none of which had run in CI at that point.
+
+**3. Why 152-B1 caused it.** `PEBaseAddr` is `0x140000000` (Phase 149,
+`149a70b`) and was never itself a problem. Before 152-B1 the expression was
+`uint64(PEBaseAddr + peIdataRVA)`, where `peIdataRVA` was an **untyped
+constant**, so the whole expression stayed untyped and converted cleanly to
+`uint64`. 152-B1 replaced that fixed RVA with `idataRVA`, computed by
+`peAlignUp`, which returns **`int`**. Mixing an untyped constant with an
+`int`-typed operand makes the constant adopt `int`, and `0x140000000` overflows
+a 32-bit `int`. `git blame` confirms line 211 is the only line in the file
+attributable to `8795618`; the other three `PEBaseAddr` uses are unaffected
+(L151 `put64(opt[24:], PEBaseAddr)`, L195 with the constant `peTextRVA`, and L477
+which already converts explicitly).
+
+**4. The corrective type boundary.** `idataBase := uint64(PEBaseAddr) + uint64(idataRVA)`
+— the conversion is made explicit at the boundary, matching the idiom already
+used at `ParsePE` (L477) and mirroring the `MachoBase` fix recorded in the
+151D-first entry. No PE layout logic changed.
+
+**5. Verification performed.** `GOOS=linux GOARCH=386 go vet ./...` → exit 0;
+`GOOS=linux GOARCH=arm go vet ./...` → exit 0 (both were the failing commands);
+`go test ./pkg/native/ -count=1 -v` → PASS, 78 tests, 0 FAIL, 3 platform skips,
+43.985 s. `git diff --check` clean.
+
+**6. Downstream behaviour preserved.** **No emitted bytes change.** The
+expression evaluates to the identical `uint64` on every platform it previously
+compiled on: on 64-bit, `int` is 64-bit and `PEBaseAddr + idataRVA` already had
+the value now computed explicitly. The fix only makes the intended width
+explicit where the compiler previously inferred it. No re-pinning was needed:
+the 152-B1 PE goldens, the legacy-ELF byte-identity differential and the
+`09_maps`-unrelated corpus gates are unaffected, and the 152-B1 gate is among
+the 78 passing tests above.
 ### Still open for 152-B (corrected)
 
 * `split` — **blocked**, unchanged: its `string[]` return has no native
