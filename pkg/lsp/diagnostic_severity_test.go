@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"karkain/pkg/diagnostics"
+	"karkain/pkg/source"
 )
 
 // TestLSPDiagSeverityMapping pins every severity the compiler defines to the
@@ -58,7 +59,8 @@ func TestConvertDiagnosticsPreservesEachSeverity(t *testing.T) {
 	}
 	want := []int{DiagError, DiagInfo, DiagWarning, DiagHint, DiagInfo}
 
-	got := convertDiagnostics(in)
+	li := source.NewLineIndex("a\nb\nc\nd\ne\n")
+	got := convertDiagnostics(in, li)
 	if len(got) != len(want) {
 		t.Fatalf("got %d diagnostics, want %d", len(got), len(want))
 	}
@@ -77,7 +79,8 @@ func TestConvertDiagnosticsNoteInWarningSlice(t *testing.T) {
 		diagnostics.WarningDiagnostic("a.kark", 3, 5, "W1", "unused variable"),
 		diagnostics.NoteDiagnostic("a.kark", 3, 9, "first declared here"),
 	}
-	got := convertDiagnostics(warnDiags)
+	li := source.NewLineIndex("func main() {\n  let a = 1\n  let b = 2\n}\n")
+	got := convertDiagnostics(warnDiags, li)
 	if len(got) != 2 {
 		t.Fatalf("got %d diagnostics, want 2", len(got))
 	}
@@ -100,7 +103,10 @@ func TestConvertDiagnosticsPreservesRangeAndSource(t *testing.T) {
 		{Line: 10, Column: 7, EndColumn: 12, Severity: diagnostics.SeverityError, Message: "m", Code: "K002"},
 		{Line: 4, Column: 1, Severity: diagnostics.SeverityWarning, Message: "single"},
 	}
-	got := convertDiagnostics(in)
+	// Lines are long enough that the requested columns are in range, so these
+	// assertions test conversion rather than the line-length clamp.
+	li := source.NewLineIndex("averylongsource\nb\nc\nd\nf\nh\ni\nj\nk\nabcdefghijklmnop\n")
+	got := convertDiagnostics(in, li)
 
 	if got[0].Range.Start.Line != 9 || got[0].Range.Start.Character != 6 {
 		t.Errorf("start range = %+v, want line 9 char 6", got[0].Range.Start)
@@ -122,7 +128,7 @@ func TestConvertDiagnosticsPreservesRangeAndSource(t *testing.T) {
 }
 
 func TestConvertDiagnosticsEmpty(t *testing.T) {
-	if got := convertDiagnostics(nil); len(got) != 0 {
+	if got := convertDiagnostics(nil, source.NewLineIndex("")); len(got) != 0 {
 		t.Errorf("nil input produced %d diagnostics, want 0", len(got))
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"karkain/pkg/diagnostics"
 	"karkain/pkg/lexer"
 	"karkain/pkg/parser"
+	"karkain/pkg/source"
 )
 
 // ============================================================
@@ -179,30 +180,116 @@ func (h *Handler) publishDiagnostics(uri string) {
 // pipeline, so editor squiggles and CLI reports can never diverge again.
 // Errors and warnings both publish; LSP severities map from the structured
 // field (error → red, warning → yellow, anything else → info).
+// utf16Col converts a 1-based compiler line and 0-based byte column into the
+// 0-based UTF-16 code-unit offset LSP characters are defined in.
+//
+// The conversion is delegated to pkg/source, which owns the document model and
+// the UTF-16 arithmetic (LineIndex.UTF16Col). Offset maps the byte column onto a
+// document offset, but it clamps against the NEXT line's start rather than this
+// line's content end, so a column past end-of-line would resolve to the
+// following line's column 0. The byte column is therefore clamped to this line's
+// content first, which keeps the composition correct for in-range and
+// out-of-range columns alike.
+//
+// ok is false when the line does not exist in the document, so callers keep
+// their existing arithmetic instead of inventing a position.
+func utf16Col(li *source.LineIndex, line1, byteCol0 int) (int, bool) {
+	if li == nil || line1 < 1 || line1 > li.LineCount() {
+		return 0, false
+	}
+	if byteCol0 <= 0 {
+		return 0, true
+	}
+	line := li.LineText(line1)
+	if byteCol0 > len(line) {
+		byteCol0 = len(line)
+	}
+	return li.UTF16Col(li.Offset(line1, byteCol0)), true
+}
+
+// utf16LineLen is the length of a 1-based line in UTF-16 code units, used to
+// keep published ranges inside the line.
+func utf16LineLen(li *source.LineIndex, line1 int) (int, bool) {
+	if li == nil || line1 < 1 || line1 > li.LineCount() {
+		return 0, false
+	}
+	return utf16Len(li.LineText(line1)), true
+}
+
+// utf16Len is the length of a string in UTF-16 code units (astral runes count
+// as two units), matching the LSP character convention.
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		if r < 0x10000 {
+			n++
+		} else {
+			n += 2
+		}
+	}
+	return n
+}
+
 // convertDiagnostics maps structured compiler diagnostics onto LSP diagnostics.
 // Each diagnostic keeps ITS OWN severity: the adapter must not stamp one
 // severity onto a whole slice, or a note/help finding would be published as a
 // warning even when the compiler marked it differently.
-func convertDiagnostics(diags []diagnostics.Diagnostic) []Diagnostic {
+//
+// Ranges are built from the compiler's own Line/Column/EndColumn span and
+// converted into the LSP coordinate system (0-based, UTF-16, exclusive end).
+// The compiler model has no end-line field, so every span is single-line by
+// construction; nothing multi-line is synthesized.
+func convertDiagnostics(diags []diagnostics.Diagnostic, li *source.LineIndex) []Diagnostic {
 	lspDiags := make([]Diagnostic, 0, len(diags))
 	for _, d := range diags {
+		// Compiler lines are 1-based; LSP lines are 0-based.
 		startLine := d.Line - 1
 		if startLine < 0 {
 			startLine = 0
 		}
-		startChar := d.Column - 1
-		if startChar < 0 {
-			startChar = 0
+
+		// Compiler columns are 1-based byte columns; LSP characters are
+		// 0-based UTF-16 code units.
+		startChar, ok := utf16Col(li, d.Line, d.Column-1)
+		if !ok {
+			// Unknown source line: keep the pre-existing arithmetic rather
+			// than inventing a position from unrelated text.
+			startChar = d.Column - 1
+			if startChar < 0 {
+				startChar = 0
+			}
 		}
-		endLine := startLine
+
+		// LSP end is exclusive. EndColumn is the 1-based byte column just
+		// past the offending token, so EndColumn-1 is already the exclusive
+		// 0-based byte offset.
 		endChar := startChar + 1
 		if d.EndColumn > d.Column {
-			endChar = d.EndColumn - 1
+			endChar, ok = utf16Col(li, d.Line, d.EndColumn-1)
+			if !ok {
+				endChar = d.EndColumn - 1
+			}
 		}
+
+		// Never produce an inverted or out-of-line range.
+		if endChar < startChar {
+			endChar = startChar
+		}
+		if limit, ok := utf16LineLen(li, d.Line); ok {
+			if startChar > limit {
+				startChar = limit
+			}
+			if endChar > limit {
+				endChar = limit
+			}
+		}
+
 		lspDiags = append(lspDiags, Diagnostic{
 			Range: Range{
 				Start: Position{Line: startLine, Character: startChar},
-				End:   Position{Line: endLine, Character: endChar},
+				// The compiler model carries no end-line, so the span is
+				// always single-line.
+				End: Position{Line: startLine, Character: endChar},
 			},
 			Severity: lspDiagSeverity(d.Severity),
 			Source:   "karkain",
@@ -214,9 +301,10 @@ func convertDiagnostics(diags []diagnostics.Diagnostic) []Diagnostic {
 
 func (h *Handler) runDiagnostics(uri, text string) []Diagnostic {
 	errDiags, warnDiags, _ := cli.AnalyzeSource("", text, nil)
+	li := source.NewLineIndex(text)
 	lspDiags := make([]Diagnostic, 0, len(errDiags)+len(warnDiags))
-	lspDiags = append(lspDiags, convertDiagnostics(errDiags)...)
-	lspDiags = append(lspDiags, convertDiagnostics(warnDiags)...)
+	lspDiags = append(lspDiags, convertDiagnostics(errDiags, li)...)
+	lspDiags = append(lspDiags, convertDiagnostics(warnDiags, li)...)
 	return lspDiags
 }
 

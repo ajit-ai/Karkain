@@ -175,9 +175,10 @@ as CRLF; CI (Linux, LF checkout) is unaffected.
   completion; VS Code shifting check output to the Problems panel and
   consuming LSP diagnostics.
 - Style-grade formatter above token canonicalization.
-- `E-K-RES` → module-level UTF-16/CRLF awareness in the LSP (byte columns are
-  correct for LF; UTF-16 conversion helper is in `pkg/source` for when the LSP
-  wire needs it).
+- `E-K-RES` → UTF-16/CRLF awareness in the LSP wire. **Done**: the compiler
+  lexer reports byte columns, and `pkg/lsp` now converts them to LSP UTF-16
+  columns via the `pkg/source` `LineIndex.UTF16Col` helper when publishing
+  diagnostics, so non-ASCII lines resolve to the right character offsets.
 - Further conformance growth (generics, quantum kernels, actor primitives).
 
 ---
