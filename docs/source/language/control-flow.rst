@@ -54,7 +54,10 @@ For-in loop over an array:
 ``match``
 ---------
 
-Pattern-matching on enums and values:
+``match`` dispatches on a value. Every arm is ``pattern => body``, and the
+``=>`` is **required** — omitting it is rejected by both parsers with
+``expected '=>' in match arm``. Arms are separated by commas; the trailing comma
+is optional.
 
 .. code-block:: kark
 
@@ -62,9 +65,37 @@ Pattern-matching on enums and values:
 
    let c = Color.Red
    match c {
-       Color.Red   { print("red") }
-       Color.Green { print("green") }
-       Color.Blue  { print("blue") }
+       Color.Red   => { print("red") },
+       Color.Green => { print("green") },
+       Color.Blue  => { print("blue") },
+       _           => { print("other") },
+   }
+
+Enum arms are **tag-only**: the pattern is ``EnumName.Variant`` and the arm runs
+on any value of that variant. Payload destructuring — ``Shape.Circle(r)`` — is
+not part of the language and is rejected by both parsers.
+
+An arm body is either a block, a ``print``, or a bare expression; a bare
+expression arm is a value-producing arm:
+
+.. code-block:: kark
+
+   func tag(s) {
+       return match s {
+           Shape.Circle => 10,
+           Shape.Rect   => 20,
+           _            => 0,
+       }
+   }
+
+``Result`` and ``Option`` arms can **bind** their payload, which is in scope for
+the body of that arm only — see :ref:`errors`:
+
+.. code-block:: kark
+
+   match r {
+       Ok(n) => { print(n) },
+       Err(e) => { print(e) },
    }
 
 ``return``

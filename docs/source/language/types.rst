@@ -40,14 +40,23 @@ Composite types
 ``enum``
   Tagged union with variants — see :ref:`enums`.
 
-Standard-library wrappers
--------------------------
+Language-provided carriers
+--------------------------
+
+These are part of the language itself, not standard-library modules. They are
+written **bare**, without type arguments:
 
 ``Option``
-  ``some(value)`` or ``none`` — ``std.option`` module.
+  ``Some(v)`` or ``None`` — presence/absence (no null). See :ref:`errors`.
 
 ``Result``
-  ``ok(value)`` or ``err(message)`` — ``std.result`` module.
+  ``Ok(v)`` or ``Err(e)`` — fallible operations (no exceptions). See
+  :ref:`errors`.
+
+``int[]`` / ``string[]``
+  Element-typed arrays, used for parameter and return annotations (for example
+  ``func range(start: int, end: int) -> int[]``). An unannotated ``let`` infers
+  the element type from the literal.
 
 Type annotations
 ----------------

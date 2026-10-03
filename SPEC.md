@@ -111,10 +111,20 @@ yet defined in the lexer.)
 
 | Type | Constructors | Purpose |
 |------|--------------|---------|
-| `Option<T>` | `Some(v)`, `None` | Presence/absence (no null) |
-| `Result<T,E>` | `Ok(v)`, `Err(e)` | Fallible operations (no exceptions) |
+| `Option` | `Some(v)`, `None` | Presence/absence (no null) |
+| `Result` | `Ok(v)`, `Err(e)` | Fallible operations (no exceptions) |
 
-Exhaustive `match` is required; the compiler rejects incomplete patterns.
+`Option` and `Result` are written **without type arguments** — the generic
+`Option<T>` / `Result<T,E>` spelling is not implemented; annotation is bare
+(`func parse(s: string) -> Result`).
+
+Exhaustive `match` is required, and the compiler rejects incomplete patterns:
+the Go front end reports `non-exhaustive match on Result: missing pattern(s): ...`
+when a `Result` match omits `Ok` or `Err` (likewise `Some`/`None` for
+`Option`). The self-hosted kcc checker does not yet implement this check, so an
+incomplete match passes `kcc check`; at runtime an unmatched match evaluates to
+the matched value itself, because that is what the generated code initialises
+the result to before testing any arm.
 
 ### 2.4 Linear & packed types Ã°Å¸Å¸Â¡
 
@@ -201,11 +211,14 @@ fails on the undeclared tag constant).
 ### 3.6 Error propagation Ã°Å¸Å¸Â¡
 
 ```
-func mayFail() -> Result<int, string> { ... }
+func mayFail() -> Result { ... }
 let v = mayFail()?    // unwraps Ok(v), or returns Err(e) early
 ```
 
-`?` desugars to `match expr { Ok(v) => v, Err(e) => return Err(e) }`.
+`?` desugars to `match expr { Ok(v) => v, Err(e) => return Err(e) }`. The
+operand is evaluated exactly once. `?` is a postfix operator and requires the
+enclosing function to return a `Result` or an `Option`; using it in `main` is a
+compile error on **both** engines (parity, not a gap).
 
 ### 3.7 Lambdas & closures ✓
 
