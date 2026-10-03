@@ -129,8 +129,16 @@ func TestPhase152A_NativeRunsWithoutCCompiler(t *testing.T) {
 	if target == "" {
 		t.Fatalf("no executable native target on %s/%s; the no-C proof cannot run here", runtime.GOOS, runtime.GOARCH)
 	}
-	shadowCompilersWithStubs(t)
+	// Build the Karkain tool BEFORE the C-compiler stubs are installed. The 152-A
+	// contract is that a native .kark program builds and runs with no C compiler
+	// reachable; building the TOOLCHAIN is explicitly not part of that claim. On a
+	// cgo-enabled host `go build` compiles runtime/cgo, which invokes the C
+	// compiler, so stubbing first made the tool itself unbuildable and the gate
+	// failed at its own precondition (CI run 37105701278) without ever reaching the
+	// native build and run it exists to prove. The .kark compile and run below
+	// still inherit the stubbed PATH through os.Environ(); that is the proof.
 	karkain := phase130Karkain(t)
+	shadowCompilersWithStubs(t)
 
 	dir := t.TempDir()
 	src := filepath.Join(dir, "hello.kark")
