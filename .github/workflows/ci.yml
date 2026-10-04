@@ -282,6 +282,19 @@ jobs:
       - name: Run Increment 152-B1 native string-codec gate
         run: go test ./pkg/native/ -run 'TestPhase152B1_' -count=1 -timeout 20m
 
+      # Increment 152-B2, the native sha256_hex helper. Named explicitly for the
+      # same reason as the steps above: it must be a separately reported
+      # conclusion, not an incidental pass inside a broader step.
+      # `TestPhase152B2_` matches none of the existing patterns (not TestPhase151,
+      # TestPhase152A_, TestPhase152B1_, or TestPhase151A4_), so this is a
+      # distinct gate rather than a duplicate.
+      #
+      # The acceptance vectors live in the harness as TestSHA256Harness_
+      # (they predate the helper and SKIP while it is absent), so they are named
+      # here too: the anti-vacuity test asserts that skip cannot silently return.
+      - name: Run Increment 152-B2 native sha256_hex gate
+        run: go test ./pkg/native/ -run 'TestPhase152B2_|TestSHA256Harness_' -count=1 -timeout 20m
+
       # 151A Step 1, the native value/frame foundation in kcc. The three-way
       # differential (kcc vs the Go oracle's Emitter vs bytes stated from the
       # Intel SDM) is what makes the frame layout trustworthy, so this gate is

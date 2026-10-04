@@ -339,6 +339,7 @@ type Builder struct {
 	usesHexDecode    bool
 	usesBase64Encode bool
 	usesBase64Decode bool
+	usesSHA256       bool
 	stringCodecSites int
 	stringCodecMaxIn int
 	// codecArenaBytes is the heap contribution the codec helpers need, computed
@@ -1503,7 +1504,7 @@ func CompileProgramForOSSource(prog *parser.Program, osName, sourceFile string) 
 		b.sourceFile = filepath.Base(sourceFile)
 	}
 	b.usesRuntimeError = scanRuntimeErrorUsage(prog)
-	b.usesTrim, b.usesHexDecode, b.usesBase64Encode, b.usesBase64Decode, b.stringCodecSites, b.stringCodecMaxIn = scanStringCodecs(prog)
+	b.usesTrim, b.usesHexDecode, b.usesBase64Encode, b.usesBase64Decode, b.usesSHA256, b.stringCodecSites, b.stringCodecMaxIn = scanStringCodecs(prog)
 	// Phase 152-B1: the two decoding codecs raise Phase-100 runtime errors, so
 	// a program that only calls them still needs the reporter. scanRuntimeErrorUsage
 	// looks for index expressions, which such a program has none of.
@@ -1521,6 +1522,14 @@ func CompileProgramForOSSource(prog *parser.Program, osName, sourceFile string) 
 	// unreachable for a program that compiles.
 	if b.stringCodecSites > 0 {
 		b.codecArenaBytes = b.stringCodecSites * (2*b.stringCodecMaxIn + 16)
+	}
+	// Phase 152-B2: sha256_hex allocates a FIXED 65 bytes (64 hex digits plus
+	// the NUL) regardless of its input length, so the proportional codec bound
+	// above does NOT cover it -- for a one-byte input that formula yields 18
+	// bytes against a real 65-byte allocation, and the allocator's exhaustion
+	// trap would fire mid-run. The fixed cost is added per site instead.
+	if b.usesSHA256 {
+		b.codecArenaBytes += 65 * sha256CallSites(prog)
 	}
 	switch osName {
 	case OSLinux, OSWindows, OSMacOS:
@@ -2114,7 +2123,7 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 		// (which reports "undefined function" for a name with no ftab entry).
 		if x.Module == "" && !x.IsCFunc {
 			switch x.Function {
-			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes":
+			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes", "sha256_hex":
 				return KindString, nil
 			}
 		}
@@ -2532,6 +2541,94 @@ func (b *Builder) emitHelpers() {
 	if b.usesBase64Decode {
 		b.emitBase64DecodeHelper()
 	}
+	// Phase 152-B2: sha256_hex allocates and calls alloc, so it is emitted
+	// after the arena for the same reason the three codecs above are.
+	if b.usesSHA256 {
+		b.emitSHA256Helper()
+	}
+}
+
+// sha256CallSites counts the sha256_hex call sites in a program. It exists
+// because the arena bound for that builtin is a FIXED per-site cost (65 bytes)
+// rather than a function of the input length, so it cannot be folded into the
+// proportional codecArenaBytes formula.
+//
+// The walk is deliberately the same shape as scanStringCodecs so a site this
+// misses is a site whose allocator bound is missing too -- both would be wrong
+// together rather than independently.
+func sha256CallSites(prog *parser.Program) int {
+	n := 0
+	var walkExpr func(node parser.Node)
+	walkExpr = func(node parser.Node) {
+		if node == nil {
+			return
+		}
+		if c, ok := node.(*parser.CallExpr); ok && c.Module == "" && !c.IsCFunc && c.Function == "sha256_hex" {
+			n++
+		}
+		switch x := node.(type) {
+		case *parser.BinaryExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Right)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				walkExpr(a)
+			}
+		case *parser.IndexExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Index)
+		case *parser.SliceExpr:
+			walkExpr(x.Target)
+			walkExpr(x.Start)
+			walkExpr(x.End)
+		case *parser.DotExpr:
+			walkExpr(x.Left)
+		case *parser.ArrayLiteral:
+			for _, el := range x.Elements {
+				walkExpr(el)
+			}
+		}
+	}
+	var walkStmts func(stmts []parser.Node)
+	walkStmts = func(stmts []parser.Node) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.FuncDecl:
+				walkStmts(x.Body)
+			case *parser.VarDeclStmt:
+				walkExpr(x.Value)
+			case *parser.PrintStmt:
+				walkExpr(x.Value)
+			case *parser.ExprStmt:
+				walkExpr(x.Expression)
+			case *parser.ReturnStmt:
+				walkExpr(x.Value)
+			case *parser.IfStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Consequence)
+				walkStmts(x.Alternative)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition)
+				walkStmts(x.Body)
+			case *parser.ForStmt:
+				walkExpr(x.Condition)
+				walkExpr(x.Init)
+				walkExpr(x.Post)
+				walkStmts(x.Body)
+			case *parser.ForInStmt:
+				walkExpr(x.Iter)
+				walkStmts(x.Body)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements)
+			default:
+				walkExpr(s)
+			}
+		}
+	}
+	walkStmts(prog.Statements)
+	return n
 }
 
 // scanStringCodecs reports which of the Phase-152-B1 string builtins the program
@@ -2542,9 +2639,8 @@ func (b *Builder) emitHelpers() {
 // program, so the stdlib wrappers (`str_trim` -> `trim`, `hex_decode` ->
 // `hex_decode_bytes`, ...) reach the native backend as plain calls to these names.
 // They are the ONLY names handled: `split` is deliberately absent because its
-// `string[]` result has no native representation yet, and `sha256_hex` is absent
-// because it needs the bitwise-strategy decision.
-func scanStringCodecs(prog *parser.Program) (trim, hexDec, b64Enc, b64Dec bool, sites, maxLit int) {
+// `string[]` result has no native representation yet.
+func scanStringCodecs(prog *parser.Program) (trim, hexDec, b64Enc, b64Dec, sha bool, sites, maxLit int) {
 	var totalLit int
 	isCodec := func(n parser.Node) (string, bool) {
 		c, ok := n.(*parser.CallExpr)
@@ -2560,6 +2656,8 @@ func scanStringCodecs(prog *parser.Program) (trim, hexDec, b64Enc, b64Dec bool, 
 			return "base64_encode_bytes", true
 		case "base64_decode_bytes":
 			return "base64_decode_bytes", true
+		case "sha256_hex":
+			return "sha256_hex", true
 		}
 		return "", false
 	}
@@ -2596,8 +2694,18 @@ func scanStringCodecs(prog *parser.Program) (trim, hexDec, b64Enc, b64Dec bool, 
 		if name, ok := isCodec(n); ok {
 			sites++
 			c := n.(*parser.CallExpr)
-			if l := litLen(c.Args[0]); l > maxLit {
-				maxLit = l
+			// The arity is validated later, in checkStringCodecArgs, which
+			// produces the K145 refusal a malformed program should get.
+			// This pre-pass runs FIRST, so it must not index Args[0]
+			// unconditionally: `sha256_hex()` with no arguments panicked
+			// here (index out of range) before that refusal could run. A
+			// compiler must not crash on a program it is about to reject
+			// with a diagnostic, so a wrong-arity call contributes a site
+			// and no literal measurement.
+			if len(c.Args) > 0 {
+				if l := litLen(c.Args[0]); l > maxLit {
+					maxLit = l
+				}
 			}
 			switch name {
 			case "trim":
@@ -2608,6 +2716,8 @@ func scanStringCodecs(prog *parser.Program) (trim, hexDec, b64Enc, b64Dec bool, 
 				b64Enc = true
 			case "base64_decode_bytes":
 				b64Dec = true
+			case "sha256_hex":
+				sha = true
 			}
 		}
 		switch x := n.(type) {
@@ -2686,7 +2796,7 @@ func scanStringCodecs(prog *parser.Program) (trim, hexDec, b64Enc, b64Dec bool, 
 	if totalLit > maxLit {
 		maxLit = totalLit
 	}
-	return trim, hexDec, b64Enc, b64Dec, sites, maxLit
+	return trim, hexDec, b64Enc, b64Dec, sha, sites, maxLit
 }
 
 // scanRuntimeErrorUsage reports whether the program contains an operation that
@@ -2818,8 +2928,9 @@ func (b *Builder) emitStringCodec(x *parser.CallExpr, depth int) error {
 		return err
 	}
 	// Only the two DECODING builtins can raise: the reference reports
-	// "invalid hex string" / "invalid base64 string". trim is a pure scan and
-	// base64_encode_bytes always succeeds, so neither needs the reporter.
+	// "invalid hex string" / "invalid base64 string". trim is a pure scan,
+	// base64_encode_bytes always succeeds, and sha256_hex cannot fail at all,
+	// so none of the three needs the reporter.
 	needsReporter := x.Function == "hex_decode_bytes" || x.Function == "base64_decode_bytes"
 	if needsReporter && !b.usesRuntimeError {
 		return fmt.Errorf("error[K145]: internal: %s() needs the runtime-error reporter but usesRuntimeError is false (the pre-pass missed this program)", x.Function)
@@ -3436,6 +3547,8 @@ func codecHelperLabel(fn string) string {
 		return "karkain_base64_encode_bytes"
 	case "base64_decode_bytes":
 		return "karkain_base64_decode_bytes"
+	case "sha256_hex":
+		return "karkain_sha256_hex"
 	}
 	return "karkain_trim"
 }
@@ -5648,7 +5761,7 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		// must be KindString or the result flows into the int path.
 		if x.Module == "" && !x.IsCFunc {
 			switch x.Function {
-			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes":
+			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes", "sha256_hex":
 				if err := b.checkStringCodecArgs(x); err != nil {
 					return KindInt, err
 				}
@@ -5840,7 +5953,7 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		// Phase 152-B1: the string builtins, before the user-call path.
 		if x.Module == "" && !x.IsCFunc {
 			switch x.Function {
-			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes":
+			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes", "sha256_hex":
 				return b.emitStringCodec(x, depth)
 			}
 		}
@@ -6372,7 +6485,7 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 		// wants -- unlike a user call, which returns (RAX=ptr, RDX=len).
 		if x.Module == "" && !x.IsCFunc {
 			switch x.Function {
-			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes":
+			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes", "sha256_hex":
 				return b.emitStringCodec(x, depth)
 			}
 		}
