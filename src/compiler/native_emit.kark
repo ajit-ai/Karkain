@@ -134,6 +134,32 @@ func natMask(which) {
     // natMask is a shared namespace.
     if (which == 34) { return 15 }                      // 0x0F  syscall escape byte
     if (which == 35) { return 5 }                       // 0x05  syscall opcode
+    // Phase 151A Step 5: the Windows entry, the PEB bootstrap and the Win64
+    // exit tail. These CONTINUE the table at 36 and never renumber -- natMask
+    // is a shared namespace, and Step 1 shipped exactly that bug when a block
+    // started at 17 and silently shadowed the existing call-rel32 selector.
+    if (which == 36) { return 101 }                     // 0x65  GS segment override
+    if (which == 37) { return 183 }                     // 0xB7  movzx r32, r/m16
+    if (which == 38) { return 204 }                     // 0xCC  int3
+    if (which == 39) { return 1 }                       // group-1 /1  or  r/m64, imm
+    if (which == 40) { return 4 }                       // group-1 /4  and r/m64, imm
+    if (which == 41) { return 7 }                       // group-1 /7  cmp r/m64, imm
+    if (which == 42) { return 240 }                     // 0xF0  imm8 of `and rsp, -16`
+    if (which == 43) { return 37 }                      // 0x25  SIB scale-0 index-none base-rsp
+    if (which == 44) { return 255 }                     // 0xFF  group-5 (call /2, dec /1)
+    if (which == 45) { return 133 }                     // 0x85  test r/m64, r64
+    if (which == 46) { return 163 }                     // 0xA3  mov moffs64, rax
+    if (which == 47) { return 2 }                       // 0x02  REX.X bit (SIB index)
+    // Phase 151A Step 7: int `print`. These CONTINUE the table at 48 and never
+    // renumber -- natMask is a shared namespace, so a new block that starts
+    // inside the existing range silently changes the bytes an unrelated
+    // primitive emits. That is not hypothetical: Step 1 started a block at 17
+    // and turned natCall32's 0xE8 into a 0x89 mov.
+    if (which == 48) { return 153 }                     // 0x99  cqo (sign-extend rax into rdx:rax)
+    if (which == 49) { return 136 }                     // 0x88  mov [base], r8 (single-byte store)
+    if (which == 50) { return 80 }                      // 0x50  push r64
+    if (which == 51) { return 88 }                      // 0x58  pop r64
+    if (which == 52) { return 137 }                     // 0x89  jns rel32 opcode
     return 0
 }
 
@@ -172,8 +198,18 @@ func natRex(s, w, reg, rm) {
 // decoding the loop's output rather than by any test asserting the value.
 //
 // Mirrors pkg/native/emit.go's modrm(), which is (mod<<6)|(reg<<3)|rm.
+// natModrm emits a ModRM byte.
+//
+// BOTH register fields are masked to three bits, mirroring the Go side's `.low()`
+// at every call site. Phase 151A Step 5 found this the hard way: R8 is register
+// 8, so an unmasked `reg << 3` writes 0x40 into the MOD field and silently turns
+// a `movzx r8d, [rdx]` (0F B7 02) into `movzx r8d, [rdx+disp8]` (0F B7 42 xx),
+// which then consumed the following immediate as a displacement.
+//
+// Every pre-Step-5 caller passes rax/rcx/rdx/rsp/rdi (0-7), so masking is a
+// no-op for them and cannot change an existing byte.
 func natModrm(s, mod, reg, rm) {
-    return natByte(s, (mod << 6) + (reg << 3) + rm)
+    return natByte(s, (mod << 6) + ((reg & 7) << 3) + (rm & 7))
 }
 
 // natMovRegImm32 emits mov r32, imm32: optional REX + B8+rd io32.
@@ -181,7 +217,7 @@ func natModrm(s, mod, reg, rm) {
 // constant uses; natMovImm64 is the 64-bit form.
 func natMovRegImm32(s, r, v) {
     s = natRex(s, 0, 0, r)
-    s = natByte(s, 184 + r)
+    s = natByte(s, 184 + (r & 7))
     return natU32(s, v)
 }
 
@@ -734,4 +770,294 @@ func natEncodeCorpus(which) {
     if (which == 3) { return natFinish(natSeqUndefinedLabel(natNewEmitter(0))) }
     if (which == 4) { return natFinish(natSeqDuplicateLabel(natNewEmitter(0))) }
     return ""
+}
+
+// ============================================================
+// Phase 151A Step 5 -- the Windows boundary emitter primitives.
+//
+// Every function is the byte-for-byte counterpart of the identically named Go
+// method in pkg/native/emit.go. The block is ADDITIVE: nothing above it is
+// changed, which preserves the property Step 1 established.
+//
+// The ModRM/SIB/displacement CHOICES are not size optimisations. The oracle
+// picks the narrowest form that fits, so picking a different width here is a
+// DIFFERENT BYTE and therefore a different image.
+// ============================================================
+
+// natMemBaseOff emits ModRM + displacement for a plain [base+off] form with no
+// SIB byte, mirroring Go memBaseOff.
+//
+// RSP is the one register with no low-3-bit ModRM encoding (rm=101 means
+// RIP-relative when mod != 00), so it is addressed through a SIB. The SIB byte
+// must be emitted BEFORE the displacement, because the ModRM rm=100 promises a
+// SIB and the disp follows it.
+func natMemBaseOff(s, gp, base, off) {
+    if (base == natRegRSP()) {
+        if (off == 0) {
+            s = natModrm(s, 0, gp, 4)
+            return natByte(s, natMask(43))
+        }
+        if (off >= -128 && off <= 127) {
+            s = natModrm(s, 1, gp, 4)
+            s = natByte(s, natMask(43))
+            return natByte(s, off & 255)
+        }
+        s = natModrm(s, 2, gp, 4)
+        s = natByte(s, natMask(43))
+        return natU32(s, off)
+    }
+    if (off == 0) {
+        return natModrm(s, 0, gp, base)
+    }
+    if (off >= -128 && off <= 127) {
+        s = natModrm(s, 1, gp, base)
+        return natByte(s, off & 255)
+    }
+    s = natModrm(s, 2, gp, base)
+    return natU32(s, off)
+}
+
+// natLoadBaseOff emits mov r64, [base+off]: REX.W + 8B /r.
+func natLoadBaseOff(s, dst, base, off) {
+    s = natRex(s, 1, dst, base)
+    s = natByte(s, natMask(19))
+    return natMemBaseOff(s, dst, base, off)
+}
+
+// natLoadBaseOff32 emits mov r32, [base+off] (zero-extending): 8B /r with NO
+// REX.W -- only REX.B, and only for an extended base register.
+func natLoadBaseOff32(s, dst, base, off) {
+    s = natRex(s, 0, dst, base)
+    s = natByte(s, natMask(19))
+    return natMemBaseOff(s, dst, base, off)
+}
+
+// natMovzxRegMem16 emits movzx r32, word [base+off]: 0F B7 /r with NO REX.W
+// (a 32-bit destination). Reads UNICODE_STRING Length fields and WCHARs.
+func natMovzxRegMem16(s, dst, base, off) {
+    s = natRex(s, 0, dst, base)
+    s = natByte(s, natMask(7))
+    s = natByte(s, natMask(37))
+    return natMemBaseOff(s, dst, base, off)
+}
+
+// natMovRegGsMem emits mov r64, gs:[disp32]: 0x65 + REX.W + 8B /r + SIB 0x25 +
+// disp32. Used exactly once: rax = PEB, which is gs:[0x60] on x86-64 Windows.
+func natMovRegGsMem(s, dst, disp) {
+    s = natByte(s, natMask(36))
+    s = natRex(s, 1, dst, natRegRSP())
+    s = natByte(s, natMask(19))
+    s = natModrm(s, 0, dst, 4)
+    s = natByte(s, natMask(43))
+    return natU32(s, disp)
+}
+
+// natAndRspNeg16 emits and rsp, -16: REX.W + 83 /4 + F0.
+//
+// The Windows entry alignment fix, and it must come FIRST: main frame
+// arithmetic and every kernel32 call assume rsp % 16 == 0 at the call.
+func natAndRspNeg16(s) {
+    s = natRex(s, 1, natRegRSP(), natRegRSP())
+    s = natByte(s, natMask(22))
+    s = natModrm(s, 3, natMask(40), natRegRSP())
+    return natByte(s, natMask(42))
+}
+
+// natOrRegImm8 emits or r64, imm8: REX.W + 83 /1 ib. The register operand sits
+// in the ModRM rm field, so only REX.B is relevant.
+func natOrRegImm8(s, r, v) {
+    s = natRex(s, 1, 0, r)
+    s = natByte(s, natMask(22))
+    s = natModrm(s, 3, natMask(39), r)
+    return natByte(s, v & 255)
+}
+
+// natCmpRegImm32 emits cmp r64, imm: REX.W + 81 /7 id, or the three-bytes-shorter
+// REX.W + 83 /7 ib when the value fits a signed byte. Both mean the same thing
+// and the oracle picks the short one, so choosing differently is a diff image.
+func natCmpRegImm32(s, r, v) {
+    if (v <= 127) {
+        s = natRex(s, 1, 0, r)
+        s = natByte(s, natMask(22))
+        s = natModrm(s, 3, natMask(41), r)
+        return natByte(s, v & 255)
+    }
+    s = natRex(s, 1, 0, r)
+    s = natByte(s, natMask(21))
+    s = natModrm(s, 3, natMask(41), r)
+    return natU32(s, v)
+}
+
+// natDecReg emits dec r64: REX.W + FF /1.
+func natDecReg(s, r) {
+    s = natRex(s, 1, 0, r)
+    s = natByte(s, natMask(44))
+    return natModrm(s, 3, 1, r)
+}
+
+// natTestRegReg emits test r64, r64: REX.W + 85 /r.
+//
+// Like natMovRegReg the oracle passes (src, dst) to rex() and puts src in the
+// ModRM reg field; the asymmetry is reproduced, not tidied.
+func natTestRegReg(s, a, b) {
+    s = natRex(s, 1, b, a)
+    s = natByte(s, natMask(45))
+    return natModrm(s, 3, b, a)
+}
+
+// natCallReg emits call r64: FF /2.
+//
+// RSP (low 4) and RBP (low 5) are the two forms ModRM cannot encode directly:
+// rm=100 promises a SIB and rm=101 is RIP-relative at mod=00. Both take the
+// special forms Go CallReg uses; that asymmetry was part of the one-byte
+// execution blocker in Phase 149 and is reproduced deliberately.
+func natCallReg(s, r) {
+    s = natRex(s, 0, 0, r)
+    s = natByte(s, natMask(44))
+    if (r == 4) {
+        s = natModrm(s, 0, 2, 4)
+        return natByte(s, 32 + (r & 7))
+    }
+    if (r == 5) {
+        s = natModrm(s, 1, 2, 5)
+        return natByte(s, 0)
+    }
+    return natModrm(s, 0, 2, r)
+}
+
+// natInt3 emits int3 (0xCC): the oracle LOUD failure. A missing module or an
+// exhausted export walk reaches this rather than producing silent wrong code.
+func natInt3(s) {
+    return natByte(s, natMask(38))
+}
+
+// natStoreAbs64 emits `mov [imm64], rax` -- REX.W + A3 + eight immediate bytes --
+// and returns the [state, pos] pair, mirroring Go StoreAbs64Placeholder.
+//
+// The moffs64 form is accumulator-only, so this is ALWAYS rax: a caller holding
+// a value elsewhere must move it into rax first. Phase 149 stored RDX
+// predecessor (the raw function RVA) and published garbage.
+//
+// The eight bytes stay ZERO because the LINKER resolves them against .idata.
+func natStoreAbs64(s) {
+    s = natRex(s, 1, natRegRAX(), natRegRAX())
+    s = natByte(s, natMask(46))
+    let pos = natLen(s)
+    s = natU64(s, 0)
+    // Record the position so the linker can be told where to write the resolved
+    // IAT address. natFinish ignores this slot, so recording cannot change a byte;
+    // it is how Step 6 turns these placeholders into a real image. The order is
+    // the emission order: ExitProcess, GetStdHandle, WriteFile.
+    s[5] = appendArray(s[5], pos)
+    return [s, pos]
+}
+
+// natSibScale returns the SIB scale field for a scale of 1, 2, 4 or 8.
+func natSibScale(scale) {
+    if (scale == 1) { return 0 }
+    if (scale == 2) { return 1 }
+    if (scale == 4) { return 2 }
+    return 3
+}
+
+// natLoadScaled32 emits mov r32, [base+index*scale+disp]: 8B /r + ModRM + SIB +
+// disp. Used for the export functions table, [funcsPtr + ordinal*4].
+//
+// The SIB byte comes AFTER the ModRM (its rm=100 promises one), and the
+// displacement uses the same narrowest-fits form as everywhere else.
+func natLoadScaled32(s, dst, base, index, scale, disp) {
+    let sc = natSibScale(scale)
+    let r = natMask(13)
+    if (natRegExt(dst) == 1) { r = r | natMask(15) }
+    if (natRegExt(index) == 1) { r = r | natMask(47) }   // REX.X -- NOT natMask(14),
+                                                        // which is the REX.W bit
+    if (natRegExt(base) == 1) { r = r | natMask(16) }
+    if (r != natMask(13)) { s = natByte(s, r) }
+    s = natByte(s, natMask(19))
+    // The oracle's chain is if / else-if / else, so when the first arm fails
+    // BECAUSE base is rbp (low 5), a zero displacement still qualifies for the
+    // disp8 arm. Reproducing that as two independent `if`s over an initialised
+    // narrow value is what this is: the second test must NOT also require
+    // disp != 0, or disp==0 with an rbp base emits mod=10 + disp32 and the image
+    // grows by three bytes.
+    let narrow = 2
+    if (disp == 0 && base != 5) { narrow = 0 }
+    if (narrow == 2 && disp >= -128 && disp <= 127) { narrow = 1 }
+    if (narrow == 0) {
+        s = natModrm(s, 0, dst, 4)
+    } else {
+        if (narrow == 1) { s = natModrm(s, 1, dst, 4) } else { s = natModrm(s, 2, dst, 4) }
+    }
+    s = natByte(s, (sc * 64) + ((index & 7) * 8) + (base & 7))
+    if (narrow == 0) { return s }
+    if (narrow == 1) { return natByte(s, disp & 255) }
+    return natU32(s, disp)
+}
+
+// ============================================================
+// Phase 151A Step 7 -- the primitives int `print` needs.
+//
+// Every one of these is the byte-for-byte counterpart of the identically named
+// method in pkg/native/emit.go. Two of them (natCqo, natStoreMem8) have NO
+// REX.W, which is load-bearing rather than an omission, and each says so.
+// ============================================================
+
+// natCqo emits cqo (sign-extend rax into rdx:rax, the dividend the digit loop
+// divides): REX.W + 99.
+func natCqo(s) {
+    s = natByte(s, natMask(2))
+    return natByte(s, natMask(48))
+}
+
+// natDivReg emits div r/m64 (unsigned rdx:rax / r): REX.W + F7 /6.
+//
+// natMask(31) is the existing 0xF7 group-3 opcode byte that natNegReg already
+// uses; it is reused rather than duplicated, because it is the same byte.
+func natDivReg(s, r) {
+    s = natRex(s, 1, 0, r)
+    s = natByte(s, natMask(31))
+    return natModrm(s, 3, 6, r)
+}
+
+// natStoreMem8 emits mov [base], r8 for a single byte: 88 /r.
+//
+// NO REX PREFIX, and that is a correctness requirement rather than a byte
+// detail: 88 /r with REX.W is not a byte store at all, it is a different
+// encoding. The 64-bit operand size here comes from the ABSENCE of a prefix,
+// so adding one would break the store and also stop matching the oracle.
+//
+// base must be a plain base register (rsi/rdi/...); rsp would require a SIB
+// byte this helper deliberately does not emit, which is why the oracle's own
+// comment says the same thing.
+func natStoreMem8(s, base, src) {
+    s = natByte(s, natMask(49))
+    return natModrm(s, 0, src, base)
+}
+
+// natPushReg emits push r64: 50+rd, with REX.B (0x41) for r8-r15.
+//
+// The REX byte is built from the existing natMask(13)=0x40 and natMask(16)=0x01
+// components that natRex already uses, rather than being spelled as a literal,
+// so it cannot drift away from the rest of the encoder.
+func natPushReg(s, r) {
+    if (natRegExt(r) == 1) { s = natByte(s, natMask(13) | natMask(16)) }
+    return natByte(s, natMask(50) + (r & 7))
+}
+
+// natPopReg emits pop r64: 58+rd, with REX.B (0x41) for r8-r15.
+func natPopReg(s, r) {
+    if (natRegExt(r) == 1) { s = natByte(s, natMask(13) | natMask(16)) }
+    return natByte(s, natMask(51) + (r & 7))
+}
+
+// natJns emits jns rel32 (jump if not sign, SF == 0): 0F 89 cd.
+//
+// This is the digit loop's "is the magnitude still non-negative" test, and it
+// is jns rather than jg ON PURPOSE: the oracle tests the sign bit alone here,
+// with no comparison against zero, so a `jg` would be a different program.
+func natJns(s, label) {
+    s = natByte(s, natMask(7))
+    s = natByte(s, natMask(52))
+    let r = natRel32(s, label)
+    return r[0]
 }

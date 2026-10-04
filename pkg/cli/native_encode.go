@@ -183,6 +183,32 @@ func KCCNativeValueStartCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-start")
 }
 
+// KCCNativeValueWinCommand runs the 151A Step 5 measurement: the Windows entry
+// (`and rsp, -16`), the PEB bootstrap with its three export resolves, one export
+// resolve alone, and the Win64 exit tail.
+//
+// There is deliberately no Go fallback here, for the reason
+// KCCNativeValueStartCommand records: a Go-side emitter producing the expected
+// bytes would make the oracle comparison vacuous while still looking green.
+func KCCNativeValueWinCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-win")
+}
+
+// KCCNativeValuePrintCommand runs the 151A Step 7 measurement: the int `print`
+// helper, its digit loop alone, and a bare rodata reference.
+//
+// There is deliberately no Go fallback here, for the reason
+// KCCNativeValueStartCommand records: a Go-side emitter producing the expected
+// bytes would make the oracle comparison vacuous while still looking green.
+//
+// This is the first surface that carries UNRESOLVED absolute-address
+// placeholders rather than pure instruction bytes, because a rodata reference
+// is only known at link time. That is why one of the three arms exists on its
+// own: the placeholder shape is pinned separately from the helper that uses it.
+func KCCNativeValuePrintCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-print")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //

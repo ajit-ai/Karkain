@@ -626,3 +626,155 @@ bytes after the call are layout-independent and must match exactly.
 or macOS entry or exit. No PEB bootstrap. `kccOwnsNativeTargets` stays `false`
 and 151A remains **not** closed; floats, arrays, `for-in`, arena, string ops,
 `push`, records and maps all remain open 151A work.
+
+## 13. 151A Step 5 / Step 6 - Windows entry, PEB bootstrap, Win64 exit (IMPLEMENTED)
+
+This section records the IMPLEMENTED result. Sections 1-12 above were written
+before implementation and are left untouched, including Step 4's closing "Still
+not claimed" paragraph, which was true when written and is superseded only for
+the Windows half.
+
+**Implemented.** The Windows entry (`and rsp, -16`), the loader-independent PEB
+bootstrap (PEB -> Ldr -> module walk matching `kernel32.dll` -> export-table walk),
+the three export resolves (ExitProcess, GetStdHandle, WriteFile), the Win64 exit
+tail, and the `native-value-win` kcc dispatch. Fourteen emitter primitives were
+added in `src/compiler/native_emit.kark`, each the byte-for-byte counterpart of
+the identically named Go method, with `natMask` selectors continuing at 36.
+
+**Byte identity (MEASURED).** All four oracle shapes are byte-identical:
+`align`, `exit`, `resolve` (227 bytes) and `start` (982 bytes).
+`TestPhase151A5_ByteIdenticalToGoOracle` compares kcc against the REAL
+`pkg/native.Emitter` on a self-contained corpus -- a differential, never a golden.
+The documented `rel32` exclusion is unchanged: shapes containing a displacement
+cannot be compared verbatim against a real image, and L2 establishes their
+identity on the self-contained corpus where both sides share a label layout.
+
+**Execution of a KCC-PRODUCED image (MEASURED).** `natWinExe` / `natWinExeC`
+compose the Step-5 `_start` with a minimal synthetic main and link it through
+kcc's OWN `natPELink`, producing three 2560-byte PE images that are executed on
+the dev host:
+
+| Case | Body | Observed |
+|---|---|---|
+| A | `mov rax, 0; ret` | exit **0** |
+| B | `mov rax, 3; ret` | exit **3** |
+| C | calls the bootstrap-resolved `GetStdHandle` | exit **0** |
+
+Case C is the PEB evidence: on these images the host loader does NOT snap the
+IAT, so `GetStdHandle` is reachable only through kcc's own export walk. A bad
+published address would fault rather than exit 0.
+
+**The synthetic main body is TEST SCAFFOLDING, not language implementation.** It
+is `mov rax, <code>; ret` -- a return value and nothing else. No frame slot, no
+allocator, no `print`, no stack. It is NOT `print`, NOT `print_float`, and NOT a
+general calling convention. Case C deliberately avoids printing because `print`
+was later 151A work (Step 7, section 14) and out of scope for this slice;
+surviving the call is the proof.
+
+**Four defects found and fixed by the gate during this work** (all in kcc code,
+all byte-visible, all mutation-relevant):
+
+1. `natModrm` / `natMovRegImm32` omitted the low-3-bit register mask that the Go
+   side applies via `.low()` at every call site. R8 (register 8) wrote `0x40`
+   into the **MOD** field, silently turning `movzx r8d, [rdx]` into
+   `movzx r8d, [rdx+disp8]` and eating the following immediate.
+2. `natLoadScaled32` reproduced Go's `if / else-if / else` chain as two
+   independent `if`s, so `disp == 0` with an RBP base fell through to
+   `mod=10 + disp32` and grew the image by three bytes.
+3. There was no `REX.X` selector; the REX.W selector (8) was used where `2` was
+   needed, emitting `REX.W` where `REX.X` was required.
+4. One export-name pair was mistyped: `GetStdHandle`'s `H|a` written `0x6140`
+   (`'@'`) instead of `0x6148`. It surfaced as a SINGLE differing byte inside a
+   982-byte shape -- the same one-digit class 152-B2 hit on a SHA-256 round
+   constant, and the reason the gate derives the pair table independently a third
+   time.
+
+**CI.** Step *Run 151A Step 5/6 Windows entry, PEB bootstrap and kcc-PE execution
+gate* runs `go test ./pkg/cli/ -run 'TestPhase151A5_'`. The pattern is distinct
+from `TestPhase151A4_`, so a Step 5 regression cannot hide behind a green Step 4
+step. The step drives the real kcc binary and executes its images; it is not a
+source-text check.
+
+**Still NOT claimed / still open.**
+
+* **No whole-image parity with the Go engine for real programs.** The three
+  executed images use a synthetic main. A kcc-compiled *user program* still
+  cannot be built natively.
+* **macOS entry/exit remains unimplemented** (`0x2000001`), and the macOS leg is
+  unproven on any runner.
+* **`print` is now implemented (Step 7, section 14), but `print_float`, floats,
+  arrays, `for-in`, arena, string ops, `push`, records and maps remain open
+  151A work in kcc.**
+* **`kccOwnsNativeTargets` stays `false`.** Flipping it is 151D and remains
+  blocked on the value model, for the reason `PHASE-151-BASELINE.md` 10 records:
+  flipping it before kcc can emit a real image would compile and pass every
+  parity test while reintroducing the dishonesty 151 was opened to remove.
+* **The KIR pin is re-measured, and the failure first recorded here is now
+  classified.** The whole-tree pin (`karkain kir --verify src/compiler/kir.kark`,
+  the file the pin is defined over) measured **11756 text / 11756 verify** on
+  this slice's tree (11412 + the 344 rendered lines Step 5/6 added) and **11859**
+  after Step 7 -- the values `phase122_pipeline_ownership_test.go` now pins. The
+  subtest whose failure was recorded here had verified `main.kark` -- a
+  driver-inclusive assembly that no pin covers -- and died inside kcc with exit
+  `0xC0000005` and empty output. That is the documented ~4 GB host low-RAM class
+  (`kcc check`/`kir`/`verifykir` on the full tree all crash when free RAM is
+  low), NOT the new code: with free RAM above ~1.7 GB the identical tree
+  verifies at 11859, and the all-HEAD scratch copy verifies at 473 MB free.
+  `TestPhase151A5_KIRPinHolds` now asserts the pin on `kir.kark` exactly, so the
+  gate cannot confuse "kcc ran and agreed" with "kcc died"; the finding was
+  classified rather than deleting the assertion to make a red host green.
+
+## 14. 151A Step 7 - int `print` (IMPLEMENTED)
+
+This is the first 151A surface that makes a kcc-compiled program's OUTPUT
+observable. Every earlier slice could compute a value and could enter and exit
+an image, but a kcc-side program could not say anything, so whole-image parity
+against the Go engine had nothing to compare.
+
+**Implemented.** `natPrintIntHelper` in `src/compiler/native_value.kark` mirrors
+`emitHelpers`' `print_int` in `pkg/native/program.go` instruction for
+instruction and in the same order: frame reservation, the sign test, the sign
+write through `natWriteStdout` (the Linux `write` syscall), the two pushes and
+pops across it, the divide-by-10 digit loop, the length computation, the payload
+write, and the newline tail. Six emitter primitives were added in
+`src/compiler/native_emit.kark` -- `natCqo`, `natDivReg`, `natStoreMem8`,
+`natPushReg`, `natPopReg`, `natJns` -- each the byte-for-byte counterpart of the
+identically named Go method. A `native-value-print` arm prints three corpus
+shapes through the same no-Go-fallback contract as the earlier slices: the whole
+helper, the digit loop alone, and a bare rodata reference.
+
+**One deliberate difference from the byte-identical containers.** `print`
+contains UNRESOLVED absolute-address placeholders (`movabs rsi, <rodata>`): a
+rodata address is only known at link time. `natRodataRef` therefore emits the
+same 10-byte placeholder form as `imm64Patch` (REX.W + B8+rd + eight zero bytes)
+and RECORDS the patch position for the linker, exactly as the oracle does. The
+corpus pins that shape on its own (arm 2); the whole-helper differential masks
+only those two 8-byte immediates, while every opcode, ModRM byte, both rel32
+displacements and the frame arithmetic must be byte-identical to the oracle's
+real emission.
+
+**Measured (all seven A7 tests green, 6.9 s).** The digit loop is byte-identical
+to the Go emitter's sequence, built in the gate through exported API only, AND
+to the bytes the gate states from the Intel SDM (`B9 imm32` / `48 99` /
+`48 F7 F1` / `48 83 C2 30` / `48 FF CE` / `88 16` / `48 85 C0` / `0F 85 rel32`),
+with the jnz displacement recomputed from first principles (-23). The whole
+helper matches the oracle's real emission from a compiled printing program with
+exactly two masked rodata sites, the digit loop occurs verbatim in that image's
+`.text`, the corpus is non-vacuous and deterministic across runs, and the Go
+side only runs kcc (no fallback). The KIR pin moved 11756 -> **11859** (+103,
+measured; recorded in `phase122_pipeline_ownership_test.go`, and asserted
+exactly by `TestPhase151A5_KIRPinHolds`).
+
+**CI.** Step *Run 151A Step 7 int print gate* runs
+`go test ./pkg/cli/ -run 'TestPhase151A7_'`. The pattern is distinct from
+`TestPhase151A5_`, so a Step 7 regression cannot hide behind a green Step 5/6
+step.
+
+**Still NOT claimed.** A kcc-compiled *user program* still cannot be built
+natively: `kccOwnsNativeTargets` stays `false` and the CLI native targets still
+refuse with `error[K116]` (151D), because the value model has no call, frame or
+rodata resolution for real programs yet. `print_float`, floats, arrays,
+`for-in`, arena, string ops, `push`, records, maps and the macOS entry/exit
+remain open 151A work. No execution evidence is claimed for this slice: the
+corpus is a helper, not a program -- it has no `main`, no entry stub and no
+resolved rodata, so it cannot be run.

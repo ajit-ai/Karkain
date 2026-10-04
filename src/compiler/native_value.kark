@@ -364,6 +364,167 @@ func natRegRCX() { return 1 }
 // pkg/native.RDI independently.
 func natRegRDI() { return 7 }
 
+// Phase 151A Step 5: the registers the Windows bootstrap walks over. RBX, RBP
+// and R8-R11 are callee-saved under BOTH System V and Win64, which is why the
+// oracle can hold the walk cursor, the module base and the export pointers in
+// them across the whole pre-main sequence.
+//
+// The numbering is architectural and must match pkg/native exactly: R8-R11 are
+// 8..11, and ModRM uses the low three bits, which is why natRegExt returns 1 for
+// them.
+func natRegRDX() { return 2 }
+func natRegRSI() { return 6 }
+func natRegRBX() { return 3 }
+func natRegRBP() { return 5 }
+func natRegR8()  { return 8 }
+func natRegR9()  { return 9 }
+func natRegR10() { return 10 }
+func natRegR11() { return 11 }
+
+// ============================================================
+// Phase 151A Step 7 -- int `print`.
+//
+// The first kcc value-model surface that makes a real program's OUTPUT
+// observable. Everything before this slice could compute a value and could
+// enter and exit the image, but a kcc-compiled program could not say anything,
+// so whole-image parity against the Go engine was untestable for want of
+// anything to compare.
+//
+// This mirrors emitHelpers' print_int in pkg/native/program.go instruction
+// for instruction, in the same order, because the oracle's order is not
+// incidental: the digit pointer walks DOWN from the buffer end so no length
+// has to be computed before the digits exist, and the sign is written from a
+// separate pushed copy because the write syscall clobbers volatile registers.
+// ============================================================
+
+// natSysWrite is the Linux write(2) syscall number. macOS uses 0x2000004 and is
+// not implemented here; the Linux exit tail's 60 (__NR_exit) is spelled as a
+// literal in natStartStub for the same reason.
+func natSysWrite() { return 1 }
+
+// natRodataRef emits `mov r64, <absolute rodata address>` as a placeholder plus
+// a recorded patch position, mirroring rodataRef's imm64Patch+internRodata.
+//
+// The bytes here are therefore NOT the oracle's final bytes -- the oracle
+// resolves the placeholder to a real rodata address at link time, and so does
+// this. The differential that matters for this slice is over the instruction
+// SEQUENCES, and natPrintIntCorpus arm 2 exists to pin the placeholder form
+// itself so it cannot be quietly changed into something that resolves locally.
+func natRodataRef(s, r) {
+    let p = natImm64Patch(s, natMovImm64Op(r))
+    return p[0]
+}
+
+// natWriteStdout emits the Linux payload write for (RDI=fd, RSI=ptr, RDX=len)
+// through the raw syscall, mirroring emitWrite's non-Windows body.
+//
+// Raw emitter calls on purpose, exactly as the oracle's own body insists:
+// emitWrite is what Step 4 called natSyscall, and routing the syscall back
+// through a helper that is itself named write is how the 148C replaceAll once
+// produced infinite self-recursion.
+func natWriteStdout(s) {
+    s = natMovRegImm32(s, natRegRAX(), natSysWrite())
+    return natSyscall(s)
+}
+
+// natPrintNewline mirrors printNewline: a one-byte rodata reference plus the
+// payload write. RDI is still 1 from the preceding payload write.
+func natPrintNewline(s) {
+    s = natRodataRef(s, natRegRSI())
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    return natWriteStdout(s)
+}
+
+// natPrintIntHelper mirrors emitHelpers' print_int body byte for byte.
+//
+// Contract: RDI carries the value, output is decimal text plus a newline on
+// stdout. The 64 bytes reserved below RSP are the digit buffer; the pointer
+// starts at the TOP of that buffer and walks down, which is why no count is
+// needed up front.
+func natPrintIntHelper() {
+    let s = natNewEmitter(0)
+    s = natMark(s, "print_int")
+    s = natSubRegImm32(s, natRegRSP(), 64)
+    s = natMovRegReg(s, natRegRAX(), natRegRDI())
+    s = natMovRegReg(s, natRegRSI(), natRegRSP())
+    s = natAddRegImm32(s, natRegRSI(), 64)
+    s = natTestRegReg(s, natRegRAX(), natRegRAX())
+    s = natJns(s, "print_int_pos")
+    s = natNegReg(s, natRegRAX())
+    // RSI (the digit pointer) and RAX (the magnitude) are pushed across the
+    // sign write, because the write syscall clobbers volatile registers and
+    // both are needed by the digit loop below.
+    s = natPushReg(s, natRegRAX())
+    s = natPushReg(s, natRegRSI())
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natRodataRef(s, natRegRSI())
+    s = natWriteStdout(s)
+    s = natPopReg(s, natRegRSI())
+    s = natPopReg(s, natRegRAX())
+    s = natMark(s, "print_int_pos")
+    s = natMovRegImm32(s, natRegRCX(), 10)
+    s = natMark(s, "print_int_loop")
+    s = natCqo(s)
+    s = natDivReg(s, natRegRCX())
+    s = natAddRegImm32(s, natRegRDX(), 48)   // 48 is '0'
+    s = natDecReg(s, natRegRSI())
+    s = natStoreMem8(s, natRegRSI(), natRegRDX())
+    s = natTestRegReg(s, natRegRAX(), natRegRAX())
+    s = natJnz(s, "print_int_loop")
+    s = natMovRegReg(s, natRegRBX(), natRegRSP())
+    s = natAddRegImm32(s, natRegRBX(), 64)
+    s = natMovRegReg(s, natRegRDX(), natRegRBX())
+    s = natSubRegReg(s, natRegRDX(), natRegRSI())
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natAddRegImm32(s, natRegRSP(), 64)
+    s = natPrintNewline(s)
+    return natRet(s)
+}
+
+// natPrintCorpus renders the print_int helper in three shapes.
+//
+// Arm 0 is the whole helper with its two internal rel32 fixups resolved, which
+// is the differential against the Go oracle. Arms 1 and 2 isolate the pieces a
+// whole-helper comparison cannot blame on the right instruction when it fails:
+// arm 1 is the digit loop alone (so a wrong divide or a missing sign extension
+// fails there rather than somewhere inside 40 instructions), and arm 2 is a
+// bare rodata reference (so the unresolved placeholder shape is pinned on its
+// own, independently of the helper that uses it).
+func natPrintCorpus(which) {
+    if (which == 0) {
+        return natToHex(natFinish(natPrintIntHelper()))
+    }
+    if (which == 1) {
+        let s = natNewEmitter(0)
+        s = natMark(s, "print_int_pos")
+        s = natMovRegImm32(s, natRegRCX(), 10)
+        s = natMark(s, "print_int_loop")
+        s = natCqo(s)
+        s = natDivReg(s, natRegRCX())
+        s = natAddRegImm32(s, natRegRDX(), 48)
+        s = natDecReg(s, natRegRSI())
+        s = natStoreMem8(s, natRegRSI(), natRegRDX())
+        s = natTestRegReg(s, natRegRAX(), natRegRAX())
+        s = natJnz(s, "print_int_loop")
+        return natToHex(natFinish(s))
+    }
+    if (which == 2) {
+        let s = natNewEmitter(0)
+        s = natRodataRef(s, natRegRSI())
+        return natToHex(natFinish(s))
+    }
+    return ""
+}
+
+// The three kernel32 IAT slots the bootstrap publishes, mirroring the constants
+// in pkg/native/pe.go. Declared on both sides so a renumber on one side cannot
+// silently disagree with the other.
+func natIatExitProcess()  { return 0 }
+func natIatGetStdHandle() { return 1 }
+func natIatWriteFile()    { return 2 }
+
 // ============================================================
 // 6. Integer statement and expression lowering (Step 2)
 //
@@ -1205,4 +1366,331 @@ func natStartCorpus(which) {
         return natToHex(natFinish(s))
     }
     return ""
+}
+
+// ============================================================
+// Phase 151A Step 5 -- the Windows entry, the PEB bootstrap and
+// the Win64 exit tail.
+//
+// This is the PE counterpart of natStartStub and the mirror image of
+// emitWinBootstrap + emitWindowsExit in pkg/native/program.go, in the oracle order.
+// The order is load-bearing:
+//
+//   1. `and rsp, -16` FIRST -- main frame math and every kernel32 call assume
+//      rsp % 16 == 0 at the call.
+//   2. The bootstrap, publishing ExitProcess/GetStdHandle/WriteFile into the IAT
+//      before main can call any of them.
+//   3. The call to karkain_main.
+//   4. The Win64 exit tail, passing main return value to ExitProcess.
+//
+// The host loader maps the image and runs entry but does NOT snap the IAT on
+// these minimal images (Phase 149: the slots keep their file contents at run
+// time), which is why the bootstrap exists at all. RSP never moves.
+// ============================================================
+
+// natWinFoldCmp emits one WCHAR of the "kernel32.dll" comparison: load the
+// 16-bit character at character-index k from the BaseDllName buffer, fold it
+// to lowercase with 0x20, compare against the expected character, and branch to
+// the walk next label on a mismatch.
+//
+// The fold is not cosmetic. Phase 149 read BaseDllName live from the PEB and it
+// arrives UPPERCASE (KERNEL32.DLL), so an unfolded comparison against the
+// lowercase spelling would never match and every program would take the Int3.
+// Folding is a no-op for the digits and dots in this alphabet, which is why the
+// oracle applies it unconditionally instead of branching per character class.
+func natWinFoldCmp(s, k, ch) {
+    s = natMovzxRegMem16(s, natRegR8(), natRegRDX(), k * 2)
+    s = natOrRegImm8(s, natRegR8(), 32)
+    s = natCmpRegImm32(s, natRegR8(), ch)
+    return natJnz(s, "wk$next")
+}
+
+// natWinCmpPair emits one aligned character-pair comparison of an export name,
+// branching to nextLbl on a mismatch.
+//
+// nextLbl is passed in rather than derived from `ch`: the oracle allocates a
+// FRESH label set per resolve (b.fresh), so ExitProcess, GetStdHandle and
+// WriteFile each own their labels. Reusing one set is not merely untidy -- the
+// encoder rejects a duplicate label outright, which is how the gate's first
+// draft of the oracle half failed with `duplicate label "exp$loop"`.
+//
+// An odd-length name's final pair has a ZERO high byte and is COMPARED against
+// the string's NUL terminator, not skipped. Dropping it would let the walk match
+// a shorter name.
+func natWinCmpPair(s, k, ch, nextLbl) {
+    s = natMovzxRegMem16(s, natRegR8(), natRegRDX(), k)
+    s = natCmpRegImm32(s, natRegR8(), ch)
+    return natJnz(s, nextLbl)
+}
+
+// natWinResolve emits one export-table walk resolving a kernel32 name, with R10
+// holding the module base. It mirrors emitWinResolve exactly.
+//
+// loopLbl/nextLbl/doneLbl/failLbl are passed in so each of the three resolves
+// owns a FRESH set, exactly as the oracle's b.fresh() does. The pair constants
+// c0..c5 are the aligned 16-bit character pairs DERIVED FROM THE NAME STRING by
+// the caller, not re-typed here: the gate recomputes them independently and a
+// mistyped pair would otherwise agree with a second copy of the same typo.
+//
+// The export directory sits at NT+136 (COFF 24 + Optional 112); the +96 shape
+// is the 32-bit header and reads garbage, measured in Phase 149. The resolved
+// address moves RDX -> RAX before the store because 48 A3 is accumulator-only.
+func natWinResolve(s, c0, c1, c2, c3, c4, c5, loopLbl, nextLbl, doneLbl, failLbl) {
+    s = natLoadBaseOff32(s, natRegRCX(), natRegR10(), 60)
+    s = natMovRegReg(s, natRegRDX(), natRegR10())
+    s = natAddRegReg(s, natRegRDX(), natRegRCX())
+    s = natLoadBaseOff32(s, natRegRCX(), natRegRDX(), 136)
+    s = natMovRegReg(s, natRegRDX(), natRegR10())
+    s = natAddRegReg(s, natRegRDX(), natRegRCX())
+    s = natLoadBaseOff32(s, natRegR9(), natRegRDX(), 24)
+    s = natLoadBaseOff32(s, natRegRCX(), natRegRDX(), 32)
+    s = natMovRegReg(s, natRegRSI(), natRegR10())
+    s = natAddRegReg(s, natRegRSI(), natRegRCX())
+    s = natLoadBaseOff32(s, natRegRCX(), natRegRDX(), 36)
+    s = natMovRegReg(s, natRegRDI(), natRegR10())
+    s = natAddRegReg(s, natRegRDI(), natRegRCX())
+    s = natLoadBaseOff32(s, natRegRCX(), natRegRDX(), 28)
+    s = natMovRegReg(s, natRegRBP(), natRegR10())
+    s = natAddRegReg(s, natRegRBP(), natRegRCX())
+    s = natMark(s, loopLbl)
+    s = natTestRegReg(s, natRegR9(), natRegR9())
+    s = natJz(s, failLbl)
+    s = natLoadBaseOff32(s, natRegRCX(), natRegRSI(), 0)
+    s = natMovRegReg(s, natRegRDX(), natRegR10())
+    s = natAddRegReg(s, natRegRDX(), natRegRCX())
+    if (c0 != 0) { s = natWinCmpPair(s, 0, c0, nextLbl) }
+    if (c1 != 0) { s = natWinCmpPair(s, 2, c1, nextLbl) }
+    if (c2 != 0) { s = natWinCmpPair(s, 4, c2, nextLbl) }
+    if (c3 != 0) { s = natWinCmpPair(s, 6, c3, nextLbl) }
+    if (c4 != 0) { s = natWinCmpPair(s, 8, c4, nextLbl) }
+    if (c5 != 0) { s = natWinCmpPair(s, 10, c5, nextLbl) }
+    s = natMovzxRegMem16(s, natRegR8(), natRegRDI(), 0)
+    s = natLoadScaled32(s, natRegRAX(), natRegRBP(), natRegR8(), 4, 0)
+    s = natMovRegReg(s, natRegRDX(), natRegR10())
+    s = natAddRegReg(s, natRegRDX(), natRegRAX())
+    s = natMovRegReg(s, natRegRAX(), natRegRDX())
+    let p = natStoreAbs64(s)
+    s = p[0]
+    s = natJmp(s, doneLbl)
+    s = natMark(s, nextLbl)
+    s = natAddRegImm32(s, natRegRSI(), 4)
+    s = natAddRegImm32(s, natRegRDI(), 2)
+    s = natDecReg(s, natRegR9())
+    s = natJmp(s, loopLbl)
+    s = natMark(s, failLbl)
+    s = natInt3(s)
+    s = natMark(s, doneLbl)
+    return s
+}
+
+// natWinBootstrap emits the loader-independent kernel32 resolution, mirroring
+// emitWinBootstrap. R10 keeps the module base across all three resolves.
+//
+// The module walk matches the NAME "kernel32.dll" and never a position: the
+// entry list order is not stable across boots. The 64-entry bound is a backstop,
+// not a heuristic. A missing module or an exhausted export walk reaches an Int3.
+//
+// Pair constants are the aligned 16-bit little-endian character pairs derived
+// from each name: name[k] | name[k+1]<<8, with a zero high byte on the tail of an
+// odd-length name. "ExitProcess" is 11 characters (6 pairs), "GetStdHandle" is 12
+// (6 pairs, NO tail pair) and "WriteFile" is 9 (5 pairs, odd tail).
+func natWinBootstrap(s) {
+    s = natMovRegGsMem(s, natRegRAX(), 96)
+    s = natLoadBaseOff(s, natRegRAX(), natRegRAX(), 24)
+    s = natLoadBaseOff(s, natRegRAX(), natRegRAX(), 32)
+    s = natMovRegImm32(s, natRegR11(), 64)
+    s = natMark(s, "wk$walk")
+    s = natLoadBaseOff(s, natRegRAX(), natRegRAX(), 0)
+    s = natMovRegReg(s, natRegRBX(), natRegRAX())
+    s = natSubRegImm32(s, natRegRBX(), 16)
+    // 64-bit LDR_DATA_TABLE_ENTRY: DllBase at +0x30, BaseDllName at +0x58
+    // (Length +0, Buffer +8). The 32-bit +0x28/+0x50 shape skips every module
+    // into the Int3 -- measured in Phase 149.
+    s = natMovzxRegMem16(s, natRegRCX(), natRegRBX(), 88)
+    s = natCmpRegImm32(s, natRegRCX(), 24)
+    s = natJnz(s, "wk$next")
+    s = natLoadBaseOff(s, natRegRDX(), natRegRBX(), 96)
+    s = natWinFoldCmp(s, 0, 107)
+    s = natWinFoldCmp(s, 1, 101)
+    s = natWinFoldCmp(s, 2, 114)
+    s = natWinFoldCmp(s, 3, 110)
+    s = natWinFoldCmp(s, 4, 101)
+    s = natWinFoldCmp(s, 5, 108)
+    s = natWinFoldCmp(s, 6, 51)
+    s = natWinFoldCmp(s, 7, 50)
+    s = natWinFoldCmp(s, 8, 46)
+    s = natWinFoldCmp(s, 9, 100)
+    s = natWinFoldCmp(s, 10, 108)
+    s = natWinFoldCmp(s, 11, 108)
+    s = natLoadBaseOff(s, natRegR10(), natRegRBX(), 48)
+    s = natJmp(s, "wk$found")
+    s = natMark(s, "wk$next")
+    s = natDecReg(s, natRegR11())
+    s = natJnz(s, "wk$walk")
+    s = natMark(s, "wk$fail")
+    s = natInt3(s)
+    s = natMark(s, "wk$found")
+    // "ExitProcess": E|x=0x7845 i|t=0x7469 P|r=0x7250 o|c=0x636F e|s=0x7365 s|\0=0x73
+    s = natWinResolve(s, 30789, 29801, 29264, 25455, 29541, 115, "wx$loop$0", "wx$next$0", "wx$done$0", "wx$fail$0")
+    // "GetStdHandle": G|e=0x6547 t|S=0x5374 t|d=0x6474 H|a=0x6148 n|d=0x646E l|e=0x656C
+    // The H|a pair was FIRST written as 24896 = 0x6140, whose low byte is '@',
+    // not 'H'. The oracle comparison caught it as a single differing byte in a
+    // 982-byte shape -- the same one-digit class 152-B2 hit on a SHA-256 round
+    // constant, and the reason this gate derives the pair table a third time.
+    s = natWinResolve(s, 25927, 21364, 25716, 24904, 25710, 25964, "wx$loop$1", "wx$next$1", "wx$done$1", "wx$fail$1")
+    // "WriteFile": W|r=0x7257 i|t=0x7469 e|F=0x4665 i|l=0x6C69 e|\0=0x65
+    s = natWinResolve(s, 29271, 29801, 18021, 27753, 101, 0, "wx$loop$2", "wx$next$2", "wx$done$2", "wx$fail$2")
+    return s
+}
+
+// natWinExitTail emits the Win64 exit tail: ExitProcess(main's return value).
+// Win64 requires 32 bytes of caller shadow even for a single argument; the
+// entry alignment itself is fixed by natAndRspNeg16 before the main call.
+func natWinExitTail(s) {
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natSubRegImm32(s, natRegRSP(), 32)
+    s = natMovImm64(s, natMovImm64Op(natRegRAX()), 0)
+    return natCallReg(s, natRegRAX())
+}
+
+// natWinStub emits the complete Windows _start in the oracle order: alignment,
+// bootstrap, call main, Win64 exit.
+func natWinStub() {
+    let s = natNewEmitter(0)
+    s = natMark(s, "_start")
+    s = natAndRspNeg16(s)
+    s = natWinBootstrap(s)
+    s = natCall32(s)
+    let r = natRel32(s, "karkain_main")
+    s = r[0]
+    s = natWinExitTail(s)
+    s = natMark(s, "karkain_main")
+    return s
+}
+
+// natWinCorpus renders the Windows pieces separately as well as whole, so a
+// failure names a SUBSYSTEM (bootstrap, resolve, exit tail) rather than pointing
+// at one long sequence.
+//
+// Shape 0 is the whole _start; shape 1 the alignment fix alone; shape 2 one
+// export resolve alone; shape 3 the Win64 exit tail alone. This is the same
+// four-shape split natStartCorpus uses for the Linux entry.
+func natWinCorpus(which) {
+    if (which == 0) { return natToHex(natFinish(natWinStub())) }
+    if (which == 1) {
+        let s = natNewEmitter(0)
+        return natToHex(natFinish(natAndRspNeg16(s)))
+    }
+    if (which == 2) {
+        let s = natNewEmitter(0)
+        s = natWinResolve(s, 30789, 29801, 29264, 25455, 29541, 115, "wx$loop$0", "wx$next$0", "wx$done$0", "wx$fail$0")
+        return natToHex(natFinish(s))
+    }
+    if (which == 3) {
+        let s = natNewEmitter(0)
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        s = natSubRegImm32(s, natRegRSP(), 32)
+        return natToHex(natFinish(s))
+    }
+    return ""
+}
+
+// ============================================================
+// Phase 151A Step 6 -- assemble a RUNNABLE PE from the Step-5 sequences.
+//
+// Everything below is TEST SCAFFOLDING for the Step-6 gate, not language
+// implementation. It composes the already-byte-verified `_start` with a minimal
+// synthetic main body and links it through kcc's OWN natPELink, so the image is
+// produced by the self-hosted engine and not by the Go oracle.
+//
+// The synthetic main body is deliberately the smallest thing that exercises
+// startup and exit integration:
+//
+//	mov rax, <code>
+//	ret
+//
+// It uses no frame slot, no allocator, no print and no stack, so it requires
+// nothing from the value model that later 151A work still owes. It is NOT print,
+// NOT print_float and NOT a general calling convention -- it is a return value.
+//
+// `code` is the process exit status, which is how the Win64 exit tail is
+// observable: _start passes main's RAX to ExitProcess.
+// ============================================================
+
+// natWinExe assembles _start + a synthetic main and links a PE image.
+//
+// The patch bookkeeping is the whole point. The bootstrap stores three resolved
+// kernel32 addresses with `mov [imm64], rax` (natStoreAbs64) and the exit tail
+// loads ExitProcess with `movabs rax, <slot>`; both are LINK-TIME placeholders.
+// Positions are recorded in the emitter's imm64 slot in emission order:
+// ExitProcess, GetStdHandle, WriteFile, then the exit call. natPELink takes
+// flat [pos, index] pairs, so those four become three apatches and one ipatch.
+func natWinExe(code) {
+    let s = natWinStub()
+    // The synthetic main, emitted after the karkain_main label natWinStub left.
+    s = natMovRegImm32(s, natRegRAX(), code)
+    s = natRet(s)
+    let text = natFinish(s)
+    let p = natStImm64(s)
+    let ap = []
+    ap = appendArray(ap, p[0])
+    ap = appendArray(ap, natIatExitProcess())
+    ap = appendArray(ap, p[1])
+    ap = appendArray(ap, natIatGetStdHandle())
+    ap = appendArray(ap, p[2])
+    ap = appendArray(ap, natIatWriteFile())
+    let ip = []
+    ip = appendArray(ip, p[3])
+    ip = appendArray(ip, natIatExitProcess())
+    return natToHex(natPELink(text, [], [], [], ip, ap, [], natPETextOff(), natPETextOff()))
+}
+
+// natWinExeC assembles _start + a synthetic main that CALLS GetStdHandle.
+//
+// This is the Step-6 Case C body. It exists to prove the PEB bootstrap's export
+// resolution actually produced a callable address for a SECOND API, not just the
+// one the exit tail uses.
+//
+// It deliberately does NOT print. Implementing print is later 151A work and is
+// out of scope here; calling the resolved GetStdHandle and surviving is the proof.
+// If the bootstrap had published a bad address, this call would fault and the
+// process would die with an access violation instead of exiting 0.
+//
+// The call follows the Win64 rules the oracle already established: rsp is 8 (mod
+// 16) at main entry because _start aligned it and then called, so subtracting 40
+// puts it at 0 (mod 16) at the call site, and 32 of that is caller shadow.
+func natWinExeC() {
+    let s = natWinStub()
+    s = natSubRegImm32(s, natRegRSP(), 40)
+    // STD_OUTPUT_HANDLE is -11; MovRegImm32 writes it as the 32-bit constant the
+    // oracle uses, which is what the kernel32 stub reads.
+    s = natMovRegImm32(s, natRegRCX(), 4294967285)
+    s = natIatCall(s, natRegRAX(), natIatGetStdHandle())
+    s = natCallReg(s, natRegRAX())
+    s = natAddRegImm32(s, natRegRSP(), 40)
+    s = natMovRegImm32(s, natRegRAX(), 0)
+    s = natRet(s)
+    let text = natFinish(s)
+    let p = natStImm64(s)
+    let ap = []
+    ap = appendArray(ap, p[0])
+    ap = appendArray(ap, natIatExitProcess())
+    ap = appendArray(ap, p[1])
+    ap = appendArray(ap, natIatGetStdHandle())
+    ap = appendArray(ap, p[2])
+    ap = appendArray(ap, natIatWriteFile())
+    let ip = []
+    ip = appendArray(ip, p[3])
+    ip = appendArray(ip, natIatExitProcess())
+    ip = appendArray(ip, p[4])
+    ip = appendArray(ip, natIatGetStdHandle())
+    return natToHex(natPELink(text, [], [], [], ip, ap, [], natPETextOff(), natPETextOff()))
+}
+
+// natIatCall emits `movabs rax, <IAT slot>` + `call rax`, the Win64 import call
+// shape the oracle's iatCall produces. The placeholder position is recorded so
+// natPELink can resolve it against .idata.
+func natIatCall(s, reg, slot) {
+    s = natMovImm64(s, natMovImm64Op(reg), 0)
+    return s
 }

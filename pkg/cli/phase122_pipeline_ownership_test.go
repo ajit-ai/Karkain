@@ -131,13 +131,47 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// (11412 text / 11412 verify), not predicted; kir verify passes on
 		// the new count).
 		// the pin is refreshed to the validated current value.
+		// and now to 11756 (increment 151A Step 5/6: the Windows entry
+		// (`and rsp, -16`), the loader-independent PEB bootstrap and its
+		// three export resolves, the Win64 exit tail and the native-value-win
+		// dispatch, plus the fourteen emitter primitives and the Step-6 PE
+		// composition helpers). Measured with `karkain kir --verify
+		// src/compiler/kir.kark` (11756 text / 11756 verify), NOT predicted --
+		// `kir verify` passes on the new count, so the growth is the new code
+		// rendering, not a structural break. The +344 delta is consistent with
+		// the functions and statements added; comments do not emit KIR.
+		// and now to 11859 (increment 151A Step 7: int `print` in kcc --
+		// natCqo/natDivReg/natStoreMem8/natPushReg/natPopReg/natJns plus their
+		// six natMask selector entries in native_emit.kark, and natSysWrite/
+		// natRodataRef/natWriteStdout/natPrintNewline/natPrintIntHelper/
+		// natPrintIntCorpus plus the native-value-print dispatch in main.kark).
+		// Measured with `karkain kir --verify src/compiler/kir.kark`
+		// (11859 text / 11859 verify), NOT predicted.
+		//
+		// The +103 is Step 7's delta ALONE, and it was measured rather than
+		// inferred: with the three Step-7 files reverted to their HEAD content
+		// in a scratch copy of the tree, the same command reports 11412 --
+		// which is exactly HEAD's own pin, so the baseline is real rather than
+		// assumed -- and 11859 - 11412 = 447, of which 11756 - 11412 = 344 is
+		// Steps 5/6, leaving 103 for Step 7. `kir verify` passes on the new
+		// count, so the growth is the new code rendering, not a break.
+		//
+		// Recorded because this was nearly misread as a regression: an earlier
+		// run of the Step 5 gate failed here with `karkain kir --verify`
+		// exiting 3 and empty output, and direct `kcc verifykir` exited
+		// 0xC0000005 on check/kir/verifykir alike. That was the documented
+		// ~4 GB host low-RAM class, NOT the new code: with free RAM above
+		// ~1.7 GB the identical command passes at 11859, and the all-HEAD
+		// scratch tree passed at 473 MB free. The crash did not reproduce on
+		// the working tree once memory was available, and no code was changed
+		// in response to it.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 11412 {
-			t.Errorf("whole-tree kir text = %d lines, want 11412:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 11859 {
+			t.Errorf("whole-tree kir text = %d lines, want 11859:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

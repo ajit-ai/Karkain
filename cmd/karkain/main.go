@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1726,6 +1726,32 @@ func main() {
 	// claimed for it.
 	if command == "native-value-start" {
 		result := cli.KCCNativeValueStartCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 5: the Windows entry, the PEB bootstrap and the Win64 exit
+	// tail, same STRUCTURAL contract as the Linux entry above. The emitted
+	// sequences have no `main` body and no `print`, so the corpus is not a
+	// runnable program; execution evidence for this sequence comes from the
+	// gate, which executes a real PE image carrying the same bytes.
+	if command == "native-value-win" {
+		result := cli.KCCNativeValueWinCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 7: int `print`, same STRUCTURAL contract as the arms
+	// above. The helper carries two kinds of content the earlier arms do not:
+	// a digit loop whose correctness depends on cqo/div agreeing, and an
+	// UNRESOLVED absolute rodata placeholder, since a rodata address is only
+	// known at link time. Arm 2 exists to pin that placeholder on its own.
+	if command == "native-value-print" {
+		result := cli.KCCNativeValuePrintCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

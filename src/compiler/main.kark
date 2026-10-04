@@ -162,6 +162,36 @@ func main() {
         return
     }
 
+    // Phase 151A Step 5: the Windows entry, the PEB bootstrap and the Win64 exit
+    // tail. Same measurement contract as native-value-start -- the four shapes are
+    // compiled into kcc and the gate compares them against the real pkg/native
+    // Emitter, which is the oracle. NO INPUT FILE and no Go fallback: a Go-side
+    // encoder producing the same bytes would pass the comparison while proving
+    // nothing about kcc, which is the exact dishonesty 151 was opened to remove.
+    if (command == "native-value-win") {
+        let wn = 0
+        while (wn < 7) {
+            if (wn == 4) { print(natWinExe(0)) }
+            if (wn == 5) { print(natWinExe(3)) }
+            if (wn == 6) { print(natWinExeC()) }
+            if (wn < 4) { print(natWinCorpus(wn)) }
+            wn = wn + 1
+        }
+        return
+    }
+
+    // Phase 151A Step 7: int `print`. Same measurement contract as the arms
+    // above -- the three shapes are compiled into kcc and the gate compares them
+    // against the real pkg/native Emitter. NO INPUT FILE and no Go fallback.
+    if (command == "native-value-print") {
+        let pn = 0
+        while (pn < 3) {
+            print(natPrintCorpus(pn))
+            pn = pn + 1
+        }
+        return
+    }
+
 	// Phase 151A Step 1: the native value/frame foundation. Same
 	// measurement contract as the four above -- the cases are compiled into
 	// kcc and the gate compares against pkg/native, which is the oracle.

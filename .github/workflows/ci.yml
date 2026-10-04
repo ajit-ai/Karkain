@@ -338,6 +338,35 @@ jobs:
       - name: Run 151A _start entry-stub and Linux exit-tail gate
         run: go test ./pkg/cli/ -run 'TestPhase151A4_' -count=1 -timeout 30m
 
+      # 151A Step 5/6: the Windows entry, the PEB bootstrap and the Win64 exit
+      # tail, plus EXECUTION of a KCC-PRODUCED PE.
+      #
+      # Named explicitly and with a distinct pattern: 'TestPhase151A4_' does not
+      # match 'TestPhase151A5_', so a Step 5 regression cannot hide behind a green
+      # Step 4 step. This step is NOT source-text validation -- it drives the real
+      # kcc binary's `native-value-win` subcommand (which has no Go fallback), so
+      # the images are assembled by kcc's own natPELink, and it EXECUTES them.
+      #
+      # It needs a Windows/amd64 host: the three Step-6 execution tests SKIP
+      # honestly elsewhere rather than passing vacuously, and the byte-identity
+      # and structural layers still run everywhere.
+      - name: Run 151A Step 5/6 Windows entry, PEB bootstrap and kcc-PE execution gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A5_' -count=1 -timeout 30m
+
+      # 151A Step 7: int `print` in kcc -- the first native surface that makes
+      # a program's OUTPUT observable, so whole-image parity stops being
+      # untestable for want of anything to compare.
+      #
+      # Named explicitly and with a distinct pattern: 'TestPhase151A5_' does not
+      # match 'TestPhase151A7_', so a Step 7 regression cannot hide behind a green
+      # Step 5/6 step. Like the steps above this is not source-text validation:
+      # it drives the real kcc binary's `native-value-print` subcommand (which
+      # has no Go fallback) and compares the emitted bytes against the REAL
+      # pkg/native Emitter and against an oracle image compiled from a program
+      # that prints.
+      - name: Run 151A Step 7 int print gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A7_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line
