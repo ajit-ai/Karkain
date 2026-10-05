@@ -778,3 +778,92 @@ rodata resolution for real programs yet. `print_float`, floats, arrays,
 remain open 151A work. No execution evidence is claimed for this slice: the
 corpus is a helper, not a program -- it has no `main`, no entry stub and no
 resolved rodata, so it cannot be run.
+
+## 15. 151A Step 8a - the SSE2 scalar-double primitives (IMPLEMENTED)
+
+Step 7 made a program's OUTPUT observable for ints. Step 8 opens the float
+half of the value model, and it opens with the ENCODER rather than with
+statements, for the reason every earlier step opened at the lowest layer
+first: nothing above the encoder can be trusted until the bytes underneath it
+are the oracle's bytes.
+
+**Scope.** The eight SSE2 scalar-double instructions the value model needs
+before any float statement can exist:
+
+| Karkain | Go (`pkg/native/emit.go`) | Encoding |
+|---|---|---|
+| `natAddsdXmmXmm` | `AddsdXmmXmm` | `F2` + REX + `0F 58` /r |
+| `natSubsdXmmXmm` | `SubsdXmmXmm` | `F2` + REX + `0F 5C` /r |
+| `natMulsdXmmXmm` | `MulsdXmmXmm` | `F2` + REX + `0F 59` /r |
+| `natDivsdXmmXmm` | `DivsdXmmXmm` | `F2` + REX + `0F 5E` /r |
+| `natUcomisdXmmXmm` | `UcomisdXmmXmm` | `66` + REX + `0F 2E` /r |
+| `natCvtsi2sdXmmGp` | `Cvtsi2sdXmmGp` | `F2` + REX.W + `0F 2A` /r |
+| `natCvttsd2siGpXmm` | `Cvttsd2siGpXmm` | `F2` + REX.W + `0F 2C` /r |
+| `natXorpdXmmXmm` | `XorpdXmmXmm` | `66` + REX + `0F 57` /r |
+
+Ten `natMask` selectors were appended at 53-62, continuing the table for the
+reason the Step 1 block records: a selector table is a shared namespace, and
+the Step 1 draft that started a block at 17 silently turned `natCall32`'s
+`0xE8` into a `0x89` mov.
+
+**The one subtlety this slice exists to pin.** The mandatory legacy prefix
+(`F2` / `66`) must be emitted BEFORE the REX byte, and the `0F` escape sits
+between them. The Go oracle emits `e.byte(0xF2); e.rex(...)` in that order and
+kcc reproduces it. Emit REX first and, for `xmm8`-`xmm15` -- exactly the
+registers REX.B selects -- the encoding silently changes meaning rather than
+failing, which is the worst possible failure mode: a wrong program that runs.
+
+**Corpus shape, and why it is not eight near-identical sequences.** A corpus of
+eight similar sequences passes while the one easy thing is wrong. The four arms
+cover the distinct encoding decisions instead:
+
+| Arm | Covers |
+|---|---|
+| 0 | four arithmetic ops on `xmm0 <- xmm1` -- no REX at all, so this is the ONLY arm that catches a spurious `0x40` |
+| 1 | `addsd xmm8,xmm9` and `divsd xmm15,xmm8` -- REX `0x45`, catches prefix/REX ordering |
+| 2 | the `F2` family adjacent to the `66` family in one sequence -- catches a swapped prefix |
+| 3 | both converts on high GP and high xmm registers -- the only arm with REX.W together with REX.R and REX.B |
+
+**Evidence.** Gate `pkg/cli/phase151a8_float_test.go`, 5/5 PASS: byte-identity
+against the REAL `pkg/native` Emitter on all four sequences (a differential,
+not a golden); SDM-derived bytes for one representative of each encoding shape,
+with the REX and ModRM fields computed from the field layout in the test rather
+than copied from output; occurrence of `addsd xmm0,xmm1` verbatim in the
+`.text` of a real oracle image compiled from a float program; non-vacuity and
+determinism, with a total-byte floor so a corpus that stopped carrying eight
+instructions could not report success; and the no-Go-fallback guard.
+
+**Mutation-verified, twice, and the first one is the interesting one.**
+
+* M1 emitted REX *before* the prefix in `natAddsdXmmXmm`. Result: `45 f2 0f
+  58 c1` instead of `f2 45 0f 58 c1`. Both the differential and the SDM layer
+  failed. **Arm 0 still passed**, because with `xmm0`/`xmm1` no REX is emitted
+  at all -- which is precisely why arm 1 exists, and why a corpus built only
+  from low registers would have shipped this bug.
+* M2 gave `natUcomisdXmmXmm` the `F2` family instead of `66`. Result: `f2 0f
+  2e c1`. Both layers failed.
+
+Both mutations were reverted and the file verified SHA-identical to its
+pre-mutation content.
+
+**KIR pin.** 11859 -> 11950, +91, measured with `karkain kir --verify
+src/compiler/kir.kark` (11950 text / 11950 verify), not predicted. The running
+arithmetic is now `11412 (HEAD) + 344 (Steps 5/6) + 103 (Step 7) + 91 (Step 8a)
+= 11950`. Re-pinned in both `phase122_pipeline_ownership_test.go` and
+`phase151a5_win_test.go`; `KIRContinuity` and `KIRPinHolds` both PASS.
+
+**Still NOT claimed.** No float STATEMENT exists in kcc: no `let` of a float,
+no float arithmetic lowering, no float comparison as a real branch, no float
+parameter, return or call. `print_float` is NOT ported -- it is a ~120
+instruction helper (`Builder.emitPrintFloatHelper`, `program.go:4185-4390`) that
+also needs `movq` in both directions, `movabs`, `and`, `shr`, `lea`, `movzx`
+byte-load and a store-at-offset primitive, none of which kcc has yet. The
+macOS entry/exit, and every other open item listed in section 14, remain open.
+`kccOwnsNativeTargets` stays `false`. No execution evidence is claimed: the
+corpus is instruction encodings, not a program.
+
+**Suggested next slice: Step 8b**, `print_float`, which is the other mandatory
+helper for observable output and is best done before statement lowering so
+that float output is possible at all. It should be gated the same way, and its
+`fresh()` label-allocation order must match the oracle's exactly, since the
+rel32 displacements depend on it.

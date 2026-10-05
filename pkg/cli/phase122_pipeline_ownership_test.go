@@ -165,13 +165,22 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// scratch tree passed at 473 MB free. The crash did not reproduce on
 		// the working tree once memory was available, and no code was changed
 		// in response to it.
+		// and now to 11950 (increment 151A Step 8a: the SSE2 scalar-double
+		// primitives in kcc -- natAddsdXmmXmm, natSubsdXmmXmm, natMulsdXmmXmm,
+		// natDivsdXmmXmm, natUcomisdXmmXmm, natCvtsi2sdXmmGp,
+		// natCvttsd2siGpXmm, natXorpdXmmXmm and natFloatCorpus in
+		// native_emit.kark, plus ten natMask selectors 53-62 and the
+		// native-value-float arm in main.kark). Measured with `karkain kir
+		// --verify src/compiler/kir.kark` (11950 text / 11950 verify), NOT
+		// predicted: 11950 - 11859 = 91, and `kir verify` passes on the new
+		// count, so the growth is the new code rendering and not a break.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 11859 {
-			t.Errorf("whole-tree kir text = %d lines, want 11859:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 11950 {
+			t.Errorf("whole-tree kir text = %d lines, want 11950:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

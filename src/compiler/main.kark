@@ -191,6 +191,17 @@ func main() {
         }
         return
     }
+    // Phase 151A Step 8a: the SSE2 scalar-double primitives. Structural only --
+    // these are instruction encodings, not a program, so there is nothing here
+    // to execute and no execution evidence is claimed.
+    if (command == "native-value-float") {
+        let fn8 = 0
+        while (fn8 < 4) {
+            print(natFloatCorpus(fn8))
+            fn8 = fn8 + 1
+        }
+        return
+    }
 
 	// Phase 151A Step 1: the native value/frame foundation. Same
 	// measurement contract as the four above -- the cases are compiled into

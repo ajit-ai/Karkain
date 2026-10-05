@@ -160,6 +160,26 @@ func natMask(which) {
     if (which == 50) { return 80 }                      // 0x50  push r64
     if (which == 51) { return 88 }                      // 0x58  pop r64
     if (which == 52) { return 137 }                     // 0x89  jns rel32 opcode
+    // Phase 151A Step 8a: SSE2 scalar-double primitives. These CONTINUE the
+    // table at 53 and never renumber, for the reason the Step 1 block records.
+    //
+    // THE PREFIX GOES BEFORE REX, and that ordering is the whole subtlety of
+    // these eight. pkg/native/emit.go emits `e.byte(0xF2); e.rex(...)`, not
+    // the reverse, and the two produce different bytes for every operand that
+    // needs a REX at all. An x86-64 legacy prefix must precede REX; a REX
+    // emitted first is not a prefix of the mandatory-prefix instruction, and
+    // for xmm8-15 (which is what REX.B selects) the encoding silently changes
+    // meaning rather than failing loudly.
+    if (which == 53) { return 242 }                     // 0xF2  mandatory prefix (packed / cvt)
+    if (which == 54) { return 102 }                     // 0x66  mandatory prefix (ucomisd / xorpd)
+    if (which == 55) { return 88 }                      // 0x58  addsd
+    if (which == 56) { return 92 }                      // 0x5C  subsd
+    if (which == 57) { return 89 }                      // 0x59  mulsd
+    if (which == 58) { return 94 }                      // 0x5E  divsd
+    if (which == 59) { return 46 }                      // 0x2E  ucomisd
+    if (which == 60) { return 42 }                      // 0x2A  cvtsi2sd
+    if (which == 61) { return 44 }                      // 0x2C  cvttsd2si
+    if (which == 62) { return 87 }                      // 0x57  xorpd
     return 0
 }
 
@@ -1060,4 +1080,141 @@ func natJns(s, label) {
     s = natByte(s, natMask(52))
     let r = natRel32(s, label)
     return r[0]
+}
+
+// ============================================================
+// Phase 151A Step 8a - SSE2 scalar-double primitives
+//
+// Each is the byte-for-byte counterpart of the identically named method in
+// pkg/native/emit.go, and each reproduces that method's EMISSION ORDER rather
+// than just its opcode:
+//
+//     e.byte(prefix); e.rex(w, reg, rm); e.byte(0x0F); e.byte(op); e.modrm(3, reg, rm)
+//
+// The order matters twice over. The legacy mandatory prefix (0xF2 / 0x66)
+// precedes REX -- see the natMask Step 8a block for why that is not
+// interchangeable -- and the 0x0F escape byte sits BETWEEN the REX and the
+// opcode, which is the one place it is legal.
+//
+// ModRM is mod=11 (register form) throughout: there is no memory operand in
+// any of these eight, so no SIB byte and no displacement.
+//
+// `natRex(s, w, dst, src)` maps onto the Go `rex(w, Reg(dst), Reg(src))`:
+// the destination is the ModRM.reg field and the source is the ModRM.rm
+// field. That is true of all eight, including the two converts, where the
+// roles look reversed until you notice the Go side still passes them in the
+// same order and then writes `modrm(3, dst.low(), src.low())` unchanged.
+func natAddsdXmmXmm(s, dst, src) {
+    s = natByte(s, natMask(53))
+    s = natRex(s, 0, dst, src)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(55))
+    return natModrm(s, 3, dst, src)
+}
+
+func natSubsdXmmXmm(s, dst, src) {
+    s = natByte(s, natMask(53))
+    s = natRex(s, 0, dst, src)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(56))
+    return natModrm(s, 3, dst, src)
+}
+
+func natMulsdXmmXmm(s, dst, src) {
+    s = natByte(s, natMask(53))
+    s = natRex(s, 0, dst, src)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(57))
+    return natModrm(s, 3, dst, src)
+}
+
+func natDivsdXmmXmm(s, dst, src) {
+    s = natByte(s, natMask(53))
+    s = natRex(s, 0, dst, src)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(58))
+    return natModrm(s, 3, dst, src)
+}
+
+// natUcomisdXmmXmm emits ucomisd, which sets CF/ZF/PF for the unordered
+// compare. It takes 0x66, not 0xF2: the SSE2 double compare is the one member
+// of this family keyed on 66 rather than F2, and using F2 here would assemble
+// a different instruction rather than fail.
+func natUcomisdXmmXmm(s, dst, src) {
+    s = natByte(s, natMask(54))
+    s = natRex(s, 0, dst, src)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(59))
+    return natModrm(s, 3, dst, src)
+}
+
+// The two converts carry REX.W because their GP operand is 64-bit. Their xmm
+// operand is packed-double regardless, so the prefix stays 0xF2 in both
+// directions.
+func natCvtsi2sdXmmGp(s, dst, src) {
+    s = natByte(s, natMask(53))
+    s = natRex(s, 1, dst, src)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(60))
+    return natModrm(s, 3, dst, src)
+}
+
+func natCvttsd2siGpXmm(s, dst, src) {
+    s = natByte(s, natMask(53))
+    s = natRex(s, 1, dst, src)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(61))
+    return natModrm(s, 3, dst, src)
+}
+
+func natXorpdXmmXmm(s, dst, src) {
+    s = natByte(s, natMask(54))
+    s = natRex(s, 0, dst, src)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(62))
+    return natModrm(s, 3, dst, src)
+}
+
+// natFloatCorpus emits the Step 8a reference sequences, one hex line per arm.
+//
+// The arms are chosen to cover every DISTINCT encoding decision in this block
+// rather than one per primitive, because a corpus of eight near-identical
+// sequences would pass while the prefix/REX ordering was wrong:
+//
+//   0. all four arithmetic ops on xmm0 <- xmm1, the common case: no REX at all
+//      (both registers are 0/1), so this arm is the ONLY one that would notice
+//      a spurious 0x40.
+//   1. addsd xmm8 <- xmm9: both fields need REX, so REX = 0x45 and the prefix
+//      must land BEFORE it. A reversed order emits a different instruction.
+//   2. ucomisd xmm0 <- xmm1 (the 0x66 family) next to addsd (the 0xF2 family),
+//      in one sequence, so swapping the two prefixes is visible.
+//   3. both converts on high GP + high xmm registers, which is the only arm
+//      that exercises REX.W together with REX.R and REX.B at once.
+func natFloatCorpus(which) {
+    let s = natNewEmitter(0)
+    if (which == 0) {
+        s = natAddsdXmmXmm(s, 0, 1)
+        s = natSubsdXmmXmm(s, 0, 1)
+        s = natMulsdXmmXmm(s, 0, 1)
+        s = natDivsdXmmXmm(s, 0, 1)
+        return natToHex(natFinish(s))
+    }
+    if (which == 1) {
+        s = natAddsdXmmXmm(s, 8, 9)
+        s = natDivsdXmmXmm(s, 15, 8)
+        return natToHex(natFinish(s))
+    }
+    if (which == 2) {
+        s = natAddsdXmmXmm(s, 0, 1)
+        s = natUcomisdXmmXmm(s, 0, 1)
+        s = natXorpdXmmXmm(s, 0, 1)
+        return natToHex(natFinish(s))
+    }
+    if (which == 3) {
+        s = natCvtsi2sdXmmGp(s, 0, 8)
+        s = natCvttsd2siGpXmm(s, 9, 0)
+        s = natCvtsi2sdXmmGp(s, 15, 15)
+        return natToHex(natFinish(s))
+    }
+    return ""
 }

@@ -367,6 +367,17 @@ jobs:
       - name: Run 151A Step 7 int print gate
         run: go test ./pkg/cli/ -run 'TestPhase151A7_' -count=1 -timeout 30m
 
+      # 151A Step 8a: the SSE2 scalar-double primitives in kcc, the first float
+      # encodings the self-hosted engine can emit. A separate step with a
+      # distinct pattern for the reason above: 'TestPhase151A7_' does not match
+      # 'TestPhase151A8_', so a Step 8a regression cannot hide behind a green
+      # Step 7 step. The gate compares kcc's bytes against the REAL pkg/native
+      # Emitter and against an oracle image compiled from a float program; the
+      # thing it exists to pin is that the mandatory legacy prefix precedes the
+      # REX byte.
+      - name: Run 151A Step 8a float primitive gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A8_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line

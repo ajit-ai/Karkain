@@ -46,6 +46,7 @@ import (
 	"karkain/pkg/native"
 	"karkain/pkg/parser"
 )
+
 // goWinNamePairs derives the 16-bit character-pair constants the export walk
 // compares against, FROM THE NAME STRING. The oracle builds them inline as
 // uint32(name[k]) | uint32(name[k+1])<<8 (program.go emitWinResolve), so this
@@ -83,22 +84,22 @@ func goWinNamePairs(name string) []uint32 {
 func goWinResolve(e *native.Emitter, name string, idx int) {
 	e.LoadBaseOff32(native.RCX, native.R10, 0x3C) // e_lfanew
 	e.MovRegReg(native.RDX, native.R10)
-	e.AddRegReg(native.RDX, native.RCX)    // RDX = NT headers
+	e.AddRegReg(native.RDX, native.RCX) // RDX = NT headers
 	// Export directory at NT+136 (COFF 24 + Optional 112). +96 is the 32-bit
 	// header shape and reads garbage -- measured in Phase 149.
 	e.LoadBaseOff32(native.RCX, native.RDX, 136)
 	e.MovRegReg(native.RDX, native.R10)
-	e.AddRegReg(native.RDX, native.RCX)    // RDX = export directory
+	e.AddRegReg(native.RDX, native.RCX)         // RDX = export directory
 	e.LoadBaseOff32(native.R9, native.RDX, 24)  // NumberOfNames
 	e.LoadBaseOff32(native.RCX, native.RDX, 32) // AddressOfNames
 	e.MovRegReg(native.RSI, native.R10)
-	e.AddRegReg(native.RSI, native.RCX)    // RSI = namesPtr
+	e.AddRegReg(native.RSI, native.RCX)         // RSI = namesPtr
 	e.LoadBaseOff32(native.RCX, native.RDX, 36) // AddressOfNameOrdinals
 	e.MovRegReg(native.RDI, native.R10)
-	e.AddRegReg(native.RDI, native.RCX)    // RDI = ordPtr
+	e.AddRegReg(native.RDI, native.RCX)         // RDI = ordPtr
 	e.LoadBaseOff32(native.RCX, native.RDX, 28) // AddressOfFunctions
 	e.MovRegReg(native.RBP, native.R10)
-	e.AddRegReg(native.RBP, native.RCX)    // RBP = funcsPtr
+	e.AddRegReg(native.RBP, native.RCX) // RBP = funcsPtr
 	sfx := itoa151A5(idx)
 	loopLbl := "exp$loop$" + sfx
 	nextLbl := "exp$next$" + sfx
@@ -109,7 +110,7 @@ func goWinResolve(e *native.Emitter, name string, idx int) {
 	e.Jz(failLbl)
 	e.LoadBaseOff32(native.RCX, native.RSI, 0) // nameRVA
 	e.MovRegReg(native.RDX, native.R10)
-	e.AddRegReg(native.RDX, native.RCX)    // RDX = candidate name
+	e.AddRegReg(native.RDX, native.RCX) // RDX = candidate name
 	for k := 0; k < len(name); k += 2 {
 		e.MovzxRegMem16(native.R8, native.RDX, k)
 		e.CmpRegImm32(native.R8, goWinNamePairs(name)[k/2])
@@ -118,7 +119,7 @@ func goWinResolve(e *native.Emitter, name string, idx int) {
 	e.MovzxRegMem16(native.R8, native.RDI, 0) // ordinal
 	e.LoadScaled32(native.RAX, native.RBP, native.R8, 4, 0)
 	e.MovRegReg(native.RDX, native.R10)
-	e.AddRegReg(native.RDX, native.RAX)      // RDX = resolved address
+	e.AddRegReg(native.RDX, native.RAX) // RDX = resolved address
 	// 48 A3 stores RAX specifically (moffs is accumulator-only), so the
 	// resolved address moves RDX -> RAX first. Storing RDX published the raw
 	// function RVA -- the Phase-149 defect.
@@ -151,19 +152,19 @@ func itoa151A5(n int) string {
 
 // goWinBootstrap reproduces emitWinBootstrap byte for byte.
 func goWinBootstrap(e *native.Emitter) {
-	e.MovRegGsMem(native.RAX, 0x60)            // PEB
+	e.MovRegGsMem(native.RAX, 0x60)             // PEB
 	e.LoadBaseOff(native.RAX, native.RAX, 0x18) // PEB->Ldr
 	e.LoadBaseOff(native.RAX, native.RAX, 0x20) // InMemoryOrder head
 	e.MovRegImm32(native.R11, 64)               // walk bound
 	e.Mark("k32$walk")
-	e.LoadBaseOff(native.RAX, native.RAX, 0)    // Flink -> entry links
+	e.LoadBaseOff(native.RAX, native.RAX, 0) // Flink -> entry links
 	e.MovRegReg(native.RBX, native.RAX)
-	e.SubRegImm32(native.RBX, 0x10)             // links field -> entry base
+	e.SubRegImm32(native.RBX, 0x10) // links field -> entry base
 	// 64-bit LDR_DATA_TABLE_ENTRY: DllBase +0x30, BaseDllName +0x58
 	// (Length +0, Buffer +8). The 32-bit +0x28/+0x50 shape skipped every module
 	// into the Int3 -- measured in Phase 149.
 	e.MovzxRegMem16(native.RCX, native.RBX, 0x58)
-	e.CmpRegImm32(native.RCX, 24)               // "kernel32.dll" is 24 bytes
+	e.CmpRegImm32(native.RCX, 24) // "kernel32.dll" is 24 bytes
 	e.Jnz("k32$next")
 	e.LoadBaseOff(native.RDX, native.RBX, 0x60) // BaseDllName.Buffer
 	// BaseDllName arrives UPPERCASE from the PEB (Phase-149 ground truth), so
@@ -186,6 +187,7 @@ func goWinBootstrap(e *native.Emitter) {
 	goWinResolve(e, "GetStdHandle", 1)
 	goWinResolve(e, "WriteFile", 2)
 }
+
 // goWinStart reproduces the whole Windows _start: alignment, bootstrap, the call
 // to main, and the Win64 exit tail -- in the oracle's order (program.go 1593-1608).
 //
@@ -683,11 +685,18 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	if text != verify {
 		t.Errorf("kir text %d != kir verify %d", text, verify)
 	}
-	if text != 11859 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 11859 (11412 + 344 Steps 5/6 + 103 Step 7); output follows: %s", text, out)
+	// The pin is shared with TestPhase122_PipelineOwnership/KIRContinuity and
+	// moves with the code. 11412 is HEAD's baseline; Steps 5/6 added 344, Step 7
+	// added 103, and Step 8a (the eight SSE2 float primitives plus their ten
+	// natMask selectors and the corpus) added 91 -- 11412 + 344 + 103 + 91 =
+	// 11950, each step measured with `karkain kir --verify src/compiler/kir.kark`
+	// rather than predicted.
+	if text != 11950 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 11950 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a); output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }
+
 // TestPhase151A5_ExecutionCaseC_PEBDependent is L3, Case C stated separately so
 // the bootstrap is not merely "emitted".
 //

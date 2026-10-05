@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1752,6 +1752,19 @@ func main() {
 	// known at link time. Arm 2 exists to pin that placeholder on its own.
 	if command == "native-value-print" {
 		result := cli.KCCNativeValuePrintCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 8a: the SSE2 scalar-double primitives, same STRUCTURAL
+	// contract as the arms above. These are instruction encodings rather than a
+	// program, so there is nothing here to execute and no execution evidence is
+	// claimed. The one subtlety the sequences exist to pin is prefix-before-REX
+	// ordering.
+	if command == "native-value-float" {
+		result := cli.KCCNativeValueFloatCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

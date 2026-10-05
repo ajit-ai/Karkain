@@ -209,6 +209,16 @@ func KCCNativeValuePrintCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-print")
 }
 
+// KCCNativeValueFloatCommand runs the 151A Step 8a measurement: the eight SSE2
+// scalar-double primitives, in four sequences chosen to cover every distinct
+// encoding decision rather than one per primitive.
+//
+// Same no-Go-fallback contract as every other command in this file. The
+// sequences are compiled into kcc; the Go side only runs it.
+func KCCNativeValueFloatCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-float")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //
