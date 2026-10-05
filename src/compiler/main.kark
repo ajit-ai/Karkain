@@ -196,7 +196,7 @@ func main() {
     // to execute and no execution evidence is claimed.
     if (command == "native-value-float") {
         let fn8 = 0
-        while (fn8 < 4) {
+        while (fn8 < 5) {
             print(natFloatCorpus(fn8))
             fn8 = fn8 + 1
         }
