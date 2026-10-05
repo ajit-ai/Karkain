@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "native-value-call", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1776,6 +1776,18 @@ func main() {
 	// there is nothing to execute and no execution evidence is claimed.
 	if command == "native-value-floatstmt" {
 		result := cli.KCCNativeValueFloatStmtCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 8d: the call ABI, int first. Seven reference shapes, same
+	// STRUCTURAL contract -- not a program, so nothing to execute and no
+	// execution evidence is claimed. The frame is NOT touched: the per-arg spill
+	// is addressed downward from the frame size and Step 1 already reserved it.
+	if command == "native-value-call" {
+		result := cli.KCCNativeValueCallCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

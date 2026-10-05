@@ -2122,3 +2122,156 @@ func natFloatLocal(off) {
     return natToHex(natFinish(s))
 }
 
+// ============================================================
+// Phase 151A Step 8d - the call ABI (int first)
+//
+// Phase 148's convention, which this slice ports:
+//
+//   CALLER. Each argument is evaluated and staged to the per-arg spill, then
+//   all units are loaded back into the argument registers, the extras pointer
+//   is materialised if any unit exceeded the budget, and the call is made.
+//   Units 0-5 travel in RDI,RSI,RDX,RCX,R8,R9; further units travel in the
+//   CALLER's extras area, addressed through R10.
+//
+//   CALLEE. After `sub rsp, frame`, each parameter's unit is homed from its
+//   argument register into its frame slot; units past the budget are read
+//   through R10. The homing happens at entry, before R10 can die.
+//
+// WHY THE FRAME IS NOT TOUCHED. The per-arg spill is NOT a separate region
+// inserted before extrasBase. The oracle computes
+//
+//     argTemp(i) = frame - argSpillBytes + i*16
+//
+// i.e. it indexes DOWNWARD from the frame size, 16 bytes per argument. Phase
+// 151A Step 1 already reserved exactly that: native_value.kark computes
+// `frame = next + natArgSpillBytes()` with argSpillBytes() = 96 (6 x 16) and
+// exposes frame as layout slot 6. No region is inserted and NOTHING moves, which
+// is why this slice asserts the frame numbers and the whole-tree KIR pin are
+// UNCHANGED. Had a region genuinely been missing, extrasBase, next and frame
+// would all have shifted, along with every frame-dependent displacement in
+// Steps 1-8c. Their not moving is the evidence the reading is right.
+//
+// SCOPE IS INT ONLY. Every int takes ONE unit, so stageUnit's string special
+// case -- where RSI is the high half of a two-unit argument and lands 8 bytes
+// higher -- cannot arise here. Float is also one unit (kindUnits(KindFloat) == 1)
+// and therefore rides the identical path; it is a kind-plumbing follow-up, not
+// new emission.
+
+// natArgTemp mirrors Builder.argTemp: the caller-side per-argument spill at the
+// top of the frame, addressed downward from the frame size.
+func natArgTemp(i, frame) { return frame - natArgSpillBytes() + i * 16 }
+
+// natCallArgsN mirrors emitCallValue for N int arguments, units 0..N-1 all
+// within the register budget: stage every argument, then load every unit back.
+func natCallArgsN(vals, n, frame) {
+    let s = natNewEmitter(0)
+    let i = 0
+    while (i < n) {
+        s = natMovRegImm64(s, natRegRAX(), vals[i])
+        s = natStoreStack(s, natRegRAX(), natArgTemp(i, frame))
+        i = i + 1
+    }
+    i = 0
+    while (i < n) {
+        s = natLoadStack(s, natArgReg(i), natArgTemp(i, frame))
+        i = i + 1
+    }
+    s = natCall32(s)
+    let r = natRel32(s, "fn_f")
+    s = natMark(r[0], "fn_f")
+    return natToHex(natFinish(s))
+}
+
+// natCallArgsExtras mirrors the same call with SEVEN int arguments, so unit 6
+// exceeds the register budget. That unit is staged straight to the extras area
+// (no spill slot), and R10 is loaded with the extras base so the callee can read
+// it.
+func natCallArgsExtras(vals, frame, extrasBase) {
+    let s = natNewEmitter(0)
+    let i = 0
+    while (i < 7) {
+        s = natMovRegImm64(s, natRegRAX(), vals[i])
+        if (i < 6) {
+            s = natStoreStack(s, natRegRAX(), natArgTemp(i, frame))
+        } else {
+            s = natStoreStack(s, natRegRAX(), extrasBase)
+        }
+        i = i + 1
+    }
+    i = 0
+    while (i < 6) {
+        s = natLoadStack(s, natArgReg(i), natArgTemp(i, frame))
+        i = i + 1
+    }
+    s = natLeaRegStack(s, natRegR10(), extrasBase)
+    s = natCall32(s)
+    let r = natRel32(s, "fn_f")
+    s = natMark(r[0], "fn_f")
+    return natToHex(natFinish(s))
+}
+
+// natPrologueArgsN mirrors the callee's arg homing for N parameters, all within
+// the register budget: each parameter's slot is written from its argument
+// register, in parameter order.
+func natPrologueArgsN(n, frame, localsBytes) {
+    let s = natNewEmitter(0)
+    s = natSubRegImm32(s, natRegRSP(), frame)
+    let i = 0
+    while (i < n) {
+        s = natStoreStack(s, natArgReg(i), localsBytes + i * 8)
+        i = i + 1
+    }
+    return natToHex(natFinish(s))
+}
+
+// natPrologueExtras mirrors the callee's homing when a parameter's unit sits
+// past the register budget: it is read through R10 at (unit-6)*8 and stored.
+// The read happens at ENTRY, before R10 can be clobbered by anything else.
+func natPrologueExtras(n, frame, localsBytes) {
+    let s = natNewEmitter(0)
+    s = natSubRegImm32(s, natRegRSP(), frame)
+    let i = 0
+    while (i < n) {
+        if (i < 6) {
+            s = natStoreStack(s, natArgReg(i), localsBytes + i * 8)
+        } else {
+            s = natLoadBaseOff(s, natRegRAX(), natRegR10(), (i - 6) * 8)
+            s = natStoreStack(s, natRegRAX(), localsBytes + i * 8)
+        }
+        i = i + 1
+    }
+    return natToHex(natFinish(s))
+}
+
+// natArgReg returns the argument register for unit i: RDI,RSI,RDX,RCX,R8,R9.
+func natArgReg(i) {
+    if (i == 0) { return natRegRDI() }
+    if (i == 1) { return natRegRSI() }
+    if (i == 2) { return natRegRDX() }
+    if (i == 3) { return natRegRCX() }
+    if (i == 4) { return natRegR8() }
+    return natRegR9()
+}
+
+// natCallCorpus emits the Step 8d reference sequences.
+//
+// The literals are 1..7 so each staged value is distinguishable from its
+// neighbours in a hex dump -- a corpus of identical values would hide an
+// off-by-one in the spill indexing, which is precisely the bug this slice could
+// plausibly introduce.
+//
+// `frame` and `extrasBase` are passed in rather than computed here, so the test
+// states the oracle's real layout numbers and this file gains no magic numbers.
+func natCallCorpus(which, frame, extrasBase, localsBytes) {
+    let one = [7]
+    let three = [7, 11, 13]
+    let seven = [7, 11, 13, 17, 19, 23, 29]
+    if (which == 0) { return natCallArgsN(one, 1, frame) }
+    if (which == 1) { return natCallArgsN([7, 11], 2, frame) }
+    if (which == 2) { return natCallArgsN(three, 3, frame) }
+    if (which == 3) { return natCallArgsExtras(seven, frame, extrasBase) }
+    if (which == 4) { return natPrologueArgsN(1, frame, localsBytes) }
+    if (which == 5) { return natPrologueArgsN(3, frame, localsBytes) }
+    if (which == 6) { return natPrologueExtras(7, frame, localsBytes) }
+    return ""
+}

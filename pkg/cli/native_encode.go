@@ -230,6 +230,17 @@ func KCCNativeValueFloatStmtCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-floatstmt")
 }
 
+// KCCNativeValueCallCommand runs the 151A Step 8d measurement: the call ABI,
+// int first.
+//
+// Seven shapes: calls with one, two and three register-budget arguments, a
+// seven-argument call that spills unit 6 into the extras area and materialises
+// R10, and the callee's homing for one, three and seven parameters. Same
+// no-Go-fallback contract.
+func KCCNativeValueCallCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-call")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //

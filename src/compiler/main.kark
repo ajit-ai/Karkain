@@ -218,6 +218,22 @@ func main() {
         }
         return
     }
+    // Phase 151A Step 8d: the call ABI, int first. Seven reference shapes --
+    // calls with one, two and three register-budget arguments, a seven-argument
+    // call that spills unit 6 into the extras area and materialises R10, and the
+    // callee's homing for one, three and seven parameters.
+    //
+    // frame = 616 and extrasBase = 608 are the ORACLE's real layout numbers for
+    // a one-local frame (locals 8 + binTemp 512 + argSpill 96), passed in so the
+    // test states them and this file gains no magic numbers.
+    if (command == "native-value-call") {
+        let cc = 0
+        while (cc < 7) {
+            print(natCallCorpus(cc, 616, 608, 8))
+            cc = cc + 1
+        }
+        return
+    }
 
 	// Phase 151A Step 1: the native value/frame foundation. Same
 	// measurement contract as the four above -- the cases are compiled into

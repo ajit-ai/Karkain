@@ -394,6 +394,15 @@ jobs:
       - name: Run 151A Step 8c float statement gate
         run: go test ./pkg/cli/ -run 'TestPhase151A8c_' -count=1 -timeout 30m
 
+      # 151A Step 8d: the call ABI, int first. Distinct pattern on purpose:
+      # 'TestPhase151A8c_' does not match 'TestPhase151A8d_'. This gate also
+      # asserts the frame is UNCHANGED, which is the evidence for a corrected
+      # misreading: the per-arg spill is addressed downward from the frame size
+      # and Step 1 already reserved it, so no region was inserted and no
+      # frame-dependent displacement moved.
+      - name: Run 151A Step 8d call ABI gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A8d_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line

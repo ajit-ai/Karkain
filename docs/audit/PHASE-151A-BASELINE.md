@@ -1113,3 +1113,110 @@ stays `false`.
 function table, which completes the float kind end to end and is the last thing
 between the float value model and `emitLet`/`emitExpr` being able to *dispatch* on
 a real function's float locals.
+## 18. 151A Step 8d - the call ABI, int first (IMPLEMENTED)
+
+Phase 148's convention, ported: the caller stages every argument to a per-arg
+spill, loads all units back into RDI,RSI,RDX,RCX,R8,R9, materialises R10 with
+the extras base if any unit exceeded the budget, and calls; the callee homes
+each parameter from its argument register into its frame slot at entry, before
+R10 can die.
+
+### A misreading, corrected before it cost anything
+
+This slice was originally scoped as "float parameters, returns and calls", and an
+intervening analysis claimed it required inserting a new frame region for the
+per-arg spill, which would have shifted `extrasBase`, `next` and `frame` and
+re-pinned every frame-dependent displacement in Steps 1-8c.
+
+**That analysis was wrong**, and the correction matters more than the slice. The
+oracle does not insert a region. It computes:
+
+```go
+func (b *Builder) argTemp(i int) int {
+    return b.frame - argSpillBytes + i*16
+}
+```
+
+The spill is addressed **downward from the frame size**, 16 bytes per argument.
+Phase 151A Step 1 had already reserved exactly that: `native_value.kark`
+computes `frame = next + natArgSpillBytes()` with `argSpillBytes() = 96`
+(6 x 16) and exposes `frame` as layout slot 6.
+
+So no region is inserted and **nothing in the frame moves**. The slice's own
+gate asserts this negatively: `TestPhase151A8d_FrameIsUnchanged` checks the
+prologue still subtracts 616 and that `argTemp(0) + 96 == frame`. Had a region
+really been missing, those could not hold.
+
+### Scope: int only, and why floats still wait
+
+Every int is ONE unit, so `stageUnit`'s string special case -- where RSI is the
+high half of a two-unit argument and lands 8 bytes higher -- cannot arise here.
+Float is also one unit (`kindUnits(KindFloat) == 1`), so it rides the identical
+path and needs only kind plumbing, which is a separate follow-up rather than new
+emission.
+
+### Implementation
+
+`natArgTemp(i, frame)`, `natCallArgsN`, `natCallArgsExtras`, `natPrologueArgsN`,
+`natPrologueExtras`, `natArgReg(i)`, and the seven-arm `natCallCorpus`. The
+literals are 1..7 so each staged value is distinguishable in a hex dump: a
+corpus of identical values would hide an off-by-one in the spill indexing, which
+is exactly the bug this slice could plausibly introduce. `frame` and
+`extrasBase` are passed in from the caller, so the test states the oracle's real
+layout numbers and the kcc file gains no magic numbers.
+
+**RAW differential.** Every primitive involved is exported
+(`MovRegImm64`, `StoreStack`, `LoadStack`, `LoadBaseOff`, `LeaRegStack`, `Call`,
+`Mark`, `SubRegImm32`) and none of these shapes contains a rodata reference, so
+the oracle is built with the real Emitter and compared with no masking.
+
+### Evidence
+
+Gate `pkg/cli/phase151a8d_call_test.go`, 6/6 PASS: all seven arms byte-for-byte
+equal to the real Go Emitter; the spill indexing derived independently in the
+test with the 16-byte stride asserted; the extras unit shown to travel to the
+extras area rather than a spill slot, with R10 materialised; the frame asserted
+unchanged; non-vacuity and determinism; and the no-Go-fallback guard.
+
+**Mutation-verified.** M1 staged unit 6 to a spill slot instead of the extras
+area. Both the differential and the dedicated extras subtest failed, the latter
+printing the offending bytes.
+
+### Three wrong expectations in the test, all mine, all caught
+
+1. **`e.Call("fn_f")` panicked** because the label was never marked. The Go
+   emitter panics on a reference to an unmarked label by design; kcc raises
+   `error[K117]`. Both are the same contract in their own language, and the
+   transcription needed the same `Mark` the kcc corpus has.
+2. **The spill encoding was assumed to be disp8.** `argTemp(0) = 520` does not
+   fit a signed byte, so the encoding is `mod=10` with a disp32. The test read a
+   displacement of 8 off an unrelated store. The fix checks the RANGE first and
+   builds the expected encoding from it -- the same class of mistake as assuming
+   a literal fits a signed field.
+3. **`callExtras = 608` was written into a disp8 byte.** Same class again: 608
+   does not fit, so the store and the `lea` are asserted in their disp32 form.
+
+### One implementation slip
+
+The first build emitted **all zeros for all four call arms**, because `fn_f` was
+referenced but never `Mark`ed -- the oracle's callee label is marked by the
+function's own definition, which a self-contained corpus does not have. Same root
+cause as Step 8c's `$false`, now the second time this corpus shape has needed it.
+
+**KIR pin.** 12302 -> 12389, +87, measured with `karkain kir --verify
+src/compiler/kir.kark`. Running arithmetic:
+`11412 + 344 + 103 + 91 + 213 + 139 + 87 = 12389`. The delta is code growth only;
+no frame displacement moved. `KIRContinuity`, `KIRPinHolds` and the full
+`TestPhase151*` sweep are green.
+
+**Still NOT claimed.** No execution evidence: seven reference shapes, not a
+program. String and record arguments are out of scope -- int only -- so the
+`stageUnit` high-half case and the two-unit path are NOT covered. Float
+parameters, returns and calls are NOT covered, for the reason above. Arrays,
+arena, string ops, `push`, records, maps and the macOS entry/exit remain open.
+`kccOwnsNativeTargets` stays `false`.
+
+**Suggested next slice: Step 8e**, floats through the call ABI -- the kind
+plumbing only, which should be small now that the mechanism exists and is gated.
+Alternatively, strings, which need the two-unit `stageUnit` path and would close
+the register/extras boundary for the first time.
