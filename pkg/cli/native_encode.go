@@ -219,6 +219,17 @@ func KCCNativeValueFloatCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-float")
 }
 
+// KCCNativeValueFloatStmtCommand runs the 151A Step 8c measurement: float
+// statement lowering, which is the first slice where an expression lowering
+// exists and the Step 8a primitives plus the Step 8b helper become reachable
+// from actual code.
+//
+// Thirteen arms: the literal store, the local reload, `+ - * /`, unary
+// negation, and the six comparisons. Same no-Go-fallback contract.
+func KCCNativeValueFloatStmtCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-floatstmt")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //

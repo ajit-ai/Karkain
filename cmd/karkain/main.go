@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1765,6 +1765,17 @@ func main() {
 	// ordering.
 	if command == "native-value-float" {
 		result := cli.KCCNativeValueFloatCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 8c: float statement lowering. Thirteen reference shapes,
+	// same STRUCTURAL contract. Not a program -- no `main`, no entry stub -- so
+	// there is nothing to execute and no execution evidence is claimed.
+	if command == "native-value-floatstmt" {
+		result := cli.KCCNativeValueFloatStmtCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

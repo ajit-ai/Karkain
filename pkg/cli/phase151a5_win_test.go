@@ -688,13 +688,15 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// The pin is shared with TestPhase122_PipelineOwnership/KIRContinuity and
 	// moves with the code. 11412 is HEAD's baseline; Steps 5/6 added 344, Step 7
 	// added 103, Step 8a (the eight SSE2 float primitives plus their ten
-	// natMask selectors and the corpus) added 91, and Step 8b (print_float --
+	// natMask selectors and the corpus) added 91, Step 8b (print_float --
 	// eight more primitives, the six more natMask selectors 63-68 they need, and
-	// the 180-line helper itself) added 213:
-	// 11412 + 344 + 103 + 91 + 213 = 12163. Each step was measured with
+	// the 180-line helper itself) added 213, and Step 8c (float statement
+	// lowering -- three more branches, six natMask selectors 69-71, and the
+	// thirteen-arm corpus) added 139:
+	// 11412 + 344 + 103 + 91 + 213 + 139 = 12302. Each step was measured with
 	// `karkain kir --verify src/compiler/kir.kark` rather than predicted.
-	if text != 12163 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 12163 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a + 213 Step 8b); output follows: %s", text, out)
+	if text != 12302 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 12302 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a + 213 Step 8b + 139 Step 8c); output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

@@ -386,6 +386,14 @@ jobs:
       - name: Run 151A Step 8b print_float gate
         run: go test ./pkg/cli/ -run 'TestPhase151A8b_' -count=1 -timeout 30m
 
+      # 151A Step 8c: float statement lowering -- the first slice where an
+      # EXPRESSION LOWERING exists, so the Step 8a primitives and the Step 8b
+      # helper become reachable from actual code. Distinct pattern on purpose:
+      # 'TestPhase151A8b_' does not match 'TestPhase151A8c_', so a Step 8c
+      # regression cannot hide behind a green Step 8b step.
+      - name: Run 151A Step 8c float statement gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A8c_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line

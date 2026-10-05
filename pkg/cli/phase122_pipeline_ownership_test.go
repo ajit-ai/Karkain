@@ -182,13 +182,20 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// `karkain kir --verify src/compiler/kir.kark` (12163 text / 12163
 		// verify), NOT predicted: 12163 - 11950 = 213, and `kir verify` passes
 		// on the new count.
+		// and now to 12302 (increment 151A Step 8c: float statement lowering in
+		// kcc -- natJp, natJbe and natJb plus six natMask selectors 69-71 in
+		// native_emit.kark, and natFloatLit/natFloatLet/natFloatLocal/
+		// natFloatBinary/natFloatDiv/natFloatNeg/natFloatCond/natFloatStmtCorpus
+		// in native_value.kark). Measured with `karkain kir --verify
+		// src/compiler/kir.kark` (12302 text / 12302 verify), NOT predicted:
+		// 12302 - 12163 = 139.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 12163 {
-			t.Errorf("whole-tree kir text = %d lines, want 12163:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 12302 {
+			t.Errorf("whole-tree kir text = %d lines, want 12302:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

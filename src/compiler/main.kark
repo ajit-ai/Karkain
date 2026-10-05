@@ -202,6 +202,22 @@ func main() {
         }
         return
     }
+    // Phase 151A Step 8c: float STATEMENT lowering -- the first slice where an
+    // expression lowering exists, so the Step 8a primitives and the Step 8b
+    // helper become reachable from actual code. Thirteen arms covering the
+    // literal store, the local reload, the four arithmetic ops, unary negation
+    // and the six comparisons.
+    //
+    // The two IEEE-754 patterns are passed in rather than written here, so the
+    // constants live in one place and this file gains no new magic numbers.
+    if (command == "native-value-floatstmt") {
+        let fc = 0
+        while (fc < 13) {
+            print(natFloatStmtCorpus(fc, 4609434218613702656, 4612248968380809216, 8))
+            fc = fc + 1
+        }
+        return
+    }
 
 	// Phase 151A Step 1: the native value/frame foundation. Same
 	// measurement contract as the four above -- the cases are compiled into

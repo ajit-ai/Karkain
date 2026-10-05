@@ -1006,3 +1006,110 @@ stays `false`.
 `+ - * /` through the Step 8a primitives, and the six comparisons as real
 branches. That is the first slice where the two halves (encoder and helper)
 become reachable from an actual statement.
+## 17. 151A Step 8c - float statement lowering in kcc (IMPLEMENTED)
+
+Step 8a ported the SSE2 primitives and Step 8b the print_float helper. Both were
+unreachable from an actual statement -- you could build the instructions and the
+helper, but no code path reached them. This slice adds the LOWERING, and it is
+what makes whole-image parity testable for a real program.
+
+**The load-bearing fact, and the reason this slice is smaller than it looks:** a
+float local is **ONE 8-byte unit in exactly the frame slot an int occupies**.
+`emitLet`'s float path is therefore the int path's `StoreStack(RAX, off)` with
+the f64 bits left in RAX by `emitFloat`. Nothing about the frame changes between
+kinds, and `rsp` never moves. A first draft that assumed floats needed their own
+slot arithmetic would have diverged from the oracle immediately.
+
+Mirrored from `pkg/native/program.go`: `emitFloat` -> `natFloatLit` /
+`natFloatLocal`; `emitFloatBinary` -> `natFloatBinary` (staging through
+`binTemp + depth*8`, then xmm0/xmm1); `emitFloatDiv` -> the zero-divisor
+short-circuit; `emitFloatNeg` -> XOR with 1<<63; `emitFloatCond` -> the six
+comparisons as real branches. Three new branches plus six `natMask` selectors
+69-71: `natJp`, `natJbe`, `natJb`.
+
+**`jp` carries meaning rather than convenience.** `ucomisd` sets PF on an
+*unordered* result (either operand NaN), so a bare `jnz` after it would treat
+`NaN == NaN` as true. The oracle's `==` emits `jp` then `jnz` to the false label,
+and `!=` needs an explicit intermediate hold label because neither `jnz` nor
+`jz` alone can express "or unordered".
+
+**Two comparison facts that a transcription error would most easily get wrong,
+and both are pinned:**
+
+1. *The operand swap.* `<` and `<=` feed `ucomisd` **swapped**
+   (`ucomisd xmm1, xmm0`); `>` and `>=` feed it unswapped. `ucomisd` computes the
+   compare in SOURCE order, so the swapped form means "right <= left", which is
+   what lets a single `jbe` express "not (left < right)". Swapping backwards
+   produces a comparator that **compiles and computes the wrong answer**.
+2. *`jbe` vs `jb`.* `<` uses JBE (CF=1 **or** ZF=1) and `<=` uses JB (CF=1
+   alone). The gate asserts the expected branch is present AND that its sibling
+   is absent.
+
+**Corpus.** Thirteen arms: the literal store, the local reload, `+ - * /`,
+unary negation, and the six comparisons. `binTemp` is taken at the oracle's real
+offset for a one-local frame (locals occupy 0..7, so binTemp starts at 8), since
+the staged bytes are part of the shape. The two IEEE-754 patterns are passed in
+from the caller rather than written in the kcc file, so the constants live in one
+place and no new magic numbers are introduced there.
+
+**Why this slice gets a DIRECT differential where Step 8b could not.** Every
+primitive involved here is exported (`MovRegImm64`, `StoreStack`, `LoadStack`,
+`MovXmmRegGp`, `MovGpRegXmm`, the four arithmetic ops, `XorpdXmmXmm`,
+`UcomisdXmmXmm`, `Jp`, `Jnz`, `Jmp`, `Jbe`, `Jb`), and **none of these shapes
+contains a rodata reference**. Step 8b had to extract from a real image because
+`Emitter.imm64Patch` is unexported; there is no such obstacle here, so the oracle
+is built with the real Emitter directly and compared **RAW**, with no masking.
+
+### Evidence
+
+Gate `pkg/cli/phase151a8c_floatstmt_test.go`, 5/5 PASS: all thirteen arms
+byte-for-byte equal to the real Go Emitter's output; the two comparison facts
+checked against SDM-derived ModRM and opcode bytes; the divide short-circuit's
+two rel32 displacements computed from first principles; non-vacuity and
+determinism with a total-byte floor; and the no-Go-fallback guard.
+
+**Mutation-verified, twice.**
+
+* M1 unswapped the `<` comparison. Both the differential and the SDM layer
+  failed, and the SDM layer's diagnostic named the exact operand pair
+  (`reg=0 rm=1, want reg=1 rm=0`).
+* M2 removed the zero-divisor short-circuit entirely. Four layers failed,
+  including the dedicated displacement test -- a divide that produces an infinity
+  instead of `+0.0` is exactly what the guard exists to prevent.
+
+Both reverted, the file verified SHA-identical to pre-mutation content.
+
+**A wrong expectation in the test, recorded because the 151A method warns about
+it specifically.** The displacement test first read both branches' displacements
+with one helper and reported `jmp displacement = -234881024`. The two branches
+have different opcode widths: `jnz` is `0F 85 cd` (two opcode bytes, `cd` at
+at+2) while `jmp` is `E9 cd` (**one** opcode byte, `cd` at at+1). The emission
+was correct and the test was wrong; the fix is two readers, and the trap is now
+named in the test.
+
+**One implementation slip, caught immediately.** The first corpus run emitted
+**all zeros for all six comparison arms**, because `$false` was referenced but
+never `Mark`ed. In the oracle the false label belongs to the *caller* (`emitIf`
+marks its `elseLabel` after the consequence), so a self-contained corpus must
+mark it at the end of the condition. The corpus now marks it in all six arms.
+
+**KIR pin.** 12163 -> 12302, +139, measured with `karkain kir --verify
+src/compiler/kir.kark` (12302 text / 12302 verify). The running arithmetic is now
+`11412 + 344 + 103 + 91 + 213 + 139 = 12302`. Re-pinned in both
+`phase122_pipeline_ownership_test.go` and `phase151a5_win_test.go`;
+`KIRContinuity`, `KIRPinHolds` and the full `TestPhase151*` sweep are green
+(702.6s).
+
+**Still NOT claimed.** No execution evidence: the corpus is thirteen reference
+shapes, not a program -- no `main`, no entry stub, no resolved rodata. The
+lowering is exercised directly rather than through a driver, so this slice does
+not yet prove that kcc *chooses* the float path for a real program; it proves the
+bytes are right when it does. Float **parameters, returns and calls** remain
+open, as do arrays, arena, string ops, `push`, records, maps, the macOS
+entry/exit, and every other item listed in section 14. `kccOwnsNativeTargets`
+stays `false`.
+
+**Suggested next slice: Step 8d**, float parameters, returns and calls through a
+function table, which completes the float kind end to end and is the last thing
+between the float value model and `emitLet`/`emitExpr` being able to *dispatch* on
+a real function's float locals.

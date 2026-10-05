@@ -187,6 +187,10 @@ func natMask(which) {
     if (which == 66) { return 182 }                     // 0xB6  movzx r32, r/m8
     if (which == 67) { return 110 }                     // 0x6E  movq xmm, r/m64
     if (which == 68) { return 126 }                     // 0x7E  movq r/m64, xmm
+    // Phase 151A Step 8c: float statement lowering needs three more branches.
+    if (which == 69) { return 138 }                     // 0x8A  jp  rel32 (PF=1, unordered)
+    if (which == 70) { return 134 }                     // 0x86  jbe rel32
+    if (which == 71) { return 130 }                     // 0x82  jb  rel32
     return 0
 }
 
@@ -1321,4 +1325,37 @@ func natMovGpRegXmm(s, dst, src) {
     s = natByte(s, natMask(1))
     s = natByte(s, natMask(68))
     return natModrm(s, 3, src, dst)
+}
+
+// ============================================================
+// Phase 151A Step 8c - the branches float comparisons need
+//
+// jp is the one that carries meaning rather than convenience: ucomisd sets PF on
+// an UNORDERED result (either operand NaN), so a bare jnz after it would treat
+// NaN == NaN as true. The oracle's `==` emits jp-then-jnz to the false label,
+// and its `!=` needs the explicit intermediate hold label because neither jnz
+// nor jz alone can express "or unordered". Both are reproduced here.
+
+// natJp emits jp rel32 (PF=1, i.e. unordered after ucomisd): 0F 8A cd.
+func natJp(s, label) {
+    s = natByte(s, natMask(7))
+    s = natByte(s, natMask(69))
+    let r = natRel32(s, label)
+    return r[0]
+}
+
+// natJbe emits jbe rel32 (CF=1 or ZF=1): 0F 86 cd.
+func natJbe(s, label) {
+    s = natByte(s, natMask(7))
+    s = natByte(s, natMask(70))
+    let r = natRel32(s, label)
+    return r[0]
+}
+
+// natJb emits jb rel32 (CF=1): 0F 82 cd.
+func natJb(s, label) {
+    s = natByte(s, natMask(7))
+    s = natByte(s, natMask(71))
+    let r = natRel32(s, label)
+    return r[0]
 }

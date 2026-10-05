@@ -1901,3 +1901,224 @@ s = natMovRegImm64(s, natRegRCX(), 0 - 9223372036854775807 - 1)
 // Written as a negative it is exact, and natBytesLE masks each byte, so the
 // arithmetic shift of a negative value yields the correct two's-complement
 // bytes: (-1<<63) >> 56 = 0xFF..80, & 0xFF = 0x80.
+// ============================================================
+// Phase 151A Step 8c - float statement lowering in kcc
+//
+// Step 8a ported the SSE2 primitives and Step 8b the print_float helper; both
+// were unreachable from an actual statement. This slice is the first one where
+// an expression LOWERING exists, and it is what makes whole-image parity
+// testable for a real program.
+//
+// THE LOAD-BEARING FACT, and it is the reason this slice is smaller than it
+// looks: a float local is ONE 8-byte unit in exactly the same frame slot an int
+// would occupy. emitLet's float path is therefore the int path's
+// `StoreStack(RAX, off)` with the f64 bits left in RAX by emitFloat. Nothing
+// about the frame changes between kinds, and `rsp` never moves.
+//
+// Mirrors, in pkg/native/program.go:
+//   emitFloat      -> natFloatLit / natFloatLocal
+//   emitFloatBinary-> natFloatBinary (staging through binTemp, then xmm0/xmm1)
+//   emitFloatDiv   -> the zero-divisor short-circuit
+//   emitFloatNeg   -> XOR with 1<<63, never 0.0 - x, so -0.0 survives
+//   emitFloatCond  -> the six comparisons as real branches
+//
+// The corpus arms are the distinct SHAPES, not one per operator: the literal
+// store, the staged binary, the divide short-circuit, unary negation, and the
+// three comparison families (`==`, `!=`, and the four ordered ones which share
+// a shape).
+
+// natFloatLit emits a float literal by materialising its IEEE-754 pattern
+// verbatim: movabs rax, <bits>. No rounding and no sign-bit normalisation, so
+// the bits of 0.0 and -0.0 stay distinct.
+func natFloatLit(bits) {
+    let s = natNewEmitter(0)
+    s = natMovRegImm64(s, natRegRAX(), bits)
+    return natToHex(natFinish(s))
+}
+
+// natFloatLet mirrors emitLet's non-string path for a float binding: the value
+// arrives in RAX and is stored with the int path's single StoreStack.
+func natFloatLet(bits, off) {
+    let s = natNewEmitter(0)
+    s = natMovRegImm64(s, natRegRAX(), bits)
+    s = natStoreStack(s, natRegRAX(), off)
+    return natToHex(natFinish(s))
+}
+
+// natFloatBinary mirrors emitFloatBinary for one operator. The operands are
+// staged through binTemp+depth*8 exactly as the oracle does, because RAX must
+// carry both sides into xmm in a defined order and the right side is evaluated
+// second.
+func natFloatBinary(op, lbits, rbits, temp, depth) {
+    let s = natNewEmitter(0)
+    s = natMovRegImm64(s, natRegRAX(), lbits)
+    s = natStoreStack(s, natRegRAX(), temp + depth * 8)
+    s = natMovRegImm64(s, natRegRAX(), rbits)
+    s = natMovXmmRegGp(s, 1, natRegRAX())
+    s = natLoadStack(s, natRegRAX(), temp + depth * 8)
+    s = natMovXmmRegGp(s, 0, natRegRAX())
+    if (op == "add") {
+        s = natAddsdXmmXmm(s, 0, 1)
+    }
+    if (op == "sub") {
+        s = natSubsdXmmXmm(s, 0, 1)
+    }
+    if (op == "mul") {
+        s = natMulsdXmmXmm(s, 0, 1)
+    }
+    if (op == "div") {
+        s = natFloatDiv(s, 0, 1)
+    }
+    s = natMovGpRegXmm(s, natRegRAX(), 0)
+    return natToHex(natFinish(s))
+}
+
+// natFloatDiv mirrors emitFloatDiv: a zero divisor short-circuits to +0.0
+// rather than producing an infinity that would poison every later step.
+// ucomisd reports ZF=1 for 0.0, -0.0 and NaN, and all three compare unequal to
+// zero in C, so all three take the short-circuit -- exactly the `r != 0.0`
+// guard the C backend writes.
+func natFloatDiv(s, num, den) {
+    s = natXorpdXmmXmm(s, 2, 2)
+    s = natUcomisdXmmXmm(s, den, 2)
+    s = natJnz(s, "fdiv")
+    s = natXorpdXmmXmm(s, num, num)
+    s = natJmp(s, "fdivend")
+    s = natMark(s, "fdiv")
+    s = natDivsdXmmXmm(s, num, den)
+    s = natMark(s, "fdivend")
+    return s
+}
+
+// natFloatNeg mirrors emitFloatNeg: XOR with 1<<63 is exact for every finite
+// value, both zeros and NaN payloads keep their magnitude, so -0.0 stays -0.0
+// where a `0.0 - x` or an integer NegReg would silently destroy it.
+func natFloatNeg(bits) {
+    let s = natNewEmitter(0)
+    s = natMovRegImm64(s, natRegRCX(), 0 - 9223372036854775807 - 1)
+    s = natMovXmmRegGp(s, 1, natRegRCX())
+    s = natMovXmmRegGp(s, 0, natRegRAX())
+    s = natXorpdXmmXmm(s, 0, 1)
+    s = natMovGpRegXmm(s, natRegRAX(), 0)
+    return natToHex(natFinish(s))
+}
+
+// natFloatCond mirrors emitFloatCond for one comparison. It emits the whole
+// condition, jumping to `falseLabel` when the comparison does NOT hold, which
+// is the oracle's shape: the caller supplies the false edge.
+//
+// `lt`, `le`, `gt` and `ge` differ only in which operand order feeds ucomisd
+// and in whether the branch is jbe or jb, so they are one shape parameterised
+// by which side is compared and which branch is taken.
+func natFloatCond(op, lbits, rbits, temp, falseLabel) {
+    let s = natNewEmitter(0)
+    s = natMovRegImm64(s, natRegRAX(), lbits)
+    s = natStoreStack(s, natRegRAX(), temp)
+    s = natMovRegImm64(s, natRegRAX(), rbits)
+    s = natMovXmmRegGp(s, 1, natRegRAX())
+    s = natLoadStack(s, natRegRAX(), temp)
+    s = natMovXmmRegGp(s, 0, natRegRAX())
+    if (op == "eq") {
+        s = natUcomisdXmmXmm(s, 0, 1)
+        s = natJp(s, falseLabel)
+        s = natJnz(s, falseLabel)
+        s = natMark(s, falseLabel)
+        return natToHex(natFinish(s))
+    }
+    if (op == "ne") {
+        s = natUcomisdXmmXmm(s, 0, 1)
+        s = natJp(s, "fne")
+        s = natJnz(s, "fne")
+        s = natJmp(s, falseLabel)
+        s = natMark(s, "fne")
+        s = natMark(s, falseLabel)
+        return natToHex(natFinish(s))
+    }
+    // Ordered comparisons: `<`/`<=` feed the operands to ucomisd SWAPPED, so
+    // the single branch becomes the "greater" case on the other operand. `<`
+    // and `<=` differ only in jbe vs jb (below-or-equal vs strictly below), and
+    // `>`/`>=` are the same two branches on the unswapped compare.
+    if (op == "lt") {
+        s = natUcomisdXmmXmm(s, 1, 0)
+        s = natJbe(s, falseLabel)
+        s = natMark(s, falseLabel)
+        return natToHex(natFinish(s))
+    }
+    if (op == "le") {
+        s = natUcomisdXmmXmm(s, 1, 0)
+        s = natJb(s, falseLabel)
+        s = natMark(s, falseLabel)
+        return natToHex(natFinish(s))
+    }
+    if (op == "gt") {
+        s = natUcomisdXmmXmm(s, 0, 1)
+        s = natJbe(s, falseLabel)
+        s = natMark(s, falseLabel)
+        return natToHex(natFinish(s))
+    }
+    s = natUcomisdXmmXmm(s, 0, 1)
+    s = natJb(s, falseLabel)
+    s = natMark(s, falseLabel)
+    return natToHex(natFinish(s))
+}
+// natFloatStmtCorpus emits the Step 8c reference shapes, one hex line per arm.
+//
+// The literals are 1.5 and 2.25, and their IEEE-754 patterns were computed
+// rather than written by eye -- the same discipline the 151B constant bug
+// demanded. `b1515` is float64bits(1.5) = 0x3FF8000000000000 and `b225` is
+// float64bits(2.25) = 0x4002000000000000; both are passed in from the caller so
+// the test file states them, which keeps this file free of new magic numbers.
+//
+// temp is the oracle's binTemp base for a one-local frame, so the staging
+// offsets are the ones the oracle really uses.
+func natFloatStmtCorpus(which, b1515, b225, temp) {
+    if (which == 0) {
+        return natFloatLet(b1515, 0)
+    }
+    if (which == 1) {
+        return natFloatLocal(0)
+    }
+    if (which == 2) {
+        return natFloatBinary("add", b1515, b225, temp, 0)
+    }
+    if (which == 3) {
+        return natFloatBinary("sub", b1515, b225, temp, 0)
+    }
+    if (which == 4) {
+        return natFloatBinary("mul", b1515, b225, temp, 0)
+    }
+    if (which == 5) {
+        return natFloatBinary("div", b1515, b225, temp, 0)
+    }
+    if (which == 6) {
+        return natFloatNeg(b1515)
+    }
+    if (which == 7) {
+        return natFloatCond("eq", b1515, b225, temp, "$false")
+    }
+    if (which == 8) {
+        return natFloatCond("ne", b1515, b225, temp, "$false")
+    }
+    if (which == 9) {
+        return natFloatCond("lt", b1515, b225, temp, "$false")
+    }
+    if (which == 10) {
+        return natFloatCond("le", b1515, b225, temp, "$false")
+    }
+    if (which == 11) {
+        return natFloatCond("gt", b1515, b225, temp, "$false")
+    }
+    if (which == 12) {
+        return natFloatCond("ge", b1515, b225, temp, "$false")
+    }
+    return ""
+}
+
+// natFloatLocal mirrors emitFloat's identifier case: the stored 64-bit pattern
+// is reloaded unchanged, exactly as the int path reloads an int.
+func natFloatLocal(off) {
+    let s = natNewEmitter(0)
+    s = natLoadStack(s, natRegRAX(), off)
+    return natToHex(natFinish(s))
+}
+
