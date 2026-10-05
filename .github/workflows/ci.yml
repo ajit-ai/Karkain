@@ -378,6 +378,14 @@ jobs:
       - name: Run 151A Step 8a float primitive gate
         run: go test ./pkg/cli/ -run 'TestPhase151A8_' -count=1 -timeout 30m
 
+      # 151A Step 8b: print_float, the other mandatory output helper and the
+      # largest single helper in the native backend (744 bytes). Distinct
+      # pattern on purpose: 'TestPhase151A8_' does not match 'TestPhase151A8b_'
+      # -- the `b` is a literal character in Go's -run matching, so a Step 8b
+      # regression cannot hide behind a green Step 8a step.
+      - name: Run 151A Step 8b print_float gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A8b_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line

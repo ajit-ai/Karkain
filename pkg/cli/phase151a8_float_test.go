@@ -85,8 +85,9 @@ func floatCorpus151A8(t *testing.T) []string {
 	t.Helper()
 	karkain := phase130Karkain(t)
 	got := runKCCStep2(t, karkain, "native-value-float")
-	if len(got) != 4 {
-		t.Fatalf("kcc native-value-float produced %d lines, want 4:\n%v", len(got), got)
+	if len(got) < 4 {
+		t.Fatalf("kcc native-value-float produced %d lines, want at least 4 "+
+			"(arms 0-3; Step 8b adds arm 4, the print_float helper):\n%v", len(got), got)
 	}
 	return got
 }
@@ -209,8 +210,8 @@ func TestPhase151A8_PrimitivesAppearInARealOracleImage(t *testing.T) {
 func TestPhase151A8_CorpusIsNonVacuousAndDeterministic(t *testing.T) {
 	karkain := phase130Karkain(t)
 	first := runKCCStep2(t, karkain, "native-value-float")
-	if len(first) != 4 {
-		t.Fatalf("corpus has %d lines, want 4:\n%v", len(first), first)
+	if len(first) < 4 {
+		t.Fatalf("corpus has %d lines, want at least 4:\n%v", len(first), first)
 	}
 	total := 0
 	for i, h := range first {

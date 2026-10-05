@@ -867,3 +867,142 @@ helper for observable output and is best done before statement lowering so
 that float output is possible at all. It should be gated the same way, and its
 `fresh()` label-allocation order must match the oracle's exactly, since the
 rel32 displacements depend on it.
+## 16. 151A Step 8b - print_float (IMPLEMENTED)
+
+Step 7 made int output observable; Step 8a opened the float encoder. This ports
+the OTHER mandatory output helper, so a float has a rendering path at all. It is
+the largest single helper in the native backend:
+`Builder.emitPrintFloatHelper` (program.go:4185-4390) is ~205 lines of Go and
+**744 bytes** of x86.
+
+**Two structural facts the port had to respect, and both were stated in the
+oracle rather than guessed.** The Go helper interleaves writes with live values
+and parks four of them in the frame, because RCX/RAX/RDX are volatile at *both*
+the Win64 kernel32 boundary and the raw syscall -- the syscall itself assigns
+RCX the return RIP -- so a caller-saved park is not enough in either container.
+The frame map is `rsp+0..5` fraction digits, `rsp+8..15` the R11 digit count
+(across the "." write), `rsp+16..23` the fraction bit pattern, `rsp+24..31` the
+integer part, `rsp+45..63` the integer digit buffer. Parking the integer part is
+what makes negative values correct: the sign write would otherwise clobber RCX
+before it is read. Second, the `fresh()` labels are allocated at the points the Go
+helper allocates them; label *names* affect no byte, but the *order* of the marks
+does, because the rel32 displacements come from positions.
+
+**Eight new primitives**, each the counterpart of the identically named Go
+method, plus `natMask` selectors 63-68: `natMovRegImm64`, `natAndRegReg`,
+`natShrRegImm`, `natLeaRegStack`, `natMovzxRegMem8`, `natStoreMem8Off`,
+`natMovXmmRegGp`, `natMovGpRegXmm`.
+
+Two of them are traps worth naming. `natMovXmmRegGp` (`movq xmm, r64`) takes the
+**0x66** prefix, not 0xF2 -- every other double instruction in this file is
+0xF2, so reaching for F2 is the natural mistake. And `natMovGpRegXmm` passes its
+operands to `natRex` in the **opposite order** from every other primitive here:
+for this instruction the xmm is the ModRM.reg field and the GP the rm field,
+whereas the SSE arithmetic ops have the destination xmm in the reg field.
+Copying the argument order from a neighbour yields a REX byte with R and B
+exchanged, which is a valid-looking encoding of a different instruction.
+
+**Why the differential extracts from a real image.** The obvious approach --
+rebuild the helper with the Go emitter inside the gate -- is unavailable:
+`Emitter.imm64Patch` is **unexported**, so `pkg/cli` cannot produce the
+unresolved rodata reference the helper contains. A hand-written transcription
+would have been exactly the "golden against my own transcription" failure mode.
+So the oracle side is read out of a real compiled image instead, which is
+stronger evidence anyway. Extraction uses two anchors and a **structural count,
+not a length**: the start is the 17-byte prologue containing
+`movabs rcx, 0x8000000000000000` (unique -- `print_int`'s prologue's third
+instruction is `movabs rcx, 0x7FFFFFFFFFFFFFFF`), and the end is the **third**
+`add rsp,0x40; ret` after it, because `print_float` has two early returns (the
+inf and nan paths) before its fallthrough. The count is asserted, so a changed
+return structure fails loudly instead of silently re-extracting a wrong span.
+
+**TEN rodata sites, not six.** `-`, `inf` and a newline on the infinity path;
+`-`, `nan` and a newline on the nan path; `-`, `0`, `.` and a newline on the
+finite path. A first draft of the gate asserted six and the site-count assertion
+caught it immediately -- a baseline with a wrong expectation is worse than none.
+
+### Two real defects, both found and both pinned
+
+**1. The sign mask clamped to max-int64 (introduced by this slice).** The
+constant is `1<<63 = 9223372036854775808`, one past the largest signed 64-bit
+value. Karkain's integer surface is signed 64-bit, so writing that literal
+clamps it to `...807`, and the helper emitted `48 b9 ff ff ff ff ff ff ff ff`
+where the oracle emits `48 b9 00 00 00 00 00 00 00 80`. The `and r11, rcx` that
+extracts the sign would then test the wrong mask and **every negative float
+would print without its sign**. The fix writes it as
+`0 - 9223372036854775807 - 1`, which is exact, and `natBytesLE`'s per-byte
+masking turns the negative into correct two's-complement bytes.
+
+This is the **151B constant-class bug recurring in a new place**, and it is
+worth being explicit about how it was caught: by decoding the *oracle's* bytes
+by hand and comparing, which is precisely the practice the 151B report says
+caught the original. The differential would eventually have caught it too, but
+only incidentally -- and a clamped literal now has its own dedicated subtest
+(`TestPhase151A8b_SignMaskConstantIsExact`) so the differential is never the
+only thing standing between it and a wrong image.
+
+**2. A latent pre-existing bug in `natMemBaseOff` (corrective change against a
+frozen baseline).** `natMemBaseOff`'s RSP branch emitted SIB `natMask(43)` =
+`0x25`. That is wrong: `0x25` is index-none / base-**RBP**, and in `mod=00` an
+RBP base means "**no base, disp32**", i.e. the *absolute* form. The correct SIB
+for a real RSP base with a displacement is `0x24`, which is `natMask(23)` --
+the value `natMemRsp` already uses.
+
+The bug was latent from the moment `natMemBaseOff` was written because nothing
+called it with `base = RSP`: `natStoreStack`/`natLoadStack` route through
+`natMemRsp` (correct), and the Step 5/6 PE export walk reads gs-relative
+structures through a general register. Step 8b's `natStoreMem8Off` with base
+RSP is the first caller to reach the branch, and the differential reported
+`88 04 25` against `88 04 24` at byte 499.
+
+Note `natMask(43)` is **not** simply wrong: `natMovRegGsMem` legitimately uses
+it, because `gs:[disp32]` *is* the absolute form. So the fix is at the call
+site inside `natMemBaseOff`, not in the table. This is recorded per the
+Governance rule as a corrective change against a frozen slice; it changes
+emitted bytes for any `[rsp+off]` access made through `natMemBaseOff`, and the
+only such sites are Step 8b's own, so no previously-shipped image changes.
+
+### Evidence
+
+Gate `pkg/cli/phase151a8b_printfloat_test.go`, 5/5 PASS: the 744-byte
+byte-for-byte match against the oracle's **real** image emission with the ten
+rodata immediates masked; all ten immediates asserted zero; the sign-mask
+constant pinned; corpus non-vacuity and determinism with the 744-byte length
+pinned; and the no-Go-fallback guard.
+
+**Mutation-verified, twice.**
+
+* M1 reintroduced the clamped sign mask. Both the differential and
+  `SignMaskConstantIsExact` failed, and the latter's diagnostic named the exact
+  fix.
+* M2 reverted the SIB fix in `natMemBaseOff`'s RSP branch. Only the differential
+  failed, at byte 523 -- which is the right division of labour, since the
+  placeholder and constant subtests have nothing to say about a SIB byte.
+
+Both reverted, both files verified SHA-identical to pre-mutation content.
+
+### Collateral
+
+`phase151a8_float_test.go` asserted the corpus had exactly 4 lines; Step 8b adds
+a fifth. Relaxed to "at least 4", since arms 0-3 are unchanged and the byte floor
+in the non-vacuity subtest still guards the encoder-level content.
+
+**KIR pin.** 11950 -> 12163, +213, measured with `karkain kir --verify
+src/compiler/kir.kark` (12163 text / 12163 verify). The running arithmetic is now
+`11412 + 344 (Steps 5/6) + 103 (Step 7) + 91 (Step 8a) + 213 (Step 8b) = 12163`.
+Re-pinned in both `phase122_pipeline_ownership_test.go` and
+`phase151a5_win_test.go`; `KIRContinuity`, `KIRPinHolds` and the full
+`TestPhase151*` sweep are green.
+
+**Still NOT claimed.** No float STATEMENT exists in kcc: no `let` of a float, no
+float arithmetic lowering, no float comparison as a real branch, no float
+parameter, return or call. `print_float` is a helper, not a program -- no `main`,
+no entry stub, no resolved rodata -- so no execution evidence is claimed and the
+argument for the bytes being right remains transitive. The macOS entry/exit, and
+every other open item listed in section 14, remain open. `kccOwnsNativeTargets`
+stays `false`.
+
+**Suggested next slice: Step 8c**, float statement lowering -- `let` of a float,
+`+ - * /` through the Step 8a primitives, and the six comparisons as real
+branches. That is the first slice where the two halves (encoder and helper)
+become reachable from an actual statement.

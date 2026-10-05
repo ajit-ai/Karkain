@@ -1694,3 +1694,210 @@ func natIatCall(s, reg, slot) {
     s = natMovImm64(s, natMovImm64Op(reg), 0)
     return s
 }
+// ============================================================
+// Phase 151A Step 8b - print_float
+//
+// This mirrors Builder.emitPrintFloatHelper in pkg/native/program.go
+// (lines 4185-4390) instruction for instruction and IN THE SAME ORDER. The
+// order is load-bearing twice over:
+//
+//   - the Go helper interleaves writes with live values, and several of those
+//     values are parked in the frame rather than a register. The frame map is
+//     rsp+0..5 fraction digits, rsp+8..15 the R11 digit count (across the "."
+//     write), rsp+16..23 the fraction bit pattern, rsp+24..31 the integer part,
+//     rsp+45..63 the integer digit buffer. RCX/RAX/RDX are volatile at BOTH the
+//     Win64 kernel32 boundary and the raw syscall -- the syscall itself assigns
+//     RCX the return RIP -- so a caller-saved park is not enough in either
+//     container. Parking the integer part is what makes NEGATIVE values
+//     correct: the sign write would otherwise clobber RCX before it is read.
+//   - every fresh() label is allocated at the point the Go helper allocates it.
+//     Label NAMES do not affect a single byte, but the ORDER of the marks does,
+//     because the rel32 displacements are computed from positions.
+//
+// The writes go through natWriteStdout, which is the Linux syscall form, so
+// this corpus is Linux by construction exactly as Step 7's is.
+
+// natPrintFloatHelper emits the whole print_float helper.
+func natPrintFloatHelper() {
+    let s = natNewEmitter(0)
+    s = natMark(s, "print_float")
+    s = natSubRegImm32(s, natRegRSP(), 64)
+    s = natMovRegReg(s, natRegRAX(), natRegRDI())
+s = natMovRegImm64(s, natRegRCX(), 0 - 9223372036854775807 - 1)
+    s = natMovRegReg(s, natRegR11(), natRegRAX())
+    s = natAndRegReg(s, natRegR11(), natRegRCX())
+    s = natMovRegImm64(s, natRegRCX(), 9223372036854775807)
+    s = natAndRegReg(s, natRegRAX(), natRegRCX())
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natShrRegImm(s, natRegRCX(), 52)
+    s = natMovRegImm32(s, natRegR10(), 2047)
+    s = natAndRegReg(s, natRegRCX(), natRegR10())
+    s = natCmpRegImm32(s, natRegRCX(), 2047)
+    s = natJz(s, "fltsp")
+    s = natJmp(s, "fltfin")
+    s = natMark(s, "fltsp")
+    s = natMovRegImm64(s, natRegR10(), 4503599627370495)
+    s = natAndRegReg(s, natRegRAX(), natRegR10())
+    s = natTestRegReg(s, natRegRAX(), natRegRAX())
+    s = natJnz(s, "fltnan")
+    s = natTestRegReg(s, natRegR11(), natRegR11())
+    s = natJz(s, "fltnoinf")
+    s = natRodataRef(s, natRegRSI())
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natMark(s, "fltnoinf")
+    s = natRodataRef(s, natRegRSI())
+    s = natMovRegImm32(s, natRegRDX(), 3)
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natPrintNewline(s)
+    s = natAddRegImm32(s, natRegRSP(), 64)
+    s = natRet(s)
+    s = natMark(s, "fltnan")
+    s = natTestRegReg(s, natRegR11(), natRegR11())
+    s = natJz(s, "fltnonan")
+    s = natRodataRef(s, natRegRSI())
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natMark(s, "fltnonan")
+    s = natRodataRef(s, natRegRSI())
+    s = natMovRegImm32(s, natRegRDX(), 3)
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natPrintNewline(s)
+    s = natAddRegImm32(s, natRegRSP(), 64)
+    s = natRet(s)
+    s = natMark(s, "fltfin")
+    s = natMovXmmRegGp(s, 0, natRegRAX())
+    s = natCvttsd2siGpXmm(s, natRegRCX(), 0)
+    s = natCvtsi2sdXmmGp(s, 1, natRegRCX())
+    s = natSubsdXmmXmm(s, 0, 1)
+    s = natMovGpRegXmm(s, natRegRAX(), 0)
+    s = natStoreStack(s, natRegRAX(), 16)
+    s = natStoreStack(s, natRegRCX(), 24)
+    s = natTestRegReg(s, natRegR11(), natRegR11())
+    s = natJz(s, "fltnosign")
+    s = natRodataRef(s, natRegRSI())
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natMark(s, "fltnosign")
+    s = natLoadStack(s, natRegRAX(), 24)
+    s = natTestRegReg(s, natRegRAX(), natRegRAX())
+    s = natJnz(s, "fltintnz")
+    s = natRodataRef(s, natRegRSI())
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natJmp(s, "fltintdone")
+    s = natMark(s, "fltintnz")
+    s = natMovRegImm32(s, natRegR10(), 10)
+    s = natLeaRegStack(s, natRegRSI(), 64)
+    s = natMark(s, "fltintloop")
+    s = natCqo(s)
+    s = natDivReg(s, natRegR10())
+    s = natAddRegImm32(s, natRegRDX(), 48)
+    s = natDecReg(s, natRegRSI())
+    s = natStoreMem8(s, natRegRSI(), natRegRDX())
+    s = natTestRegReg(s, natRegRAX(), natRegRAX())
+    s = natJnz(s, "fltintloop")
+    s = natLeaRegStack(s, natRegRBX(), 64)
+    s = natMovRegReg(s, natRegRDX(), natRegRBX())
+    s = natSubRegReg(s, natRegRDX(), natRegRSI())
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natMark(s, "fltintdone")
+    s = natLoadStack(s, natRegRCX(), 16)
+    s = natMovXmmRegGp(s, 0, natRegRCX())
+    s = natMovRegImm64(s, natRegR10(), 4696837146684686336)
+    s = natMovXmmRegGp(s, 1, natRegR10())
+    s = natMulsdXmmXmm(s, 0, 1)
+    s = natCvttsd2siGpXmm(s, natRegRCX(), 0)
+    s = natMovRegImm32(s, natRegR10(), 100000)
+    s = natMovRegReg(s, natRegRAX(), natRegRCX())
+    s = natCqo(s)
+    s = natDivReg(s, natRegR10())
+    s = natAddRegImm32(s, natRegRAX(), 48)
+    s = natStoreMem8Off(s, natRegRAX(), natRegRSP(), 0)
+    s = natMovRegReg(s, natRegRCX(), natRegRDX())
+    s = natMovRegImm32(s, natRegR10(), 10000)
+    s = natMovRegReg(s, natRegRAX(), natRegRCX())
+    s = natCqo(s)
+    s = natDivReg(s, natRegR10())
+    s = natAddRegImm32(s, natRegRAX(), 48)
+    s = natStoreMem8Off(s, natRegRAX(), natRegRSP(), 1)
+    s = natMovRegReg(s, natRegRCX(), natRegRDX())
+    s = natMovRegImm32(s, natRegR10(), 1000)
+    s = natMovRegReg(s, natRegRAX(), natRegRCX())
+    s = natCqo(s)
+    s = natDivReg(s, natRegR10())
+    s = natAddRegImm32(s, natRegRAX(), 48)
+    s = natStoreMem8Off(s, natRegRAX(), natRegRSP(), 2)
+    s = natMovRegReg(s, natRegRCX(), natRegRDX())
+    s = natMovRegImm32(s, natRegR10(), 100)
+    s = natMovRegReg(s, natRegRAX(), natRegRCX())
+    s = natCqo(s)
+    s = natDivReg(s, natRegR10())
+    s = natAddRegImm32(s, natRegRAX(), 48)
+    s = natStoreMem8Off(s, natRegRAX(), natRegRSP(), 3)
+    s = natMovRegReg(s, natRegRCX(), natRegRDX())
+    s = natMovRegImm32(s, natRegR10(), 10)
+    s = natMovRegReg(s, natRegRAX(), natRegRCX())
+    s = natCqo(s)
+    s = natDivReg(s, natRegR10())
+    s = natAddRegImm32(s, natRegRAX(), 48)
+    s = natStoreMem8Off(s, natRegRAX(), natRegRSP(), 4)
+    s = natAddRegImm32(s, natRegRDX(), 48)
+    s = natStoreMem8Off(s, natRegRDX(), natRegRSP(), 5)
+    s = natMovRegImm32(s, natRegR11(), 6)
+    s = natLeaRegStack(s, natRegRAX(), 0)
+    s = natMark(s, "flttrim")
+    s = natMovRegReg(s, natRegRCX(), natRegR11())
+    s = natAddRegReg(s, natRegRAX(), natRegRCX())
+    s = natMovzxRegMem8(s, natRegRCX(), natRegRAX(), -1)
+    s = natLeaRegStack(s, natRegRAX(), 0)
+    s = natCmpRegImm32(s, natRegRCX(), 48)
+    s = natJnz(s, "flttrimdone")
+    s = natDecReg(s, natRegR11())
+    s = natTestRegReg(s, natRegR11(), natRegR11())
+    s = natJnz(s, "flttrim")
+    s = natMark(s, "flttrimdone")
+    s = natTestRegReg(s, natRegR11(), natRegR11())
+    s = natJz(s, "fltnofrac")
+    // The digit count lives in R11 across the "." write below, and a Win64
+    // kernel32 call CLOBBERS R11 (caller-saved), so it is spilled and reloaded.
+    // Without this the fraction write uses the clobbered count: on the raw
+    // syscall path R11 happens to survive, so the bug is invisible on Linux,
+    // but on Windows every float would print as a bare integer ("1.5" -> "1").
+    s = natStoreStack(s, natRegR11(), 8)
+    s = natRodataRef(s, natRegRSI())
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natLeaRegStack(s, natRegRSI(), 0)
+    s = natLoadStack(s, natRegRDX(), 8)
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natWriteStdout(s)
+    s = natMark(s, "fltnofrac")
+    s = natPrintNewline(s)
+    s = natAddRegImm32(s, natRegRSP(), 64)
+    return natRet(s)
+}
+
+// The sign-mask constant 1<<63 is written as 0 - 9223372036854775807 - 1
+// rather than as the literal 9223372036854775808, and that is a CORRECTNESS
+// requirement rather than a style choice.
+//
+// Karkain's integer surface is signed 64-bit, so the literal 9223372036854775808
+// (which is 1<<63, one past the maximum) cannot be represented: the parser
+// clamps it and natBytesLE then emits FF FF FF FF FF FF FF FF where the oracle
+// emits 00 00 00 00 00 00 00 80. That is the 151B constant-class bug recurring
+// in a new place -- a hand-written decimal that looks right and silently
+// produces a different instruction, here `and r11, rcx` testing the wrong mask
+// and therefore printing the wrong result for every negative float.
+//
+// Written as a negative it is exact, and natBytesLE masks each byte, so the
+// arithmetic shift of a negative value yields the correct two's-complement
+// bytes: (-1<<63) >> 56 = 0xFF..80, & 0xFF = 0x80.

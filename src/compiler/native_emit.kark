@@ -180,6 +180,13 @@ func natMask(which) {
     if (which == 60) { return 42 }                      // 0x2A  cvtsi2sd
     if (which == 61) { return 44 }                      // 0x2C  cvttsd2si
     if (which == 62) { return 87 }                      // 0x57  xorpd
+    // Phase 151A Step 8b: print_float. These CONTINUE the table at 63.
+    if (which == 63) { return 33 }                      // 0x21  and r/m64, r64
+    if (which == 64) { return 193 }                     // 0xC1  shift-by-imm8 group
+    if (which == 65) { return 141 }                     // 0x8D  lea
+    if (which == 66) { return 182 }                     // 0xB6  movzx r32, r/m8
+    if (which == 67) { return 110 }                     // 0x6E  movq xmm, r/m64
+    if (which == 68) { return 126 }                     // 0x7E  movq r/m64, xmm
     return 0
 }
 
@@ -813,17 +820,30 @@ func natEncodeCorpus(which) {
 // SIB and the disp follows it.
 func natMemBaseOff(s, gp, base, off) {
     if (base == natRegRSP()) {
+        // SIB 0x24 = scale-0, index-none, base-RSP. NOT natMask(43), which is
+        // 0x25 = index-none, base-RBP -- and in mod=00, RBP-as-base means "NO
+        // base, disp32", i.e. the ABSOLUTE form. So 0x25 here would silently
+        // rebase every [rsp+off] access to [rbp+off] or to an absolute
+        // displacement.
+        //
+        // This was wrong from the moment natMemBaseOff was written and stayed
+        // latent because nothing called it with base=RSP: natStoreStack and
+        // natLoadStack go through natMemRsp (which correctly uses natMask(23),
+        // the same 0x24), and the Step 5/6 PE export walk reads gs-relative
+        // structures through a general register. Step 8b's natStoreMem8Off with
+        // base RSP is the first caller to reach this branch, and the
+        // byte-499 difference `88 04 25` vs `88 04 24` is what exposed it.
         if (off == 0) {
             s = natModrm(s, 0, gp, 4)
-            return natByte(s, natMask(43))
+            return natByte(s, natMask(23))
         }
         if (off >= -128 && off <= 127) {
             s = natModrm(s, 1, gp, 4)
-            s = natByte(s, natMask(43))
+            s = natByte(s, natMask(23))
             return natByte(s, off & 255)
         }
         s = natModrm(s, 2, gp, 4)
-        s = natByte(s, natMask(43))
+        s = natByte(s, natMask(23))
         return natU32(s, off)
     }
     if (off == 0) {
@@ -1216,5 +1236,89 @@ func natFloatCorpus(which) {
         s = natCvtsi2sdXmmGp(s, 15, 15)
         return natToHex(natFinish(s))
     }
+    // Step 8b: the whole print_float helper. Emitted here so the corpus can
+    // carry it as a single arm alongside the encoder-level sequences.
+    if (which == 4) {
+        return natToHex(natFinish(natPrintFloatHelper()))
+    }
     return ""
+}
+
+// ============================================================
+// Phase 151A Step 8b - the primitives print_float needs
+//
+// Each is the byte-for-byte counterpart of the identically named method in
+// pkg/native/emit.go. Two of them are easy to get subtly wrong and are called
+// out below.
+//
+// natMovXmmRegGp is `movq xmm, r64`, and its mandatory prefix is 0x66, NOT
+// 0xF2. Every other double instruction in this file is 0xF2, so reaching for
+// F2 here is the natural mistake; the Go oracle uses 66 and so does this.
+//
+// natMovGpRegXmm passes its two operands to natRex in the OPPOSITE order from
+// every other primitive in this file. The Go side is `e.rex(true,
+// Reg(src), dst)` then `e.modrm(3, src.low(), dst.low())`: for this
+// instruction the xmm register occupies the ModRM.reg field and the GP
+// register the rm field, which is the reverse of the SSE arithmetic ops where
+// the destination xmm is the reg field. Copying the argument order from a
+// neighbouring primitive produces a REX byte with R and B exchanged, which is
+// a valid-looking encoding of a different instruction.
+
+// natMovRegImm64 emits mov r64, imm64: REX.W + B8+rd io64.
+func natMovRegImm64(s, r, v) {
+    s = natRex(s, 1, 0, r)
+    s = natByte(s, 184 + (r & 7))
+    return natU64(s, v)
+}
+
+func natAndRegReg(s, dst, src) {
+    s = natRex(s, 1, src, dst)
+    s = natByte(s, natMask(63))
+    return natModrm(s, 3, src, dst)
+}
+
+func natShrRegImm(s, r, imm) {
+    s = natRex(s, 1, 0, r)
+    s = natByte(s, natMask(64))
+    s = natModrm(s, 3, 5, r)
+    return natByte(s, imm & 255)
+}
+
+func natLeaRegStack(s, dst, off) {
+    s = natRex(s, 1, dst, 4)
+    s = natByte(s, natMask(65))
+    return natMemRsp(s, dst, off)
+}
+
+func natMovzxRegMem8(s, dst, base, off) {
+    s = natRex(s, 1, dst, base)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(66))
+    return natMemBaseOff(s, dst, base, off)
+}
+
+// natStoreMem8Off stores a byte at [base+off]. Note there is NO REX.W here:
+// StoreMem8Off is the byte form, and the Go oracle deliberately passes
+// rex(false, ...) because the operand size is irrelevant for an 8-bit store
+// and emitting REX.W would change the encoding.
+func natStoreMem8Off(s, src, base, off) {
+    s = natRex(s, 0, src, base)
+    s = natByte(s, natMask(49))
+    return natMemBaseOff(s, src, base, off)
+}
+
+func natMovXmmRegGp(s, dst, src) {
+    s = natByte(s, natMask(54))
+    s = natRex(s, 1, dst, src)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(67))
+    return natModrm(s, 3, dst, src)
+}
+
+func natMovGpRegXmm(s, dst, src) {
+    s = natByte(s, natMask(54))
+    s = natRex(s, 1, src, dst)
+    s = natByte(s, natMask(1))
+    s = natByte(s, natMask(68))
+    return natModrm(s, 3, src, dst)
 }
