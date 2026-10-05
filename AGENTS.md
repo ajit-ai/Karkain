@@ -65,6 +65,34 @@ that skips when output is empty — is not evidence, and the "executed" wording 
 supports must be corrected rather than quietly inherited. The
 `docs/audit/PHASE-150-BASELINE.md` §12 entry is the worked example.
 
+**Commit-content discipline.** A commit message is a *claim about* a commit, never
+evidence of one. Before committing, `git diff --cached --stat` must be read and
+confirmed to list **every** intended file, and the count must be reconciled against
+the set of files the change actually touches. `git add <explicit paths>` is the
+usual cause: it stages what was named, not what changed, so any file omitted from
+the command line is silently left behind while the message describes it.
+
+This is not hypothetical. Increment 151A Step 7 shipped as `3bce5e4` with a message
+enumerating eleven files and a diff containing **two** — only the gate files. Every
+Step-7 production source stayed uncommitted, so CI checked out a tree whose gates
+described work the compiler did not contain. Every downstream symptom read like a
+compiler defect and none was one:
+
+* `native-value-print` and `native-value-win` were reported as *input filenames*,
+  because the committed `native_encode.go` had no such commands, so the arguments
+  correctly fell through to input-file validation;
+* `TestPhase151A7_NoGoFallback` failed because the committed `native_encode.go` had
+  no `kccSubcommand` delegation for it to find;
+* the whole-tree KIR emitted **11412** — HEAD's exact baseline — because the three
+  Step-7 `.kark` files were at their pre-Step-7 content.
+
+The rule this earns: **when a CI failure's symptom is "the code does not contain the
+thing the test expects", suspect the commit before the compiler.** Distinguishing
+the two is one command — `git show --stat HEAD` and
+`git show HEAD:<file> | grep <symbol>` — and it is far cheaper than debugging a
+compiler that was never broken. The corrective commit is `3771ebc`; history was not
+rewritten, because an honest two-commit record is more useful than a tidy one.
+
 ## Language Hardening Checkpoint (MANDATORY RULE)
 
 **After 151C3, Language Hardening Checkpoint verification must be completed
