@@ -2494,3 +2494,179 @@ func natStringCallCorpus(which, frame, loc, extrasBase) {
     if (which == 3) { return natStringArgsExtras(frame, loc, extrasBase) }
     return ""
 }
+// ============================================================
+// Phase 151A Step 9a - rodata resolution
+//
+// Every absolute address in a kcc image is emitted as a 10-byte `mov r64, imm64`
+// with the immediate left at zero, and the POSITION recorded. That is the only
+// way a linker can fill in an address it alone knows, and it is what
+// natImm64Patch has always produced. What was missing is the other half: nothing
+// recorded WHICH rodata byte each position refers to, so print_int's two `"-"`
+// and `"\n"` references had sites but no destinations.
+//
+// This is the piece every section of this baseline has named as the thing
+// blocking 151D, so it is deliberately small and deliberately boring:
+//
+//   natRodataRefOff  emits a rodata reference AND records (position, offset)
+//   natRodataSection builds the rodata byte array, interning duplicates
+//   natResolveRodata fills every recorded site with base + rva + offset
+//
+// `natRodataRef` is deliberately NOT changed. The frozen Step 7 and Step 8b
+// corpora use it, and both compare emitted BYTES, which recording would not
+// alter. The new function sits alongside it.
+
+// natRodataRefOff emits `movabs r, <rodata placeholder>` and records the site
+// together with the offset it refers to.
+//
+// The immediate stays ZERO here. Resolution happens once, later, in
+// natResolveRodata, because the base address is not known until the container
+// writer has chosen a layout -- an emitter that filled the address in would be
+// guessing a number the linker owns.
+func natRodataRefOff(s, r, roOff) {
+    let p = natImm64Patch(s, natMovImm64Op(r))
+    s = p[0]
+    s[6] = appendArray(s[6], p[1])
+    s[7] = appendArray(s[7], roOff)
+    return s
+}
+
+// natRodataSection builds the rodata byte array from a list of strings,
+// interning duplicates, and returns [bytes, offsetOfFirstUse].
+//
+// Interning matters for byte-identity: the oracle's `internRodata` also
+// deduplicates, so a repeated string occupies ONE rodata entry there and must
+// occupy one here, or every following offset moves.
+//
+// The return carries the offset of the FIRST string so the caller can record it
+// against the first site it emits without a second lookup.
+func natRodataSection(strs) {
+    let bytes = []
+    let offs = []
+    let i = 0
+    while (i < len(strs)) {
+        // linear scan for an existing interned copy
+        let found = -1
+        let j = 0
+        while (j < len(strs)) {
+            if (j < i) {
+                if (natStrEq(strs[j], strs[i])) { found = offs[j] }
+            }
+            j = j + 1
+        }
+        if (found >= 0) {
+            offs = appendArray(offs, found)
+        } else {
+            offs = appendArray(offs, len(bytes))
+            bytes = natAppendStr(bytes, strs[i])
+        }
+        i = i + 1
+    }
+    return [bytes, offs]
+}
+
+// natStrEq compares two Karkain strings for equality.
+//
+// A first draft indexed the string (`a[i] != b[i]`), which compiles and yields
+// 0 for every position -- Karkain strings are NOT indexable, and the comparison
+// silently succeeded on two different strings. The compiler's own idiom is
+// `substr(s, i, 1)`, which is what Step 6's Mach-O writer uses, so that is what
+// this uses.
+func natStrEq(a, b) {
+    if (len(a) != len(b)) { return 0 }
+    let i = 0
+    while (i < len(a)) {
+        if (substr(a, i, 1) != substr(b, i, 1)) { return 0 }
+        i = i + 1
+    }
+    return 1
+}
+
+// natAppendStr appends a Karkain string's bytes to a byte array.
+//
+// Karkain has no byte string literal and its strings are not indexable, so each
+// byte is taken with `asciiVal(substr(str, i, 1))` -- the same idiom the
+// compiler's own lexer and the Mach-O writer use. Truncating to 8 bits is exact
+// for the ASCII payloads the runtime emits, and is stated here so the limit is a
+// decision rather than an accident.
+func natAppendStr(dst, str) {
+    let i = 0
+    while (i < len(str)) {
+        dst = appendArray(dst, asciiVal(substr(str, i, 1)) & 255)
+        i = i + 1
+    }
+    return dst
+}
+
+// natResolveRodata fills every recorded rodata site with base + roRVA + offset,
+// in place, and returns the number of sites resolved.
+//
+// `base` is the container's load base and `roRVA` the rodata section's RVA. Both
+// come from the writer, not from here: this layer knows WHERE a site is and WHAT
+// it points at, and the writer knows what the image will actually be loaded at.
+func natResolveRodata(s, base, roRVA) {
+    let n = 0
+    let i = 0
+    while (i < len(s[6])) {
+        let pos = s[6][i]
+        let off = s[7][i]
+        // The name avoids `addr`, which is a RESERVED WORD in this language (the
+        // same class of trap as Step 8b's `raw` parameter): the parse error names
+        // the token rather than the offending field, so a reserved word reads as a
+        // malformed declaration.
+        let av = base + roRVA + off
+        let code = natStCode(s)
+        // little-endian, 8 bytes, written in place
+        code[pos] = av & 255
+        code[pos + 1] = (av >> 8) & 255
+        code[pos + 2] = (av >> 16) & 255
+        code[pos + 3] = (av >> 24) & 255
+        code[pos + 4] = (av >> 32) & 255
+        code[pos + 5] = (av >> 40) & 255
+        code[pos + 6] = (av >> 48) & 255
+        code[pos + 7] = (av >> 56) & 255
+        n = n + 1
+        i = i + 1
+    }
+    return n
+}
+
+// natRodataSiteCount reports how many rodata sites have been recorded, so a gate
+// can assert a count rather than trusting that resolution happened.
+func natRodataSiteCount(s) { return len(s[6]) }
+// ============================================================
+// Phase 151A Step 9a - the rodata resolution measurement corpus
+//
+// Four strings with one deliberate duplicate, so interning is observable: the
+// oracle's internRodata deduplicates by FIRST USE, so the repeated "-" must
+// occupy one entry and the section must be 5 bytes, not 8. An implementation that
+// appended every occurrence would produce the same bytes for the first two
+// entries and a different length, which is exactly what the length assertion
+// catches.
+//
+// Two reference sites are recorded, at offsets 0 and 2, and then resolved with
+// base 0x140000000 and roRVA 0x3000 -- the PE values Step 5/6 use -- so the
+// expected addresses are 0x140003000 and 0x140003002.
+func natRodataCorpus() {
+    let strs = ["-", "\n", "abc", "-"]
+    let sec = natRodataSection(strs)
+    let rodata = sec[0]
+    let offs = sec[1]
+
+    let s = natNewEmitter(0)
+    s = natMark(s, "prog")
+    s = natRodataRefOff(s, natRegRSI(), offs[0])
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natRodataRefOff(s, natRegRSI(), offs[2])
+    s = natMovRegImm32(s, natRegRDI(), 2)
+
+    print(natToHex(rodata))
+    print(natToHex(natStCode(s)))
+
+    // Resolve with the PE base and the PE rodata RVA, then emit again: the two
+    // immediates are the only bytes that differ between the two lines.
+    natResolveRodata(s, 5368709120, 12288)
+    print(natToHex(natStCode(s)))
+    print(str(natRodataSiteCount(s)))
+    return
+}
+

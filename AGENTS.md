@@ -2802,3 +2802,74 @@ Also completed: **151A Step 8d - the call ABI in kcc, int first** (increment 151
 Also completed: **151A Step 8e - floats through the call ABI in kcc** (increment 151, slice A step 8e; verdict **COMPLETE**; record `docs/audit/PHASE-151A-BASELINE.md` section 19). This slice exists to PROVE a claim rather than add emission, and the claim is the load-bearing one for the whole float kind: **floats need no new ABI code**. `kindUnits(KindFloat) == 1` in the oracle and `natKindUnits` in kcc already return 1 for a float, so a float parameter occupies exactly one frame slot (`natLocalOff(index,kind) = 8 * index * natKindUnits(kind)` already gives a float param the same offset as an int) and a float argument is staged, loaded and passed by the byte-for-byte identical path an int uses. What Step 8d built was already float-capable; this slice MEASURES that rather than asserting it. **The strongest layer is a cross-corpus comparison, not a fresh expectation**: arm 1 stages the INT literal 42 through the FLOAT call shape so it can be compared byte-for-byte against Step 8d's one-argument int call (literal 7), and the two must differ ONLY in the 10-byte `movabs` immediate -- a much stronger claim than "the float shape looks right", since it says the float path contributes no ABI emission at all and any float-only instruction falsifies it. The immediates are asserted to genuinely differ so the comparison cannot pass vacuously. Gate `pkg/cli/phase151a8e_floatcall_test.go` 6/6 PASS: RAW differential of all four shapes against the real `pkg/native` Emitter, the float-arg path proven byte-identical to the int path after the literal, the float param homing proven byte-identical to the int homing, the return proven free of frame teardown, non-vacuity/determinism, and the no-Go-fallback guard. **Two defects found.** (1) The float return tore the frame down TWICE: a first draft emitted `sub rsp, frame` before the `jmp $ret`, but the oracle's `ReturnStmt` case is `emitReturn(...)` followed by `Jmp("fn_<name>$ret")` (program.go:4893-4900) with the `AddRsp(frame)` happening **AT** the `$ret` label in the epilogue (program.go:4863-4866); the gate now asserts there is no `sub`/`add rsp` anywhere in the return shape. This also **corrects a stale reference rather than inheriting one** -- the Step 2 note recorded the `$ret` jmp at `program.go:3386`, and that line now holds `emitBase64OutByte`, an unrelated function, because the file grew; the lesson is to locate a label by searching for it rather than following a remembered line number. (2) The `jmp` opcode byte was MISSING: `natRel32` emits only the four displacement bytes and the `0xE9` opcode is `natJmp`'s job, so a first draft using `natRel32` directly produced a bare `movabs` with no jump at all (15 bytes of nothing) -- the `natCall32`+`natRel32` pairing habit is correct for `call` precisely because `natCall32` emits `0xE8` first, and applying it to `jmp` produced the bug; the gate's "arm 3 does not end with a jmp rel32" check caught it and the shape now ends `e9 00 00 00 00`. **Mutation-verified, and the mutation IS the claim**: M1 inserted a float-only `cvttsd2si` into the argument path -- the exact "helpful conversion" this slice exists to prove cannot happen -- and both the differential and the cross-corpus layer failed, the latter with the right diagnostic ("float arm is 36 bytes, int arm is 31; the float path must contribute no ABI emission at all"). Reverted, file SHA-identical to pre-mutation content. KIR pin 12389 -> **12419** (+30, measured; no frame displacement moved), running arithmetic `11412 + 344 + 103 + 91 + 213 + 139 + 87 + 30 = 12419`; `TestPhase151A5_KIRPinHolds` PASS (597.2s) and all 27 `TestPhase151A8*` tests PASS. **What this closes and what it does not**: it closes the float KIND's ABI story -- a float can be passed to, received by and returned from a function with byte-identical machinery to an int -- but it does NOT close float VALUES, because there is still no whole-program driver that walks a real Karkain function, dispatches on its locals' kinds and lowers them, so no kcc-produced image yet executes. **Still open in 151A:** strings through the call ABI (needing the two-unit `stageUnit` path where RSI is the high half, which would close the register/extras boundary for the first time), arrays, arena, string ops, `push`, records, maps and the macOS entry/exit. `kccOwnsNativeTargets` stays `false`.
 
 Also completed: **151A Step 8f - strings through the call ABI in kcc** (increment 151, slice A step 8f; verdict **COMPLETE**; record `docs/audit/PHASE-151A-BASELINE.md` section 20). A string is the first **two-unit** kind (`kindUnits(KindString) == 2`), so this slice is where `stageUnit`'s high-half rule is exercised at all, and where an argument's units can begin at an **odd** global index. **The rule, and why it still works at an odd index**: `stageUnit` picks the slot with `if r == RSI { off += 8 }` -- a test on the REGISTER, not the unit index -- and that is sound because `stageUnit` is called with `RSI` in exactly one place (the string branch passes `RDI` for the pointer and `RSI` for the length, while every other kind passes `RAX`); `argTemp`'s 16-byte stride then gives the pair its low and high halves. The load-back loop reads `argTemp(i) + k*8` where `k` is the unit index **within the argument**, and arm 1 exists precisely to separate the two conventions: it passes an int first, so the string's pointer rides `RSI` (global unit 1) and its length rides `RDX` (global unit 2). A reader indexing by *global* unit rather than by `(arg, k)` would deliver them to the wrong registers, and a corpus that only ever passed a string first could not tell the difference. **No rodata, so the differential stays RAW**: a string LITERAL would need a rodata reference, which is unresolved at this layer and is what forced Step 8b's masked comparison, whereas a string LOCAL is loaded straight from its two frame slots. Four shapes: one string argument, an int followed by a string (the odd-index case), the callee homing a two-unit parameter, and four string arguments where units 6 and 7 travel in the caller's extras area -- the first case combining the extras region with the two-unit stride. **One wrong expectation in the test, recorded**: arm 3 initially failed while arms 0-2 matched, and the cause was **my Go transcription, not the kcc code** -- `stage` folded the argument index and the unit index together and used `arg*2` for *both* halves of a string, storing the length at the extras base instead of 8 bytes higher, because the register-based high-half rule applies inside the **spill** branch only, exactly as `stageUnit` does, so the extras branch must still be told which unit it is holding. Gate `pkg/cli/phase151a8f_stringcall_test.go` 6/6 PASS: RAW differential of all four shapes, the odd-index load-back asserted as an explicit `(arg, k)` byte sequence with both disp32 operands spelled out, the high-half rule pinned at both call sites with the halves asserted 8 apart, units 6 and 7 shown to leave the spill with R10 materialised, non-vacuity/determinism, and the no-Go-fallback guard. **Mutation-verified**: M1 dropped the high-half rule, storing the string's length at `+0` like its pointer; both the differential and the dedicated rule subtest failed, the latter reporting "string length staged at 520, want 528" and "the two halves are 0 apart, want 8". KIR pin 12419 -> **12488** (+69, measured), running arithmetic `11412 + 344 + 103 + 91 + 213 + 139 + 87 + 30 + 69 = 12488`; `KIRPinHolds` PASS (354.9s) and all 33 `TestPhase151A8*` tests PASS. **What this closes**: the register/extras boundary is closed for the first time -- a two-unit argument, an argument whose units start at an odd index, and an argument whose units exceed the register budget have all been lowered and proven byte-identical to the oracle. **Still open in 151A:** string *expressions* (concatenation, slicing, comparison, the arena) and `print` for strings, then arrays, `for-in`, `push`, records, maps and the macOS entry/exit. `kccOwnsNativeTargets` stays `false`, and no kcc-produced image executes yet, because there is still no whole-program driver that walks a real Karkain function and dispatches on its locals' kinds.
+
+Also completed: **151A Step 9a - rodata resolution in kcc** (increment 151,
+slice A step 9a; verdict **COMPLETE**; record
+`docs/audit/PHASE-151A-BASELINE.md` sections 21 and 9a-1/9a-2). The piece every
+earlier section named as the thing blocking 151D. What was missing was never the
+emission -- `natImm64Patch` has always emitted a 10-byte `mov r64, imm64` with
+the immediate at zero and the POSITION recorded -- but the other half: nothing
+recorded WHICH rodata byte each position refers to, so `print_int`'s two `"-"` and
+`"\n"` references had sites but no destinations. New in `native_value.kark`:
+`natRodataRefOff` (records site + offset alongside the existing placeholder),
+`natRodataSection` (builds the section, interning duplicates by FIRST USE to
+match the oracle's `internRodata`), `natResolveRodata` (fills every site with
+base + rva + offset, little-endian, in place) and `natRodataSiteCount`. **The
+emitter state grows from six slots to eight** (`s[6]` positions, `s[7]` offsets),
+and that is a correctness requirement rather than tidiness: slot 5 is already in
+use, carrying Step 6's three IAT positions read back **in emission order**, so
+appending rodata sites to it would interleave two kinds of site with nothing to
+distinguish them. `natRodataRef` is deliberately **unchanged** so the frozen Step
+7/8b corpora keep their exact bytes.
+**Two language traps, both found by measuring rather than reading.** `addr` is a
+**reserved word** (the same class as Step 8b's `raw`), so the parse error names
+the token rather than the offending field and reads as a malformed declaration;
+and **Karkain strings are not indexable** -- a first-draft `natStrEq` using
+`a[i] != b[i]` compiles and yields 0 at every position, so it silently declared
+two different strings equal. The compiler's own idiom is
+`asciiVal(substr(s, i, 1))`, which is what the lexer and the Mach-O writer use.
+Gate `pkg/cli/phase151a9_rodata_test.go` 7/7 PASS as six layers: interning
+asserted on **LENGTH** (5 bytes, not 8 -- a non-interning section yields the same
+first five bytes and a longer section, so only the length makes it non-vacuous),
+the placeholder zero **before** resolution, the resolved immediate equal to
+base+rva+offset with the arithmetic derived, only the immediate bytes changed,
+an explicit site count so a resolver that filled nothing cannot pass against an
+all-zero buffer, and the no-Go-fallback guard. **Mutation-verified twice with the
+right division of labour**: dropping the base from the resolver failed only the
+address layer, while breaking interning failed only the interning layer.
+**A wrong expectation in the test, recorded because this method warns about it:**
+the resolved-buffer length was asserted as 52 hex chars when it is 60, because
+`mov edi, imm32` is 5 bytes (`bf` + 4), not 3. It is now **derived** from the
+instruction sizes rather than restated, since a length expectation that is a guess
+dressed as a requirement is worse than none.
+**KIR pin re-measured 12488 -> 12570** (`TestPhase151A5_KIRPinHolds` PASS in
+isolation, 439.54s, `text=12570 verify=12570`). The +82 is smaller than the ~176
+added source lines because KIR renders the AST, not the file: the slice's comment
+block emits no lines. Frozen `TestPhase151A5_RegressionOraclePEUnchanged` still
+reports **zero byte drift**, confirming the emitter-state growth moves no emitted
+byte. `go build ./...` clean, `go vet ./pkg/cli` clean, full `pkg/native` green.
+**Open, and NOT closed by this slice: the intermittent `0xC0000005`.** The whole-tree
+`kcc kir --verify` crashes with `exit 3` and **zero output**, intermittently. Four
+hypotheses were tested and three were falsified with evidence: it is **not** the
+Phase 127 low-RAM class (it succeeds at **127 MiB** free and fails at 818 MiB, so
+free memory is not a predictor in either direction); **not** stack exhaustion (a
+**64 MiB** stack reserve, the decisive experiment the baseline named, still
+crashes); **not** a corrupt or partially-written `kcc.exe` (after one clean build,
+two verifies with no rebuild both crash); and **not** caused by this slice
+(pristine HEAD `49cc9de` crashes too, on `kcc check src/compiler/main.kark`, which
+does no KIR work at all). It is nondeterministic on byte-identical sources with a
+single unchanging binary, most consistent with uninitialised memory or an
+out-of-bounds write in the `-O0` stage-1 C; confirming that needs an
+`-fsanitize=address` build, which is a build change and needs **its own
+authorised increment**, not this one. Two of my own intermediate claims are
+retracted in the record rather than deleted: an invalid bisection (rewriting the
+file with `Set-Content`, so each "variant" was a different file, and one variant
+crashed while another one line *longer* passed -- causality impossible, therefore
+noise), and a "stale kcc.exe holding 668 MiB causes it" conclusion drawn from a
+single sample that did not reproduce. The shared pin assertion now retries a
+bounded number of times **on a no-output crash only** and still compares the pin
+exactly, so the retry can neither turn a moved pin into a pass nor absorb a real
+failure. Under a combined `go test` invocation the pin gate remains unreliable and
+is recorded as an **open red gate** rather than papered over.
+`kccOwnsNativeTargets` stays `false`; 151A is **not** closed. Still open in 151A:
+image assembly (9b) and the first kcc-produced executable image (9c).

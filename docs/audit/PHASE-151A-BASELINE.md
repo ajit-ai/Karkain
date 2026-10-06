@@ -1386,3 +1386,188 @@ the arena -- and `print` for strings; then arrays, `for-in`, `push`, records, ma
 and the macOS entry/exit. `kccOwnsNativeTargets` stays `false`, and no kcc-produced
 image executes yet, because there is still no whole-program driver that walks a
 real Karkain function and dispatches on its locals' kinds.
+
+## 21. 151A Step 9 - the first end-to-end kcc-produced native image
+
+### Scope, measured rather than assumed
+
+This was originally scoped as "the whole-program driver", on the assumption that
+kcc had no function-level emission at all. **That assumption was wrong**, and
+checking the tree rather than the memory changed the shape of the work by a lot.
+What already exists:
+
+| Piece | From |
+| --- | --- |
+| `natIntBody` -- emits a complete `karkain_main` with its prologue | Step 2 |
+| `natLoopPrologue` / `natLoopEpilogue` -- prologue and the `$ret` epilogue | Step 3 |
+| `natPrintIntHelper` | Step 7 |
+| `natWinStub` / `natWinBootstrap` / `natWinExitTail` -- entry and PEB bootstrap | Steps 5/6 |
+| `natPELink` / `natELFLink` -- the PE and ELF container writers | 151C3 / 151C |
+| frame layout, call ABI, float and string paths | Steps 1, 8d-8f |
+
+So what is genuinely missing is much narrower, and it splits cleanly:
+
+* **9a -- rodata resolution.** `natRodataRef` returns `p[0]` and **discards** the
+  patch position, and nothing accumulates a rodata offset per site. `print_int`'s
+  two `"-"` and `"\n"` references therefore have no recorded site. This is exactly
+  the "rodata resolution" every section of this baseline has named as the thing
+  blocking 151D.
+* **9b -- image assembly.** Compose the entry stub, `karkain_main` and the
+  `print_int` helper into one `.text`, link with `natPELink`, write the file.
+* **9c -- execution.** Run it on this Windows host, where PE images execute
+  natively (increments 145-150).
+
+### One design fact that makes 9b tractable
+
+Each emitter function creates its **own** state, so the entry stub's
+`call karkain_main` is unresolved in its own buffer. But an internal `rel32` is
+`target - (instruction end)`, and concatenating a self-contained function shifts
+the instruction and its target **equally**, so every internal displacement value
+survives concatenation unchanged. Only the ONE cross-piece call needs its
+displacement computed directly. That reduces "assemble a whole image" to
+concatenation plus a single hand-computed displacement.
+
+### Why rodata needs a NEW emitter slot, not the existing one
+
+Slot 5 (`natStImm64`) is already in use: Step 6 appends the three IAT positions to
+it (`ExitProcess`, `GetStdHandle`, `WriteFile`) and reads them back in emission
+order to build the IAT patch list. Appending rodata positions to the same slot
+would **interleave the two kinds of site with nothing to tell them apart**, and
+Step 6's own gate would then read a rodata position as an IAT slot.
+
+So rodata sites need their own slot, and this is a correctness requirement rather
+than tidiness. The state grows from six slots to eight; `natNewEmitter` is the
+only constructor, so the change is additive and cannot affect any existing
+emission -- it appends two empty lists.
+
+### `natRodataRef` is NOT changed
+
+`natRodataRef` is used by the frozen Step 7 and Step 8b corpora, and both compare
+emitted **bytes**, which accumulation would not alter. Rather than change a frozen
+function's signature, 9a adds `natRodataRefOff(s, r, roOff)` alongside it: the
+existing function keeps recording nothing, the new one records the site and its
+rodata offset. A corpus that never resolves rodata has no use for the offsets.
+
+### What is NOT claimed
+
+9a alone emits no image and proves no execution. 9b produces a file but a file
+that has never run proves nothing about correctness beyond what the byte
+differentials already establish. Only **9c** is execution evidence, and it is the
+first in this increment.
+
+### 9a-1. The intermittent `0xC0000005`: diagnosed, and NOT the Step 9a diff
+
+Step 9a's own gate went 7/7 green immediately, but whole-tree
+`karkain kir --verify src/compiler/kir.kark` began returning `0xC0000005`
+(`exit 3`, **zero output**), so the KIR pin could not be re-measured and the
+slice could not be committed. This subsection records what was actually
+established, because the first two attributions were **both wrong** and the
+correction is the useful part.
+
+**Wrong attribution 1 - "the low-RAM class".** Free RAM was logged before each
+attempt and the crash reproduced at **1944, 1737 and 2087 MiB free**, every time
+well above the 1536 MiB `error[K127]` threshold. The Phase 127 guard is not
+involved; the crash is not a consequence of the host being short of memory.
+
+**Wrong attribution 2 - stack exhaustion.** The baseline recorded this as the
+better-fitting UNTESTED alternative, with a `-Wl,--stack,` build-flag experiment
+naming it as the cheap decisive test. That experiment was run: `kcc` was relinked
+from the same stage-1 C with a **64 MiB** stack reserve
+(`gcc ... -Wl,--stack,67108864`) and still crashed with `0xC0000005`. Stack
+exhaustion is **refuted**.
+
+**Wrong attribution 3 - "my diff causes it".** This was the expensive one and
+the bisection that produced it was itself invalid. Two defects in the method are
+worth recording because both produced confident, false conclusions:
+
+1. The bisection rewrote `native_value.kark` with PowerShell `Set-Content`,
+   which does not preserve the file byte-for-byte (the file is CRLF, no BOM).
+   Every "variant" was therefore a *different file*, not a controlled truncation
+   of the same one.
+2. With one line of difference between two variants - `B1` crashed and `B2`, one
+   line **longer**, passed - causality is impossible, and the only honest reading
+   is that the measurement was noise. A crash whose reproduction depends on which
+   of two nearly identical files you compiled is not a content-addressed defect.
+
+A later byte-exact bisection (truncating the real byte array at function
+boundaries, so each variant differs only by what was removed) showed the same
+thing from the other side: the **full** tree passed at 12570 lines while seven
+truncated variants all failed to build at all.
+
+**What is actually established.** The defect is **intermittent, and independent of
+the source tree**:
+
+* Byte-identical `native_value.kark` (`SHA-256 EE17AC...`), in one session, minutes
+  apart, produced `exit 3` with no output on one run and `[ok] kir verify: 12570
+  lines ok` on the next.
+* **Pristine HEAD (`49cc9de`, no Step 9a code at all) crashes too**, on
+  `kcc check src/compiler/main.kark` - `exit 3`, zero output. That command
+  performs no KIR work at all, so the defect is in the shared
+  assemble/parse/typecheck path rather than in the KIR emitter.
+* It is therefore **pre-existing**, not introduced by Step 9a, and the Step 9a
+  gate's own green result was never at risk.
+
+**Classification: UNCLASSIFIED, but no longer "unknown cause" - it is an
+intermittent access violation in kcc's assemble/parse/typecheck path,
+reproducible on pristine HEAD, unaffected by stack size, and not bounded by free
+RAM.** The bisection that would isolate it needs a fixed input and a repeated-run
+harness, because a single run cannot distinguish the defect from noise - which is
+the practical lesson. Nothing in this paragraph is used as an excuse for a failing
+gate: the pin is re-measured (12488 -> **12570**), every gate that asserts it is
+re-run, and the crash is recorded as an environmental class rather than inherited
+silently.
+
+### 9a-2. Corrections to 9a-1, including one of my own claims that did not hold
+
+Two further experiments, both of which tighten the record. One of them **falsifies
+a hypothesis I had just written down**, which is why it belongs here.
+
+**Low-RAM is refuted outright, not merely "above the guard".** A later attempt
+**succeeded at 127 MiB free physical memory**, well *below* the 1536 MiB
+`error[K127]` threshold that is supposed to make kcc refuse rather than crash:
+
+    free RAM: 127 MiB
+    exit=0 | [ok] kir text: 12570 lines | [ok] kir verify: 12570 lines ok
+
+The guard did not fire, the run succeeded, and the same command fails minutes
+later at 818 MiB. So free memory is **not a predictor in either direction**, and
+the earlier "crashes at 1.7-2.1 GiB" observation should be read as coincidence of
+timing rather than as a threshold effect.
+
+**"A stale kcc.exe holding 668 MiB causes it" - FALSE, retracted.** After a
+crashed attempt a leftover `kcc` process was observed holding 668 MiB; killing it
+and re-running immediately succeeded, which looked like a clean causal result. It
+is not. Repeating the experiment falsified it: with no `kcc` process running at
+all, `kcc.exe` **not rebuilt** between runs and no source change whatsoever, the
+command failed **twice in a row** (exit 3, no output). The correlation was a
+coincidence of one sample. `killStaleKCC` is kept in the retry helper only
+because clearing a leaked peer process is harmless and occasionally helpful, but
+its doc comment says plainly that it is **not** the fix, and the baseline does
+not claim it as a root cause.
+
+**Not a build artefact either.** `kcc.exe` is rebuilt whenever a compiler source is
+newer than the binary, which raised the obvious question of whether the crash is
+simply a corrupt or partially-written binary. Ruled out: after one clean build,
+two consecutive verifies with `rebuilt=False` both crashed. The defect is in
+running the whole-tree KIR verify, not in producing `kcc.exe`.
+
+**Where this leaves the classification.** `UNCLASSIFIED` stands, with the evidence
+now strictly better than when it was first recorded: pre-existing (reproduces on
+pristine HEAD), nondeterministic (byte-identical sources and a single unchanging
+binary flip between success and crash), not a stack effect (64 MiB reserve), not a
+free-memory effect (succeeds at 127 MiB, fails at 818 MiB), not a rebuild effect,
+and independent of the Step 9a tree. The pattern is most consistent with
+uninitialised memory or an out-of-bounds write in the stage-1 C that gcc compiles
+at `-O0` with no optimiser, which is exactly the class that makes a defect
+appear and disappear with heap layout. Confirming that needs a sanitiser build
+(`-fsanitize=address`) of the stage-1 C, which is a change to the build and is
+**not** authorised by this slice - it needs its own increment and baseline.
+
+**What was done about it in the meantime.** The shared KIR-pin assertion retries a
+bounded number of times on a **no-output** crash only, and still compares the pin
+exactly against whichever attempt produced output, so the retry cannot convert a
+moved pin into a pass and cannot absorb a real failure. The pin itself was
+**re-measured, not predicted: 12488 -> 12570**, and `TestPhase151A5_KIRPinHolds`
+passed on the measured value in isolation (439.54s, `text=12570 verify=12570`).
+Under a combined `go test` invocation it remains unreliable, and that is recorded
+as an open red gate rather than papered over.

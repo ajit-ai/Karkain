@@ -262,6 +262,16 @@ func KCCNativeValueStringCallCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-stringcall")
 }
 
+// KCCNativeValueRodataCommand runs the 151A Step 9a measurement: rodata
+// resolution.
+//
+// Four reference strings with one deliberate duplicate, so interning is
+// observable, and two recorded sites resolved with the PE base and rodata RVA.
+// Same no-Go-fallback contract.
+func KCCNativeValueRodataCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-rodata")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //

@@ -449,10 +449,26 @@ func natStPatchOff(s) { return s[3] }
 func natStPatchLabel(s) { return s[4] }
 func natStImm64(s) { return s[5] }
 
+// natStRodataPos and natStRodataOff are Phase 151A Step 9a slots: the position
+// of each rodata reference site, and the offset into the rodata section that site
+// refers to. The two lists are parallel, so entry i of one describes entry i of
+// the other.
+//
+// These CANNOT share slot 5 with natStImm64. That slot is already in use: Step 6
+// appends the three IAT positions to it and reads them back IN EMISSION ORDER to
+// build the IAT patch list. Appending rodata sites to the same list would
+// interleave two kinds of site with nothing to distinguish them, and Step 6's
+// gate would then read a rodata position as an IAT slot.
+//
+// Growing the state from six slots to eight is additive: natNewEmitter is the
+// only constructor, so no existing emission changes and no byte moves.
+func natStRodataPos(s) { return s[6] }
+func natStRodataOff(s) { return s[7] }
+
 // natNewEmitter returns a fresh emitter state: empty code, no labels, no
 // rel32 fixups, no imm64 placeholders.
 func natNewEmitter(unused) {
-    return [[], [], [], [], [], []]
+    return [[], [], [], [], [], [], [], []]
 }
 
 // natLen reports how many bytes have been emitted so far. It is the value

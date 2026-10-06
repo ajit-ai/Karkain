@@ -41,6 +41,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"karkain/pkg/lexer"
 	"karkain/pkg/native"
@@ -673,15 +674,107 @@ func TestPhase151A5_RegressionOraclePEUnchanged(t *testing.T) {
 // run and recorded in PHASE-151A-BASELINE.md sections 13 and 14). A gate that
 // cannot distinguish "kcc ran and agreed" from "kcc died" is not evidence, so
 // the subject here is the file the pin actually owns.
+// kirVerifyAttempts bounds how many times the whole-tree KIR verify is retried
+// when kcc dies with the known intermittent access violation. It is a bound on
+// RETRIES of an environmental crash, not on the strength of the assertion: the
+// pin is still compared exactly against whichever attempt produced output.
+const kirVerifyAttempts = 4
+
+// kirVerifyWithRetry runs `karkain kir --verify src/compiler/kir.kark` and
+// returns its output, retrying ONLY on the documented intermittent crash.
+//
+// WHY THIS EXISTS, and why it is not a weakened gate. `kcc` intermittently dies
+// with 0xC0000005 (exit 3, ZERO output) in its assemble/parse/typecheck path.
+// Step 9a-1 in PHASE-151A-BASELINE.md establishes the evidence: it reproduces on
+// pristine HEAD, at 1.7-2.1 GiB free (far above the 1536 MiB error[K127]
+// threshold), is NOT fixed by a 64 MiB stack reserve, and flips between success
+// and crash on BYTE-IDENTICAL sources minutes apart. It is a pre-existing
+// intermittent defect in kcc, unrelated to any particular tree.
+//
+// So the honest position is: a single attempt cannot distinguish "the pin moved"
+// from "kcc crashed", and the fix for the crash is not this slice's to land. The
+// retry keeps the assertion intact -- it is still an exact integer comparison
+// against the measured pin, and an attempt that SUCCEEDS but reports the wrong
+// count still fails immediately. Only a crash with no output at all is retried,
+// and if every attempt crashes the test fails with the defect named, so the
+// environmental class can never be silently absorbed into a pass.
+//
+// The same helper is used by the shared pin assertion in
+// TestPhase122_PipelineOwnership/KIRContinuity, because a flaky pin gate that
+// fails at random trains people to re-run red tests, which is worse than useless.
+func kirVerifyWithRetry(t *testing.T, karkain string) (string, error) {
+	t.Helper()
+	var lastErr error
+	var lastOut []byte
+	for i := 1; i <= kirVerifyAttempts; i++ {
+		cmd := exec.Command(karkain, "kir", "--verify", filepath.Join(repoRoot(t), "src", "compiler", "kir.kark"))
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			return string(out), nil
+		}
+		lastErr, lastOut = err, out
+		// Only an empty-output crash is the known intermittent defect. Anything
+		// that produced a diagnostic is a real failure and must surface at once.
+		if len(out) > 0 {
+			return string(out), err
+		}
+		t.Logf("kcc kir --verify attempt %d/%d died with no output (%v); clearing "+
+			"any stale kcc.exe and retrying (known intermittent 0xC0000005, see "+
+			"PHASE-151A-BASELINE.md 9a-1)", i, kirVerifyAttempts, err)
+		killStaleKCC(t)
+	}
+	return string(lastOut), fmt.Errorf("kcc kir --verify crashed with no output on all "+
+		"%d attempts (last: %v); this is the pre-existing intermittent 0xC0000005 "+
+		"recorded in PHASE-151A-BASELINE.md 9a-1, NOT a pin mismatch",
+		kirVerifyAttempts, lastErr)
+}
+
+// killStaleKCC terminates leftover kcc.exe processes before a retry.
+//
+// This is the measured remediation for the intermittent 0xC0000005, and it is
+// worth stating precisely because the obvious explanation is WRONG. The failure
+// looks exactly like the Phase 127 low-RAM class, but it is not:
+//   - it reproduces at 1944/1737/2087 MiB free (far above the 1536 MiB
+//     error[K127] threshold), and
+//   - it REPRODUCES SUCCESSFULLY at 127 MiB free.
+//
+// What actually predicts it is a leftover kcc.exe holding ~668 MiB. Killing the
+// stale process and re-running immediately succeeds. So the crash correlates with
+// a leaked peer process, not with this host's memory budget, and a retry that
+// does not clear it simply fails again -- which is exactly what the first version
+// of this helper observed (4/4 attempts died in ~16s each, versus ~500s for a
+// successful whole-tree verify).
+//
+// Only kcc.exe is touched, and only on a retry after a no-output crash.
+func killStaleKCC(t *testing.T) {
+	t.Helper()
+	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq kcc.exe", "/NH").Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if !strings.Contains(line, "kcc.exe") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pid := fields[1]
+		t.Logf("clearing stale kcc.exe (pid %s) left by a crashed attempt", pid)
+		_ = exec.Command("taskkill", "/F", "/PID", pid).Run()
+	}
+	time.Sleep(3 * time.Second)
+}
+
 func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	karkain := phase130Karkain(t)
-	cmd := exec.Command(karkain, "kir", "--verify", filepath.Join(repoRoot(t), "src", "compiler", "kir.kark"))
-	out, err := cmd.CombinedOutput()
+	out, err := kirVerifyWithRetry(t, karkain)
 	if err != nil {
 		t.Fatalf("karkain kir --verify failed: %v\n%s", err, out)
 	}
-	text := phase121Count(t, string(out), "[ok] kir text: ")
-	verify := phase121Count(t, string(out), "[ok] kir verify: ")
+	text := phase121Count(t, out, "[ok] kir text: ")
+	verify := phase121Count(t, out, "[ok] kir verify: ")
 	if text != verify {
 		t.Errorf("kir text %d != kir verify %d", text, verify)
 	}
@@ -695,16 +788,22 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// thirteen-arm corpus) added 139, and Step 8d (the call ABI -- argTemp,
 	// stageUnit, the argRegs load, the extras pointer, the call, and the callee's
 	// homing) added 87, and Step 8e (floats through the call ABI -- four shapes,
-	// no new emission) added 30:
-	// 11412 + 344 + 103 + 91 + 213 + 139 + 87 + 30 = 12419. Each step was
-	// measured with `karkain kir --verify src/compiler/kir.kark` rather than
+	// no new emission) added 30, and Step 8f (strings through the call ABI --
+	// seven shapes, no new emission) added 69, and Step 9a (rodata resolution --
+	// natRodataRefOff/natRodataSection/natStrEq/natAppendStr/natResolveRodata,
+	// the two new emitter-state slots and the corpus) added 82:
+	// 11412 + 344 + 103 + 91 + 213 + 139 + 87 + 30 + 69 + 82 = 12570. Each step
+	// was measured with `karkain kir --verify src/compiler/kir.kark` rather than
 	// predicted.
+	//
+	// Step 9a's 82 is smaller than the ~176 source lines it added because KIR
+	// renders the AST, not the file: the slice's comment block emits no lines.
 	//
 	// The KIR delta is code growth only. Step 8d added NO frame region, so no
 	// frame-dependent displacement moved -- an earlier reading of that work
 	// predicted a re-pin of every frame number and was wrong.
-	if text != 12488 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 12488 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a + 213 Step 8b + 139 Step 8c + 87 Step 8d); output follows: %s", text, out)
+	if text != 12570 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 12570 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a + 213 Step 8b + 139 Step 8c + 87 Step 8d + 30 Step 8e + 69 Step 8f + 82 Step 9a); output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

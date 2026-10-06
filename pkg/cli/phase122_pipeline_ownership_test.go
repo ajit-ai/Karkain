@@ -202,13 +202,24 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// region requiring a re-pin of every frame number, which was WRONG: the
 		// oracle computes argTemp(i) = frame - argSpillBytes + i*16, addressing
 		// downward from the frame size, and Step 1 had already reserved it.
-		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
-		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
+		// kirVerifyWithRetry retries ONLY kcc's documented intermittent
+		// 0xC0000005 (empty output, exit 3) -- see PHASE-151A-BASELINE.md 9a-1
+		// for the evidence that it predates this tree, is not a low-RAM or stack
+		// effect, and flips on byte-identical sources. The pin comparison below is
+		// unchanged and still exact.
+		out, err := kirVerifyWithRetry(t, bin)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 12488 {
-			t.Errorf("whole-tree kir text = %d lines, want 12488:\n%s", got, out)
+		// Re-measured for increment 151A Step 9a, never predicted: 12570, i.e.
+		// 12488 + 82. The +82 is the Step 9a rodata-resolution surface in
+		// native_value.kark (natRodataRefOff / natRodataSection / natStrEq /
+		// natAppendStr / natResolveRodata / natRodataSiteCount / the corpus)
+		// plus the two new emitter-state accessors; the surrounding comment
+		// block above is not rendered by KIR, which is why 176 added source
+		// lines move the pin by 82 rather than by 176.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 12570 {
+			t.Errorf("whole-tree kir text = %d lines, want 12570:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

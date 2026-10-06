@@ -265,6 +265,13 @@ func main() {
         }
         return
     }
+    // Phase 151A Step 9a: rodata resolution. Four reference strings with one
+    // deliberate duplicate, so interning is observable, and two recorded sites
+    // resolved with the PE base and rodata RVA.
+    if (command == "native-value-rodata") {
+        natRodataCorpus()
+        return
+    }
 
 	// Phase 151A Step 1: the native value/frame foundation. Same
 	// measurement contract as the four above -- the cases are compiled into

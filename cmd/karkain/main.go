@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "native-value-call", "native-value-floatcall", "native-value-stringcall", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "native-value-call", "native-value-floatcall", "native-value-stringcall", "native-value-rodata", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1812,6 +1812,17 @@ func main() {
 	// stageUnit's high-half rule is exercised at all.
 	if command == "native-value-stringcall" {
 		result := cli.KCCNativeValueStringCallCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 9a: rodata resolution. Four reference strings with one
+	// deliberate duplicate, so interning is observable, and two recorded sites
+	// resolved with the PE base and rodata RVA.
+	if command == "native-value-rodata" {
+		result := cli.KCCNativeValueRodataCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}
