@@ -465,10 +465,65 @@ func natStImm64(s) { return s[5] }
 func natStRodataPos(s) { return s[6] }
 func natStRodataOff(s) { return s[7] }
 
+// natStIatIndex is Step 9b's slot: for every entry of slot 5 (natStImm64), the
+// KARKAIN IAT INDEX that entry refers to. It is parallel to slot 5, so entry i of
+// one describes entry i of the other.
+//
+// WHY THIS SLOT IS NECESSARY, and it is the same lesson Step 9a learned twice.
+// The Go oracle records these kind- AND index-tagged:
+//     apatches = append(b.apatches, absPatch{pos: pos, index: slot})
+//     ipatches = append(b.ipatches, iatPatch{pos: pos, index: index})
+// kcc recorded the POSITION only, so natWinExe had to recover the index from
+// emission order, and its own comment says so: "Positions are recorded in the
+// emitter's imm64 slot in emission order: ExitProcess, GetStdHandle, WriteFile,
+// then the exit call."
+//
+// That positional assumption is correct ONLY while exactly four sites exist. The
+// moment print_int is emitted into the same image it contributes MORE IAT
+// references (GetStdHandle and WriteFile per write), interleaved with the exit
+// tail's, and a positional reader silently pairs the wrong position with the
+// wrong IAT slot. That is not a crash: it is an image whose call goes through the
+// wrong kernel32 entry point. So the index is recorded where it is known, which
+// is exactly what the oracle does.
+func natStIatIndex(s) { return s[8] }
+
+// natStAbsPos / natStAbsIdx / natStIatPos are Step 9b's three PATCH-KIND lists.
+//
+// WHY THEY EXIST. Slot 5 is a MIXED list: natStoreAbs64 records an absolute
+// STORE (mov [imm64], rax) and natIatCall's natMovImm64 records an IAT LOAD
+// (movabs rax, <slot>). The oracle keeps those in two separate slices
+// (b.apatches / b.ipatches) and natPELink takes them separately, because they are
+// resolved differently: an apatch needs the absolute address of the IAT SLOT
+// itself, while an ipatch needs the resolved kernel32 ADDRESS.
+//
+// Until Step 9b, kcc recovered the split POSITIONALLY -- natWinExe read
+// p[0],p[1],p[2] as apatches and p[3] as the one ipatch, which was correct only
+// while the bootstrap's three stores were the only absolute sites. Once
+// print_int contributes IAT loads of its own, that split is unrecoverable from
+// position alone, and getting it wrong writes a slot address where an entry
+// address belongs: not a crash, a call through the wrong kernel32 entry point.
+//
+// So the KIND is recorded where it is known, exactly as the oracle records it.
+// natNewEmitter grows from nine slots to twelve; it is the only constructor, so
+// no existing emission changes and no byte moves.
+func natStAbsPos(s) { return s[9] }
+func natStAbsIdx(s) { return s[10] }
+func natStIatPos(s) { return s[11] }
+
+// natStIatIdx is the IAT INDEX for each entry of natStIatPos, exactly parallel to
+// it. Slot 8 (natStIatIndex) already records an index for every slot-5 entry, so
+// this list is deliberately redundant with it -- and that redundancy is the point:
+// natPELink needs (position, index) pairs of ONE KIND, and deriving them from the
+// mixed slot 5 would mean searching a position inside a list to recover which slot
+// it occupies. Recording the pair at the point where both values are known cannot
+// be mispaired, and a mutation that dropped an entry would shorten this list and
+// be caught rather than silently shifting every later pairing.
+func natStIatIdx(s) { return s[12] }
+
 // natNewEmitter returns a fresh emitter state: empty code, no labels, no
 // rel32 fixups, no imm64 placeholders.
 func natNewEmitter(unused) {
-    return [[], [], [], [], [], [], [], []]
+    return [[], [], [], [], [], [], [], [], [], [], [], [], []]
 }
 
 // natLen reports how many bytes have been emitted so far. It is the value
@@ -1006,10 +1061,27 @@ func natStoreAbs64(s) {
     s = natU64(s, 0)
     // Record the position so the linker can be told where to write the resolved
     // IAT address. natFinish ignores this slot, so recording cannot change a byte;
-    // it is how Step 6 turns these placeholders into a real image. The order is
-    // the emission order: ExitProcess, GetStdHandle, WriteFile.
+    // it is how Step 6 turns these placeholders into a real image.
     s[5] = appendArray(s[5], pos)
     return [s, pos]
+}
+
+// natStoreAbs64Idx is natStoreAbs64 plus the IAT INDEX this absolute pointer
+// refers to, recorded in slot 8 (natStIatIndex) alongside the position in slot 5.
+//
+// This is the shape the oracle already has and kcc only had by accident:
+// `apatches = append(b.apatches, absPatch{pos: pos, index: slot})`. Step 6 read
+// the index back from EMISSION ORDER, which is why its comment says "the order is
+// the emission order: ExitProcess, GetStdHandle, WriteFile". That is no longer
+// true once print_int contributes its own IAT references to the same image, so
+// the index is recorded where it is known. The bytes emitted are identical.
+func natStoreAbs64Idx(s, idx) {
+    let p = natStoreAbs64(s)
+    s = p[0]
+    s[8] = appendArray(s[8], idx)
+    s[9] = appendArray(s[9], p[1])
+    s[10] = appendArray(s[10], idx)
+    return s
 }
 
 // natSibScale returns the SIB scale field for a scale of 1, 2, 4 or 8.

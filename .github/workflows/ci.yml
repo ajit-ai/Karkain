@@ -426,6 +426,27 @@ jobs:
       - name: Run 151A Step 9a rodata resolution gate
         run: go test ./pkg/cli/ -run 'TestPhase151A9a_' -count=1 -timeout 30m
 
+      # 151A Step 9b: the first whole-program PE composition in kcc --
+      # _start + karkain_main + print_int emitted into ONE emitter state, with
+      # rodata resolved against the real PE layout and IAT patches paired by
+      # recorded index instead of emission order.
+      #
+      # Distinct pattern on purpose: 'TestPhase151A9a_' does not match
+      # 'TestPhase151B9_', so a Step 9b regression cannot hide behind a green
+      # Step 9a step. The name carries 9B rather than 9b on purpose: '9b' would
+      # sit inside the increment-151B encoder family's pattern namespace and read
+      # as a duplicate of it.
+      #
+      # This step is the only place in 151A that proves a kcc-produced image both
+      # PRINTS and RUNS. The gate compares stdout as EXACT BYTES, because the
+      # defect it exists to catch is a MISSING byte: an image whose rodata sites
+      # carry no DIR64 relocation entry reads from unmapped memory on a rebasing
+      # host, WriteFile fails SILENTLY, and the program prints its digits, omits
+      # its newline and exits 0. A trimmed comparison passes that defect, which is
+      # how it survived the first draft of this gate.
+      - name: Run 151A Step 9b one-state PE composition and execution gate
+        run: go test ./pkg/cli/ -run 'TestPhase151B9_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line

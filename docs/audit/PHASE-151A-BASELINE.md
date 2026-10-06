@@ -1571,3 +1571,184 @@ moved pin into a pass and cannot absorb a real failure. The pin itself was
 passed on the measured value in isolation (439.54s, `text=12570 verify=12570`).
 Under a combined `go test` invocation it remains unreliable, and that is recorded
 as an open red gate rather than papered over.
+
+---
+
+## 22. Step 9b -- the first whole-program PE composition (COMPLETE for the machinery)
+
+**Verdict: COMPLETE for the machinery. NOT the whole-program driver, and NOT
+ownership.** `kccOwnsNativeTargets` stays `false`, and 151A stays open.
+
+### 22.1 What landed
+
+`_start -> karkain_main -> print_int` emitted into **one** emitter state, with
+rodata resolved against the real PE layout and IAT patches paired by recorded
+index. Before this, every 151A slice emitted one SUBSYSTEM and compared it
+against the oracle; nothing had ever produced a runnable program from pieces,
+because Step 9a could resolve rodata addresses but had nothing to resolve them
+FOR.
+
+* `src/compiler/native_value.kark`: `natPrintIntBody(s, winWrite, offMinus,
+  offNewline)` is now the shared body, and the frozen `natPrintIntHelper()` is a
+  wrapper over it with the Linux write and offsets 0/1. Recording a rodata offset
+  changes no byte, so Step 7's corpus moves onto the shared body with its bytes
+  unchanged -- verified, `TestPhase151A7_` 7/7 green.
+* `natWinWrite` / `natStdOutHandle`: the port of the oracle's `emitWinWrite`,
+  including the two measured ABI facts (RBX pushed FIRST so its POP happens last;
+  **48, not 40**, for the WriteFile shadow while RBX is still live).
+* `natPEProgram` / `natPEMainBody` / `natPEShape` / `natPECorpusProg` /
+  `natFlatPairs`, and a `native-pe-prog` kcc subcommand with Go dispatch
+  (`KCCNativePEProgramCommand`).
+
+The blocker was found by measuring, not by planning: `print_int` wrote through
+the **Linux** `write` syscall, because the oracle's `emitWrite` switches on
+`b.goos` and only its non-Windows body had been ported. A PE built from the old
+`print_int` would have executed a Linux `syscall` instruction on Windows and
+faulted on the first digit -- which is exactly why every earlier PE gate
+deliberately built images that do NOT print.
+
+### 22.2 The IAT had to become index-tagged before this could work
+
+`natStoreAbs64Idx` and the `natStAbsPos` / `natStAbsIdx` / `natStIatPos` /
+`natStIatIdx` lists exist because kcc recovered each IAT reference's index from
+EMISSION ORDER, which is correct only while the bootstrap's three stores are the
+only absolute sites. `print_int` contributes four more IAT loads, so a positional
+reader silently pairs the wrong position with the wrong kernel32 entry point --
+not a crash, an image that calls through the wrong API. The emitter state grows
+from six slots to thirteen; `natNewEmitter` is the only constructor, so no
+existing emission changes and no byte moves.
+
+### 22.3 A REAL DEFECT this slice's execution evidence exposed
+
+**This is the substantive finding of Step 9b, and it is recorded because the
+structural layers could not see it.**
+
+The first working composition printed `12345` and **omitted its newline**, exit
+code 0. Root cause: `natPEProgram` passed an **empty** rodata patch list to
+`natPELink`. `natPELink` does *two* things with that list -- it writes each
+immediate (`roBase + offset`) **and** it adds a DIR64 relocation entry per site.
+With the list empty, the two rodata sites were resolved outside the relocation
+table and got **no DIR64 entry**. This image sets `DYNAMIC_BASE` and
+`HIGH_ENTROPY_VA`, and the host **does** rebase it, so those two immediates kept
+the preferred load address and pointed at unmapped memory.
+
+The symptom is the worst available shape. `print_int` writes its digits from the
+**stack** -- no absolute address, so unaffected -- and its newline from an
+unmapped pointer. `WriteFile` then failed, wrote **zero** bytes and returned no
+error, so the process exited 0.
+
+**Why every structural layer passed.** The image was a valid PE, the rodata
+addresses were exactly the ones `native_value.kark` computed, the IAT pairing was
+right, and the relocation count for the *other* sites was right. All of them were
+checked against the **file**, and the file is correct. This is the same class as
+the Phase 150C defect already recorded (a write that fails silently and exits 0),
+and for the same reason its guard was `if out != ""`.
+
+**And why the first gate draft also passed it.** That draft compared
+`strings.TrimSpace(stdout)` against `"12345"`. The trimmed string is still
+`"12345"` when the newline is missing, so the defect survived a test that looked
+like it covered execution. Trimming is precisely the wrong tool for a defect that
+is a **missing byte**. The gate now compares **exact bytes**, and
+`TestPhase151B9_RodataSitesHaveDir64Relocations` is the structural half that
+*names* the cause.
+
+**Mutation-verified.** Reproducing the defect -- dropping the rodata patch list
+again -- fails exactly two layers, `KccProducedPEExecutes` and
+`RodataSitesHaveDir64Relocations`, and leaves the other seven green. That is the
+honest statement of what the structural layers can and cannot see. Two further
+mutations were verified in the same slice: making `natIatCall` record a constant
+index instead of the one it was given fails both the index check **and** live
+execution (the image calls the wrong kernel32 entry point); and hard-coding the
+text length instead of measuring it fails the rodata address layer.
+### 22.4 Evidence
+
+| Layer | Result |
+|---|---|
+| `ImageIsValidPEAndCarriesAllThreePieces` | PASS -- `ParsePE` (the ORACLE's reader), entry at `.text` start, all three pieces by byte signature |
+| `RodataPlacementAndAddresses` | PASS -- section bytes, placement, addresses derived from the MEASURED code length |
+| `IATPatchCountsAndIndexCorrectness` | PASS -- `sites=2 ap=3 ip=7`, all three indices resolved and distinct |
+| `IATSlotAddressIsInImage` | PASS -- slot base cross-checked against the image's own import directory |
+| `MainCallsPrintIntAcrossPieces` | PASS -- the cross-piece `call rel32` lands on `print_int`'s HEAD |
+| `KccProducedPEExecutes` | PASS -- stdout is exactly `31 32 33 34 35 0a`, exit 0 |
+| `RodataSitesHaveDir64Relocations` | PASS -- 12+ DIR64 entries, both rodata sites named individually |
+| `CorpusIsNonVacuousAndDeterministic` | PASS |
+| `NoGoFallback` | PASS |
+
+All nine tests are named `TestPhase151B9_*`. The letter is `9B` rather than `9b`
+on purpose: `9b` would sit inside the increment-151B encoder family's pattern
+namespace (`TestPhase151B_`) and read as a duplicate of it.
+
+Oracle comparison, measured with no shell in the path: the Go oracle's own image
+for `func main() { let x = 12345; print(x) }` and kcc's image both emit
+`31 32 33 34 35 0a` and exit 0. The images are **not** byte-identical and are
+not expected to be -- the oracle's `main` is a real lowered function with a frame
+and kcc's is a fixed body -- so **stdout is the comparison, not the bytes**.
+
+Frozen regressions green: `TestPhase151A5_` (except the pin, below), `151A7_`,
+`151A9a_`, all `151A8*`, `151B_`, `151C*`. `go build ./...` and `go vet` clean,
+gofmt clean (checked LF-normalised and BOM-free).
+
+### 22.5 Wrong expectations in this slice's own gate, recorded
+
+Four, all mine, all caught by measuring:
+
+1. **The image's `.text` is NOT the code arm plus rodata.** The first draft
+   asserted that and "found" a discrepancy in code that is right on both sides:
+   `natPELink` resolves the bootstrap's module-walk offsets and every IAT slot,
+   which the code arm correctly leaves as zeros. Both buffers are now asserted,
+   each in its own right.
+2. **The IAT does not start at `.idata`+16.** It starts at `.idata`+72: a 20-byte
+   import directory entry and three 8-byte ILT entries precede it. Assuming 16
+   made every slot address wrong by 56 bytes and reported "no IAT patch resolved"
+   for a correct image -- a failure that reads as a compiler defect and is not one.
+3. **`ParsePE`'s second return is a FILE offset (0x200), not the RVA (0x1000).**
+   Asserting the RVA failed against a correct image.
+4. **A DIR64 entry names the byte offset of the IMMEDIATE**, two bytes past the
+   instruction start, not of the instruction. Checking the instruction offset
+   reported both rodata sites as unrelocated against an image that had relocated
+   them; the coarse count assertion is what made that discrepancy visible rather
+   than silent.
+
+Two more were found in the implementation, both gate-caught. `natResolveRodata`
+returns a **count**, and assigning it to `s` replaced the emitter state with an
+integer -- silently producing an image with no resolved rodata and no IAT patches
+that still linked and still had the right length. That is precisely why the
+corpus's arm 3 is a count report rather than hex. And `natIatCall` had to keep
+appending to slot 5 after switching from `natMovImm64` to `natImm64Patch`, because
+the frozen Step 6 image builders read their ipatch position out of slot 5 by
+index.
+
+### 22.6 KIR pin: STALE and RED, deliberately
+
+**The whole-tree KIR pin is NOT re-measured, and is now known to be stale.** The
+pin's only measurement path is `karkain kir --verify src/compiler/kir.kark`,
+which is the whole-tree workload the 4 GB host rule forbids (measured this
+increment at ~2.5 GB working set and ~11.2 GB private bytes -- see the memory
+baseline recorded for this host). `TestPhase151A5_KIRPinHolds` therefore **FAILS
+on this host**, and its own diagnostic distinguishes the two causes: it reports
+the crash (`0xC0000005` on all four retries), explicitly *not* a pin mismatch.
+
+The pin was last measured at **12570** (Step 9a). Step 9b adds lines to
+`native_value.kark` and `native_emit.kark`, so the true value has moved.
+**It is deliberately NOT predicted here.** Writing a predicted number into
+`phase122_pipeline_ownership_test.go` and `phase151a5_win_test.go` would turn a
+known-red gate into a green one that asserts nothing, which is the exact failure
+the evidence-discipline rule in `AGENTS.md` exists to prevent. Both assertions
+therefore still read **12570**, they now FAIL, and that is the honest state: they
+are *stale-until-measured*, not *wrong-and-passing*.
+
+Re-measuring requires either a host with enough commit headroom (the Linux CI
+runner) or the memory-defect work, which is separate authorised work and is not
+started.
+
+### 22.7 Still open after 9b
+
+* The whole-program driver: `natPEProgram` is a FIXED program compiled into kcc,
+  not a driver that walks a real function's locals and dispatches on their kinds.
+  Section 8 of the 151A scope is what makes kcc own native targets, and 9c is
+  where it starts.
+* Every remaining native value-model item: floats (done through Step 8c), arrays,
+  `for-in`, `len()`, arena/`alloc`, string concat, string slice/compare, `push`,
+  records, maps, macOS entry/exit.
+* `kccOwnsNativeTargets = false`, and the seam's guard arm stays a build-time
+  guard.

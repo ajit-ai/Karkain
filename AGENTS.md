@@ -2873,3 +2873,78 @@ failure. Under a combined `go test` invocation the pin gate remains unreliable a
 is recorded as an **open red gate** rather than papered over.
 `kccOwnsNativeTargets` stays `false`; 151A is **not** closed. Still open in 151A:
 image assembly (9b) and the first kcc-produced executable image (9c).
+
+Also completed: **151A Step 9b - the first whole-program PE composition in kcc**
+(increment 151, slice A step 9b; verdict **COMPLETE for the machinery** -- NOT
+the whole-program driver, NOT ownership; record
+`docs/audit/PHASE-151A-BASELINE.md` §22). `_start -> karkain_main -> print_int`
+emitted into **ONE** emitter state, with rodata resolved against the real PE
+layout (`PEBase + textRVA + len(text) + off`, textLen MEASURED) and IAT patches
+paired by recorded index. `natPrintIntBody(s, winWrite, offMinus, offNewline)` is
+the shared print_int body and the frozen `natPrintIntHelper()` is a wrapper over
+it, so Step 7's corpus moved onto the shared body with its bytes unchanged
+(`TestPhase151A7_` 7/7 green). `natWinWrite`/`natStdOutHandle` port the oracle's
+`emitWinWrite`, including the two measured ABI facts (RBX pushed FIRST so its POP
+happens last; **48 not 40** for the WriteFile shadow while RBX is live). The
+blocker was found by measuring, not planning: `print_int` wrote through the
+**Linux** `write` syscall, because the oracle's `emitWrite` switches on `b.goos`
+and only its non-Windows body had been ported -- which is exactly why every
+earlier PE gate deliberately built images that do NOT print. **The IAT had to
+become index-tagged first**: kcc recovered each IAT reference's index from
+EMISSION ORDER, correct only while the bootstrap's three stores are the only
+absolute sites, so `print_int`'s four extra IAT loads would have been mispaired
+into a silent call through the WRONG kernel32 entry point. Emitter state 6 -> 13
+slots (`natStAbsPos`/`natStAbsIdx`/`natStIatPos`/`natStIatIdx`); `natNewEmitter`
+is the only constructor, so no existing emission changes and no byte moves.
+**A REAL DEFECT that only execution could see, and it is the substantive finding
+of this slice.** The first working composition printed `12345` and **omitted its
+newline**, exit 0. Root cause: `natPEProgram` passed an EMPTY rodata patch list to
+`natPELink`, which does *two* things with that list -- it writes each immediate
+**and** it adds a DIR64 relocation entry per site -- so the two rodata sites got
+no relocation entry. The image sets `DYNAMIC_BASE`/`HIGH_ENTROPY_VA` and the host
+DOES rebase it, so those immediates kept the preferred base and pointed at
+unmapped memory. `print_int` writes its digits from the **stack** (unaffected)
+and its newline from an unmapped pointer, so `WriteFile` failed, wrote **zero**
+bytes and returned no error. Every structural layer passed -- valid PE, exactly
+the computed rodata addresses, correct IAT pairing -- because all of them were
+checked against the **file**, and the file is correct. **And the first gate draft
+also passed it**, because it compared `strings.TrimSpace(stdout)` against
+`"12345"`, and the trimmed string is still `"12345"` when the newline is missing:
+trimming is exactly the wrong tool for a defect that is a **missing byte**. The
+gate now compares EXACT bytes (`31 32 33 34 35 0a`), and
+`TestPhase151B9_RodataSitesHaveDir64Relocations` is the structural half that names
+the cause. **Mutation-verified three ways**: reproducing the defect fails exactly
+`KccProducedPEExecutes` and `RodataSitesHaveDir64Relocations` and leaves the other
+seven green (the honest statement of what structural layers cannot see); making
+`natIatCall` record a constant index fails both the index check AND live
+execution; hard-coding the text length fails the rodata address layer. Gate
+`pkg/cli/phase151a9b_pe_test.go` **9/9 PASS**, named `TestPhase151B9_*` because
+`9b` would sit inside the increment-151B encoder family's `TestPhase151B_`
+namespace. **Oracle comparison with no shell in the path**: the Go oracle's own
+image for `func main() { let x = 12345; print(x) }` and kcc's image both emit
+`31 32 33 34 35 0a` and exit 0; the images are not and should not be
+byte-identical (the oracle's `main` is a real lowered function with a frame, kcc's
+is a fixed body), so **stdout is the comparison, not the bytes**. Four wrong
+expectations in this slice's own gate, all mine, all recorded in §22.5 -- most
+importantly that the image's `.text` is NOT the code arm plus rodata (the linker
+resolves the bootstrap offsets and IAT slots the code arm correctly leaves zero),
+and that the IAT starts at `.idata`+**72**, not +16. CI companion wired in the
+same change (step *Run 151A Step 9b one-state PE composition and execution gate*,
+pattern `TestPhase151B9_`, verified not to collide with `TestPhase151A_`,
+`TestPhase151A9a_` or `TestPhase151B_`); `ci.yml` left **purely additive** (21
+insertions, 0 deletions) after an earlier `Get-Content`/`WriteAllLines` round trip
+mojibaked every non-ASCII character in the file -- restored from HEAD and redone
+byte-safely. **KIR pin: STALE and RED, deliberately.** The pin's only measurement
+path is the whole-tree `karkain kir --verify src/compiler/kir.kark`, which the
+4 GB host rule forbids (measured this increment at ~2.5 GB working set and ~11.2
+GB private bytes); `TestPhase151A5_KIRPinHolds` FAILS and its own diagnostic says
+so, reporting the crash rather than a mismatch. The pin was last measured at
+**12570** and Step 9b moves it; it is **deliberately NOT predicted**, because a
+predicted number would turn a known-red gate into a green one asserting nothing,
+which is the exact failure the evidence-discipline rule exists to prevent. Both
+assertions still read 12570, they now fail, and that is the honest
+stale-until-measured state. Re-measuring needs the Linux CI runner or the
+separate memory-defect work. **Still open:** the whole-program driver (a real
+driver walking a function's locals and dispatching on their kinds -- that is 9c),
+arrays, `for-in`, `len()`, arena/`alloc`, string concat, string slice/compare,
+`push`, records, maps, macOS entry/exit, and `kccOwnsNativeTargets = false`.

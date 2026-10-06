@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "native-value-call", "native-value-floatcall", "native-value-stringcall", "native-value-rodata", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-pe-prog", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "native-value-call", "native-value-floatcall", "native-value-stringcall", "native-value-rodata", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1846,6 +1846,17 @@ func main() {
 	// the one whose structural evidence is worth the most.
 	if command == "native-pe" {
 		result := cli.KCCNativePECommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 9b: the ONE-STATE PE program composition (_start +
+	// karkain_main + print_int) with rodata resolved and IAT patches paired by
+	// recorded index. Same no-fallback contract as native-pe.
+	if command == "native-pe-prog" {
+		result := cli.KCCNativePEProgramCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

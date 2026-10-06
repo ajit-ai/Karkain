@@ -435,14 +435,54 @@ func natPrintNewline(s) {
     return natWriteStdout(s)
 }
 
-// natPrintIntHelper mirrors emitHelpers' print_int body byte for byte.
+// natPayloadWrite emits the stdout payload write for the current OS.
+//
+// Step 9b's reason this exists: print_int is the FIRST helper with real output,
+// and it wrote through the LINUX `write` syscall unconditionally. That is the
+// oracle's emitWrite NON-WINDOWS body; the oracle's emitWrite switches on b.goos
+// and dispatches to emitWinWrite, which kcc had never ported. So a PE image
+// built from the existing print_int would execute a Linux `syscall` instruction
+// on Windows and fault on the first digit -- which is exactly why every earlier
+// PE gate deliberately built images that do NOT print.
+//
+// `winWrite` is 1 for Windows and 0 for Linux/ELF. The parameter is a number
+// rather than a boolean because this language has no other way to select a
+// function, and a literal 0/1 keeps the call sites self-documenting.
+func natPayloadWrite(s, winWrite) {
+    if (winWrite == 1) { return natWinWrite(s) }
+    return natWriteStdout(s)
+}
+
+// natPrintNewlineOff is natPrintNewline with the rodata OFFSET recorded, so a
+// real program can resolve the newline address against its own rodata section.
+// The Step 7 corpus calls the byte-identical natPrintNewline, which records
+// nothing, and that separation is deliberate.
+func natPrintNewlineOff(s, winWrite, offNewline) {
+    s = natRodataRefOff(s, natRegRSI(), offNewline)
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    return natPayloadWrite(s, winWrite)
+}
+
+// natPrintIntBody is the SHARED print_int body, and it is the whole of Step 9b's
+// first half: one body that can be emitted into a caller-owned emitter state, so
+// print_int's rodata references land in the SAME state as the program's own and
+// can therefore be resolved.
 //
 // Contract: RDI carries the value, output is decimal text plus a newline on
 // stdout. The 64 bytes reserved below RSP are the digit buffer; the pointer
 // starts at the TOP of that buffer and walks down, which is why no count is
 // needed up front.
-func natPrintIntHelper() {
-    let s = natNewEmitter(0)
+//
+// `offMinus`/`offNewline` are offsets into the caller's rodata section. They are
+// passed in rather than interned here because interning is a property of the
+// WHOLE program: Step 9a established that the oracle's internRodata deduplicates
+// by FIRST USE across every reference in the program, so a helper that invented
+// its own offsets would be guessing at where its strings landed.
+//
+// Recording an offset does not change a byte -- natRodataRefOff and natRodataRef
+// differ only in the two recorded lists -- which is why the frozen Step 7 corpus
+// can move onto this body without its bytes moving.
+func natPrintIntBody(s, winWrite, offMinus, offNewline) {
     s = natMark(s, "print_int")
     s = natSubRegImm32(s, natRegRSP(), 64)
     s = natMovRegReg(s, natRegRAX(), natRegRDI())
@@ -451,15 +491,15 @@ func natPrintIntHelper() {
     s = natTestRegReg(s, natRegRAX(), natRegRAX())
     s = natJns(s, "print_int_pos")
     s = natNegReg(s, natRegRAX())
-    // RSI (the digit pointer) and RAX (the magnitude) are pushed across the
-    // sign write, because the write syscall clobbers volatile registers and
-    // both are needed by the digit loop below.
+    // RSI (the digit pointer) and RAX (the magnitude) are pushed across the sign
+    // write, because the write clobbers volatile registers and both are needed by
+    // the digit loop below.
     s = natPushReg(s, natRegRAX())
     s = natPushReg(s, natRegRSI())
     s = natMovRegImm32(s, natRegRDX(), 1)
     s = natMovRegImm32(s, natRegRDI(), 1)
-    s = natRodataRef(s, natRegRSI())
-    s = natWriteStdout(s)
+    s = natRodataRefOff(s, natRegRSI(), offMinus)
+    s = natPayloadWrite(s, winWrite)
     s = natPopReg(s, natRegRSI())
     s = natPopReg(s, natRegRAX())
     s = natMark(s, "print_int_pos")
@@ -477,10 +517,34 @@ func natPrintIntHelper() {
     s = natMovRegReg(s, natRegRDX(), natRegRBX())
     s = natSubRegReg(s, natRegRDX(), natRegRSI())
     s = natMovRegImm32(s, natRegRDI(), 1)
-    s = natWriteStdout(s)
+    s = natPayloadWrite(s, winWrite)
     s = natAddRegImm32(s, natRegRSP(), 64)
-    s = natPrintNewline(s)
+    s = natPrintNewlineOff(s, winWrite, offNewline)
     return natRet(s)
+}
+
+// natPrintIntHelper is the FROZEN Step 7 entry point, now a wrapper over
+// natPrintIntBody with the Linux write and the two rodata offsets the Step 7
+// corpus implies.
+//
+// WHY IT STAYS, rather than being replaced: Step 7's gate compares these bytes
+// against the oracle's print_int, and that corpus is the evidence that the digit
+// loop is correct. Removing the corpus's only caller would leave the body
+// reachable only from the new program path, and a differential that exists only
+// on the path under test is a weaker differential than one that also runs
+// unchanged.
+//
+// The offsets are 0 and 1 -- "-" first, then "\n" -- which is first-use interning
+// order. They are recorded but never resolved here, so natPrintCorpus arm 2 still
+// pins the UNRESOLVED placeholder shape independently of this helper.
+//
+// It returns the STATE, not finished bytes: natPrintCorpus calls natFinish on it,
+// which is where label resolution belongs. An earlier draft returned the finished
+// bytes from here as well, so natFinish ran twice -- the second pass read a byte
+// array as an emitter state, every corpus arm printed empty, and arm 0 came back
+// as the 28-byte digit loop under the wrong index.
+func natPrintIntHelper() {
+    return natPrintIntBody(natNewEmitter(0), 0, 0, 1)
 }
 
 // natPrintCorpus renders the print_int helper in three shapes.
@@ -1435,7 +1499,7 @@ func natWinCmpPair(s, k, ch, nextLbl) {
 // The export directory sits at NT+136 (COFF 24 + Optional 112); the +96 shape
 // is the 32-bit header and reads garbage, measured in Phase 149. The resolved
 // address moves RDX -> RAX before the store because 48 A3 is accumulator-only.
-func natWinResolve(s, c0, c1, c2, c3, c4, c5, loopLbl, nextLbl, doneLbl, failLbl) {
+func natWinResolve(s, c0, c1, c2, c3, c4, c5, loopLbl, nextLbl, doneLbl, failLbl, iatIdx) {
     s = natLoadBaseOff32(s, natRegRCX(), natRegR10(), 60)
     s = natMovRegReg(s, natRegRDX(), natRegR10())
     s = natAddRegReg(s, natRegRDX(), natRegRCX())
@@ -1469,8 +1533,19 @@ func natWinResolve(s, c0, c1, c2, c3, c4, c5, loopLbl, nextLbl, doneLbl, failLbl
     s = natMovRegReg(s, natRegRDX(), natRegR10())
     s = natAddRegReg(s, natRegRDX(), natRegRAX())
     s = natMovRegReg(s, natRegRAX(), natRegRDX())
-    let p = natStoreAbs64(s)
-    s = p[0]
+    // The absolute pointer to the resolved kernel32 address is a LINK-TIME
+    // placeholder, and it is paired with its IAT INDEX here rather than by
+    // emission position. Step 9b needed this: once print_int contributes its own
+    // IAT references, a positional reader mispairs the bootstrap's stores.
+    //
+    // Note there is NO `let p = ...; s = p[0]` here. natStoreAbs64 returns
+    // [s, pos]; natStoreAbs64Idx returns the state alone. Keeping the old
+    // two-line destructuring assigned the CODE ARRAY to s, so every subsequent
+    // emitter call operated on the code bytes -- and because natFinish rejected
+    // the labels afterwards, the corpus arms printed EMPTY and the failure only
+    // surfaced much later inside natPELink as an out-of-range write. The
+    // one-line form is the honest one.
+    s = natStoreAbs64Idx(s, iatIdx)
     s = natJmp(s, doneLbl)
     s = natMark(s, nextLbl)
     s = natAddRegImm32(s, natRegRSI(), 4)
@@ -1531,15 +1606,15 @@ func natWinBootstrap(s) {
     s = natInt3(s)
     s = natMark(s, "wk$found")
     // "ExitProcess": E|x=0x7845 i|t=0x7469 P|r=0x7250 o|c=0x636F e|s=0x7365 s|\0=0x73
-    s = natWinResolve(s, 30789, 29801, 29264, 25455, 29541, 115, "wx$loop$0", "wx$next$0", "wx$done$0", "wx$fail$0")
+    s = natWinResolve(s, 30789, 29801, 29264, 25455, 29541, 115, "wx$loop$0", "wx$next$0", "wx$done$0", "wx$fail$0", 0)
     // "GetStdHandle": G|e=0x6547 t|S=0x5374 t|d=0x6474 H|a=0x6148 n|d=0x646E l|e=0x656C
     // The H|a pair was FIRST written as 24896 = 0x6140, whose low byte is '@',
     // not 'H'. The oracle comparison caught it as a single differing byte in a
     // 982-byte shape -- the same one-digit class 152-B2 hit on a SHA-256 round
     // constant, and the reason this gate derives the pair table a third time.
-    s = natWinResolve(s, 25927, 21364, 25716, 24904, 25710, 25964, "wx$loop$1", "wx$next$1", "wx$done$1", "wx$fail$1")
+    s = natWinResolve(s, 25927, 21364, 25716, 24904, 25710, 25964, "wx$loop$1", "wx$next$1", "wx$done$1", "wx$fail$1", 1)
     // "WriteFile": W|r=0x7257 i|t=0x7469 e|F=0x4665 i|l=0x6C69 e|\0=0x65
-    s = natWinResolve(s, 29271, 29801, 18021, 27753, 101, 0, "wx$loop$2", "wx$next$2", "wx$done$2", "wx$fail$2")
+    s = natWinResolve(s, 29271, 29801, 18021, 27753, 101, 0, "wx$loop$2", "wx$next$2", "wx$done$2", "wx$fail$2", 2)
     return s
 }
 
@@ -1549,7 +1624,9 @@ func natWinBootstrap(s) {
 func natWinExitTail(s) {
     s = natMovRegReg(s, natRegRCX(), natRegRAX())
     s = natSubRegImm32(s, natRegRSP(), 32)
-    s = natMovImm64(s, natMovImm64Op(natRegRAX()), 0)
+    // natIatCall records ExitProcess's IAT index with the placeholder, so the
+    // exit call is no longer identified by "the fourth emitted site".
+    s = natIatCall(s, natRegRAX(), natIatExitProcess())
     return natCallReg(s, natRegRAX())
 }
 
@@ -1583,7 +1660,7 @@ func natWinCorpus(which) {
     }
     if (which == 2) {
         let s = natNewEmitter(0)
-        s = natWinResolve(s, 30789, 29801, 29264, 25455, 29541, 115, "wx$loop$0", "wx$next$0", "wx$done$0", "wx$fail$0")
+s = natWinResolve(s, 30789, 29801, 29264, 25455, 29541, 115, "wx$loop$0", "wx$next$0", "wx$done$0", "wx$fail$0", 0)
         return natToHex(natFinish(s))
     }
     if (which == 3) {
@@ -1687,11 +1764,35 @@ func natWinExeC() {
     return natToHex(natPELink(text, [], [], [], ip, ap, [], natPETextOff(), natPETextOff()))
 }
 
-// natIatCall emits `movabs rax, <IAT slot>` + `call rax`, the Win64 import call
-// shape the oracle's iatCall produces. The placeholder position is recorded so
-// natPELink can resolve it against .idata.
+// natIatCall emits `movabs rax, <IAT slot>`, the Win64 import-call shape the
+// oracle's iatCall produces, and records the slot INDEX alongside the placeholder
+// position.
+//
+// The `slot` parameter existed but was UNUSED until Step 9b: the oracle pairs
+// each position with its index (`iatPatch{pos, index}`), while kcc recorded the
+// position alone and left callers to recover the index from emission order. That
+// worked only while four sites existed. The comment on natStIatIndex explains
+// why the positional reading is now wrong, and it is worth restating that the
+// consequence of getting it wrong is a silent call through the WRONG kernel32
+// entry point rather than a crash.
+//
+// Note the `call rax` is NOT emitted here: the oracle's iatCall emits it
+// internally, but kcc's Step-6 call sites emit natCallReg immediately after, and
+// that split is already byte-verified, so it is preserved rather than "fixed".
 func natIatCall(s, reg, slot) {
-    s = natMovImm64(s, natMovImm64Op(reg), 0)
+    let p = natImm64Patch(s, natMovImm64Op(reg))
+    s = p[0]
+    // Slot 5 is appended here as well as slot 11. natMovImm64 -- which is what
+    // this used to call -- appends to slot 5, and the frozen Step 6 image builders
+    // (natWinExe / natWinExeC) read their ipatch position straight out of slot 5
+    // by index. natImm64Patch does NOT append there, so switching to it without
+    // this line would silently shorten slot 5 and make those readers index past
+    // its end. The bytes are identical either way: both emit REX, the opcode and
+    // eight zero bytes, because natMovImm64 is always called with v == 0 here.
+    s[5] = appendArray(s[5], p[1])
+    s[8] = appendArray(s[8], slot)
+    s[11] = appendArray(s[11], p[1])
+    s[12] = appendArray(s[12], slot)
     return s
 }
 // ============================================================
@@ -2668,5 +2769,274 @@ func natRodataCorpus() {
     print(natToHex(natStCode(s)))
     print(str(natRodataSiteCount(s)))
     return
+}
+
+
+// ============================================================
+// Phase 151A Step 9b - the Windows write path and one-state program assembly
+//
+// WHY THIS SLICE EXISTS. Step 9a could resolve rodata addresses but had nothing
+// to resolve them FOR: no whole program was ever emitted. Step 9b assembles one.
+//
+// The blocker found by measuring, not by planning: print_int writes through the
+// LINUX `write` syscall. natWriteStdout is natSysWrite()==1 plus natSyscall, which
+// is the oracle's emitWrite NON-WINDOWS body. The oracle's emitWrite switches on
+// b.goos and dispatches to emitWinWrite, and that Windows body was never ported.
+// So a PE image built from the existing print_int would execute a Linux `syscall`
+// instruction on Windows and fault on the first digit -- which is why Step 6's
+// PE images deliberately do NOT print.
+//
+// So Step 9b ports emitWinWrite. Every instruction is the oracle's, in the
+// oracle's order.
+// ============================================================
+
+// natStdOutHandle is STD_OUTPUT_HANDLE, -11 as the 32-bit constant the oracle
+// moves into RCX (4294967285 = 0xFFFFFFF5).
+func natStdOutHandle() { return 4294967285 }
+
+// natWinWrite mirrors Builder.emitWinWrite in pkg/native/program.go.
+//
+// Contract: write (RSI=ptr, RDX=len) to stdout through kernel32 WriteFile.
+//
+// Two facts in the oracle's own comment are load-bearing and are reproduced
+// rather than re-derived:
+//
+//  1. PUSH ORDER. RBX is pushed FIRST (deepest) because its POP happens LAST; it
+//     has to survive BOTH kernel32 calls, and print_int keeps an end pointer in
+//     RBX across writes. A Phase 150C defect once pushed RSI,RDX,RBX but popped
+//     RDX,RSI,...,RBX, so every pop read the wrong slot; WriteFile then received a
+//     garbage pointer and length, wrote nothing, and returned without an error --
+//     so the process exited 0 with EMPTY stdout, which is exactly what the
+//     `if out != ""` guard in the PE tests silently skips. This ordering is
+//     therefore load-bearing for the test to mean anything, not a style choice.
+//
+//  2. 48, NOT 40, for the WriteFile shadow. RBX is still live on the stack (8
+//     bytes), so the caller's rsp already sits 8 lower than the pre-push baseline;
+//     48 keeps rsp%16 == 0 at the call where 40 would flip it to 8 and fault
+//     inside kernel32.
+func natWinWrite(s) {
+    s = natPushReg(s, natRegRBX())
+    s = natPushReg(s, natRegRSI())
+    s = natPushReg(s, natRegRDX())
+    // 32 = the Win64 caller shadow for GetStdHandle. With three live pushes
+    // (24 bytes) above it, rsp%16 lands on 0 before the call.
+    s = natSubRegImm32(s, natRegRSP(), 32)
+    s = natMovRegImm32(s, natRegRCX(), natStdOutHandle())
+    s = natIatCall(s, natRegRAX(), natIatGetStdHandle())
+    s = natCallReg(s, natRegRAX())
+    s = natAddRegImm32(s, natRegRSP(), 32)
+    s = natPopReg(s, natRegRDX())
+    s = natPopReg(s, natRegRSI())
+    // Win64 WriteFile(hFile=RCX, lpBuffer=RDX, nBytes=R8, written=R9):
+    // the handle comes from GetStdHandle in RAX, and ptr/len must be moved into
+    // RDX/R8 AFTER the pops, because the GetStdHandle call clobbered RCX/RDX.
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natMovRegReg(s, natRegR8(), natRegRDX())
+    s = natMovRegReg(s, natRegRDX(), natRegRSI())
+    s = natSubRegImm32(s, natRegRSP(), 48)
+    s = natLeaRegStack(s, natRegR9(), 24)
+    s = natXorRegReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), 32)
+    s = natIatCall(s, natRegRAX(), natIatWriteFile())
+    s = natCallReg(s, natRegRAX())
+    s = natAddRegImm32(s, natRegRSP(), 48)
+    // Win64 WriteFile may clobber RCX/RDX (and R8-R11) on return, so the
+    // caller's RBX is restored after the shadow is released.
+    s = natPopReg(s, natRegRBX())
+    return s
+}
+
+
+// ============================================================
+// Phase 151A Step 9b - ONE-STATE PE PROGRAM ASSEMBLY
+//
+// Steps 1-8f and 9a all emitted CORRECTLY but never TOGETHER into one runnable
+// program: each was a corpus shape compared against the oracle, and Step 9a could
+// resolve rodata addresses but had nothing to resolve them FOR. Step 9b is the
+// first composition, and it is deliberately small:
+//
+//	_start -> karkain_main -> print_int
+//
+// All three pieces go into ONE emitter state, which is the whole point. Two states
+// cannot work: print_int's rodata sites would live in a different state from the
+// linker's, so nothing could join them, and the IAT indices the print path
+// contributes would have to be recovered from emission order.
+//
+// WHAT THIS IS NOT, stated before it is misread: this is still a fixed program
+// compiled into kcc, NOT the whole-program driver 151A still owes. The driver is
+// what makes kcc own native targets; this proves the MACHINERY -- one state,
+// resolved rodata, index-tagged IAT, a real linked image -- so the driver has
+// something to drive.
+// ============================================================
+
+// The PE load base and .text RVA are NOT redefined here: native_pe.kark already
+// declares natPEBaseAddr (0x140000000) and natPETextRVA (0x1000) as the
+// container's own constants, and a second pair with the same values would be two
+// facts that could disagree. Reusing them means a change to the container's base
+// propagates here automatically instead of silently resolving every rodata
+// address against a stale number.
+
+// natFlatPairs interleaves two parallel lists into the flat [pos, idx, pos, idx]
+// shape natPELink takes.
+//
+// The oracle's patch slices are Go structs; Karkain has no records, so the pairing
+// is expressed as a flat array of alternating position and index. That is also why
+// there are TWO lists per kind rather than one: a flat array cannot be indexed as
+// a pair without knowing where each pair starts, and recomputing that per element
+// is exactly the kind of arithmetic a wrong assumption hides inside.
+func natFlatPairs(posArr, idxArr) {
+    let out = []
+    let i = 0
+    while (i < len(posArr)) {
+        out = appendArray(out, posArr[i])
+        out = appendArray(out, idxArr[i])
+        i = i + 1
+    }
+    return out
+}
+
+// natPEPrintValue is the value karkain_main prints. A distinctive literal on
+// purpose: a program that prints 0, or prints nothing, is indistinguishable from
+// a program whose print path silently wrote to a bad handle -- which is precisely
+// the failure mode Step 9b exists to make impossible.
+func natPEPrintValue() { return 12345 }
+
+// natPEMainBody emits karkain_main's body into an existing state.
+//
+// It is factored out because BOTH natPEProgram and natPEShape need it, and a
+// gate that inspected a separately rebuilt text would be testing a second
+// emission -- the same class of failure as comparing a transcription instead of a
+// compiler.
+//
+// The `sub rsp, 40` is Win64 ABI, not decoration: _start aligned rsp to 16 and
+// then called, so rsp % 16 == 8 at main entry, and a Win64 call site requires
+// rsp % 16 == 0 immediately before the `call`. 40 = 32 bytes of caller shadow
+// space plus 8 bytes that restore the alignment. Without it the callee is entered
+// misaligned and kernel32 faults on the first call inside print_int.
+//
+// RAX is main's return value and _start passes it straight to ExitProcess, so 0
+// is both "return 0" and "exit code 0".
+func natPEMainBody(s) {
+    s = natSubRegImm32(s, natRegRSP(), 40)
+    s = natMovRegImm32(s, natRegRDI(), natPEPrintValue())
+    s = natCall32(s)
+    let r = natRel32(s, "print_int")
+    s = r[0]
+    s = natAddRegImm32(s, natRegRSP(), 40)
+    s = natMovRegImm32(s, natRegRAX(), 0)
+    return natRet(s)
+}
+
+// natPEProgram builds the whole Step 9b PE image: _start, karkain_main,
+// print_int, resolved rodata, index-tagged IAT patches, and a linked image.
+//
+// The rodata section is interned FIRST-USE across the program's references.
+// print_int references "-" on the sign path and "\n" for the terminator, in that
+// emission order, so the offsets are 0 and 1. Those are passed into
+// natPrintIntBody rather than interned inside it, because interning is a property
+// of the whole program: once another function contributes a rodata string the
+// offsets move, and a helper that invented its own would be wrong.
+func natPEProgram() {
+    // natWinStub emits _start, the alignment, the PEB bootstrap, the call to
+    // karkain_main and the Win64 exit tail, then MARKS karkain_main -- so
+    // everything appended by natPEMainBody lands inside main.
+    let s = natWinStub()
+    s = natPEMainBody(s)
+    // print_int, in the SAME state. winWrite = 1 selects the Windows write path
+    // ported above; rodata offsets 0 ("-") and 1 ("\n").
+    s = natPrintIntBody(s, 1, 0, 1)
+    let text = natFinish(s)
+
+    // Resolve rodata against the REAL PE layout. pkg/native/pe.go lays .text out
+    // as code followed by rodata, so a rodata byte at offset `off` is at
+    // PEBase + textRVA + len(text) + off. len(text) is MEASURED from the finished
+    // text and never assumed: a hard-coded length would resolve every address in a
+    // program whose main body differed by even one byte, and every such program
+    // would still LINK -- it would just read the wrong memory.
+    let ro = natRodataSection(["-", "\n"])
+    // NOT `s = natResolveRodata(...)`: that function returns the NUMBER of sites
+    // it resolved, not the state. Assigning it would overwrite the emitter with
+    // an integer, and every subsequent natSt* accessor would read an int's "slot"
+    // and return 0 -- silently producing an image with NO resolved rodata and NO
+    // IAT patches, which still links and still has the right length. Arm 3 exists
+    // precisely to make that failure visible; this is the bug it was added for.
+    natResolveRodata(s, natPEBaseAddr() + natPETextRVA() + len(text), 0)
+
+    // THE RODATA PATCH LIST GOES TO THE LINKER, and that is the fix for a real
+    // defect this slice's own execution evidence exposed.
+    //
+    // natPELink does TWO things with it: it writes the immediate (roBase + offset,
+    // the same formula used here) AND it adds a DIR64 entry for each site. Passing
+    // an EMPTY list -- which the first version did -- resolved nothing through the
+    // linker and put NO relocation entry on either rodata site.
+    //
+    // This image sets DYNAMIC_BASE and HIGH_ENTROPY_VA, and the host DOES rebase
+    // it, so those two immediates kept the preferred load address and pointed at
+    // unmapped memory.
+    //
+    // The symptom was the nastiest kind available. print_int wrote its digits from
+    // the STACK (no absolute address, so unaffected), then its newline write read
+    // from an unmapped pointer, and WriteFile failed, wrote ZERO bytes and returned
+    // no error -- so the process exited 0. Every structural layer passed: the image
+    // was a valid PE, the rodata addresses were exactly the ones this file
+    // computed, the IAT pairing was right. All of them were checked against the
+    // FILE, and the FILE is correct. Only running it could see this, which is why
+    // the execution layer is not optional here, and why an assertion that trims
+    // whitespace off stdout is not enough: the missing byte was the newline.
+    let rp = natFlatPairs(natStRodataPos(s), natStRodataOff(s))
+
+    // IAT patches come from the recorded per-kind lists, never from position.
+    //   apatches: absolute STORES of resolved kernel32 addresses (the bootstrap)
+    //   ipatches: IAT LOADS, i.e. `movabs rax, <slot>` the print path and the exit
+    //             tail emit before `call rax`
+    // print_int's Windows write contributes FOUR ipatches -- GetStdHandle and
+    // WriteFile for each of its two write sites that a positive value reaches --
+    // and the exit tail one, on top of the bootstrap's three apatches. The sign
+    // write is a third emitted site and adds two more, for 7 ipatches in total.
+    // A positional reader would pair the wrong ones.
+    let ap = natFlatPairs(natStAbsPos(s), natStAbsIdx(s))
+    let ip = natFlatPairs(natStIatPos(s), natStIatIdx(s))
+    return natPELink(text, ro[0], [], rp, ip, ap, [], natPETextOff(), natPETextOff())
+}
+
+// natPECorpusProg renders the Step 9b composition in four shapes, so a failure
+// names a SUBSYSTEM rather than pointing into one long image.
+//
+//  0 the linked PE image        - the composition, and what 9c will execute
+//  1 the resolved .text         - rodata immediates and the main->print call
+//  2 the rodata section         - interning and placement
+//  3 a count report             - sites and patch kinds, so a resolver that filled
+//                                 nothing cannot pass against an all-zero buffer
+//
+// Arm 3 is deliberately NOT hex. The site and patch counts are the guard against a
+// vacuous pass: an image whose placeholders were never filled has the same length
+// and the same structure as a correct one, and only the counts prove the work
+// happened.
+func natPECorpusProg(which) {
+    if (which == 0) { return natToHex(natPEProgram()) }
+    if (which == 1) { return natToHex(natPEShape(1)) }
+    if (which == 2) { return natToHex(natPEShape(2)) }
+    if (which == 3) { return natPEShape(3) }
+    return ""
+}
+
+// natPEShape produces one intermediate of the composition.
+//
+// The program body is factored out so arms 1 and 2 observe the SAME emission the
+// linked image is built from. A gate that rebuilt the text separately to inspect
+// it would be testing a second emission, and a defect in the shared path would be
+// invisible to it.
+func natPEShape(which) {
+    let s = natWinStub()
+    s = natPEMainBody(s)
+    s = natPrintIntBody(s, 1, 0, 1)
+    let text = natFinish(s)
+    let ro = natRodataSection(["-", "\n"])
+    natResolveRodata(s, natPEBaseAddr() + natPETextRVA() + len(text), 0)
+    if (which == 1) { return text }
+    if (which == 2) { return ro[0] }
+    return "sites=" + str(natRodataSiteCount(s)) +
+           " ap=" + str(len(natStAbsPos(s))) +
+           " ip=" + str(len(natStIatPos(s)))
 }
 
