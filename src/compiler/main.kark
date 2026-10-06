@@ -145,7 +145,21 @@ func main() {
         return
     }
 
-	// Phase 151A: the `_start` entry stub and the Linux exit tail. Same
+	// Phase 151A Step 9b: the FIRST whole-program PE composition -- _start,
+	// karkain_main and print_int emitted into ONE state, with rodata resolved
+	// against the real PE layout and IAT patches paired by recorded index.
+	// Same measurement contract as native-pe: no input file, no Go fallback, and
+	// a Go-side link producing the same bytes would prove nothing about kcc.
+	if (command == "native-pe-prog") {
+        let bp = 0
+        while (bp < 4) {
+            print(natPECorpusProg(bp))
+            bp = bp + 1
+        }
+        return
+    }
+
+    // Phase 151A: the `_start` entry stub and the Linux exit tail. Same
     // measurement contract as the four encoder/container commands above -- the
     // cases are compiled into kcc and the gate compares them against the real
     // pkg/native Emitter, which is the oracle. NO INPUT FILE, and no Go

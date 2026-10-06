@@ -91,6 +91,22 @@ func KCCNativePECommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-pe")
 }
 
+// KCCNativePEProgramCommand runs the self-hosted ONE-STATE PE program assembly.
+//
+// Increment 151A Step 9b. Every other command here emits a single SUBSYSTEM and
+// compares it against the oracle: an encoder primitive, a container, a helper.
+// This one composes _start + karkain_main + print_int into a single linked PE
+// image inside ONE emitter state, which is the first time the self-hosted engine
+// has had to keep code, rodata, IAT patch positions and IAT indices coherent
+// ACROSS pieces rather than within one.
+//
+// It is still a fixed program compiled into kcc -- the whole-program driver that
+// makes kcc own native targets is 151A's remaining work. This proves the
+// machinery the driver will drive.
+func KCCNativePEProgramCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-pe-prog")
+}
+
 // KCCNativeValueCommand runs the self-hosted native value/frame foundation
 // (increment 151A Step 1, src/compiler/native_value.kark) over its two
 // reference programs and returns the machine code as hex, one line each.
