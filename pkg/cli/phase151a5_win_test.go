@@ -703,8 +703,8 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// The KIR delta is code growth only. Step 8d added NO frame region, so no
 	// frame-dependent displacement moved -- an earlier reading of that work
 	// predicted a re-pin of every frame number and was wrong.
-	if text != 12419 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 12419 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a + 213 Step 8b + 139 Step 8c + 87 Step 8d); output follows: %s", text, out)
+	if text != 12488 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 12488 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a + 213 Step 8b + 139 Step 8c + 87 Step 8d); output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

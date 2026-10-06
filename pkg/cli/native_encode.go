@@ -252,6 +252,16 @@ func KCCNativeValueFloatCallCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-floatcall")
 }
 
+// KCCNativeValueStringCallCommand runs the 151A Step 8f measurement: strings
+// through the call ABI.
+//
+// Four shapes, and a string is the first TWO-UNIT kind -- so this is where
+// stageUnit's high-half rule is exercised, and where an argument's units can
+// start at an odd global index. Same no-Go-fallback contract.
+func KCCNativeValueStringCallCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-stringcall")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //

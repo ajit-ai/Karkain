@@ -410,6 +410,12 @@ jobs:
       - name: Run 151A Step 8e float call ABI gate
         run: go test ./pkg/cli/ -run 'TestPhase151A8e_' -count=1 -timeout 30m
 
+      # 151A Step 8f: strings through the call ABI. A string is the first
+      # TWO-UNIT kind, so this is where stageUnit's high-half rule is exercised
+      # and where the register/extras boundary closes for the first time.
+      - name: Run 151A Step 8f string call ABI gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A8f_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line

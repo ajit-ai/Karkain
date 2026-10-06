@@ -1300,3 +1300,89 @@ locals' kinds, and lowers them, so no kcc-produced image yet executes.
 `stageUnit` path where RSI is the high half, and would close the register/extras
 boundary for the first time -- then arrays, arena, string ops, `push`, records,
 maps, and the macOS entry/exit. `kccOwnsNativeTargets` stays `false`.
+
+## 20. 151A Step 8f - strings through the call ABI (IMPLEMENTED)
+
+A string is the first **two-unit** kind: `kindUnits(KindString) == 2`. So this
+slice is where `stageUnit`'s high-half rule is exercised at all, and where an
+argument's units can begin at an **odd** global index.
+
+### The rule, and why it still works at an odd index
+
+`stageUnit` picks the slot like this:
+
+```go
+if unit < len(argRegs) {
+    off := b.argTemp(arg)
+    if r == RSI { off += 8 }
+    b.e.StoreStack(r, off)
+    return
+}
+b.e.StoreStack(r, b.extrasBase+(unit-len(argRegs))*8)
+```
+
+The high-half check is on the **register**, not on the unit index. That is sound
+because `stageUnit` is called with `RSI` in exactly one place -- the string branch
+of `emitCallValue` passes `RDI` for the pointer and `RSI` for the length, and
+every other kind passes `RAX`. So "`r == RSI`" is a reliable proxy for "this is a
+string's second unit", and `argTemp`'s 16-byte stride is what gives the pair its
+low and high halves.
+
+The load-back loop then reads `argTemp(i) + k*8`, where `k` is the unit index
+**within the argument**. Arm 1 exists precisely to separate those two conventions:
+it passes an int first, so the string's pointer rides `RSI` (global unit 1) and its
+length rides `RDX` (global unit 2). A reader indexing by *global* unit rather than
+by `(arg, k)` would deliver them to the wrong registers, and a corpus that only
+ever passed a string first could not tell the difference.
+
+### No rodata, so the differential stays RAW
+
+A string **literal** would need a rodata reference, which is unresolved at this
+layer and is exactly what forced Step 8b's masked comparison. A string **local** is
+loaded straight from its two frame slots instead, so this slice keeps a raw
+byte-for-byte comparison.
+
+Four shapes: one string argument, an int followed by a string (the odd-index
+case), the callee homing a two-unit parameter, and four string arguments -- eight
+units, so units 6 and 7 travel in the caller's extras area. The last is the first
+case combining the extras region with the two-unit stride.
+
+### One wrong expectation in the test, recorded
+
+Arm 3 initially failed while arms 0-2 matched, and the cause was **my Go
+transcription, not the kcc code**: `stage` folded the argument index and the unit
+index together and used `arg*2` for *both* halves of a string, which stored the
+length at the extras base instead of 8 bytes higher. The register-based high-half
+rule applies inside the **spill** branch only, exactly as `stageUnit` does, so the
+extras branch must still be told which unit it is holding. Fixed by passing the
+unit index explicitly.
+
+### Evidence
+
+Gate `pkg/cli/phase151a8f_stringcall_test.go`, 6/6 PASS: the RAW differential of
+all four shapes; the odd-index load-back asserted as an explicit `(arg, k)` byte
+sequence with both disp32 operands spelled out; the high-half rule pinned at both
+of the call sites that matter, with the halves asserted 8 apart; units 6 and 7
+shown to leave the spill with `R10` materialised; non-vacuity and determinism; and
+the no-Go-fallback guard.
+
+**Mutation-verified.** M1 dropped the high-half rule, storing the string's length
+at `+0` like its pointer. Both the differential and the dedicated rule subtest
+failed, the latter reporting `string length staged at 520, want 528` and `the two
+halves are 0 apart, want 8`.
+
+**KIR pin.** 12419 -> 12488, +69, measured with `karkain kir --verify
+src/compiler/kir.kark`. Running arithmetic:
+`11412 + 344 + 103 + 91 + 213 + 139 + 87 + 30 + 69 = 12488`. `KIRPinHolds` PASS
+(354.9s) and all 33 `TestPhase151A8*` tests PASS.
+
+**What this closes.** The register/extras boundary is now closed for the first
+time: a two-unit argument, an argument whose units start at an odd index, and an
+argument whose units exceed the register budget have all been lowered and proven
+byte-identical to the oracle.
+
+**Still open in 151A.** String *expressions* -- concatenation, slicing, comparison,
+the arena -- and `print` for strings; then arrays, `for-in`, `push`, records, maps,
+and the macOS entry/exit. `kccOwnsNativeTargets` stays `false`, and no kcc-produced
+image executes yet, because there is still no whole-program driver that walks a
+real Karkain function and dispatches on its locals' kinds.

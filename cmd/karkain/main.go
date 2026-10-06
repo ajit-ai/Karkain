@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "native-value-call", "native-value-floatcall", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "native-value-call", "native-value-floatcall", "native-value-stringcall", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1801,6 +1801,17 @@ func main() {
 	// Step 8d int shapes directly, so the claim is measured, not asserted.
 	if command == "native-value-floatcall" {
 		result := cli.KCCNativeValueFloatCallCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 8f: strings through the call ABI. Four shapes, same
+	// STRUCTURAL contract. A string is the first two-unit kind, so this is where
+	// stageUnit's high-half rule is exercised at all.
+	if command == "native-value-stringcall" {
+		result := cli.KCCNativeValueStringCallCommand(nil, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

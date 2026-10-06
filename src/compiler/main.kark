@@ -252,6 +252,19 @@ func main() {
         }
         return
     }
+    // Phase 151A Step 8f: strings through the call ABI. Four shapes. A string
+    // is the first TWO-UNIT kind, so this is where stageUnit's high-half rule is
+    // exercised at all, and where an argument's units can begin at an ODD global
+    // index (arm 1 passes an int first) and still line up -- because the
+    // load-back indexes by (arg, k) rather than by global unit.
+    if (command == "native-value-stringcall") {
+        let st = 0
+        while (st < 4) {
+            print(natStringCallCorpus(st, 616, 8, 608))
+            st = st + 1
+        }
+        return
+    }
 
 	// Phase 151A Step 1: the native value/frame foundation. Same
 	// measurement contract as the four above -- the cases are compiled into

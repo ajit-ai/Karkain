@@ -207,8 +207,8 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 12419 {
-			t.Errorf("whole-tree kir text = %d lines, want 12419:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 12488 {
+			t.Errorf("whole-tree kir text = %d lines, want 12488:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

@@ -2357,3 +2357,140 @@ func natFloatCallCorpus(which, b1515, b42, frame, extrasBase, localsBytes) {
     return ""
 }
 
+// ============================================================
+// Phase 151A Step 8f - strings through the call ABI
+//
+// A string is the FIRST TWO-UNIT kind: kindUnits(KindString) == 2, so it
+// occupies two of the argument registers and, more importantly, it is the case
+// that exercises stageUnit's high-half rule for the first time.
+//
+// THE RULE, and it is subtle enough to state exactly. stageUnit homes one
+// evaluated unit and picks the slot like this:
+//
+//     if unit < 6 {
+//         off := argTemp(arg)
+//         if r == RSI { off += 8 }
+//         StoreStack(r, off)
+//     }
+//
+// The check is on the REGISTER, not on the unit index. That is sound because
+// stageUnit is called with RSI in exactly one place -- the string branch of
+// emitCallValue passes RDI for the pointer and RSI for the length, while every
+// other kind passes RAX. So "r == RSI" is a reliable proxy for "this is a
+// string's second unit", and argTemp's 16-byte stride is what gives the pair its
+// low and high halves.
+//
+// The load-back loop then reads argTemp(i) + k*8, where k is the unit index
+// WITHIN the argument, so the two halves line up wherever in the register
+// sequence the argument happens to start. That is why an int followed by a
+// string still works: the string's units land at global indices 1 and 2, but the
+// reader indexes by (arg, k), not by global unit.
+//
+// NO RODATA. A string LITERAL would need a rodata reference, which is unresolved
+// at this layer and would force the masked comparison Step 8b needed. A string
+// LOCAL is loaded straight from its two frame slots instead, so this slice keeps
+// the RAW differential.
+
+// natStringArgCall is a one-string-argument call. The string local occupies two
+// frame slots at `loc` (ptr) and `loc+8` (len), matching the oracle's slot
+// layout for a two-unit kind.
+func natStringArgCall(frame, loc) {
+    let s = natNewEmitter(0)
+    s = natLoadStack(s, natRegRDI(), loc)
+    s = natLoadStack(s, natRegRSI(), loc + 8)
+    s = natStoreStack(s, natRegRDI(), natArgTemp(0, frame))
+    s = natStoreStack(s, natRegRSI(), natArgTemp(0, frame) + 8)
+    s = natLoadStack(s, natRegRDI(), natArgTemp(0, frame))
+    s = natLoadStack(s, natRegRSI(), natArgTemp(0, frame) + 8)
+    s = natCall32(s)
+    let r = natRel32(s, "fn_f")
+    s = natMark(r[0], "fn_f")
+    return natToHex(natFinish(s))
+}
+
+// natIntStringArgCall is an int argument followed by a string. The interesting
+// property is that the string's two units land at GLOBAL unit indices 1 and 2,
+// so RSI is the string's pointer and RDX its length -- while the reader still
+// indexes by (arg, k). A corpus that only ever passed a string first could not
+// tell the two conventions apart.
+func natIntStringArgCall(frame, loc) {
+    let s = natNewEmitter(0)
+    // arg 0: an int, staged from RAX
+    s = natMovRegImm64(s, natRegRAX(), 7)
+    s = natStoreStack(s, natRegRAX(), natArgTemp(0, frame))
+    // arg 1: a string, staged from the (RDI, RSI) pair
+    s = natLoadStack(s, natRegRDI(), loc)
+    s = natLoadStack(s, natRegRSI(), loc + 8)
+    s = natStoreStack(s, natRegRDI(), natArgTemp(1, frame))
+    s = natStoreStack(s, natRegRSI(), natArgTemp(1, frame) + 8)
+    // load back, in (arg, k) order
+    s = natLoadStack(s, natRegRDI(), natArgTemp(0, frame))
+    s = natLoadStack(s, natRegRSI(), natArgTemp(1, frame))
+    s = natLoadStack(s, natRegRDX(), natArgTemp(1, frame) + 8)
+    s = natCall32(s)
+    let r = natRel32(s, "fn_f")
+    s = natMark(r[0], "fn_f")
+    return natToHex(natFinish(s))
+}
+
+// natStringParamHome is the callee side: a string parameter occupies two units,
+// homed from RDI into the low slot and from RSI into the high slot. There is no
+// conversion and no separate area -- a string is passed as two registers, exactly
+// as Phase 148 specifies.
+func natStringParamHome(frame, loc) {
+    let s = natNewEmitter(0)
+    s = natSubRegImm32(s, natRegRSP(), frame)
+    s = natStoreStack(s, natRegRDI(), loc)
+    s = natStoreStack(s, natRegRSI(), loc + 8)
+    return natToHex(natFinish(s))
+}
+
+// natStringArgsExtras is four string arguments -- eight units, so units 6 and 7
+// exceed the register budget and travel in the caller's extras area. This is the
+// first case that puts the extras region AND the two-unit stride together.
+func natStringArgsExtras(frame, loc, extrasBase) {
+    let s = natNewEmitter(0)
+    let a = 0
+    while (a < 4) {
+        s = natLoadStack(s, natRegRDI(), loc + a * 16)
+        s = natLoadStack(s, natRegRSI(), loc + a * 16 + 8)
+        let unit = a * 2
+        if (unit < 6) {
+            s = natStoreStack(s, natRegRDI(), natArgTemp(a, frame))
+            s = natStoreStack(s, natRegRSI(), natArgTemp(a, frame) + 8)
+        } else {
+            s = natStoreStack(s, natRegRDI(), extrasBase + (unit - 6) * 8)
+            s = natStoreStack(s, natRegRSI(), extrasBase + (unit - 6) * 8 + 8)
+        }
+        a = a + 1
+    }
+    a = 0
+    while (a < 4) {
+        let unit = a * 2
+        if (unit < 6) {
+            s = natLoadStack(s, natArgReg(unit), natArgTemp(a, frame))
+            s = natLoadStack(s, natArgReg(unit + 1), natArgTemp(a, frame) + 8)
+        }
+        a = a + 1
+    }
+    s = natLeaRegStack(s, natRegR10(), extrasBase)
+    s = natCall32(s)
+    let r = natRel32(s, "fn_f")
+    s = natMark(r[0], "fn_f")
+    return natToHex(natFinish(s))
+}
+
+// natStringCallCorpus emits the Step 8f shapes. frame/loc/extrasBase come from
+// the caller so the test states the real layout numbers and this file gains no
+// magic numbers.
+//
+// `loc` is 8, the first local slot after the frame's zero-argument case; four
+// string locals then occupy 8..39 at 16 bytes each, which is what the extras
+// arm reads.
+func natStringCallCorpus(which, frame, loc, extrasBase) {
+    if (which == 0) { return natStringArgCall(frame, loc) }
+    if (which == 1) { return natIntStringArgCall(frame, loc) }
+    if (which == 2) { return natStringParamHome(frame, loc) }
+    if (which == 3) { return natStringArgsExtras(frame, loc, extrasBase) }
+    return ""
+}
