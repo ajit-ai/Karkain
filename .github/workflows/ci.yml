@@ -416,6 +416,16 @@ jobs:
       - name: Run 151A Step 8f string call ABI gate
         run: go test ./pkg/cli/ -run 'TestPhase151A8f_' -count=1 -timeout 30m
 
+      # 151A Step 9a: rodata resolution -- the piece every earlier section of
+      # the baseline names as the blocker for 151D, and the last mechanism
+      # before a whole-program image can be assembled. Distinct pattern on
+      # purpose: 'TestPhase151A8f_' does not match 'TestPhase151A9a_'. This
+      # step exists at all because the companion rule requires a gate to ship
+      # with its own ci.yml entry in the same change -- 151P0/151B/151C/151C2
+      # were written, run locally, reported green, and never executed by CI.
+      - name: Run 151A Step 9a rodata resolution gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A9a_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line
