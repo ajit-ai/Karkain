@@ -241,6 +241,17 @@ func KCCNativeValueCallCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-value-call")
 }
 
+// KCCNativeValueFloatCallCommand runs the 151A Step 8e measurement: floats
+// through the call ABI.
+//
+// Four shapes. The slice exists to PROVE that a float argument, parameter and
+// return emit the byte-identical path an int uses, because kindUnits(KindFloat)
+// is 1 -- so the gate compares these bytes against the Step 8d int shapes
+// directly, rather than against a golden. Same no-Go-fallback contract.
+func KCCNativeValueFloatCallCommand(w io.Writer, verbose bool) CommandResult {
+	return kccSubcommand(w, "native-value-floatcall")
+}
+
 // kccSubcommand runs one read-only kcc measurement subcommand and returns its
 // non-empty output lines as a single message.
 //

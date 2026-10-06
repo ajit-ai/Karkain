@@ -234,6 +234,24 @@ func main() {
         }
         return
     }
+    // Phase 151A Step 8e: floats through the call ABI. Four shapes, and the
+    // claim they exist to PROVE is that a float argument, parameter and return
+    // emit the byte-for-byte identical path an int uses -- because
+    // kindUnits(KindFloat) == 1, so a float parameter is one slot and a float
+    // argument is the int staging with a different evaluator in front of it.
+    //
+    // Arm 1 stages the INT literal 42 through the float call shape on purpose:
+    // the gate then compares it against Step 8d's one-argument int call, and the
+    // two must be IDENTICAL. That is a stronger claim than "the float shape looks
+    // right" -- it says the float path adds no ABI emission at all.
+    if (command == "native-value-floatcall") {
+        let fq = 0
+        while (fq < 4) {
+            print(natFloatCallCorpus(fq, 4609434218613702656, 42, 616, 608, 8))
+            fq = fq + 1
+        }
+        return
+    }
 
 	// Phase 151A Step 1: the native value/frame foundation. Same
 	// measurement contract as the four above -- the cases are compiled into

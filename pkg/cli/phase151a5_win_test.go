@@ -694,15 +694,17 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// lowering -- three more branches, six natMask selectors 69-71, and the
 	// thirteen-arm corpus) added 139, and Step 8d (the call ABI -- argTemp,
 	// stageUnit, the argRegs load, the extras pointer, the call, and the callee's
-	// homing) added 87:
-	// 11412 + 344 + 103 + 91 + 213 + 139 + 87 = 12389. Each step was measured
-	// with `karkain kir --verify src/compiler/kir.kark` rather than predicted.
+	// homing) added 87, and Step 8e (floats through the call ABI -- four shapes,
+	// no new emission) added 30:
+	// 11412 + 344 + 103 + 91 + 213 + 139 + 87 + 30 = 12419. Each step was
+	// measured with `karkain kir --verify src/compiler/kir.kark` rather than
+	// predicted.
 	//
 	// The KIR delta is code growth only. Step 8d added NO frame region, so no
 	// frame-dependent displacement moved -- an earlier reading of that work
 	// predicted a re-pin of every frame number and was wrong.
-	if text != 12389 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 12389 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a + 213 Step 8b + 139 Step 8c + 87 Step 8d); output follows: %s", text, out)
+	if text != 12419 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 12419 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a + 213 Step 8b + 139 Step 8c + 87 Step 8d); output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

@@ -2275,3 +2275,85 @@ func natCallCorpus(which, frame, extrasBase, localsBytes) {
     if (which == 6) { return natPrologueExtras(7, frame, localsBytes) }
     return ""
 }
+// ============================================================
+// Phase 151A Step 8e - floats through the call ABI
+//
+// This slice exists to PROVE a claim rather than to add emission, and the claim
+// is the load-bearing one for the whole float kind:
+//
+//   floats need NO new ABI code.
+//
+// `kindUnits(KindFloat) == 1` in the oracle and `natKindUnits` in kcc already
+// agree, so a float parameter occupies exactly one frame slot and a float
+// argument is staged, loaded and passed by the byte-for-byte identical path an
+// int uses. What Step 8d built is already float-capable; this slice demonstrates
+// that rather than asserting it.
+//
+// The consequence worth stating: a float argument is `emitFloat` followed by
+// `stageUnit(i, unit, RAX)` and `unit++` -- the int arm with a different
+// evaluator in front of it. A float return is the int return, since the f64 bits
+// are already in RAX. So the shapes below are the Step 8d shapes with float
+// operands, and the gate's strongest layer asserts they are BYTE-IDENTICAL to the
+// int shapes rather than merely similar.
+
+// natFloatArgCall is Step 8d's one-argument call with a FLOAT literal staged.
+// The staging, the spill address, the RDI load and the call are all the same
+// emission; only the literal's bits differ.
+func natFloatArgCall(bits, frame) {
+    let s = natNewEmitter(0)
+    s = natMovRegImm64(s, natRegRAX(), bits)
+    s = natStoreStack(s, natRegRAX(), natArgTemp(0, frame))
+    s = natLoadStack(s, natRegRDI(), natArgTemp(0, frame))
+    s = natCall32(s)
+    let r = natRel32(s, "fn_f")
+    s = natMark(r[0], "fn_f")
+    return natToHex(natFinish(s))
+}
+
+// natFloatParamHome is Step 8d's callee homing for one parameter, with the
+// parameter declared FLOAT. A float parameter is homed from RDI into its frame
+// slot exactly as an int is; there is no conversion and no separate area.
+func natFloatParamHome(frame, localsBytes) {
+    let s = natNewEmitter(0)
+    s = natSubRegImm32(s, natRegRSP(), frame)
+    s = natStoreStack(s, natRegRDI(), localsBytes)
+    return natToHex(natFinish(s))
+}
+
+// natFloatReturn is the float return: emitFloat has already left the f64 bits in
+// RAX, and the int return convention applies unchanged.
+//
+// There is deliberately NO frame teardown here. The oracle's ReturnStmt case is
+// `emitReturn(...)` followed by `Jmp("fn_<name>$ret")` (program.go:4893-4900),
+// and the `AddRsp(frame)` happens AT the `$ret` label in the epilogue
+// (program.go:4863-4866). A first draft of this function emitted
+// `sub rsp, frame` before the jmp, which would have torn the frame down twice.
+//
+// This also corrects a stale reference: the Step 2 note recorded the `$ret` jmp
+// at program.go:3386, and that line now holds an unrelated function
+// (emitBase64OutByte). The reference was accurate when written and drifted as the
+// file grew, which is the argument for finding a label by searching for it rather
+// than by following a remembered line number.
+func natFloatReturn(bits) {
+    let s = natNewEmitter(0)
+    s = natMovRegImm64(s, natRegRAX(), bits)
+    s = natJmp(s, "$ret")
+    s = natMark(s, "$ret")
+    return natToHex(natFinish(s))
+}
+
+// natFloatCallCorpus emits the Step 8e shapes. `frame`, `extrasBase` and
+// `localsBytes` come from the caller so the test states the real layout numbers.
+//
+// `b1515` is float64bits(1.5) and `b42` is 42 as an int, chosen so the two
+// literals are distinguishable from each other AND from the Step 8d corpus,
+// which is what makes the float-vs-int byte comparison meaningful rather than
+// accidentally equal.
+func natFloatCallCorpus(which, b1515, b42, frame, extrasBase, localsBytes) {
+    if (which == 0) { return natFloatArgCall(b1515, frame) }
+    if (which == 1) { return natFloatArgCall(b42, frame) }
+    if (which == 2) { return natFloatParamHome(frame, localsBytes) }
+    if (which == 3) { return natFloatReturn(b1515) }
+    return ""
+}
+

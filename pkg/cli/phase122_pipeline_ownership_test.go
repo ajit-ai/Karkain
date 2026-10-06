@@ -189,13 +189,26 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// in native_value.kark). Measured with `karkain kir --verify
 		// src/compiler/kir.kark` (12302 text / 12302 verify), NOT predicted:
 		// 12302 - 12163 = 139.
+		// and now to 12419 (increment 151A Steps 8d and 8e: the call ABI and
+		// floats through it -- natArgTemp, natCallArgsN, natCallArgsExtras,
+		// natPrologueArgsN, natPrologueExtras, natArgReg and the seven-arm
+		// natCallCorpus in 8d (+87), then natFloatArgCall, natFloatParamHome,
+		// natFloatReturn and the four-arm natFloatCallCorpus in 8e (+30)).
+		// Measured with `karkain kir --verify src/compiler/kir.kark` (12419 text
+		// / 12419 verify), NOT predicted: 12389 + 30 = 12419.
+		//
+		// Neither step moved a frame displacement. Step 8d was expected to --
+		// an earlier reading claimed the per-arg spill was a missing frame
+		// region requiring a re-pin of every frame number, which was WRONG: the
+		// oracle computes argTemp(i) = frame - argSpillBytes + i*16, addressing
+		// downward from the frame size, and Step 1 had already reserved it.
 		kirSrc := filepath.Join(root, "src", "compiler", "kir.kark")
 		out, err := runBin(t, bin, root, "kir", "--verify", kirSrc)
 		if err != nil {
 			t.Fatalf("kir --verify on compiler source failed: %v\n%s", err, out)
 		}
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 12389 {
-			t.Errorf("whole-tree kir text = %d lines, want 12389:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 12419 {
+			t.Errorf("whole-tree kir text = %d lines, want 12419:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

@@ -1220,3 +1220,83 @@ arena, string ops, `push`, records, maps and the macOS entry/exit remain open.
 plumbing only, which should be small now that the mechanism exists and is gated.
 Alternatively, strings, which need the two-unit `stageUnit` path and would close
 the register/extras boundary for the first time.
+
+## 19. 151A Step 8e - floats through the call ABI (IMPLEMENTED)
+
+This slice exists to **prove a claim rather than add emission**, and the claim is
+the load-bearing one for the whole float kind:
+
+> **Floats need no new ABI code.**
+
+`kindUnits(KindFloat) == 1` in the oracle and `natKindUnits` in kcc already return
+1 for a float, so a float parameter occupies exactly one frame slot
+(`natLocalOff(index, kind) = 8 * index * natKindUnits(kind)` already gives a float
+param the same offset as an int) and a float argument is staged, loaded and passed
+by the byte-for-byte identical path an int uses. What Step 8d built was already
+float-capable; this slice MEASURES that rather than asserting it.
+
+**The strongest layer is a cross-corpus comparison, not a fresh expectation.**
+Arm 1 stages the **int** literal 42 through the **float** call shape, so it can be
+compared byte-for-byte against Step 8d's one-argument int call (literal 7). The
+two must differ ONLY in the 10-byte `movabs` immediate. That is a much stronger
+claim than "the float shape looks right": it says the float path contributes no
+ABI emission at all, and any float-only instruction falsifies it. The immediates
+are asserted to genuinely differ, so the comparison cannot pass vacuously.
+
+Four shapes: a float argument staged and passed, the same shape with an int
+literal (the comparison arm), a float parameter homed from RDI, and a float return.
+
+### Two defects this slice found
+
+**1. The float return tore the frame down twice.** A first draft of
+`natFloatReturn` emitted `sub rsp, frame` before the `jmp $ret`. The oracle's
+`ReturnStmt` case is `emitReturn(...)` followed by `Jmp("fn_<name>$ret")`
+(program.go:4893-4900), and the `AddRsp(frame)` happens **at** the `$ret` label in
+the epilogue (program.go:4863-4866). The gate now asserts there is **no** `sub` or
+`add rsp` anywhere in the return shape.
+
+This also **corrects a stale reference rather than inheriting one.** The Step 2
+note recorded the `$ret` jmp at `program.go:3386`; that line now holds
+`emitBase64OutByte`, an unrelated function. The reference was accurate when
+written and drifted as the file grew -- which is the argument for locating a label
+by searching for it rather than by following a remembered line number.
+
+**2. The `jmp` opcode byte was missing.** `natRel32` emits only the four
+displacement bytes; the `0xE9` opcode is `natJmp`'s job. A first draft used
+`natRel32` directly and the arm came out as a bare `movabs` with no jump at all --
+15 bytes of nothing. `natCall32` + `natRel32` is correct for `call` precisely
+because `natCall32` emits the `0xE8` first; the same pairing habit applied to
+`jmp` produced the bug. The gate's `arm 3 does not end with a jmp rel32` check
+caught it, and the shape now ends `e9 00 00 00 00`.
+
+### Evidence
+
+Gate `pkg/cli/phase151a8e_floatcall_test.go`, 6/6 PASS: a RAW differential of all
+four shapes against the real `pkg/native` Emitter; the float-arg path proven
+byte-identical to the int path after the literal; the float param homing proven
+byte-identical to the int homing; the return proven free of frame teardown;
+non-vacuity and determinism; and the no-Go-fallback guard.
+
+**Mutation-verified, and the mutation is the claim itself.** M1 inserted a
+float-only `cvttsd2si` into the argument path -- the exact "helpful conversion"
+this slice exists to prove cannot happen. Both the differential and the
+cross-corpus layer failed, the latter with the right diagnostic: *"float arm is 36
+bytes, int arm is 31; the float path must contribute no ABI emission at all."*
+Reverted, file verified SHA-identical to pre-mutation content.
+
+**KIR pin.** 12389 -> 12419, +30, measured with `karkain kir --verify
+src/compiler/kir.kark` (12419 text / 12419 verify). Running arithmetic:
+`11412 + 344 + 103 + 91 + 213 + 139 + 87 + 30 = 12419`. No frame displacement
+moved. Re-pinned in both gates; `KIRPinHolds` PASS (597.2s) and all 27
+`TestPhase151A8*` tests PASS.
+
+**What this closes, and what it does not.** It closes the float KIND's ABI story:
+a float can now be passed to, received by, and returned from a function with
+byte-identical machinery to an int. It does **not** close float *values*: there is
+still no whole-program driver that walks a real Karkain function, dispatches on its
+locals' kinds, and lowers them, so no kcc-produced image yet executes.
+
+**Still open in 151A.** Strings through the call ABI -- which need the two-unit
+`stageUnit` path where RSI is the high half, and would close the register/extras
+boundary for the first time -- then arrays, arena, string ops, `push`, records,
+maps, and the macOS entry/exit. `kccOwnsNativeTargets` stays `false`.
