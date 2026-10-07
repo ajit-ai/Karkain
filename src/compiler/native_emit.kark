@@ -191,6 +191,11 @@ func natMask(which) {
     if (which == 69) { return 138 }                     // 0x8A  jp  rel32 (PF=1, unordered)
     if (which == 70) { return 134 }                     // 0x86  jbe rel32
     if (which == 71) { return 130 }                     // 0x82  jb  rel32
+  // Phase 151A Step 9d: the array element addressing. These CONTINUE the table
+  // at 72 and never renumber -- natMask is a shared namespace, and two earlier
+  // blocks in this file started inside the existing range (Step 1 at 17) and
+  // silently changed the bytes an unrelated primitive emitted.
+  if (which == 72) { return 11 }                      // 0x0B  OR the low three bits, for the SIB byte
     return 0
 }
 
@@ -1085,11 +1090,75 @@ func natStoreAbs64Idx(s, idx) {
 }
 
 // natSibScale returns the SIB scale field for a scale of 1, 2, 4 or 8.
-func natSibScale(scale) {
-    if (scale == 1) { return 0 }
+func natSibScale(scale) {    if (scale == 1) { return 0 }
     if (scale == 2) { return 1 }
     if (scale == 4) { return 2 }
     return 3
+}
+
+// ============================================================
+// Phase 151A Step 9d -- scaled [base + index*scale + disp] addressing.
+//
+// natMemBaseOff already emits ModRM+SIB+disp for a base register with NO index,
+// which is what every frame slot access needs. An array element needs the index
+// and scale fields as well, and the two forms differ in more than the SIB byte:
+// the mode selection depends on the displacement AND on whether the base is RBP,
+// because mod=00 with base=RBP is the RIP-relative form, not "[rbp]".
+//
+// These are the byte-for-byte counterparts of the oracle's scaledSIB / sibTail /
+// LoadScaled64 / StoreScaled64. REX is built here rather than through natRex
+// because scaledSIB assembles R, X and B from THREE different operands (the data
+// register, the index and the base) where natRex derives R from rm and B from rm
+// -- reusing natRex here would put the wrong field in the wrong bit.
+// ============================================================
+
+// natSibTail emits the ModRM + SIB + displacement tail for
+// [base + index*scale + disp].
+//
+// The mod=00 special case is the load-bearing detail: with disp == 0 the
+// displacement is omitted entirely, EXCEPT when the base is RBP, which in mod=00
+// means RIP-relative rather than "[rbp]". Omitting it for an RBP base would
+// silently rebase the access.
+func natSibTail(s, reg, base, index, scale, disp) {
+    let sc = natSibScale(scale)
+    let baseLow = base & natMask(72)
+    let mode = 1
+    if (disp == 0 && baseLow != 5) { mode = 0 }
+    if (disp < (0 - 128) || disp > 127) { mode = 2 }
+    if (mode == 0) {
+        s = natModrm(s, 0, reg, 4)
+    } else {
+        if (mode == 1) { s = natModrm(s, 1, reg, 4) } else { s = natModrm(s, 2, reg, 4) }
+    }
+    let sib = (sc << 6) | ((index & natMask(72)) << 3) | baseLow
+    s = natByte(s, sib)
+    if (mode == 0) { return s }
+    if (mode == 1) { return natByte(s, disp & 255) }
+    return natU32(s, disp)
+}
+
+// natLoadScaled64 emits mov r64, [base+index*scale+disp].
+func natLoadScaled64(s, dst, base, index, scale, disp) {
+    s = natScaledRex(s, dst, index, base)
+    s = natByte(s, natMask(19))   // 0x8B mov r64, r/m64
+    return natSibTail(s, dst, base, index, scale, disp)
+}
+
+// natStoreScaled64 emits mov [base+index*scale+disp], r64.
+func natStoreScaled64(s, src, base, index, scale, disp) {
+    s = natScaledRex(s, src, index, base)
+    s = natByte(s, natMask(18))   // 0x89 mov r/m64, r64
+    return natSibTail(s, src, base, index, scale, disp)
+}
+
+// natScaledRex builds the REX prefix for a scaled form: 0x48 plus R from the data
+// register, X from the SIB index and B from the base.
+func natScaledRex(s, reg, index, base) {
+    let r = natMask(13) | natMask(14)   // 0x40 | 0x08 = 0x48, REX.W
+    if (natRegExt(reg) == 1) { r = r | natMask(15) }    // REX.R
+    if (natRegExt(index) == 1) { r = r | natMask(47) }  // REX.X
+    if (natRegExt(base) == 1) { r = r | natMask(16) }   // REX.B
+    return natByte(s, r)
 }
 
 // natLoadScaled32 emits mov r32, [base+index*scale+disp]: 8B /r + ModRM + SIB +

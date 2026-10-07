@@ -1890,3 +1890,218 @@ after the body **clobbered an explicit `return`**, so `let z = 7; return z` exit
 
 Unchanged from 22.6: **stale and red, deliberately**. The pin was last measured at
 12570 (Step 9a); Step 9b and 9c both move it, and it is **not predicted**.
+
+---
+
+## 24. Step 9d - integer arrays and indexing (IMPLEMENTED)
+
+Step 9c proved the SOURCE reaches the emitter. 9d adds the first COLLECTION kind to
+that driver, so it is the first step where a local is not one 8-byte unit and the
+frame is no longer a flat list of scalar slots.
+
+**This is NOT whole-image parity and NOT ownership.** `kccOwnsNativeTargets` stays
+`false`; `build --target native-*` still refuses with K116 and writes no image.
+
+### 24.1 Scope
+
+    let a = [7, 35]        // integer array literal
+    print(a[0])            // index expression, integer literal index
+
+Nothing else. `len`, `for-in`, `push`, non-literal indices, negative elements, and
+printing an array as a whole are all still refused by name.
+
+### 24.2 The frame contract, reproduced from the oracle
+
+An array local occupies a **two-unit header plus 8 bytes per element**, entirely in
+the frame, and **nothing is allocated**:
+
+    [off]            = address of the element area
+    [off + 8]        = element count
+    [off + 16 + i*8] = element i
+
+Three consequences the implementation had to respect:
+
+* The frame is **no longer a fixed stride**, so `natLocalOff`'s `8 * index * units`
+  cannot express it. `natNativePlan` allocates **sequentially**, one
+  `[offset, kind, elemCount]` triple per local in declaration order, which is what the
+  oracle's own `scanLets` does.
+* `rsp` never moves, and the element base is **never** placed in `rsp`: it is computed
+  once with `lea` into the frame and reloaded from the frame before each element store.
+  That reload is what keeps the sequence correct for the non-literal elements a later
+  slice will allow -- a base held in `RBX` across an arbitrary element expression could
+  have been clobbered.
+* Every element access is a constant-displacement SIB through a register, which is why
+  the two new encoder primitives exist.
+### 24.3 New encoder primitives (`native_emit.kark`)
+
+`natSibTail`, `natLoadScaled64`, `natStoreScaled64`, `natScaledRex`, plus
+`natMask(72) = 0x0B` (the low-three-bits mask used to pack the SIB byte).
+
+Three encoding decisions are load-bearing, and each was measured rather than assumed:
+
+1. **The mod=00 special case.** With `disp == 0` the displacement is omitted
+   entirely -- *except* when the base is RBP, which in mod=00 means RIP-relative
+   rather than `[rbp]`. Omitting it for an RBP base silently rebases the access.
+2. **REX is built locally, not through `natRex`.** A scaled form assembles R, X and B
+   from **three different operands** (data register, SIB index, base), whereas
+   `natRex` derives R from `rm` and B from `rm`. Reusing `natRex` would put the wrong
+   field in the wrong bit.
+3. **The selector table was appended at 72, never renumbered.** `natMask` is a shared
+   namespace and two earlier blocks in this file started inside the existing range
+   (Step 1 at 17) and silently changed the bytes an unrelated primitive emitted.
+
+### 24.4 A language trap, found immediately
+
+The first draft declared `let short = 1` as the addressing-mode selector. **`short`
+is a reserved word** in Karkain (the C type), so the generated C read
+`Value short = make_int(1);` and gcc rejected it with *"two or more data types in
+declaration specifiers"* -- a diagnostic that points at the wrong language entirely.
+Same class as Step 8b's `raw` and `addr`. Renamed to `mode`.
+
+### 24.5 Two REAL defects, both found by the gate's refusal table
+
+Both produced a **valid PE** -- no diagnostic, no trap, a wrong number. That is the
+worst possible outcome for a native backend, and it is why the refusal table exists.
+
+1. **Indexing a scalar was silently lowered.** `let a = 7; print(a[0])` scanned
+   clean: the target was an identifier, it resolved to a local, and the index was an
+   integer literal. Lowering then treated the scalar's 8-byte slot as a two-unit
+   `(base, len)` header, read a "length" out of the neighbouring slot, and read an
+   element from whatever address that base happened to be. Fixed by a kind check in
+   `natNativeScanIndex`, which now takes the plan.
+2. **Printing an array as a whole was silently lowered.** `print(a)` loaded the
+   header's base pointer -- one 8-byte slot -- and printed that address as if it were
+   the array's value. There is no scalar reading of a collection, so there is nothing
+   to lower it to; the scan now refuses it by name.
+### 24.6 Two wrong expectations in the GATE, recorded because the method warns about it
+
+1. **The image-distinctness layer used a fingerprint.** Its first version keyed a map
+   on an FNV-style hash and reported five different images as identical. The layer now
+   compares images as **exact bytes**, with the same `nat9cBytesEq` helper the rest of
+   the gate uses. A fingerprint that can collide is a weaker claim than the layer exists
+   to make -- and a colliding "identical" verdict is exactly the failure this repository
+   already paid for in increment 151B.
+2. **The frame test demanded a STRICT increase per element.** Measurement showed the
+   locals region is rounded **up to 16 bytes**, so a 1-element array (24 bytes) and a
+   2-element array (32 bytes) legitimately share a frame. The test now asserts the
+   property that actually matters, which is a **soundness** one:
+
+       locals region >= 16 (header) + 8*n (elements)
+
+   An element-blind frame (a flat 8-bytes-per-local stride) gives a locals region of 16
+   for every `n` and fails at `n = 1`.
+
+### 24.7 MEASURED PARITY DELTA - the oracle's frame alignment is NOT reproduced
+
+Stated rather than hidden, because it is a real difference from the reference.
+
+| N elements | localBytes | kcc frame | Go oracle frame |
+| --- | --- | --- | --- |
+| 1 | 24 | 640 | 640 |
+| 2 | 32 | **640** | **656** |
+| 3 | 40 | 656 | 656 |
+| 4 | 48 | **656** | **672** |
+| 5 | 56 | 672 | 672 |
+
+kcc emits `round16(localBytes) + 512 + 96`, which is what `natFrameLayout` implements
+and what Step 1 established. The oracle's `scanLets` computes the **same**
+`localBytes` (8 + 8 + 8*N -- read directly from the source, not inferred), but its
+frame is `32 + 16*floor(N/2) + 608`: it pads the locals region to the next 16
+**strictly greater**, which adds 16 exactly when `localBytes` is already 16-aligned.
+
+**Why this slice does not close it.** The difference lives in `natFrameLayout`, which
+is **frozen by Step 1** and whose output every frame-relative displacement in Steps
+1-9c is pinned against. Changing it would move all of them and re-open four completed
+slices. Matching the oracle's alignment is whole-image-parity work, which is 151D's
+bar, and it must be one deliberate change with its own differential -- not folded into
+a value-model step.
+### 24.8 Gate: `pkg/cli/phase151a9d_array_test.go`
+
+`TestPhase151A9D_` -- 7 tests / 45 subtests, all PASS. Six layers:
+
+1. **exact stdout bytes + exit code, by executing the PE.** Nothing is trimmed.
+2. **element and index come from the source** -- pairwise **byte-distinct** images
+   across five variants. This is the anti-hard-coding layer: a stdout comparison can be
+   satisfied by choosing the right expected value once, whereas a driver emitting a
+   constant produces the *same image* for all five.
+3. **frame follows the value model's rule**, with the expected number derived in the
+   test from the documented rule rather than recomputed the way the implementation does.
+4. **elements need room** -- the soundness property above, over N = 1..5.
+5. **out-of-subset shapes refused by name**, each naming *which* construct, and
+   asserting a refusal did not also emit an image.
+6. **no Go fallback** -- a misspelled native subcommand must fail, and
+   `build --target native-x86_64-windows` must still refuse with K116, exit 6, and write
+   no image.
+
+One refusal case is caught **earlier** than the driver's scan and therefore expects a
+different code: `print(q[0])` for an undeclared `q` is reported by kcc's own type
+checker as `error[K102] undefined identifier 'q'` before `natNativeScan` runs. The
+gate asserts K102 there, and asserts the "not handed to the Go engine" clause only for
+the driver's own K145 refusals -- a program rejected by the checker never reached
+native lowering at all, which is a stronger outcome than refusing it there.
+
+### 24.9 Mutation verification
+
+| # | Mutation | Result |
+| --- | --- | --- |
+| M1 | element store hard-codes `7` instead of reading the literal | `array_index_0` **PASSES** (coincidence: `[7,35][0]` really is 7); `array_index_1`, `array_index_2_of_3`, `array_and_scalar_local`, `two_indexes_one_array`, `multi_digit_elements`, `single_element_array` **FAIL**; the image-distinctness layer fails at `idx0_of_8_35`, because `[7,35]` and `[8,35]` become the same bytes. Frame and refusal layers correctly stay green. |
+| M2 | index load hard-codes `0` instead of reading the index expression | `array_index_0` and `single_element_array` **PASS** (both really do index 0); `array_index_1`, `array_index_2_of_3`, `array_and_scalar_local`, `two_indexes_one_array`, `multi_digit_elements` **FAIL**; the image-distinctness layer fails at `idx1_of_7_35`. |
+
+Both mutations were reverted and `native_value.kark` verified **SHA-256 identical** to
+its pre-mutation content (`ED989A343CECE33524A01FFD57D222C7060DB371...`). The 9d gate
+was then re-run green, and the 9b + 9c gates re-run green unchanged.
+
+Each mutation keeps the *coincidentally equal* case green, which is the point: a
+mutation that turned every case red would prove only that the gate runs, not that it
+distinguishes reading the AST from hard-coding it.
+### 24.10 KIR pin
+
+**Stale and red, deliberately** -- unchanged in policy from 22.6 and 23.6. The pin was
+last measured at **12570** (Step 9a). Step 9b, Step 9c and Step 9d all move it, and it
+is **not predicted**: a predicted number would turn a known-red gate into a green one
+asserting nothing, which is the exact failure the evidence-discipline rule exists to
+prevent. Both assertions still read 12570 and they now fail, which is the honest
+stale-until-measured state.
+
+The pin's only measurement path is the whole-tree `karkain kir --verify`, which the
+~4 GB host rule forbids. Re-measuring needs the Linux CI runner or the separate
+low-memory defect work.
+
+### 24.11 A HARNESS trap worth recording, because it looked like a compiler defect
+
+While measuring, `karkain native-ast` once emitted **3727 diagnostics** -- mass
+`K107 duplicate function definition` and `K101 undefined function` -- and no image.
+
+The first hypothesis was the new code. It was wrong, and the measurement that killed
+it was `git stash` + retry on **pristine HEAD**, which reproduced it identically.
+
+The real cause: `assembleProject` adopts every sibling `.kark` file in the target's
+directory that does **not** declare `func main(`. The scratch directory in use held
+several large `main`-less `.kark` blobs left by an earlier session (117 KB, 140 KB).
+They were assembled in as siblings, so the driver type-checked the *compiler's own*
+sources and reported them. With a clean directory, pristine HEAD emitted a valid PE
+(`4d5a` = `MZ`).
+
+Two things follow:
+
+* A mass duplicate/undefined cascade from `native-ast` is **not** evidence of a
+  compiler defect until the scratch directory has been cleared. Check it first.
+* Each gate case writes its program into its own `t.TempDir()`, which is why the 9c
+  gate was never affected. That isolation is load-bearing and should be preserved.
+
+### 24.12 What this step does NOT claim
+
+* **No whole-image parity.** kcc's `main` is still a synthetic lowered body, while the
+  oracle's is a real function; their images are not and should not be byte-identical.
+  Stdout is the comparison, not the bytes. 24.7 records the one frame difference found.
+* **No ownership.** `kccOwnsNativeTargets = false`.
+* **No other kind.** strings + arena, `len`, `for-in`, `push`, records, maps and the
+  macOS entry/exit are all still open 151A work.
+* **No runtime diagnostic for an out-of-range index.** The bound IS checked and traps
+  with `Int3`; the oracle raises `karkain_runtime_error` with a source location, which
+  is increment 152-B0 machinery that kcc does not have yet.
+* **No CI result at the time of writing.** The companion CI step
+  (*Run 151A Step 9d integer array gate*, pattern `TestPhase151A9D_`, verified not to
+  collide with `TestPhase151A9C_`, `TestPhase151A9a_`, `TestPhase151B9_`,
+  `TestPhase151A_` or `TestPhase151C_`) is wired in this change; its result is recorded
+  in the increment record once the run completes.
