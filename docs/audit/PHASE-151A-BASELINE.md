@@ -2497,3 +2497,144 @@ Mutation-verified, all reverted with production SHAs confirmed:
 * **KIR pin**: stale and red, deliberately, per 22.6/23.6/24.10/25.7 and section 26.10.
   Last measured 12570 (Step 9a); 9b-9g all move it, and it is **not predicted**.
 * `kccOwnsNativeTargets` remains `false` and **151A is not closed**.
+
+## 28. Step 9h - records (BASELINE, not yet implemented)
+
+This section is the mandatory baseline for Step 9h and is written **before** any
+implementation code, per the 151A method. Every number below was **read out of the Go
+oracle** (`pkg/native/program.go`), not inferred from the Karkain source.
+
+### 28.1 Scope
+
+A **record** is `type X struct { a int; label string; r float }`. It is the last
+large frame-resident kind before maps, and it is the first kind whose value is an
+*address of a compile-time-sized area* rather than the value itself.
+
+Supported surface, mirroring 150B3b exactly:
+
+* declaration + layout (`newStructInfo`)
+* literal bound at `let`, **returned**, and passed straight to a call
+* field read (`rec.field`) and field write (`rec.field = v`)
+* the **record idiom** (a free function taking the record, annotated, mutating a field;
+  the mutation is visible to the caller)
+* record **returns** (address in RAX, the int convention)
+
+### 28.2 Measured oracle contract
+
+**Kind and unit rule** (`program.go:118-152`) — already mirrored in kcc:
+
+```go
+// KindStruct is a pointer to a field area. It occupies ONE 8-byte unit,
+// exactly like an int: the value IS the address of the record.
+KindStruct
+
+func kindUnits(k int) int {
+    if k == KindString || k == KindArray { return 2 }
+    return 1
+}
+```
+
+`natKindStruct()` already returns `4` in `src/compiler/native_value.kark`, and
+`natFrameLayout(localBytes, recArgBytes, ...)` already reserves a `recArgAreas`
+region. **The frame layout therefore needs no new region for 9h.**
+
+**Layout** (`newStructInfo`, `program.go:223-251`): fields in **declaration order**;
+`int`/`float` occupy 1 unit, `string` occupies 2 units (ptr+len), every field starts on
+an 8-byte boundary so no padding rule exists. `off` and `kind` per field are resolved at
+compile time, so a field access is a single load/store at a **constant displacement**
+from the record address - no descriptor lookup, no per-field tag at runtime.
+
+Refusal: any field type other than `int`/`string`/`float` is
+`error[K145]: unsupported field type ... (int, string and float fields only)`. Nested
+records, arrays and maps inside a struct are **not** in 150B3b.
+
+**Frame reservation** (`scanLets`, `program.go:4597+`) - the load-bearing rule:
+
+```go
+off := next
+next += 8                       // the record slot: ONE unit = the address
+if kindUnits(k) == 2 { next += 8 }
+if k == KindStruct {
+    if lit, ok := n.Value.(*parser.StructLiteral); ok {
+        b.structNames[n.Name] = lit.TypeName
+        next += si.size         // field area immediately AFTER the slot
+    }
+    // a record-returning CALL owns NO area: the callee built it
+}
+```
+
+So a record is **frame-resident**: 8 bytes for the address, plus `si.size` bytes of
+field area in the frame. **Nothing is allocated**, which is what keeps a record program
+out of the heap arena entirely and therefore byte-identical to every pre-150B3b image.
+
+**Frame region order** (already implemented in kcc's `natFrameLayout`):
+
+```text
+locals -> recArgAreas -> binTemp -> strTemp? -> mapStage? -> extrasBase
+       -> Win64 16-byte rounding -> + argSpillBytes (96)
+```
+
+`retRec` (keyed by `*ReturnStmt`) and `recArgArea` (keyed by `*StructLiteral`) are
+node-keyed maps, following the existing `for-in` node-keying rule. `structNames` is
+**per function**: a name is a record only inside the function that binds it.
+
+**Record idiom** (`layout`, `program.go:1812-1830`): a record parameter's type is
+published into the same `name -> type` map a literal binding uses, from
+`b.structParam[fname+"."+param]`. Record params are therefore named **by annotation**.
+The untyped idiom is a loud `error[K145]` rather than a guessed layout.
+
+**Record return** (`program.go:1953-2008`): a record return needs a determinable type
+(`b.retStruct`), otherwise `error[K145]: cannot determine the record type returned by
+'<name>'`. A struct literal names its own type; an identifier carries the type recorded
+for a record parameter or a literal-bound local. Address returned in RAX.
+
+### 28.3 What 9h must add to kcc
+
+Existing in `src/compiler/native_value.kark` (measured, not assumed):
+
+* `natKindStruct()` = 4, `natKindUnits`, `natKindName`
+* `natFrameLayout(...)` including the `recArgBytes` region
+* `natLocalOff`, the sequential slot allocation of 9d
+
+To add:
+
+1. collect `type X struct {...}` declarations into a field-offset/kind table, keyed by
+   function (mirroring `structNames`)
+2. reserve `si.size` bytes after the slot when a `let` is a struct literal - the 9d
+   element-area pattern exactly
+3. literal construction: `lea` the area address once, then a store per field
+4. field read (`DotExpr`): load at `record + off` (+8 for the `strVal` half of a string
+   field)
+5. field write: store at `record + off`
+6. record-idiom parameter typing from the annotation
+7. record returns via `retRec`
+
+### 28.4 Gates and risks
+
+Gate: `pkg/cli/phase151a9h_records_test.go`, `TestPhase151A9H_`, with its own `ci.yml`
+step whose pattern cannot collide with `TestPhase151A9G_`.
+
+Required mutation verification (9g found four defects with gates alone; none by
+inspection): hard-coded field value, wrong field offset, refusal removed, and a
+wrong-units string field.
+
+Known risks, stated before implementation rather than discovered later:
+
+* **Records reuse 9d's frame-area pattern but differ in one respect:** an array's
+  element base must be **reloaded from the frame** before each element store (a base
+  held across an element expression can be clobbered). A record's field area is written
+  once, so the same hazard must be checked explicitly rather than assumed absent.
+* **String fields are two units inside a one-unit record.** `si.size` accounts for it,
+  but a field read must add 8 for the second half - the same trap 9e documented for
+  `len()` on arrays, where `off+8` is the count and the element area starts at `off+16`.
+* **The kcc self-check is broken** (`docs/audit/KCC-WINDOWS-NATIVE-CRASH.md`,
+  `0xC0000005`). 9h must not depend on `kcc check src/compiler/main.kark` as a
+  regression signal; targeted programs only.
+* **KIR pin is stale and red** by standing decision (last measured 12570; 9b-9g all
+  move it). 9h adds more. Do **not** predict a value.
+
+### 28.5 Status
+
+```text
+Step 9h: BASELINE WRITTEN - IMPLEMENTATION NOT STARTED
+```
