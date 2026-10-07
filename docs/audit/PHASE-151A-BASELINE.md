@@ -2349,8 +2349,10 @@ to **supported**, or a diagnostic that was reworded.
 
 ### 26.10 What this step does NOT claim
 
-* **No concatenation**, so **no arena** in kcc yet. Slicing, comparison, string
-  parameters and string returns are all still refused by name.
+* **No concatenation**, so **no arena** in kcc at the time of this step. This was true
+  when 9f landed and is **superseded by section 27**: 9g adds concatenation, the bump
+  arena and the `alloc` helper. Slicing, comparison, string parameters and string returns
+  are still refused by name.
 * No `for-in`, `push`, records, maps, macOS entry/exit.
 * `print_str` is emitted **only when the program can produce a string** (`natNativeUsesString`).
   `print_int` is still emitted unconditionally, so the honest byte-identity comparison for
@@ -2358,3 +2360,140 @@ to **supported**, or a diagnostic that was reworded.
 * **KIR pin**: stale and red, deliberately, per 22.6/23.6/24.10/25.7. Last measured 12570
   (Step 9a); 9b-9f all move it, and it is **not predicted**.
 * **No CI result at the time of writing.** See the increment record.
+
+## 27. Step 9g - string concatenation and the arena allocator (GATED)
+
+### 27.1 What 9g adds
+
+9g is the first slice whose result is **built** rather than referenced. Everything before
+it is frame-resident: an int is one unit, an array's header and elements live in the
+frame, and a string literal's *value* is a `(pointer, length)` pair pointing into
+`.rodata`. Concatenation has to write bytes somewhere the compiler cannot address at
+build time, so 9g introduces:
+
+* the **bump arena**, a compile-time-sized region living inside `.idata` (already R/W and
+  loader-proven writable, so no fourth PE section is needed);
+* the **16-byte arena header** `[cursor][limit]`, which lives *inside* the arena, so no
+  globals and no writable image text are required. The cursor self-initialises on the
+  first `alloc`; a stored cursor of 0 is the "not started" sentinel;
+* the **`alloc` helper**, which nothing else in the compiler exercises;
+* `strTemp`, a dedicated five-units-per-depth staging area. The int path's `binTemp`
+  carries 8 bytes per depth and cannot hold the five units a concatenation needs.
+
+A **heapless program is unchanged**: the arena, `alloc` and `strTemp` are emitted only
+when the program actually concatenates. This is what keeps increment 150's byte-identity
+pins honest, and it is why the 9b-1 corpus still reports `sites=2 ap=3 ip=7`.
+
+### 27.2 Supported forms
+
+| form | example | result |
+| --- | --- | --- |
+| literal + literal | `print("ab" + "cd")` | `abcd` |
+| local + literal | `let a = "ab"; print(a + "cd")` | `abcd` |
+| literal + local | `let a = "ab"; print("cd" + a)` | `cdab` |
+| local + local | `let a = "ab"; let b = "cd"; print(a + b)` | `abcd` |
+| empty operands | `print("" + "cd")`, `print("ab" + "")`, `print("" + "")` | `cd`, `ab`, `` |
+| multiple sites | two or three concatenations in one `main` | concatenated per site |
+
+Operand order is **observable in the output**, so `concat_lit_local` and
+`concat_local_lit` have deliberately *different* expected bytes. The first draft of the
+gate expected `abcd` for both, which would have made the reversed case indistinguishable
+from the forward one and would have proved nothing about which side is which.
+
+### 27.3 The arena bound is a proof
+
+    size = sites * totalLiteralBytes + 16
+
+1. Every concat **site** runs at most once. The driver does not lower loops at all, so a
+   loop-contained concatenation is refused before emission rather than being sized.
+2. Every string value in a supported program is a literal or a concatenation of literals,
+   so no runtime string exceeds the sum of the program's literals.
+
+Together those bound the sum of all allocations. Exhaustion is therefore unreachable for
+a supported program and is kept anyway: `alloc` traps with `Int3` rather than writing
+outside the arena.
+
+The size is **read back out of the image**, not taken on trust. `alloc` holds the arena
+base in `r10` and the arena end (`arena + header + size`) in `r11`, so the span between
+the two `movabs` immediates *is* the computed size. The arena bytes in the file are all
+zeros - the cursor self-initialises at run time - so a gate that read the header from the
+image would compute `0 - 0` and prove nothing.
+
+The gate's cases vary **both** terms independently: `sites` takes 1, 2 and 3 and
+`totalLiteralBytes` takes 0, 4, 6, 8 and 15. An arena sized from either term alone, or
+from a constant, produces the wrong span on at least one case, and
+`TestPhase151A9G_CorpusIsNonVacuousAndDeterministic` fails outright if the case set ever
+stops varying both.
+
+### 27.4 Four real defects, all producing a structurally valid PE
+
+The failure class that makes this slice worth a gate: each of these produced an image
+that passed every structural layer and then did the wrong thing, because **the linker
+does not check opcode semantics**.
+
+1. **`natMask(72)` returned 11, not 7.** It is documented as "the low three bits of a
+   register number" and 11 is `0b1011`, which is four bits. Step 9d survived it by luck -
+   the scaled accesses there use `R9` and `RDX`, whose low bits happen to survive the
+   wrong mask. 9g uses `R10`/`R11`, where `184 + (11 & 11) = 195 = 0xC3`, which is the
+   **`ret` opcode**: the arena limit was loaded by returning from the middle of `alloc`.
+2. **`natHeapRef` reused `natImm64Patch`**, whose `natMovImm64Op(rd) = 184 + rd` is valid
+   only for `rax`..`rdi`. It now emits `REX.W|REX.B` (`0x49`) and `B8 + (rd & 7)`.
+3. **Two literal collectors disagreed.** The one used for rodata interning and for the
+   `print_str` gate did not descend through `BinaryExpr "+"`, while the arena-sizing path
+   did, so for `print("ab" + "cd")` the first returned `[]`, `print_str` was never
+   emitted while the concat arm still called it, and `natFinish` returned the *string*
+   `"undefined label 'print_str'"` where code was expected. They are now one function.
+4. **Two shapes reached emission unchecked** and crashed in `natNativeSlotOff` with
+   `array index out of range`: a **chained** concat (`a + b + "ef"`), because
+   `natNativeStrKind` *recurses* so the validator was satisfied and then
+   `natEmitStrValue` called `identName` on a `BinaryExpr`; and `return a + "b"`, because
+   the concat is a valid string expression while a string is not an exit status.
+
+The rule 9g exists to enforce: **a shape that is not lowered must be refused by name,
+never guessed at.** A crash that produces no diagnostic is worse than a refusal, and a
+refusal that names the construct teaches the reader what is unsupported.
+
+### 27.5 Gate: `pkg/cli/phase151a9g_concat_test.go`
+
+`TestPhase151A9G_` - six tests, ten executed programs, five refusals:
+
+* `ConcatsExecuteWithExactBytes` - compile, structurally validate, **execute**, compare
+  exact stdout bytes. Nothing is trimmed: trimming is the wrong tool for a defect that is
+  a *missing* byte, which is how 9b's first draft passed a program that printed `12345`
+  with no newline.
+* `ArenaSizeIsTheProofNotAGuess` - the span read out of the image against the rule.
+* `AllocEncodesR10AndR11Correctly` - `49 BA` / `49 BB` present, `49 C3` (`ret`) absent.
+  Scanned, not pinned to an offset: the emitter's layout is not a contract, and the scan
+  fails outright if neither correct encoding is present, so it cannot pass vacuously.
+* `UnsupportedShapesAreRefusedByName` - each refusal asserted three ways: kcc refuses,
+  kcc does **not** crash (`array index out of range` is the bug, not a refusal), and the
+  text is kcc's own `native target:` wording, which also proves it was not handed to the
+  Go engine.
+* `DifferentConcatProgramsProduceDifferentImages` - exact-byte pairwise distinctness.
+* `CorpusIsNonVacuousAndDeterministic` - corpus floors, the both-terms-vary invariant,
+  and byte-identical recompilation of every case.
+
+Mutation-verified, all reverted with production SHAs confirmed:
+
+| mutation | caught by |
+| --- | --- |
+| copy 0 bytes of the left operand | all ten execution cases fail on stdout |
+| arena header term `+16` → `+8` | all five arena cases fail |
+| `natMask(72)` 7 → 11 | the encoding guard *and* all five arena cases |
+| chained-concat refusal removed | the refusal table |
+
+### 27.6 What this step does NOT claim
+
+* **Chained concatenation is refused**, not lowered: `print(a + b + "ef")` is
+  `error[K145]`. Supporting it needs depth threaded through `natEmitStrValue`, `strTemp`
+  sized for the deepest chain, and the arena bound re-proved per nesting level. It is its
+  own slice.
+* **Binding a concatenation is refused**: `let c = a + b` is `error[K145]`. The lowering
+  exists in print position only; a binding needs the result registered in the slot plan.
+* **`return <concat>` is refused** - a string is not a process exit status.
+* **`len()` of a concatenation is refused** - the result is not a variable.
+* No `for-in`, `push`, records, maps, string slicing or string comparison, and the macOS
+  entry/exit remain open.
+* **KIR pin**: stale and red, deliberately, per 22.6/23.6/24.10/25.7 and section 26.10.
+  Last measured 12570 (Step 9a); 9b-9g all move it, and it is **not predicted**.
+* `kccOwnsNativeTargets` remains `false` and **151A is not closed**.

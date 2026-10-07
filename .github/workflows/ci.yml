@@ -494,6 +494,20 @@ jobs:
       - name: Run 151A Step 9f string literal gate
         run: go test ./pkg/cli/ -run 'TestPhase151A9F_' -count=1 -timeout 30m
 
+      # 151A Step 9g: string concatenation and the arena allocator -- the first
+      # shape that must BUILD a value somewhere other than the frame, and so the
+      # first that introduces the bump arena, the 16-byte arena header, and an
+      # `alloc` helper nothing else exercises.
+      #
+      # Distinct pattern on purpose: 'TestPhase151A9F_' does not match
+      # 'TestPhase151A9G_', so a 9g regression cannot hide behind a green 9f step.
+      #
+      # The gate is Windows-host-shaped by construction: its primary layer EXECUTES
+      # the kcc-produced PE, so it skips on Linux runners the way 9d's does. The
+      # structural layers run everywhere.
+      - name: Run 151A Step 9g string concat gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A9G_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line
