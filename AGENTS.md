@@ -2874,6 +2874,65 @@ is recorded as an **open red gate** rather than papered over.
 `kccOwnsNativeTargets` stays `false`; 151A is **not** closed. Still open in 151A:
 image assembly (9b) and the first kcc-produced executable image (9c).
 
+Also completed: **151A Step 9c - the whole-program driver, driven by a real AST**
+(increment 151, slice A step 9c; verdict **COMPLETE for the architectural
+transition** -- NOT ownership; record `docs/audit/PHASE-151A-BASELINE.md` §23).
+Step 9b's program was a fixed shape compiled into kcc, which proved the machinery
+while kcc still could not compile a **user's** program. Step 9c replaces that
+fixed body with a driver that walks the **real AST** `buildNativeFile` already
+parsed and type-checked: `natNativeFindMain` finds `main` by NAME in the program's
+real top-level statements (no corpus -- the driver never learns which file it was
+given), the frame is DERIVED through `natFrameLayout(nLocals * 8, ...)` so one and
+two locals produce different frames, a local's slot is its DECLARATION ORDER via
+`natLocalOff`, and `print(x)` versus `print(7)` are genuinely different lowerings
+(`mov rdi, [rsp+off]` versus `mov rdi, imm`). A new `native-ast` subcommand drives
+it from a FILE -- the first native measurement entry point that takes an input
+file, and the only reason the AST-to-emitter connection is testable at all. Gate
+`pkg/cli/phase151a9c_driver_test.go` **3 tests / 10 corpus cases PASS**, every case
+a different `.kark` source: `print(12345)` -> `31 32 33 34 35 0a`, `print(42)` ->
+`34 32 0a`, `let x = 12345; print(x)` -> same as the literal, `let a = 7; let b =
+35; print(a); print(b)` -> `37 0a 33 35 0a` (proving the slots are DISTINCT), and
+`let c = 3; return c` -> **empty stdout, exit 3** -- the case that matters, because
+it prints nothing so only the exit code can see it. `SourceChangesTheGeneratedImage`
+compares the two single-literal IMAGES: they differ in **exactly 2 bytes, both
+inside `.text`** (offsets 1502-1503), the 32-bit immediate carrying the literal.
+**Mutation-verified twice, each caught by exactly the right case**: hard-coding
+the literal to 12345 fails `literal_42` and the image-difference test while
+correctly leaving `literal_12345` green (that case coincides with the hard-coded
+value, so a single passing case would never have been evidence); resolving every
+local to slot 0 fails `two_locals` only, correctly leaving `local_42` green
+because its only local IS slot 0. **Four real defects the slice's own evidence
+found**, all recorded in §23.4: (1) `funcBody` is the statement LIST, not a Block
+node -- `parseBlock` returns statements directly, and the checker's own consumer
+(`checkStmts(tab, funcBody(node), 0)`) is the authority; the first draft's Block
+assumption handed the scanner a list and produced the refusal "statement kind
+[array]"; (2) `let` and `var` are DIFFERENT node kinds (NODE_LET_DECL vs
+NODE_VAR_DECL) and matching only `var` meant `let x = 1` was not a binding at all;
+(3) integer literals are stored as SOURCE TEXT in both engines, so the driver needs
+`int(intLitVal(...))` -- a first patch used `int(pv)`, passing the NODE, which
+silently emitted `mov edi, 0` for every program; and **(4) the instructive one --
+the Win64 alignment `sub rsp, 8` invalidated every frame-relative load that
+followed it**, because `natLoadStack` addresses the CURRENT rsp: `sub rsp, 8; mov
+(%rsp),%rdi` read 8 bytes below the first local, and with two locals the program
+printed `0` then `7` (the second `mov 8(%rsp)` landing back on slot 0) while the
+LITERAL-ONLY case passed throughout, since it loads an immediate rather than a
+slot. A fifth defect -- an unconditional `mov rax, 0` after the body clobbering an
+explicit `return` -- was caught only by the exit-code case. **Honest boundary:** kcc
+computes, resolves and links every byte and the CLI writes them, because the
+language has NO byte-level file writer (`writeFile`/`writeToFile` both `fputs` a
+string and would truncate the image at its first NUL); Go does no lowering there.
+Supported subset is `let`/`print`/`return` of an integer literal or local, and
+everything else is REFUSED BY NAME with K145 -- that refusal table is the honest
+state of 151A now. CI companion wired in the same change (step *Run 151A Step 9c
+AST-driven native driver gate*, pattern `TestPhase151A9C_`, verified to collide
+with neither `TestPhase151B9_` nor the increment-151C `TestPhase151C_` ELF family);
+`ci.yml` left **purely additive** (15 insertions, 0 deletions) after the `edit`
+tool stripped indentation once more and broke the YAML, caught by a parse check and
+repaired at line level. **9b-1 remains intact**: its 9 tests still green, and
+`native-pe-prog` still reports `sites=2 ap=3 ip=7`. **`kccOwnsNativeTargets` stays
+`false`**; the remaining value-model kinds and the ownership flip are still owed,
+and the KIR pin remains stale/red by the same decision as §22.6.
+
 Also completed: **151A Step 9b - the first whole-program PE composition in kcc**
 (increment 151, slice A step 9b; verdict **COMPLETE for the machinery** -- NOT
 the whole-program driver, NOT ownership; record

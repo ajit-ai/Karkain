@@ -159,6 +159,52 @@ func main() {
         return
     }
 
+    // Phase 151A Step 9c: the whole-program driver, driven by a REAL FILE.
+//
+// This is the first native measurement command that takes an input file, and that
+// is the point. Every other one is a corpus compiled into kcc, so it can prove
+// that a SEQUENCE is byte-correct but never that a USER'S PROGRAM reaches the
+// emitter. Here the source comes from disk, goes through the ordinary frontend
+// (assemble -> tokenize -> parse -> type-check) and the driver lowers the AST.
+//
+// NO GO FALLBACK, same contract as the corpus commands, and the same no-fallback
+// guard applies: a Go-side native compiler would satisfy every byte comparison
+// below while proving nothing about kcc.
+if (command == "native-ast") {
+        if (argc < 3) {
+            print("Usage: karkain native-ast <file.kark>")
+            return
+        }
+        let src = assembleProject(args[2])
+        if (src == "") {
+            print("error[K002]: could not assemble " + args[2])
+            return
+        }
+        let ntok = tokenize(src)
+        let pstate = createParserState(ntok, src)
+        let ast9c = parseWithState(pstate)
+        if (hasParserErrors(pstate)) {
+            printParserErrors(pstate)
+            return
+        }
+        let terrs = typeCheckProgram(ast9c)
+        if (len(terrs) > 0) {
+            let te = 0
+            while (te < len(terrs)) {
+                print(terrs[te])
+                te = te + 1
+            }
+            return
+        }
+        let res9c = natNativeProgram(ast9c)
+        if (res9c[0] != "") {
+            print(res9c[0])
+            return
+        }
+        print(natToHex(res9c[1]))
+        return
+    }
+
     // Phase 151A: the `_start` entry stub and the Linux exit tail. Same
     // measurement contract as the four encoder/container commands above -- the
     // cases are compiled into kcc and the gate compares them against the real
@@ -575,14 +621,35 @@ func buildNativeFile(path, target) {
         return
     }
 
-    // Provenance, printed by the self-hosted engine. The parity harness
-    // treats this exact line as proof the request was NOT handled by the Go
-    // fallback, so it is load-bearing and must stay greppable.
-    print("[kcc] native request " + target + " (os=" + nativeTargetOS(target) + "): " + fileBaseName(path))
-    print("error[K116]: the self-hosted engine (kcc) has no machine-code backend, so it cannot emit --target " + target + ".")
-    print("  kcc emits C23 only. The " + target + " C-free target is implemented by the Go backend alone.")
-    print("  This is refused here, by kcc, rather than silently handed to the Go engine.")
-    print("  kcc native codegen is increment 151A/B/C (see docs/audit/PHASE-151A-BASELINE.md).")
+// Provenance, printed by the self-hosted engine. The parity harness
+      // treats this exact line as proof the request was NOT handled by the Go
+      // fallback, so it is load-bearing and must stay greppable.
+      print("[kcc] native request " + target + " (os=" + nativeTargetOS(target) + "): " + fileBaseName(path))
+
+      // Step 9c built the whole-program driver (natNativeProgram), and it is REAL and
+      // measured -- `karkain native-ast <file.kark>` drives it over a user's
+      // program, emits a linked PE, and the 9c gate executes it. It is reached
+      // from THAT subcommand and deliberately NOT from here.
+      //
+      // This path still refuses, because kccOwnsNativeTargets is still false. A
+      // first draft of Step 9c replaced the refusal below with an emit "since the
+      // driver exists now", and the increment-151 gates caught it immediately:
+      // TestPhase151_NoSilentGoFallback reported a refusal that no longer named
+      // K116, and TestPhase151_HarnessDetectsNonParity found an image that
+      // existed WITHOUT kcc provenance.
+      //
+      // Both failures are the gates working. The user-facing switch is a
+      // capability CLAIM, and flipping the emission while the claim is still
+      // false makes `karkain build --target native-*` succeed in a way that no
+      // gate authorises. The driver being proven and the switch being thrown are
+      // two different things; 151D throws the switch, and it must do so in the
+      // same change that makes this path emit.
+      print("error[K116]: the self-hosted engine (kcc) has no machine-code backend, so it cannot emit --target " + target + ".")
+      print("  kcc emits C23 only. The " + target + " C-free target is implemented by the Go backend alone.")
+      print("  This is refused here, by kcc, rather than silently handed to the Go engine.")
+      print("  kcc native codegen is increment 151A/B/C (see docs/audit/PHASE-151A-BASELINE.md).")
+      print("  Step 9c's whole-program driver exists and is measured via `karkain native-ast`;")
+      print("  emitting on this path is 151D, which also flips kccOwnsNativeTargets.")
 }
 
 func buildFile(path, target) {

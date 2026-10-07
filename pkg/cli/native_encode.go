@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -105,6 +106,35 @@ func KCCNativePECommand(w io.Writer, verbose bool) CommandResult {
 // machinery the driver will drive.
 func KCCNativePEProgramCommand(w io.Writer, verbose bool) CommandResult {
 	return kccSubcommand(w, "native-pe-prog")
+}
+
+// KCCNativeASTCommand drives the Step 9c whole-program driver over a REAL source
+// file and returns the linked PE image as hex.
+//
+// This is the first native measurement entry point that takes an INPUT FILE, and
+// that is the whole point of the slice. Every other one is a corpus compiled into
+// kcc, so it can prove a SEQUENCE is byte-correct but never that a USER'S PROGRAM
+// reaches the emitter. Here the source comes from disk and goes through the
+// ordinary frontend -- assemble, tokenize, parse, type-check -- before the driver
+// lowers the AST.
+//
+// Same no-fallback contract as the corpus commands: a Go-side native compiler
+// would satisfy every comparison while proving nothing about kcc.
+func KCCNativeASTCommand(file string, verbose bool) CommandResult {
+	bin, err := kccBinaryPath(nil)
+	if err != nil {
+		// kcc unreachable is an ENVIRONMENT failure, not a compile failure.
+		return CommandResult{ExitCode: ExitEnv, Message: err.Error()}
+	}
+	out, code := runKCC(bin, "native-ast", file)
+	if code != 0 && out == "" {
+		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf(
+			"kcc native-ast failed with exit %d and produced no output", code)}
+	}
+	// A refusal is DATA here, exactly as in kccSubcommand: the driver's refusal
+	// table is part of what the gate asserts, so it must not be turned into a
+	// build failure before the gate can read it.
+	return CommandResult{ExitCode: 0, Message: out}
 }
 
 // KCCNativeValueCommand runs the self-hosted native value/frame foundation
