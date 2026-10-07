@@ -3137,3 +3137,61 @@ len() gate*, pattern `TestPhase151A9E_`, verified not to collide with
 24.10** -- last measured 12570 at Step 9a, moved by 9b/9c/9d/9e, deliberately **not
 predicted**. `kccOwnsNativeTargets` stays `false`; **151A is not closed** -- `for-in`,
 `push`, strings + arena, records, maps and the macOS entry/exit remain open.
+Also completed: **151A Step 9f - string literals and printing a string in kcc**
+(increment 151, slice A step 9f; verdict **IMPLEMENTED** -- NOT whole-image parity, NOT
+ownership; record `docs/audit/PHASE-151A-BASELINE.md` section 26). The first non-scalar
+kind that is **not** a frame-resident collection: 9d's array lives entirely in the frame,
+while a string's value is a `(pointer, length)` pair whose bytes live in `.rodata`, so the
+literal's **offset** rather than its content is the load-bearing number. `emitStr` leaves
+`(RDI, RSI) = (ptr, len)` and `emitPrint` dispatches on `isStringExpr` before any kind
+check, so a string never reaches `print_int`; the oracle's `print_str` is **seven
+instructions** because a string needs no formatting, and `natPrintStrBody` reproduces it
+exactly, reusing kcc's existing `natPayloadWrite`/`natPrintNewlineOff` rather than
+duplicating a write path. **The arena is deliberately absent** -- concatenation must
+*build* a string and needs the bump allocator, while a literal is already built, so this
+slice performs no allocation at all. **Two real defects, one of them a crash**: (1)
+`print("hi")` with no binding **crashed kcc** with "array index out of range" because the
+literal collector walked only `let` initialisers, so a directly-printed literal recorded a
+reference to an offset never interned -- fixed by collecting from both places a literal
+can appear, in the order the lowering records them, so the two agree by construction;
+(2) **`return s` for a string silently emitted an image and exited with the string's
+POINTER**, because the shared validator accepts a string (printable as itself) and
+`return` reused it -- fixed by `natNativeScanReturn`, the shared validator plus one rule,
+since a return value becomes the process exit status and must be an int. **`++` does not
+exist in Karkain**: the first draft built the rodata list as `["-","\n"] ++ lits`, which
+compiled into a valid PE printing **a run of NUL bytes** -- every string reference
+recorded against a list the linker never interned, with no diagnostic; the list is now
+built with an explicit `appendArray` loop. **Offsets come from `natRodataSection` itself**
+(`[bytes, offs]`, one per input entry, repeated literals interned once), computed BEFORE
+emission and walked with a single `sidx` starting at 2 for print_int's own `"-"`/`"\n"`;
+recomputing an offset from a literal's *value* breaks the moment two bindings share one
+string. **`len(s)` came for free** -- a string's second unit IS its length at the same
+offset an array's COUNT occupies, so the same load returns both, accepted deliberately
+because refusing would be arbitrary rather than a real boundary. Gate
+`pkg/cli/phase151a9f_string_test.go`, `TestPhase151A9F_` **8 tests PASS** over 8 programs
+with exact-bytes execution (`print_literal`->`68690a`, `long_literal`->`...686b61726b`,
+`two_distinct_literals`->`6f6e650a74776f0a`, `repeated_literal_interned_once`,
+`string_and_int`->`6e3d34320a34320a`, `string_and_array`->`6974656d733a0a33350a`,
+`len_of_string`->`6b61726b61696e0a370a`); `string_and_array` is the sharpest layout case
+because a string's length unit and an array's COUNT both sit at `slot+8`. Other layers:
+six variants producing **pairwise byte-distinct images** (a driver resolving every string
+reference to offset 0, where print_int's `"-"` lives, would print a plausible byte for
+every program); frame per case with the two-unit rule stated; **literal bytes searched for
+in the image**; interned-once; a 3-case refusal table; determinism/non-vacuity. **Two
+wrong expectations in my own gate**: the interning layer first asserted that lengthening a
+literal lengthened the image and failed with a delta of **0** -- the MEASUREMENT was
+wrong, not the compiler, because a PE pads `.text` to the 512-byte FileAlignment, so it
+now searches for the literal's bytes instead; and a first draft was left half-written with
+three undefined helpers, rewritten rather than completed. **Mutation-verified**: M4
+hard-coding a bound string's length to `1` fails all 7 bound-string cases while
+`print_literal` correctly stays **green** (it never takes the binding path) and the frame,
+distinctness, interning and refusal layers correctly stay green. **Two earlier pins moved
+and were corrected rather than left failing**: 9c's `refuse_non_integer_binding` pinned
+`let s = "hi"` as REFUSED when 9c was int-only, so it was **replaced** with `let b = true`
+(keeping the table's intent, "a binding this driver cannot lower is refused by name") and
+the string program is now gated by 9f; and 9e's `len_of_expression` asserted the exact
+phrase `len() requires an array variable`, which became `array or string`. **KIR pin
+remains stale/red by the same decision as 22.6/23.6/24.10/25.7** -- last measured 12570 at
+Step 9a, moved by 9b-9f, deliberately **not predicted**. `kccOwnsNativeTargets` stays
+`false`; **151A is not closed** -- concatenation (and therefore the arena), slicing,
+comparison, `for-in`, `push`, records, maps and the macOS entry/exit remain open.

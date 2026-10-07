@@ -122,9 +122,15 @@ var nat9eRefusals = []struct {
 	{
 		// len of an element rather than of a variable. The oracle rejects this shape
 		// too ("len() requires an array or map variable").
+		//
+		// The expected wording changed when Step 9f taught the driver about strings and
+		// len() of a string became legal, so the message now says "array or string".
+		// Asserting the exact phrase rather than a looser substring is deliberate: it is
+		// what makes a future reword of this diagnostic a visible test change instead of
+		// a silent drift.
 		name: "len_of_expression",
 		src:  "func main() {\n    let a = [7, 35]\n    print(len(a[0]))\n}\n",
-		want: "len() requires an array variable",
+		want: "len() requires an array or string variable",
 	},
 	{
 		// A builtin that exists in the language but is not lowered natively yet.

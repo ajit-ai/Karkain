@@ -108,8 +108,17 @@ var nat9cCases = []nat9cCase{
 		wantExit: 0, refuse: "error[K145]",
 	},
 	{
+		// `let s = "hi"` was pinned here as REFUSED when 9c landed, because the
+		// driver was int-only. Step 9f added string literals, so this exact program
+		// now compiles and prints "hi". The case was REPLACED rather than deleted,
+		// because the table's intent is "a binding initialised from something this
+		// driver cannot lower is refused by name", and a boolean keeps that intent
+		// while remaining refused. Leaving the old program in place would have made
+		// 9c fail on correct behaviour and taught its readers to ignore it.
+		//
+		// The string program itself is now gated properly by TestPhase151A9F_*.
 		name:     "refuse_non_integer_binding",
-		src:      "func main() {\n    let s = \"hi\"\n    print(s)\n}\n",
+		src:      "func main() {\n    let b = true\n    print(b)\n}\n",
 		wantExit: 0, refuse: "error[K145]",
 	},
 	{

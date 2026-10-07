@@ -485,6 +485,15 @@ jobs:
       - name: Run 151A Step 9e len() gate
         run: go test ./pkg/cli/ -run 'TestPhase151A9E_' -count=1 -timeout 30m
 
+      # 151A Step 9f: string literals and printing a string -- the first kind whose
+      # bytes live in .rodata rather than entirely in the frame, so the literal's
+      # OFFSET is the load-bearing number rather than its content.
+      #
+      # Distinct pattern on purpose: 'TestPhase151A9E_' does not match
+      # 'TestPhase151A9F_', so a 9f regression cannot hide behind a green 9e step.
+      - name: Run 151A Step 9f string literal gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A9F_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line
