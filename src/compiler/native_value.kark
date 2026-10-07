@@ -3210,6 +3210,7 @@ func natNativePlan(stmts) {
                 k = natKindArray()
                 ne = len(arrayLitElems(v))
             }
+            if (nodeType(v) == NODE_STRING_LIT()) { k = natKindString() }
             plan = appendArray(plan, next)
             plan = appendArray(plan, k)
             plan = appendArray(plan, ne)
@@ -3293,10 +3294,15 @@ func natNativeScan(stmts) {
                 let bad = natNativeScanElems(arrayLitElems(v), natNativeDeclLine(n))
                 if (bad != "") { return [bad, plan, hasReturn] }
             } else {
-                if (vt != NODE_INT_LIT()) {
-                    return [natNativeRefuse("`let " + natNativeDeclName(n) +
-                        "` initialised from a non-integer expression", natNativeDeclLine(n)),
-                        plan, hasReturn]
+                if (vt == NODE_STRING_LIT()) {
+                    // Accepted as-is: the value is the literal's own bytes, interned
+                    // into rodata, so there is nothing to evaluate.
+                } else {
+                    if (vt != NODE_INT_LIT()) {
+                        return [natNativeRefuse("`let " + natNativeDeclName(n) +
+                            "` initialised from a non-integer expression", natNativeDeclLine(n)),
+                            plan, hasReturn]
+                    }
                 }
             }
         } else {
@@ -3306,7 +3312,7 @@ func natNativeScan(stmts) {
             } else {
                 if (k == NODE_RETURN()) {
                     hasReturn = 1
-                    let bad = natNativeScanValue(retVal(n), stmts, plan, retLine(n))
+                    let bad = natNativeScanReturn(retVal(n), stmts, plan, retLine(n))
                     if (bad != "") { return [bad, plan, hasReturn] }
                 } else {
                     return [natNativeRefuseNoLine("statement kind " + str(k) +
@@ -3438,15 +3444,21 @@ func natNativeScanLen(call, stmts, plan, line) {
         return natNativeRefuse("len() takes exactly 1 argument, got " + str(len(args)), line)
     }
     if (nodeType(args[0]) != NODE_IDENT()) {
-        return natNativeRefuse("len() requires an array variable, not an expression", line)
+        return natNativeRefuse("len() requires an array or string variable, not an " +
+            "expression", line)
     }
     let ord = natNativeLocalIndex(stmts, identName(args[0]))
     if (ord < 0) {
         return natNativeRefuse("len() of undeclared local `" + identName(args[0]) + "`", line)
     }
-    if (natNativeSlotKind(plan, ord) != natKindArray()) {
-        return natNativeRefuse("len() requires an array, but `" + identName(args[0]) +
-            "` is not one (its kind is " + natKindName(natNativeSlotKind(plan, ord)) + ")",
+    let k = natNativeSlotKind(plan, ord)
+    // A STRING is accepted for free, and deliberately so: a string's two frame units
+    // are (ptr, len), so its length is at exactly the offset an array's COUNT is, and
+    // the same single load returns both. Refusing it would have been an arbitrary
+    // restriction rather than a real boundary.
+    if (k != natKindArray() && k != natKindString()) {
+        return natNativeRefuse("len() requires an array or string, but `" +
+            identName(args[0]) + "` is not one (its kind is " + natKindName(k) + ")",
             line)
     }
     return ""
@@ -3466,6 +3478,131 @@ func natArrayLen(s, off) {
     return natLoadStack(s, natRegRAX(), off + 8)
 }
 
+// natCallPrintInt and natCallPrintStr are the two print call sites, and the `sub rsp, 8`
+// in each is Win64 ABI rather than padding.
+//
+// `_start` aligns rsp to 16 and then CALLS, so rsp is 8 (mod 16) at main entry, and a
+// call requires rsp to be 0 (mod 16) immediately before the `call`. The 8 bytes
+// restore that alignment and are released immediately after.
+//
+// They are functions rather than inline sequences because there are now several print
+// shapes (int literal, string literal, element, len, local) and a copy per shape is a
+// place for the alignment to be dropped from one and kept in another.
+func natCallPrintInt(s) {
+    s = natSubRegImm32(s, natRegRSP(), 8)
+    s = natCall32(s)
+    let r = natRel32(s, "print_int")
+    s = r[0]
+    return natAddRegImm32(s, natRegRSP(), 8)
+}
+
+func natCallPrintStr(s) {
+    s = natSubRegImm32(s, natRegRSP(), 8)
+    s = natCall32(s)
+    let r = natRel32(s, "print_str")
+    s = r[0]
+    return natAddRegImm32(s, natRegRSP(), 8)
+}
+
+// natPrintStrBody emits the `print_str` helper: write the caller's string bytes,
+// then a newline.
+//
+// It is the byte-for-byte counterpart of the oracle's print_str, which is seven
+// instructions because a string needs no formatting at all:
+//
+//	Mark("print_str"); MovRegReg(RDX, RSI); MovRegReg(RSI, RDI);
+//	MovRegImm32(RDI, 1); emitWrite(); printNewline(); Ret()
+//
+// The three register moves are the (RDI=ptr, RSI=len) string convention being
+// reshuffled into (RDI=fd, RSI=ptr, RDX=len), which is what natPayloadWrite -- and the
+// oracle's emitWrite -- consume. The newline is the same contract print_int
+// terminates with, so `"42\n"` and `"hi\n"` are both right; the C-backend goldens pin
+// exactly that, and a missing terminator is a real defect rather than a style choice.
+//
+// It takes the newline's rodata OFFSET rather than interning it itself, because the
+// driver owns the rodata list and a helper that interned independently would put the
+// newline somewhere the linker never resolves.
+func natPrintStrBody(s, winWrite, offNewline) {
+    s = natMark(s, "print_str")
+    s = natMovRegReg(s, natRegRDX(), natRegRSI())
+    s = natMovRegReg(s, natRegRSI(), natRegRDI())
+    s = natMovRegImm32(s, natRegRDI(), 1)
+    s = natPayloadWrite(s, winWrite)
+    s = natPrintNewlineOff(s, winWrite, offNewline)
+    return natRet(s)
+}
+
+// natNativeRodataList builds the rodata input list: print_int's two strings followed
+// by the program's own literals, in source order.
+//
+// It is built with an explicit append loop rather than an array-join operator on
+// purpose. The obvious `["-", "\n"] ++ lits` does not exist -- Karkain has no `++` --
+// and the first draft of this slice used it, which compiled into an image that printed
+// a run of NUL bytes: the literal offsets it recorded were computed against a list that
+// was not the list the linker interned.
+//
+// The ORDER is load-bearing in the same way. natRodataSection returns one offset per
+// INPUT entry, with a repeated literal resolving to the slot it was first interned
+// into, so the k-th literal in the program is always input entry 2+k.
+func natNativeRodataList(stmts) {
+    let lits = natNativeStrLiterals(stmts)
+    let strs = ["-", "\n"]
+    let i = 0
+    while (i < len(lits)) {
+        strs = appendArray(strs, lits[i])
+        i = i + 1
+    }
+    return strs
+}
+
+// natNativeStrLiterals collects every string literal the program binds, in source
+// order, WITHOUT de-duplicating.
+//
+// De-duplication is deliberately NOT done here: natRodataSection performs the
+// first-use interning, and natRodataLookup scans this list for the FIRST occurrence,
+// so a repeated literal naturally resolves to the slot it was first interned into. If
+// this list de-duplicated too, the two would still agree -- but keeping one function
+// responsible for interning is what stops them disagreeing.
+// natNativeStrLiterals collects every string literal the program puts into an image,
+// in the order the driver will RECORD a reference to it.
+//
+// It walks statements once and takes literals from BOTH places that can produce one: a
+// `let` initialiser and a `print` argument. Collecting only from `let` was a real bug --
+// `print("hi")` with no binding recorded a reference to an offset that had never been
+// interned, and kcc died with "array index out of range" inside the lowering.
+//
+// The ORDER must match natNativeLower's walk exactly, because the lowering advances a
+// single sidx through this list as it emits. Both iterate the same statements in the
+// same order and handle the decl before the print within each statement, so the two
+// walks agree by construction rather than by convention.
+func natNativeStrLiterals(stmts) {
+    let out = []
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        if (natNativeIsDecl(n)) {
+            let v = natNativeDeclValue(n)
+            if (nodeType(v) == NODE_STRING_LIT()) {
+                out = appendArray(out, stringLitVal(v))
+            }
+        }
+        if (nodeType(n) == NODE_PRINT()) {
+            let pv = printVal(n)
+            if (nodeType(pv) == NODE_STRING_LIT()) {
+                out = appendArray(out, stringLitVal(pv))
+            }
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// natNativeUsesString reports whether the program can produce a string at all, which
+// is what gates the print_str helper.
+func natNativeUsesString(stmts) {
+    return len(natNativeStrLiterals(stmts)) > 0
+}
+
 // natNativeScanValue validates one expression in a value position -- what `print` and
 // `return` accept -- and returns "" or a refusal.
 //
@@ -3476,25 +3613,46 @@ func natArrayLen(s, off) {
 func natNativeScanValue(expr, stmts, plan, line) {
     let t = nodeType(expr)
     if (t == NODE_INT_LIT()) { return "" }
+    if (t == NODE_STRING_LIT()) { return "" }
     if (t == NODE_IDENT()) {
         let ord = natNativeLocalIndex(stmts, identName(expr))
         if (ord < 0) {
             return natNativeRefuse("undeclared local `" + identName(expr) + "`", line)
         }
-        // Printing a WHOLE collection is refused rather than mis-lowered: `print(a)`
-        // would otherwise load the header's base pointer and print that address as if
-        // it were the array's value. There is no scalar reading of a collection.
-        if (natNativeSlotKind(plan, ord) != natKindInt()) {
-            return natNativeRefuse("cannot print `" + identName(expr) + "` as a whole; " +
-                "its kind is " + natKindName(natNativeSlotKind(plan, ord)) +
-                ", so print an element or len() instead", line)
-        }
-        return ""
+        let k = natNativeSlotKind(plan, ord)
+        // A STRING is printable as itself: its value is already the (ptr, len) pair
+        // print_str wants. An ARRAY is not printable as itself.
+        if (k == natKindInt() || k == natKindString()) { return "" }
+        return natNativeRefuse("cannot print `" + identName(expr) + "` as a whole; " +
+            "its kind is " + natKindName(k) + ", so print an element or len() instead",
+            line)
     }
     if (t == NODE_INDEX()) { return natNativeScanIndex(expr, stmts, plan, line) }
     if (t == NODE_CALL()) { return natNativeScanLen(expr, stmts, plan, line) }
     return natNativeRefuse("expression of kind " + str(t) + " is neither an integer " +
         "literal, a local, an index nor len()", line)
+}
+
+// natNativeScanReturn validates a `return` value.
+//
+// It is natNativeScanValue plus ONE extra rule, and the rule is load-bearing: `return`
+// feeds the process exit status, which is an int. A string is printable as itself, so
+// the shared validator accepts it -- and without this check `return s` silently loaded
+// the string's POINTER and exited with it. That is a valid image emitting a meaningless
+// exit code, which the oracle refuses outright ("string return values are not
+// supported"). The gate's refusal table found it.
+func natNativeScanReturn(expr, stmts, plan, line) {
+    let bad = natNativeScanValue(expr, stmts, plan, line)
+    if (bad != "") { return bad }
+    if (nodeType(expr) == NODE_IDENT()) {
+        let k = natNativeSlotKind(plan, natNativeLocalIndex(stmts, identName(expr)))
+        if (k != natKindInt()) {
+            return natNativeRefuse("`return` of a " + natKindName(k) + " is not " +
+                "supported; a return value becomes the process exit status and must be " +
+                "an int", line)
+        }
+    }
+    return ""
 }
 
 // natNativeLower emits main's body into an existing emitter state.
@@ -3508,8 +3666,14 @@ func natNativeScanValue(expr, stmts, plan, line) {
 //
 // The statement ORDINAL doubles as the label tag for `a[i]`, so no counter can fall
 // out of step with the statement list.
-func natNativeLower(s, stmts, plan) {
+func natNativeLower(s, stmts, plan, roffs) {
     let idx = 0
+    // sidx walks the rodata INPUT list in lockstep with the literals the program binds,
+    // starting at 2 because entries 0 and 1 are print_int's own "-" and "\n". Lockstep
+    // is what makes a literal's recorded offset agree with the list the linker interns;
+    // recomputing an offset from the literal's VALUE instead would break the moment two
+    // bindings shared one string, which natRodataSection interns only once.
+    let sidx = 2
     let i = 0
     while (i < len(stmts)) {
         let n = stmts[i]
@@ -3519,8 +3683,20 @@ func natNativeLower(s, stmts, plan) {
             if (nodeType(v) == NODE_ARRAY_LIT()) {
                 s = natArrayValue(s, natNativeSlotOff(plan, idx), arrayLitElems(v))
             } else {
-                s = natMovRegImm32(s, natRegRAX(), int(intLitVal(v)))
-                s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
+                if (nodeType(v) == NODE_STRING_LIT()) {
+                    // A string literal's value IS its own bytes, so the binding is two
+                    // stores: the interned rodata pointer and the byte length. No arena
+                    // is involved -- an arena is only needed to BUILD a string, and a
+                    // literal is already built.
+                    s = natRodataRefOff(s, natRegRDI(), roffs[sidx])
+                    s = natMovRegImm32(s, natRegRSI(), len(stringLitVal(v)))
+                    s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
+                    s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
+                    sidx = sidx + 1
+                } else {
+                    s = natMovRegImm32(s, natRegRAX(), int(intLitVal(v)))
+                    s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
+                }
             }
             idx = idx + 1
         }
@@ -3551,29 +3727,43 @@ func natNativeLower(s, stmts, plan) {
             // bytes low if it came after the `sub`.
             if (nodeType(pv) == NODE_INT_LIT()) {
                 s = natMovRegImm32(s, natRegRDI(), int(intLitVal(pv)))
+                s = natCallPrintInt(s)
             } else {
-                if (nodeType(pv) == NODE_INDEX()) {
-                    let ord = natNativeLocalIndex(stmts, identName(indexLeft(pv)))
-                    s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i)
-                    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+                if (nodeType(pv) == NODE_STRING_LIT()) {
+                    s = natRodataRefOff(s, natRegRDI(), roffs[sidx])
+                    s = natMovRegImm32(s, natRegRSI(), len(stringLitVal(pv)))
+                    s = natCallPrintStr(s)
+                    sidx = sidx + 1
                 } else {
-                    if (nodeType(pv) == NODE_CALL()) {
-                        let ordl = natNativeLocalIndex(stmts,
-                            identName(callArgs(pv)[0]))
-                        s = natArrayLen(s, natNativeSlotOff(plan, ordl))
+                    if (nodeType(pv) == NODE_INDEX()) {
+                        let ord = natNativeLocalIndex(stmts, identName(indexLeft(pv)))
+                        s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i)
                         s = natMovRegReg(s, natRegRDI(), natRegRAX())
+                        s = natCallPrintInt(s)
                     } else {
-                        s = natLoadStack(s, natRegRDI(),
-                            natNativeSlotOff(plan,
-                                natNativeLocalIndex(stmts, identName(pv))))
+                        if (nodeType(pv) == NODE_CALL()) {
+                            let ordl = natNativeLocalIndex(stmts,
+                                identName(callArgs(pv)[0]))
+                            s = natArrayLen(s, natNativeSlotOff(plan, ordl))
+                            s = natMovRegReg(s, natRegRDI(), natRegRAX())
+                            s = natCallPrintInt(s)
+                        } else {
+                            let ordp = natNativeLocalIndex(stmts, identName(pv))
+                            if (natNativeSlotKind(plan, ordp) == natKindString()) {
+                                s = natLoadStack(s, natRegRDI(),
+                                    natNativeSlotOff(plan, ordp))
+                                s = natLoadStack(s, natRegRSI(),
+                                    natNativeSlotOff(plan, ordp) + 8)
+                                s = natCallPrintStr(s)
+                            } else {
+                                s = natLoadStack(s, natRegRDI(),
+                                    natNativeSlotOff(plan, ordp))
+                                s = natCallPrintInt(s)
+                            }
+                        }
                     }
                 }
             }
-            s = natSubRegImm32(s, natRegRSP(), 8)
-            s = natCall32(s)
-            let r = natRel32(s, "print_int")
-            s = r[0]
-            s = natAddRegImm32(s, natRegRSP(), 8)
         }
         if (k == NODE_RETURN()) {
             let rv = retVal(n)
@@ -3638,9 +3828,14 @@ func natNativeProgram(ast) {
     let lay = natFrameLayout(natNativePlanBytes(plan), 0, 0, 0, 0, 1)
     let frame = lay[6]
 
+    let ro = natRodataSection(natNativeRodataList(body))
+    // `ro` is [bytes, offsets]: one offset per INPUT entry, so the k-th program literal
+    // is entry 2+k. It is computed BEFORE emission because the body needs those offsets
+    // to record its rodata references, and computing them after would mean recording a
+    // placeholder the linker had no way to fill.
     let s = natWinStub()
     s = natSubRegImm32(s, natRegRSP(), frame)
-    s = natNativeLower(s, body, plan)
+    s = natNativeLower(s, body, plan, ro[1])
     // The implicit `return 0` is emitted ONLY when the program has no explicit
     // return, and it must come AFTER the body. Emitting it unconditionally was the
     // first draft's bug and it is instructive: `mov rax, 0` placed after the body
@@ -3657,9 +3852,16 @@ func natNativeProgram(ast) {
     s = natAddRegImm32(s, natRegRSP(), frame)
     s = natRet(s)
     s = natPrintIntBody(s, 1, 0, 1)
+    // print_str, in the SAME state and only when the program can produce a string.
+    //
+    // The gating is what keeps every string-free image byte-identical: an unused helper
+    // costs bytes and nothing else, but print_int is emitted unconditionally today, so
+    // the honest comparison is against today's behaviour rather than an ideal.
+    if (natNativeUsesString(body)) {
+        s = natPrintStrBody(s, 1, 1)
+    }
     let text = natFinish(s)
 
-    let ro = natRodataSection(["-", "\n"])
     // The rodata patch list is what makes the linker resolve the immediates AND
     // give each one a DIR64 entry. Passing an empty list is the Step 9b defect
     // this slice inherits: the immediates keep the preferred base on a rebasing
