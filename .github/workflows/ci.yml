@@ -477,6 +477,14 @@ jobs:
       - name: Run 151A Step 9d integer array gate
         run: go test ./pkg/cli/ -run 'TestPhase151A9D_' -count=1 -timeout 30m
 
+      # 151A Step 9e: len() on arrays -- the first BUILTIN to reach the AST driver,
+      # and the single instruction the oracle's array branch of emitLen is.
+      #
+      # Distinct pattern on purpose: 'TestPhase151A9D_' does not match
+      # 'TestPhase151A9E_', so a 9e regression cannot hide behind a green 9d step.
+      - name: Run 151A Step 9e len() gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A9E_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line

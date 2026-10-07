@@ -2105,3 +2105,109 @@ Two things follow:
   collide with `TestPhase151A9C_`, `TestPhase151A9a_`, `TestPhase151B9_`,
   `TestPhase151A_` or `TestPhase151C_`) is wired in this change; its result is recorded
   in the increment record once the run completes.
+---
+
+## 25. Step 9e - `len()` on arrays (IMPLEMENTED)
+
+Step 9d added the array kind. 9e adds the first **builtin** to reach the driver, and it
+is deliberately a small slice: the oracle's array branch of `emitLen` is a single
+instruction (`e.LoadStack(RAX, off+8)`), so it can be proven end-to-end with almost no
+new emission while establishing the shape every later builtin follows.
+
+**Not whole-image parity, not ownership.** `kccOwnsNativeTargets` stays `false`.
+
+### 25.1 The count offset is written literally, on purpose
+
+The array header is two units, and they are not adjacent to what they look like:
+
+    [off]     = element-area base
+    [off + 8] = COUNT          <-- what len() returns
+    [off+16+i*8] = element i   <-- the element AREA starts here
+
+`natArrayLen` therefore writes `off + 8` literally and is **deliberately not derived
+from `natLocalOff(ord, natKindArray())`**. The slot formula places an array's area at
+`off + 16`, so deriving the count from it would read the element area instead. The
+gate's `len_of_1` case exists for exactly this: with one element the two are 8 bytes
+apart, and the mistake produces a plausible-looking pointer-sized number rather than an
+obvious failure.
+
+### 25.2 One validator for both value positions
+
+`print` and `return` now share a single `natNativeScanValue`. This was not cosmetic:
+9d's refusal table had already caught the two paths diverging (print accepted a shape
+return did not). One function means the accepted and the refused sets cannot drift.
+`TestPhase151A9E_PrintAndReturnAgree` walks the accepted shapes and asserts both
+positions give the same verdict, which is a property of the driver rather than of any
+single program -- two copies of the logic would drift only for a shape a given corpus
+happens not to use.
+
+### 25.3 One existing pin removed, and why
+
+9d pinned `print(len(a))` as **refused**, since `len` was out of subset then. 9e makes
+it supported, so that case was **deleted** from 9d's refusal table rather than left
+asserting a refusal that is no longer honest. Its behaviour is now gated properly by
+`TestPhase151A9E_*`, including the shape distinctions (len of a scalar, len of an
+expression, wrong arity). Leaving the old pin would have made 9d fail on correct
+behaviour and taught its readers to ignore it.
+
+### 25.4 Two wrong expectations in the GATE
+
+1. **`localBytes` left at its zero value** for `len_as_return_value`, so the frame layer
+   expected 608 (no locals) while the program has a 32-byte array. The test failed and
+   the implementation was right.
+2. **Wrong arity diagnostic.** The gate expected the driver's own
+   `len() takes exactly 1 argument`, but kcc's builtin-arity check fires first:
+   `error[K104] line 3: builtin 'len' expects 1 arguments but got 2`. Same class as 9d's
+   `print(q[0])` being caught earlier by K102. Asserting a diagnostic that can never
+   fire teaches a reader to distrust a gate, so the expectation now names K104.
+
+A refusal-text nit was also fixed: the driver described its subset as "Step 9d ... and
+`return` of an integer literal or local", which stopped being true once `len` and
+`a[i]` in return position were accepted. It now says "Step 9e" and lists both.
+
+### 25.5 Gate: `pkg/cli/phase151a9e_len_test.go`
+
+`TestPhase151A9E_` -- 6 tests, all PASS, with exact-bytes execution over 7 programs:
+
+| case | stdout | note |
+| --- | --- | --- |
+| `len_of_2` | `320a` (`2\n`) | the basic claim |
+| `len_of_3` | `330a` (`3\n`) | |
+| `len_of_1` | `310a` (`1\n`) | discriminates COUNT from the element AREA |
+| `len_then_element` | `330a39390a` (`3\n99\n`) | both header fields addressable |
+| `len_with_scalar_after` | `320a` (`2\n`) | reads the ARRAY's header, not the scalar's slot |
+| `len_as_return_value` | *(empty)*, **exit 2** | observable ONLY through the exit code |
+| `len_is_a_64_bit_header_field` | `330a` (`3\n`) | the count is stored with a 64-bit `movabs` |
+
+The exit-code case is why the gate asserts exit codes at all: `return len(a)` prints
+nothing, so a stdout-only assertion could not see it.
+
+Other layers: frame per case, three programs with the **same first element (42)** and
+different counts producing distinct images, a 5-case refusal table naming each
+construct, determinism/non-vacuity, and print/return agreement.
+
+### 25.6 Mutation verification
+
+| # | Mutation | Result |
+| --- | --- | --- |
+| M3 | `natArrayLen` reads `off+16` (the element AREA) instead of `off+8` (the COUNT) | **all 7 execution cases FAIL** -- `len_of_2/3/1` print the element value instead of the count, and `len_as_return_value` exits with the element value. The frame, refusal, determinism and print/return-agreement layers correctly stayed **green**: the mutation changes only which header unit is loaded, and only execution can see that. |
+
+Reverted; `native_value.kark` verified **SHA-256 identical** to its pre-mutation content
+(`F8FFF0FFBC09ED5B9A59AF0441F43FEF...`); the 9b + 9c + 9d + 9e gates then re-ran green
+together (49.1s).
+
+### 25.7 KIR pin
+
+**Stale and red, deliberately** -- unchanged in policy from 22.6/23.6/24.10. Last
+measured 12570 (Step 9a); 9b, 9c, 9d and 9e all move it, and it is **not predicted**.
+Both assertions still read 12570 and now fail, which is the honest stale-until-measured
+state. Re-measuring needs the Linux CI runner or the separate low-memory defect work.
+
+### 25.8 What this step does NOT claim
+
+* No `for-in`, no `push`, no strings/arena, no records, no maps, no macOS entry/exit.
+* `len` of a **map** needs one extra indirection (a map's address lives in its slot);
+  maps are not lowered by this driver, so that difference is unreachable here.
+* No CI result at the time of writing: the step *Run 151A Step 9e len() gate* (pattern
+  `TestPhase151A9E_`, verified not to collide with `TestPhase151A9D_`) is wired in this
+  change. See the increment record for the observed CI status.
