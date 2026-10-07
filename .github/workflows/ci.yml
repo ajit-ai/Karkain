@@ -583,6 +583,125 @@ jobs:
       - name: Run Phase 122 compiler-pipeline-ownership gate
         run: go test ./pkg/cli/ -run 'TestPhase122' -count=1 -timeout 30m
 
+  kcc-whole-tree-diag:
+    # ONE-OFF DIAGNOSTIC. Informational only: it gates nothing, asserts nothing, and
+    # `continue-on-error` is set so it can never turn the board red. Its only job is to
+    # answer one question the last eight runs could not:
+    #
+    #   Is the exit-143 kill of the heavy kcc steps a cgroup OOM, or the UNCLASSIFIED
+    #   instability this repository already documents (PHASE-151A-BASELINE.md 22.6)?
+    #
+    # WHY THIS IS STILL AMBIGUOUS. Both present identically -- exit 143, runner shutdown
+    # signal, ZERO `go test` output, on the heavy kcc steps only. But they point opposite
+    # ways, and one of them is a fact that settles it:
+    #
+    #   * The cgroup OOM killer sends SIGKILL, which a shell reports as exit 137, not
+    #     143. We see 143. That argues AGAINST a plain OOM and FOR something tearing
+    #     the process tree down with SIGTERM deliberately -- but "argues against" is not
+    #     "rules out", and GitHub's runner has been observed to SIGTERM a job's process
+    #     tree on the way out, so both remain live.
+    #
+    # WHAT IT MEASURES, each cheap and each decisive on its own:
+    #
+    #   1. cgroup v2 `memory.events`, read BEFORE and AFTER. The `oom_kill` counter is
+    #      the single most decisive value here: `oom_kill >= 1` means the cgroup killer
+    #      fired and this is a memory problem; `0` means it did NOT and the instability
+    #      hypothesis is all that is left.
+    #   2. Peak RSS via /usr/bin/time -v, to see how close the workload actually got to
+    #      the runner's ceiling.
+    #   3. The raw exit status, to separate 143 (SIGTERM) from 137 (SIGKILL).
+    #   4. dmesg tail, when the runner permits it.
+    #
+    # Every observation is appended to a file as it is taken and uploaded with
+    # `if: always()`, precisely because the workload may kill the step before its final
+    # echo -- a diagnostic that cannot report its own death is useless here.
+    name: kcc whole-tree DIAGNOSTIC (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install GCC and GMP
+        run: sudo apt-get install -y gcc libgmp-dev time
+
+      - name: Observe runner limits and baseline memory counters
+        run: |
+          mkdir -p diag
+          {
+            echo "== runner memory facts =="
+            free -m || true
+            echo "nproc: $(nproc)"
+            echo "cgroup version: $(stat -fc %T /sys/fs/cgroup 2>/dev/null || echo unknown)"
+            echo
+            echo "== cgroup memory.events (BEFORE) =="
+            cat /sys/fs/cgroup/memory.events 2>/dev/null || echo "not readable"
+            echo
+            echo "== cgroup memory.max =="
+            cat /sys/fs/cgroup/memory.max 2>/dev/null || echo "not readable"
+          } >> diag/observations.txt 2>&1
+          cat diag/observations.txt
+
+      - name: Pre-build kcc.exe once, so the measurement covers the WORKLOAD not the build
+        run: |
+          {
+            echo "== building kcc.exe (Go engine transpile + gcc) =="
+            /usr/bin/time -v go run ./cmd/karkain build src/compiler/main.kark 2>&1 | tail -5
+            echo "build exit: ${PIPESTATUS[0]}"
+            ls -la kcc.exe 2>/dev/null || echo "kcc.exe NOT produced"
+            ls -la src/compiler/main.c 2>/dev/null || true
+          } >> diag/observations.txt 2>&1
+          cat diag/observations.txt | tail -20
+
+      - name: Run the whole-tree self-check under /usr/bin/time -v
+        run: |
+          set +e
+          /usr/bin/time -v go test ./pkg/cli/ -run 'TestPhase122_PipelineOwnership/CompilerSelfCheck' -count=1 -timeout 30m >> diag/observations.txt 2>&1
+          code=$?
+          {
+            echo
+            echo "== workload exit code: $code =="
+            if [ "$code" -eq 143 ]; then echo "   143 = SIGTERM (deliberate teardown)"
+            elif [ "$code" -eq 137 ]; then echo "   137 = SIGKILL (what the OOM killer sends)"
+            elif [ "$code" -eq 124 ]; then echo "   124 = Go's own -timeout fired"
+            else echo "   other"; fi
+            echo
+            echo "== cgroup memory.events (AFTER) =="
+            cat /sys/fs/cgroup/memory.events 2>/dev/null || echo "not readable"
+            echo
+            echo "== dmesg tail =="
+            dmesg 2>/dev/null | tail -20 || echo "dmesg not permitted"
+          } >> diag/observations.txt 2>&1
+          cat diag/observations.txt
+
+      - name: Interpret
+        if: always()
+        run: |
+          echo "=== DIAGNOSTIC SUMMARY ==="
+          if grep -qE '^oom_kill [1-9]' diag/observations.txt 2>/dev/null; then
+            echo "VERDICT: cgroup OOM killer FIRED -> this is a MEMORY problem."
+          elif grep -q 'exit code: 137' diag/observations.txt 2>/dev/null; then
+            echo "VERDICT: SIGKILL without an oom_kill event -> likely external SIGKILL."
+          elif grep -q 'exit code: 143' diag/observations.txt 2>/dev/null; then
+            echo "VERDICT: SIGTERM with NO oom_kill event -> NOT an OOM."
+            echo "         The UNCLASSIFIED kcc whole-tree instability (0xC0000005 on" 
+            echo "         Windows) is the remaining hypothesis, and it needs the"
+            echo "         -fsanitize=address investigation already recorded as separate."
+          else
+            echo "VERDICT: workload COMPLETED -> no kill this run (nondeterministic)."
+          fi
+
+      - name: Upload observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kcc-whole-tree-diagnostic
+          path: diag/observations.txt
+          if-no-files-found: warn
+
   native-evidence:
     # Phase 147A: decisive-evidence gatherer for the native-execution P1
     # (docs/audit/PHASE-145-QUARANTINE.md). Informational ONLY
