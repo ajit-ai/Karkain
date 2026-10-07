@@ -3158,15 +3158,103 @@ func natNativeLocalIndex(stmts, name) {
     return 0 - 1
 }
 
+// ============================================================
+// Phase 151A Step 9d -- native arrays through the real AST driver.
+//
+// Step 9c's driver handled integers only. This adds the SMALLEST array subset the
+// existing native value model can honestly support, driven from the real AST:
+//
+//     let a = [<int>, <int>, ...]
+//     print(a[<int>])
+//
+// THE ORACLE'S FRAME CONTRACT, reproduced exactly:
+//     [off]            = address of the element area
+//     [off + 8]        = element count
+//     [off + 16 + i*8] = element i
+// An array local therefore occupies a TWO-unit header plus 8 bytes per element, all
+// in the frame, and NOTHING is allocated. rsp never moves and the element base
+// never sits in rsp, so every element access is a constant-displacement SIB through
+// a register.
+//
+// MEASURED BOUNDARY, stated rather than papered over. The oracle's out-of-range path
+// calls karkain_runtime_error with the source file and line, which is increment
+// 152-B0 machinery: a runtime-error helper, source-filename plumbing and a new rodata
+// string. None of that exists in kcc and this slice does not build it. The bound IS
+// checked, and an out-of-range index TRAPS with Int3 -- exactly the behaviour
+// increment 150A measured and recorded ("arr[i] with a checked bound (negative or
+// >= len traps)"). An in-range index executes correctly, which is what the gate
+// proves.
+//
+// NOT IN THIS SLICE: len(), for-in, push, string elements, nested arrays, printing an
+// array as a whole, or arrays as call arguments. Each is a separate capability.
+// ============================================================
+
+// natNativePlan builds the slot plan: one [offset, kind, elemCount] triple per local,
+// in DECLARATION ORDER, sized exactly as the oracle's scanLets sizes them.
+//
+// The offset is SEQUENTIAL rather than 8 * index * units, because an array owns a
+// variable-sized element area that the fixed-stride formula cannot express. That is
+// the same reason the oracle allocates sequentially: an array is a two-unit header
+// plus 8 bytes per element, so the next local starts after that area.
+func natNativePlan(stmts) {
+    let plan = []
+    let next = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        if (natNativeIsDecl(n)) {
+            let v = natNativeDeclValue(n)
+            let k = natKindInt()
+            let ne = 0
+            if (nodeType(v) == NODE_ARRAY_LIT()) {
+                k = natKindArray()
+                ne = len(arrayLitElems(v))
+            }
+            plan = appendArray(plan, next)
+            plan = appendArray(plan, k)
+            plan = appendArray(plan, ne)
+            next = next + 8
+            if (natKindUnits(k) == 2) { next = next + 8 }
+            if (k == natKindArray()) { next = next + 8 * ne }
+        }
+        i = i + 1
+    }
+    return plan
+}
+
+func natNativePlanCount(plan) { return len(plan) / 3 }
+
+func natNativeSlotOff(plan, idx) { return plan[idx * 3] }
+func natNativeSlotKind(plan, idx) { return plan[idx * 3 + 1] }
+func natNativeSlotElems(plan, idx) { return plan[idx * 3 + 2] }
+
+// natNativePlanBytes is the total locals-region size, which is the first argument
+// natFrameLayout takes.
+//
+// It is the offset of the LAST local plus that local's own size, recomputed from the
+// plan rather than by summing a second time, so the number the frame is sized from
+// and the numbers the slots were allocated from cannot drift apart.
+func natNativePlanBytes(plan) {
+    if (len(plan) == 0) { return 0 }
+    let last = natNativePlanCount(plan) - 1
+    let size = 8
+    if (natKindUnits(natNativeSlotKind(plan, last)) == 2) { size = size + 8 }
+    if (natNativeSlotKind(plan, last) == natKindArray()) {
+        size = size + 8 * natNativeSlotElems(plan, last)
+    }
+    return natNativeSlotOff(plan, last) + size
+}
+
 // natNativeRefuse builds the refusal text. K145 is the native backend's own code
 // -- the same one the increment-150 gates use for a construct the native target
 // will not lower -- so a user sees one consistent family of native refusals
 // whether the program came through the Go or the self-hosted engine.
 func natNativeRefuse(what, line) {
     return "error[K145]: native target: " + what + " (main.kark line " + str(line) +
-        "). The 151A Step 9c native driver lowers `let` of an integer literal, " +
-        "`print` of an integer literal or local, and `return` of an integer " +
-        "literal or local. This is refused HERE, by kcc, and is not handed to the Go engine."
+        "). The 151A Step 9d native driver lowers `let` of an integer literal or an " +
+        "integer array literal, `print` of an integer literal, a local or `a[i]`, and " +
+        "`return` of an integer literal or local. This is refused HERE, by kcc, and is " +
+        "not handed to the Go engine."
 }
 
 // natNativeRefuseNoLine is natNativeRefuse for a refusal where the offending
@@ -3175,9 +3263,10 @@ func natNativeRefuse(what, line) {
 // omitting it.
 func natNativeRefuseNoLine(what) {
     return "error[K145]: native target: " + what +
-        ". The 151A Step 9c native driver lowers `let` of an integer literal, " +
-        "`print` of an integer literal or local, and `return` of an integer " +
-        "literal or local. This is refused HERE, by kcc, and is not handed to the Go engine."
+        ". The 151A Step 9d native driver lowers `let` of an integer literal or an " +
+        "integer array literal, `print` of an integer literal, a local or `a[i]`, and " +
+        "`return` of an integer literal or local. This is refused HERE, by kcc, and is " +
+        "not handed to the Go engine."
 }
 
 // natNativeScan validates main's statements and counts its int locals in ONE
@@ -3191,30 +3280,57 @@ func natNativeRefuseNoLine(what) {
 // `refusal` is "" when every statement is supported. The refusals NAME the
 // construct, because a refusal a user cannot act on is barely better than a crash.
 func natNativeScan(stmts) {
-    let nLocals = 0
+    let plan = natNativePlan(stmts)
     let hasReturn = 0
     let i = 0
     while (i < len(stmts)) {
         let n = stmts[i]
         let k = nodeType(n)
         if (natNativeIsDecl(n)) {
-            if (nodeType(natNativeDeclValue(n)) != NODE_INT_LIT()) {
-                return [natNativeRefuse("`let " + natNativeDeclName(n) +
-                    "` initialised from a non-integer expression", natNativeDeclLine(n)),
-                    nLocals, hasReturn]
+            let v = natNativeDeclValue(n)
+            let vt = nodeType(v)
+            if (vt == NODE_ARRAY_LIT()) {
+                let bad = natNativeScanElems(arrayLitElems(v), natNativeDeclLine(n))
+                if (bad != "") { return [bad, plan, hasReturn] }
+            } else {
+                if (vt != NODE_INT_LIT()) {
+                    return [natNativeRefuse("`let " + natNativeDeclName(n) +
+                        "` initialised from a non-integer expression", natNativeDeclLine(n)),
+                        plan, hasReturn]
+                }
             }
-            nLocals = nLocals + 1
         } else {
             if (k == NODE_PRINT()) {
                 let pv = printVal(n)
                 if (nodeType(pv) != NODE_INT_LIT()) {
                     if (nodeType(pv) != NODE_IDENT()) {
-                        return [natNativeRefuse("print of an expression that is neither " +
-                            "an integer literal nor a local", printLine(n)), nLocals, hasReturn]
-                    }
-                    if (natNativeLocalIndex(stmts, identName(pv)) < 0) {
-                        return [natNativeRefuse("print of undeclared local `" +
-                            identName(pv) + "`", printLine(n)), nLocals, hasReturn]
+                        if (nodeType(pv) != NODE_INDEX()) {
+                            return [natNativeRefuse("print of an expression that is neither " +
+                                "an integer literal, a local nor an index", printLine(n)),
+                                plan, hasReturn]
+                        }
+                        let bad = natNativeScanIndex(pv, stmts, plan, printLine(n))
+                        if (bad != "") { return [bad, plan, hasReturn] }
+                    } else {
+                        let ord9d = natNativeLocalIndex(stmts, identName(pv))
+                        if (ord9d < 0) {
+                            return [natNativeRefuse("print of undeclared local `" +
+                                identName(pv) + "`", printLine(n)), plan, hasReturn]
+                        }
+                        // Printing a WHOLE collection is refused rather than
+                        // mis-lowered. `print(a)` on an array would otherwise load
+                        // the header's BASE POINTER -- one 8-byte slot -- and print
+                        // that address as if it were the array's value, which is a
+                        // valid image emitting a meaningless number. There is no
+                        // scalar reading of a collection, so there is nothing to
+                        // lower it to.
+                        if (natNativeSlotKind(plan, ord9d) != natKindInt()) {
+                            return [natNativeRefuse("cannot print `" + identName(pv) +
+                                "` as a whole; it is a " +
+                                natKindName(natNativeSlotKind(plan, ord9d)) +
+                                ", so print an element or a scalar instead",
+                                printLine(n)), plan, hasReturn]
+                        }
                     }
                 }
             } else {
@@ -3225,23 +3341,126 @@ func natNativeScan(stmts) {
                         if (nodeType(rv) != NODE_IDENT()) {
                             return [natNativeRefuse("return of an expression that is " +
                                 "neither an integer literal nor a local", retLine(n)),
-                                nLocals, hasReturn]
+                                plan, hasReturn]
                         }
                         if (natNativeLocalIndex(stmts, identName(rv)) < 0) {
-return [natNativeRefuse("return of undeclared local `" +
-                            identName(rv) + "`", retLine(n)), nLocals, hasReturn]
+                            return [natNativeRefuse("return of undeclared local `" +
+                                identName(rv) + "`", retLine(n)), plan, hasReturn]
                         }
                     }
                 } else {
                     return [natNativeRefuseNoLine("statement kind " + str(k) +
                         " in `func main` is not lowered by the native driver"),
-                        nLocals, hasReturn]
+                        plan, hasReturn]
                 }
             }
         }
         i = i + 1
     }
-    return ["", nLocals, hasReturn]
+    return ["", plan, hasReturn]
+}
+
+// natArrayValue materialises an array literal into its frame slot: the (base, len)
+// header plus one int element per literal.
+//
+// The base is stored in the frame and RELOADED before each element store, exactly as
+// the oracle does. The reason is worth keeping: evaluating an element is an arbitrary
+// expression, and a base left in RBX across that evaluation could have been
+// clobbered, so a stale base would write the element into the wrong place. With int
+// literals today nothing clobbers it, but the reload is one instruction and it is
+// what keeps the sequence correct for the non-literal elements a later slice allows.
+func natArrayValue(s, off, elems) {
+    s = natLeaRegStack(s, natRegRBX(), off + 16)
+    s = natStoreStack(s, natRegRBX(), off)
+    s = natMovRegImm64(s, natRegRAX(), len(elems))
+    s = natStoreStack(s, natRegRAX(), off + 8)
+    let i = 0
+    while (i < len(elems)) {
+        s = natMovRegImm32(s, natRegRAX(), int(intLitVal(elems[i])))
+        s = natLoadStack(s, natRegRBX(), off)
+        s = natMovRegImm32(s, natRegRCX(), i)
+        s = natStoreScaled64(s, natRegRAX(), natRegRBX(), natRegRCX(), 8, 0)
+        i = i + 1
+    }
+    return s
+}
+
+// natArrayIndex loads element `idx` of the array whose header is at `off`, leaving
+// the element in RAX.
+//
+// The bound is `0 <= i < len`, mirroring the oracle: the index is TESTed for a
+// negative value first, then COMPAREd against the count with a `jge` to the failure
+// arm.
+//
+// `tag` makes the three labels unique per call site. kcc has no fresh() counter --
+// the existing loops write their labels literally -- so the driver passes the
+// statement ordinal. Two prints of the same array would otherwise Mark the same label
+// twice, and natFinish refuses a duplicate label rather than silently emitting two
+// fixups to the same slot.
+func natArrayIndex(s, off, idx, tag) {
+    let negLbl = "idx" + str(tag) + "$neg"
+    let failLbl = "idx" + str(tag) + "$fail"
+    let okLbl = "idx" + str(tag) + "$ok"
+    s = natMovRegImm32(s, natRegRCX(), int(intLitVal(idx)))
+    s = natLoadStack(s, natRegRBX(), off)
+    s = natLoadStack(s, natRegRAX(), off + 8)
+    s = natTestRegReg(s, natRegRCX(), natRegRCX())
+    s = natJns(s, negLbl)
+    s = natJmp(s, failLbl)
+    s = natMark(s, negLbl)
+    s = natCmpRegReg(s, natRegRCX(), natRegRAX())
+    s = natJge(s, failLbl)
+    s = natLoadScaled64(s, natRegRAX(), natRegRBX(), natRegRCX(), 8, 0)
+    s = natJmp(s, okLbl)
+    s = natMark(s, failLbl)
+    // The measured boundary: trap rather than raise. See the header note.
+    s = natInt3(s)
+    s = natMark(s, okLbl)
+    return s
+}
+
+// natNativeScanElems validates an array literal's elements and returns "" or a
+// refusal. Only int literals are supported; anything else names the offending INDEX,
+// which is the oracle's own discipline -- its diagnostic says "array element 2 must
+// be int" rather than failing later inside the int path with a message about
+// expression shape.
+func natNativeScanElems(elems, line) {
+    let i = 0
+    while (i < len(elems)) {
+        if (nodeType(elems[i]) != NODE_INT_LIT()) {
+            return natNativeRefuse("array element " + str(i) +
+                " is not an integer literal", line)
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// natNativeScanIndex validates an `a[i]` expression and returns "" or a refusal.
+//
+// The KIND CHECK IS LOAD-BEARING, not decoration. Without it, `let a = 7; print(a[0])`
+// scans clean: the target is an identifier, it resolves to a local, and the index is
+// an integer literal. Lowering then treats that local's 8-byte scalar slot as a
+// two-unit (base, len) array header, loads a "length" out of the neighbouring slot,
+// and reads an element from whatever address that base happens to be. It produced a
+// VALID PE, which is the worst outcome: no diagnostic, no trap, a wrong number.
+func natNativeScanIndex(idx, stmts, plan, line) {
+    let target = indexLeft(idx)
+    if (nodeType(target) != NODE_IDENT()) {
+        return natNativeRefuse("index target must be a local variable", line)
+    }
+    let ord = natNativeLocalIndex(stmts, identName(target))
+    if (ord < 0) {
+        return natNativeRefuse("index of undeclared local `" + identName(target) + "`", line)
+    }
+    if (natNativeSlotKind(plan, ord) != natKindArray()) {
+        return natNativeRefuse("`" + identName(target) + "` is indexed but is not an " +
+            "array", line)
+    }
+    if (nodeType(indexExpr(idx)) != NODE_INT_LIT()) {
+        return natNativeRefuse("array index is not an integer literal", line)
+    }
+    return ""
 }
 
 // natNativeLower emits main's body into an existing emitter state.
@@ -3252,15 +3471,23 @@ return [natNativeRefuse("return of undeclared local `" +
 // that alignment and are released immediately after. `natWinWrite` inside
 // print_int depends on it -- its own three pushes plus the 32-byte shadow only land
 // on 0 (mod 16) when print_int is entered with that alignment.
-func natNativeLower(s, stmts, nLocals) {
+//
+// The statement ORDINAL doubles as the label tag for `a[i]`, so no counter can fall
+// out of step with the statement list.
+func natNativeLower(s, stmts, plan) {
     let idx = 0
     let i = 0
     while (i < len(stmts)) {
         let n = stmts[i]
         let k = nodeType(n)
         if (natNativeIsDecl(n)) {
-            s = natMovRegImm32(s, natRegRAX(), int(intLitVal(natNativeDeclValue(n))))
-            s = natStoreStack(s, natRegRAX(), natLocalOff(idx, natKindInt()))
+            let v = natNativeDeclValue(n)
+            if (nodeType(v) == NODE_ARRAY_LIT()) {
+                s = natArrayValue(s, natNativeSlotOff(plan, idx), arrayLitElems(v))
+            } else {
+                s = natMovRegImm32(s, natRegRAX(), int(intLitVal(v)))
+                s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
+            }
             idx = idx + 1
         }
         if (k == NODE_PRINT()) {
@@ -3281,11 +3508,24 @@ func natNativeLower(s, stmts, nLocals) {
             //
             // Nothing between the load and the `call` touches RDI, so loading early
             // is safe and is also the shape the oracle's call sequence uses.
+            //
+            // An `a[i]` argument is loaded EARLIER still, before RDI is touched at
+            // all: natArrayIndex leaves the element in RAX and needs RBX and RCX, so
+            // it runs, and only then does the value move to RDI. Materialising the
+            // index before the alignment adjust is not a choice -- the scaled load
+            // addresses the element area through a register base and would read eight
+            // bytes low if it came after the `sub`.
             if (nodeType(pv) == NODE_INT_LIT()) {
                 s = natMovRegImm32(s, natRegRDI(), int(intLitVal(pv)))
             } else {
-                s = natLoadStack(s, natRegRDI(),
-                    natLocalOff(natNativeLocalIndex(stmts, identName(pv)), natKindInt()))
+                if (nodeType(pv) == NODE_INDEX()) {
+                    let ord = natNativeLocalIndex(stmts, identName(indexLeft(pv)))
+                    s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i)
+                    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+                } else {
+                    s = natLoadStack(s, natRegRDI(),
+                        natNativeSlotOff(plan, natNativeLocalIndex(stmts, identName(pv))))
+                }
             }
             s = natSubRegImm32(s, natRegRSP(), 8)
             s = natCall32(s)
@@ -3299,7 +3539,7 @@ func natNativeLower(s, stmts, nLocals) {
                 s = natMovRegImm32(s, natRegRAX(), int(intLitVal(rv)))
             } else {
                 s = natLoadStack(s, natRegRAX(),
-                    natLocalOff(natNativeLocalIndex(stmts, identName(rv)), natKindInt()))
+                    natNativeSlotOff(plan, natNativeLocalIndex(stmts, identName(rv))))
             }
         }
         i = i + 1
@@ -3334,18 +3574,19 @@ func natNativeProgram(ast) {
     let body = natNativeBodyStmts(mainFn)
     let scan = natNativeScan(body)
     if (scan[0] != "") { return [scan[0], []] }
-    let nLocals = scan[1]
+    let plan = scan[1]
     let hasReturn = scan[2]
 
-    // The frame is DERIVED from the program's own bindings through the value
-    // model's own layout pass, so a program with two locals gets a different frame
-    // from one with one, and both agree with the oracle's layout for that count.
-    let lay = natFrameLayout(nLocals * 8, 0, 0, 0, 0, 1)
+    // The frame is DERIVED from the program's own bindings through the value model's
+    // own layout pass, so a program with two locals gets a different frame from one
+    // with one, and a program with an array gets a frame carrying that array's
+    // element area. All three agree with the oracle's scanLets for the same program.
+    let lay = natFrameLayout(natNativePlanBytes(plan), 0, 0, 0, 0, 1)
     let frame = lay[6]
 
     let s = natWinStub()
     s = natSubRegImm32(s, natRegRSP(), frame)
-    s = natNativeLower(s, body, nLocals)
+    s = natNativeLower(s, body, plan)
     // The implicit `return 0` is emitted ONLY when the program has no explicit
     // return, and it must come AFTER the body. Emitting it unconditionally was the
     // first draft's bug and it is instructive: `mov rax, 0` placed after the body

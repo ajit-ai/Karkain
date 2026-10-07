@@ -127,11 +127,26 @@ Keeping those responsibilities separate is the purpose of this rule.
 checkpoint audit (`LANGUAGE-HARDENING-CHECKPOINT-FINAL-AUDIT.md`) confirmed
 two current kcc/backend parity defects, and authorized exactly two slices:
 
-* **LH-1** — kcc `?` propagation parity. `src/compiler/codegen.kark` has no
-  case for `NODE_PROPAGATE`, so the operator is parsed and then lowered to
-  nothing. **AUTHORIZED / NOT STARTED.**
-* **LH-2** — kcc `match` binding parity. Match-arm bindings are rejected on
-  the self-hosted engine with `error[K102]`. **AUTHORIZED / NOT STARTED.**
+* **LH-1** — kcc `?` propagation parity. **COMPLETE** — impl `5dcdd80`; gate
+  `pkg/cli/lh1_propagation_test.go` 11/11; CI run 36502124716 job `Test` step
+  *Run LH-1 kcc propagation parity gate* success; KIR pin 10530 → 10611.
+* **LH-2** — kcc `match` binding parity. **COMPLETE** — impl `38209cc`
+  (`ckCheckArmBody` in the kcc checker) plus bare-arm-body checking (`ExprStmt` /
+  `Print` bodies, not only `Block`); commit `ca7cf68`; gate
+  `pkg/cli/lh2_match_binding_test.go` **8/8 subtests** across 5 fixtures; the
+  negative is asserted on the **code and the name** (`error[K102] line 24:
+  undefined identifier 'nope'`) rather than on an exit status, because the
+  pre-fix checker *accepted* the program and an exit-status assertion would
+  have proved nothing; CI step *Run LH-2 kcc match-binding parity gate* wired;
+  KIR pin 11373 → 11377 (measured, not predicted).
+
+**This paragraph was stale until 2026-10-07.** It read "AUTHORIZED / NOT
+STARTED" for both slices while both had in fact shipped — the repository's own
+rule is that newer measured evidence beats stale planning text, and
+`docs/release/v1.2.0-CHECKLIST.md` already carried the corrected status. The
+checkpoint is therefore **CLOSED**; no further language-hardening slice is
+authorized. Reopening either slice requires a demonstrated regression, recorded
+as a corrective change against the frozen baseline per the Governance rule.
 
 Rules for agents:
 
@@ -3007,3 +3022,73 @@ separate memory-defect work. **Still open:** the whole-program driver (a real
 driver walking a function's locals and dispatching on their kinds -- that is 9c),
 arrays, `for-in`, `len()`, arena/`alloc`, string concat, string slice/compare,
 `push`, records, maps, macOS entry/exit, and `kccOwnsNativeTargets = false`.
+
+Also completed: **151A Step 9d - integer arrays and indexing in kcc** (increment 151,
+slice A step 9d; verdict **IMPLEMENTED** -- NOT whole-image parity, NOT ownership;
+record `docs/audit/PHASE-151A-BASELINE.md` section 24). The first COLLECTION kind in
+the AST driver, and the first step where a local is not one 8-byte unit and the frame
+is no longer a fixed stride. Scope is `let a = [i, j]` plus `print(a[n])` with
+integer-literal elements and index; `len`, `for-in`, `push`, non-literal indices,
+negative elements and printing an array as a whole are all still refused by name.
+**Frame contract reproduced from the oracle**: `[off]` = element-area address,
+`[off+8]` = count, `[off+16+i*8]` = element, all in the frame with **nothing
+allocated**; because that cannot be expressed by `natLocalOff`'s `8*index*units`,
+`natNativePlan` allocates **sequentially** in declaration order exactly as the oracle's
+`scanLets` does, and the element base is `lea`'d once and **reloaded from the frame**
+before each element store (a base held in `RBX` across an element expression could be
+clobbered). **New encoder primitives** `natSibTail` / `natLoadScaled64` /
+`natStoreScaled64` / `natScaledRex` plus `natMask(72)=0x0B`, with the table appended
+at 72 and **never renumbered**; REX is built locally because a scaled form assembles
+R, X and B from three different operands where `natRex` derives both R and B from `rm`,
+and the mod=00 form omits the displacement **except** for an RBP base (which is
+RIP-relative). **Two real defects, both found by the gate's refusal table and both
+producing a VALID PE** -- silently mis-lowered, no diagnostic and no trap, the worst
+outcome for a native backend: indexing a **scalar** (`let a = 7; print(a[0])` read the
+scalar's slot as a `(base,len)` header), and printing an **array as a whole**
+(`print(a)` printed the header's base pointer as the value). Both are now refused by
+name. **Two wrong expectations in my own gate, recorded**: the image-distinctness layer
+first keyed on an FNV fingerprint and reported five different images as identical (now
+exact-byte comparison), and the frame test demanded a strict per-element increase when
+the locals region legitimately rounds 24 and 32 onto the same 16-byte boundary (now a
+soundness property, `locals >= 16 + 8*n`, which an element-blind frame fails at n=1).
+**A language trap**: `short` is a reserved word in Karkain, so a `let short` addressing
+selector produced gcc's *"two or more data types in declaration specifiers"*; renamed
+to `mode`. Gate `pkg/cli/phase151a9d_array_test.go`, `TestPhase151A9D_` **7 tests / 45
+subtests PASS**, six layers: exact-bytes stdout by **executing** the PE; pairwise
+byte-distinct images across five variants (the anti-hard-coding layer -- a stdout
+comparison can be satisfied by picking the right expected value once, a constant emitter
+produces the same image for all five); frame vs the documented rule derived
+independently in the test; element room over N=1..5; refusals naming which construct and
+asserting no image was also emitted; and the no-fallback guard. One refusal case is
+caught **earlier** than the driver's scan and expects a different code --
+`print(q[0])` for an undeclared `q` is kcc's own `error[K102] undefined identifier
+'q'`, so the "not handed to the Go engine" clause is asserted only for the driver's own
+K145 refusals. **Mutation-verified both ways**: M1 hard-coding the element to `7` leaves
+`array_index_0` green (coincidence) while six execution cases and the distinctness layer
+fail at `idx0_of_8_35`; M2 hard-coding the index to `0` leaves the two genuine index-0
+cases green while five fail and distinctness fails at `idx1_of_7_35`. Both reverted,
+`native_value.kark` verified **SHA-256 identical** to pre-mutation content, gate re-run
+green, and the 9b + 9c gates re-run green unchanged. **MEASURED PARITY DELTA, recorded
+rather than hidden**: kcc emits `round16(localBytes) + 512 + 96` while the **Go oracle
+pads the locals region to the next 16 strictly greater**, adding 16 exactly when
+`localBytes` is already aligned (N=2: 640 vs 656; N=4: 656 vs 672; N=1,3,5 agree) even
+though both compute the same `localBytes` (8+8+8*N, read from the oracle source, not
+inferred). Not closed here because it lives in `natFrameLayout`, which Step 1 froze and
+every Steps 1-9c displacement is pinned against; it is 151D's whole-image-parity bar.
+**A harness trap that looked like a compiler defect**: `native-ast` once emitted 3727
+mass K107/K101 diagnostics and no image. `git stash` + retry on **pristine HEAD**
+reproduced it identically, which killed the "my change" hypothesis -- the real cause is
+that `assembleProject` adopts every sibling `.kark` in the target directory that does
+not declare `func main(`, and the scratch directory held large `main`-less blobs from an
+earlier session. With a clean directory pristine HEAD emits a valid PE. Each gate case
+uses its own `t.TempDir()`, which is why 9c was never affected and why that isolation
+must be preserved. CI companion wired in the same change (step *Run 151A Step 9d integer
+array gate*, pattern `TestPhase151A9D_`, verified to collide with none of
+`TestPhase151A9C_`, `TestPhase151A9a_`, `TestPhase151B9_`, `TestPhase151A_`,
+`TestPhase151C_`). **KIR pin remains stale/red by the same decision as 22.6/23.6** --
+last measured 12570 at Step 9a, moved by 9b/9c/9d, deliberately **not predicted**;
+re-measuring needs the Linux CI runner or the separate low-memory defect work.
+`kccOwnsNativeTargets` stays `false`; **151A is not closed** -- strings + arena, `len`,
+`for-in`, `push`, records, maps and the macOS entry/exit remain open, and the
+out-of-range index currently traps with `Int3` because kcc has no `karkain_runtime_error`
+(that is increment 152-B0 machinery).

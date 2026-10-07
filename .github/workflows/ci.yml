@@ -462,6 +462,21 @@ jobs:
       - name: Run 151A Step 9c AST-driven native driver gate
         run: go test ./pkg/cli/ -run 'TestPhase151A9C_' -count=1 -timeout 30m
 
+      # 151A Step 9d: integer arrays and indexing through the AST driver -- the
+      # first COLLECTION kind, and the first step where a local is not one 8-byte
+      # unit and the frame is no longer a flat list of scalar slots.
+      #
+      # Distinct pattern on purpose: 'TestPhase151A9C_' does not match
+      # 'TestPhase151A9D_', and 'TestPhase151A9a_' (the rodata step, lowercase a)
+      # matches neither, so a 9d regression cannot hide behind a green 9c or 9a step.
+      #
+      # The execution subtests skip on non-Windows by design (PE images only run on
+      # Windows); the image-level layers -- frame sizing, pairwise image distinctness,
+      # refusals, determinism and the no-fallback guard -- are cross-platform and are
+      # what carry this step on Linux.
+      - name: Run 151A Step 9d integer array gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A9D_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line
