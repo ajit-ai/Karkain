@@ -3040,3 +3040,337 @@ func natPEShape(which) {
            " ip=" + str(len(natStIatPos(s)))
 }
 
+// ============================================================
+// Phase 151A Step 9c - the whole-program driver
+//
+// Step 9b proved the MACHINERY: one emitter state, resolved rodata, index-tagged
+// IAT, a real linked image that runs. But its program was a FIXED shape compiled
+// into kcc -- `_start + karkain_main(with a hard-coded value) + print_int` -- so
+// kcc could demonstrate native execution while still being unable to compile a
+// USER'S program.
+//
+// This is the piece that changes the architecture from "fixed program" to
+// "user AST -> native emission". The driver walks the REAL AST that
+// `buildNativeFile` already parsed and type-checked, finds `func main` by NAME,
+// sizes a frame from main's ACTUAL int locals, lowers each of its statements, and
+// refuses anything it cannot lower.
+//
+// WHAT MAKES IT REAL, stated precisely because the failure this increment exists
+// to remove is a compiler that looks like it is doing the work while something
+// else does it:
+//   * `main` is located by NAME in the program's real top-level statement list.
+//     There is no `if program == knownCorpusProgram` anywhere, and no corpus: the
+//     driver never learns which file it was given.
+//   * the frame size is DERIVED from the count of `let` bindings main actually has,
+//     through the same natFrameLayout the value model uses, so two locals and one
+//     local produce different frames.
+//   * a local's slot comes from its DECLARATION ORDER (natLocalOff), not a table.
+//   * `print` resolves an IDENTIFIER to the slot of the binding that introduced
+//     it, so `let x = 7; print(x)` and `print(7)` are genuinely different
+//     lowerings rather than the same bytes with a different label.
+//
+// SCOPE, stated as a bound rather than an aspiration. This slice lowers exactly
+// what 9b already proved, driven by the AST instead of hard-coded:
+//   let <name> = <int literal>
+//   print(<int literal>) | print(<name>)
+//   return <int literal> | return <name>
+// Anything else is a LOUD refusal naming the construct and its line. It is not a
+// silent skip and not a fallback to the Go engine.
+//
+// NOT CLAIMED: whole-program parity with the Go engine, loops, arrays, strings
+// beyond print_int's own literals, calls, records or maps. Those are the rest of
+// 151A.
+// ============================================================
+
+// natNativeFindMain returns the FuncDecl node named `main`, or 0 when there is
+// none. It is a NAME lookup, not a shape match: any function called `main` is the
+// entry point regardless of how many others exist.
+func natNativeFindMain(stmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        if (nodeType(n) == NODE_FUNC_DECL()) {
+            if (funcName(n) == "main") { return n }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// natNativeBodyStmts returns main's statement list.
+//
+// `funcBody` IS already the statement list -- parseBlock returns its statements
+// directly rather than wrapping them in a Block node. The first draft of this
+// driver assumed it was a Block, fell through to its single-element fallback, and
+// therefore handed the scanner a LIST where it expected a statement: every
+// element read back with an empty node type and the refusal text said "statement
+// kind [array]". The checker's own consumer is the authority here -- it calls
+// checkStmts(tab, funcBody(node), 0) with no unwrapping -- so this does the same.
+func natNativeBodyStmts(mainFn) {
+    return funcBody(mainFn)
+}
+
+// natNativeIsDecl reports whether a statement introduces a binding.
+//
+// `let` and `var` produce DIFFERENT node kinds -- makeLetDecl vs makeVarDecl,
+// i.e. NODE_LET_DECL vs NODE_VAR_DECL -- and the checker tests for both. A first
+// draft matched only NODE_VAR_DECL, so `let x = 1` was not recognised as a
+// binding at all and was reported as an unsupported statement kind. `const` is
+// deliberately NOT a binding here: it is NODE_CONST_DECL and stays unsupported,
+// because a constant is not a frame slot.
+func natNativeIsDecl(n) {
+    let t = nodeType(n)
+    return t == NODE_LET_DECL() || t == NODE_VAR_DECL()
+}
+
+func natNativeDeclName(n) {
+    if (nodeType(n) == NODE_LET_DECL()) { return letDeclName(n) }
+    return varDeclName(n)
+}
+
+func natNativeDeclValue(n) {
+    if (nodeType(n) == NODE_LET_DECL()) { return letDeclValue(n) }
+    return varDeclValue(n)
+}
+
+func natNativeDeclLine(n) {
+    if (nodeType(n) == NODE_LET_DECL()) { return letDeclLine(n) }
+    return varDeclLine(n)
+}
+
+// natNativeLocalIndex returns the slot index of the local called `name`, or -1.
+//
+// Declaration order IS the slot order (natLocalOff), the same rule the oracle
+// uses, so the two agree on layout without sharing a table. The FIRST binding
+// wins: re-binding a name is shadowing, which is a later slice, and silently using
+// the last one would let the frame and the value disagree.
+func natNativeLocalIndex(stmts, name) {
+    let idx = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        if (natNativeIsDecl(n)) {
+            if (natNativeDeclName(n) == name) { return idx }
+            idx = idx + 1
+        }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// natNativeRefuse builds the refusal text. K145 is the native backend's own code
+// -- the same one the increment-150 gates use for a construct the native target
+// will not lower -- so a user sees one consistent family of native refusals
+// whether the program came through the Go or the self-hosted engine.
+func natNativeRefuse(what, line) {
+    return "error[K145]: native target: " + what + " (main.kark line " + str(line) +
+        "). The 151A Step 9c native driver lowers `let` of an integer literal, " +
+        "`print` of an integer literal or local, and `return` of an integer " +
+        "literal or local. This is refused HERE, by kcc, and is not handed to the Go engine."
+}
+
+// natNativeRefuseNoLine is natNativeRefuse for a refusal where the offending
+// node's line is not reachable through a typed accessor. Naming the construct is
+// what makes a refusal actionable; inventing a line number would be worse than
+// omitting it.
+func natNativeRefuseNoLine(what) {
+    return "error[K145]: native target: " + what +
+        ". The 151A Step 9c native driver lowers `let` of an integer literal, " +
+        "`print` of an integer literal or local, and `return` of an integer " +
+        "literal or local. This is refused HERE, by kcc, and is not handed to the Go engine."
+}
+
+// natNativeScan validates main's statements and counts its int locals in ONE
+// pass, returning [refusal, nLocals].
+//
+// One pass, not two, so the count and the verdict can never describe different
+// statements: a separate scan would let a construct be rejected by the validator
+// while still being counted by the framer, and the frame would then be sized for a
+// program that is never emitted.
+//
+// `refusal` is "" when every statement is supported. The refusals NAME the
+// construct, because a refusal a user cannot act on is barely better than a crash.
+func natNativeScan(stmts) {
+    let nLocals = 0
+    let hasReturn = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        let k = nodeType(n)
+        if (natNativeIsDecl(n)) {
+            if (nodeType(natNativeDeclValue(n)) != NODE_INT_LIT()) {
+                return [natNativeRefuse("`let " + natNativeDeclName(n) +
+                    "` initialised from a non-integer expression", natNativeDeclLine(n)),
+                    nLocals, hasReturn]
+            }
+            nLocals = nLocals + 1
+        } else {
+            if (k == NODE_PRINT()) {
+                let pv = printVal(n)
+                if (nodeType(pv) != NODE_INT_LIT()) {
+                    if (nodeType(pv) != NODE_IDENT()) {
+                        return [natNativeRefuse("print of an expression that is neither " +
+                            "an integer literal nor a local", printLine(n)), nLocals, hasReturn]
+                    }
+                    if (natNativeLocalIndex(stmts, identName(pv)) < 0) {
+                        return [natNativeRefuse("print of undeclared local `" +
+                            identName(pv) + "`", printLine(n)), nLocals, hasReturn]
+                    }
+                }
+            } else {
+                if (k == NODE_RETURN()) {
+                    let rv = retVal(n)
+                    hasReturn = 1
+                    if (nodeType(rv) != NODE_INT_LIT()) {
+                        if (nodeType(rv) != NODE_IDENT()) {
+                            return [natNativeRefuse("return of an expression that is " +
+                                "neither an integer literal nor a local", retLine(n)),
+                                nLocals, hasReturn]
+                        }
+                        if (natNativeLocalIndex(stmts, identName(rv)) < 0) {
+return [natNativeRefuse("return of undeclared local `" +
+                            identName(rv) + "`", retLine(n)), nLocals, hasReturn]
+                        }
+                    }
+                } else {
+                    return [natNativeRefuseNoLine("statement kind " + str(k) +
+                        " in `func main` is not lowered by the native driver"),
+                        nLocals, hasReturn]
+                }
+            }
+        }
+        i = i + 1
+    }
+    return ["", nLocals, hasReturn]
+}
+
+// natNativeLower emits main's body into an existing emitter state.
+//
+// The `sub rsp, 8` around each call is Win64 ABI, not padding: `_start` aligns rsp
+// to 16 and then calls, so rsp is 8 (mod 16) at main entry, and a call site
+// requires rsp to be 0 (mod 16) immediately before the `call`. The 8 bytes restore
+// that alignment and are released immediately after. `natWinWrite` inside
+// print_int depends on it -- its own three pushes plus the 32-byte shadow only land
+// on 0 (mod 16) when print_int is entered with that alignment.
+func natNativeLower(s, stmts, nLocals) {
+    let idx = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        let k = nodeType(n)
+        if (natNativeIsDecl(n)) {
+            s = natMovRegImm32(s, natRegRAX(), int(intLitVal(natNativeDeclValue(n))))
+            s = natStoreStack(s, natRegRAX(), natLocalOff(idx, natKindInt()))
+            idx = idx + 1
+        }
+        if (k == NODE_PRINT()) {
+            let pv = printVal(n)
+            // The argument is loaded BEFORE the alignment adjustment, and that
+            // ordering is load-bearing rather than cosmetic.
+            //
+            // natLoadStack addresses [rsp + off], i.e. the CURRENT rsp. The 8-byte
+            // `sub rsp, 8` needed for Win64 call alignment therefore shifts every
+            // frame-relative load that follows it 8 bytes too low -- the first
+            // draft emitted `sub rsp,8; mov (%rsp),%rdi`, which read the byte
+            // BELOW the first local. The symptom was not a crash: with two locals
+            // the program printed `0` then `7`, because `print(b)`'s `mov 8(%rsp)`
+            // happened to land back on slot 0. A literal argument was unaffected,
+            // which is why the literal-only case passed while every local case
+            // failed -- and why a single passing case would not have been evidence
+            // that the path was right.
+            //
+            // Nothing between the load and the `call` touches RDI, so loading early
+            // is safe and is also the shape the oracle's call sequence uses.
+            if (nodeType(pv) == NODE_INT_LIT()) {
+                s = natMovRegImm32(s, natRegRDI(), int(intLitVal(pv)))
+            } else {
+                s = natLoadStack(s, natRegRDI(),
+                    natLocalOff(natNativeLocalIndex(stmts, identName(pv)), natKindInt()))
+            }
+            s = natSubRegImm32(s, natRegRSP(), 8)
+            s = natCall32(s)
+            let r = natRel32(s, "print_int")
+            s = r[0]
+            s = natAddRegImm32(s, natRegRSP(), 8)
+        }
+        if (k == NODE_RETURN()) {
+            let rv = retVal(n)
+            if (nodeType(rv) == NODE_INT_LIT()) {
+                s = natMovRegImm32(s, natRegRAX(), int(intLitVal(rv)))
+            } else {
+                s = natLoadStack(s, natRegRAX(),
+                    natLocalOff(natNativeLocalIndex(stmts, identName(rv)), natKindInt()))
+            }
+        }
+        i = i + 1
+    }
+    return s
+}
+
+// natNativeProgram compiles a PARSED PROGRAM to a native PE image.
+//
+// It returns [refusal, image]: refusal is "" on success, and image is then the
+// bytes. The pair is deliberate rather than a bare return. Karkain cannot say
+// "either a string or a byte array" without the caller having to guess which it
+// got, and guessing is how a refusal gets hex-encoded and printed as though it
+// were an image. Two slots removes the question.
+//
+// This is what the fixed `natPEProgram` is being replaced by, and the two share
+// only the parts 9b already proved: the same `natWinStub` entry, the same
+// `print_int` body, the same rodata interning and the same per-kind patch lists.
+// What differs is where main's bytes come from -- here they come from the AST.
+//
+// The rodata list is ["-", "\n"] because the ONLY strings this driver can emit are
+// print_int's own two, in first-use order. That is a property of the supported
+// subset rather than an assumption about a particular program: a construct that
+// would introduce another string is refused during the scan, before any emission.
+func natNativeProgram(ast) {
+    let stmts = ast[1]
+    let mainFn = natNativeFindMain(stmts)
+    if (mainFn == 0) {
+        return [natNativeRefuseNoLine("no `func main`; the native entry stub calls " +
+            "karkain_main, so a `main` is required"), []]
+    }
+    let body = natNativeBodyStmts(mainFn)
+    let scan = natNativeScan(body)
+    if (scan[0] != "") { return [scan[0], []] }
+    let nLocals = scan[1]
+    let hasReturn = scan[2]
+
+    // The frame is DERIVED from the program's own bindings through the value
+    // model's own layout pass, so a program with two locals gets a different frame
+    // from one with one, and both agree with the oracle's layout for that count.
+    let lay = natFrameLayout(nLocals * 8, 0, 0, 0, 0, 1)
+    let frame = lay[6]
+
+    let s = natWinStub()
+    s = natSubRegImm32(s, natRegRSP(), frame)
+    s = natNativeLower(s, body, nLocals)
+    // The implicit `return 0` is emitted ONLY when the program has no explicit
+    // return, and it must come AFTER the body. Emitting it unconditionally was the
+    // first draft's bug and it is instructive: `mov rax, 0` placed after the body
+    // clobbered the value an explicit `return <local>` had just loaded, so
+    // `let z = 7; return z` exited 0 instead of 7. The program printed nothing, so
+    // a stdout-only assertion would not have noticed -- the exit code is what
+    // exposed it.
+    //
+    // RAX is main's return value and _start passes it straight to ExitProcess, so
+    // this is the process exit status, not a discarded value.
+    if (hasReturn == 0) {
+        s = natMovRegImm32(s, natRegRAX(), 0)
+    }
+    s = natAddRegImm32(s, natRegRSP(), frame)
+    s = natRet(s)
+    s = natPrintIntBody(s, 1, 0, 1)
+    let text = natFinish(s)
+
+    let ro = natRodataSection(["-", "\n"])
+    // The rodata patch list is what makes the linker resolve the immediates AND
+    // give each one a DIR64 entry. Passing an empty list is the Step 9b defect
+    // this slice inherits: the immediates keep the preferred base on a rebasing
+    // host and the print silently loses its newline.
+    let rp = natFlatPairs(natStRodataPos(s), natStRodataOff(s))
+    let ap = natFlatPairs(natStAbsPos(s), natStAbsIdx(s))
+    let ip = natFlatPairs(natStIatPos(s), natStIatIdx(s))
+    return ["", natPELink(text, ro[0], [], rp, ip, ap, [], natPETextOff(), natPETextOff())]
+}

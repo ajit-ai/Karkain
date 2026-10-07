@@ -447,6 +447,21 @@ jobs:
       - name: Run 151A Step 9b one-state PE composition and execution gate
         run: go test ./pkg/cli/ -run 'TestPhase151B9_' -count=1 -timeout 30m
 
+      # 151A Step 9c: the whole-program driver over a REAL .kark file -- the
+      # architectural step from "fixed compiled-in program" to "user AST ->
+      # native emission".
+      #
+      # Distinct pattern on purpose: 'TestPhase151B9_' does not match
+      # 'TestPhase151A9C_', and neither matches 'TestPhase151C_' (the increment-151C
+      # ELF container family), so no two of these gates can hide behind each
+      # other. The case names also differ from every other 151A slice's family.
+      #
+      # This is the only gate that can catch a driver that parses the user's
+      # program and then emits the Step 9b fixed program anyway: every case is a
+      # different source file, and the 12345/42 pair differs only in the integer.
+      - name: Run 151A Step 9c AST-driven native driver gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A9C_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line

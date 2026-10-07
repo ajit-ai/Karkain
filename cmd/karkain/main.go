@@ -1432,7 +1432,7 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			kirVerify = true
-		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-pe-prog", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "native-value-call", "native-value-floatcall", "native-value-stringcall", "native-value-rodata", "lsp", "language-server", "fmt":
+		case "build", "run", "check", "transpile", "test", "bench", "lint", "kir", "native-encode", "native-elf", "native-macho", "native-pe", "native-pe-prog", "native-ast", "native-value", "native-value-layout", "native-value-prims", "native-value-int", "native-value-cmp", "native-value-refuse", "native-value-loop", "native-value-loop-labels", "native-value-start", "native-value-win", "native-value-print", "native-value-float", "native-value-floatstmt", "native-value-call", "native-value-floatcall", "native-value-stringcall", "native-value-rodata", "lsp", "language-server", "fmt":
 			command = arg
 		case "ide":
 			// ide info: machine-readable LanguageProvider contract for IDEs
@@ -1857,6 +1857,22 @@ func main() {
 	// recorded index. Same no-fallback contract as native-pe.
 	if command == "native-pe-prog" {
 		result := cli.KCCNativePEProgramCommand(nil, verbose)
+		if result.Message != "" {
+			fmt.Println(result.Message)
+		}
+		os.Exit(result.ExitCode)
+	}
+
+	// Phase 151A Step 9c: the whole-program driver over a REAL .kark file. This is
+	// the first native command that takes an input file -- it is what makes the
+	// AST-to-emission connection testable, because the source is not compiled into
+	// kcc.
+	if command == "native-ast" {
+		if targetFile == "" {
+			fmt.Println("Usage: karkain native-ast <file.kark>")
+			os.Exit(cli.ExitUsage)
+		}
+		result := cli.KCCNativeASTCommand(targetFile, verbose)
 		if result.Message != "" {
 			fmt.Println(result.Message)
 		}

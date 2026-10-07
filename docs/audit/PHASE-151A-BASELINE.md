@@ -1752,3 +1752,141 @@ started.
   records, maps, macOS entry/exit.
 * `kccOwnsNativeTargets = false`, and the seam's guard arm stays a build-time
   guard.
+
+---
+
+## 23. Step 9c - the whole-program driver (COMPLETE for the AST transition)
+
+**Verdict: COMPLETE for the architectural transition. NOT ownership.**
+`kccOwnsNativeTargets` stays `false`, and 151A stays open.
+
+### 23.1 The transition, stated as what changed
+
+Step 9b's program was a fixed shape compiled into kcc:
+
+```
+_start + karkain_main(mov edi, 12345; call print_int) + print_int
+```
+
+That proved the machinery -- one emitter state, resolved rodata, index-tagged IAT,
+a linked image that executes -- while kcc still could not compile a **user's**
+program natively. Step 9c replaces the fixed body with a driver that walks the
+**real AST** `buildNativeFile` already parsed and type-checked.
+
+What makes it a driver rather than a second corpus:
+
+| Property | How it is enforced |
+|---|---|
+| `main` is found by NAME in the program's real top-level statements | `natNativeFindMain` scans for `FuncDecl` with name `"main"`; there is no corpus and the driver never learns which file it was given |
+| the frame is DERIVED from the program's own bindings | `natFrameLayout(nLocals * 8, 0, 0, 0, 0, 1)` -- one and two locals produce different frames |
+| a local's slot is its DECLARATION ORDER | `natLocalOff(idx, ...)` where `idx` counts bindings; `natNativeLocalIndex` resolves a name to it |
+| `print(x)` and `print(7)` are different lowerings | one emits `mov rdi, imm`; the other emits `mov rdi, [rsp+off]` |
+
+A new `native-ast` kcc subcommand drives it from a file. That is the first native
+measurement entry point that takes an INPUT file, and it is what makes the
+AST-to-emitter connection testable at all.
+
+**Boundary, stated rather than glossed.** kcc computes, resolves and links every
+byte; the CLI decodes the byte stream it is handed and writes it to disk. The
+language has **no byte-level file writer** -- `writeFile` and `writeToFile` both
+`fputs` a *string* and would truncate the image at its first NUL -- so the bytes
+travel as hex. Go performs no lowering, no linking and no codegen here, and cannot
+substitute for kcc: if kcc refused, no bytes would exist to write.
+
+### 23.2 Evidence
+
+`pkg/cli/phase151a9c_driver_test.go`, `TestPhase151A9C_*`, 3 tests / 10 corpus
+cases, all PASS. Every case writes a different `.kark` file.
+
+| Case | Source | Exact stdout | Exit |
+|---|---|---|---|
+| `literal_12345` | `print(12345)` | `31 32 33 34 35 0a` | 0 |
+| `literal_42` | `print(42)` | `34 32 0a` | 0 |
+| `local_12345` | `let x = 12345; print(x)` | `31 32 33 34 35 0a` | 0 |
+| `local_42` | `let y = 42; print(y)` | `34 32 0a` | 0 |
+| `two_locals` | `let a = 7; let b = 35; print(a); print(b)` | `37 0a 33 35 0a` | 0 |
+| `return_sets_exit_code` | `let c = 3; return c` | *(empty)* | **3** |
+| `refuse_while` | `while` loop | refusal naming the construct | -- |
+| `refuse_binary_expression` | `print(1 + 2)` | refusal naming the construct | -- |
+| `refuse_non_integer_binding` | `let s = "hi"` | refusal naming the construct | -- |
+| `refuse_no_main` | no `func main` | refusal naming the construct | -- |
+
+`return_sets_exit_code` is the case that matters for a reason worth stating: it
+prints **nothing**, so a stdout-only assertion could not see it at all. The exit
+code is the only observable, and it is the one that caught a real defect (23.4).
+
+`TestPhase151A9C_SourceChangesTheGeneratedImage` compares the two single-literal
+programs' **images**. They differ in **exactly 2 bytes, both inside `.text`**
+(offsets 1502-1503), which is the 32-bit immediate of the `mov r32, imm32` that
+carries the literal. A driver that emitted the right literal but perturbed
+anything else would still fail.
+
+### 23.3 Mutation verification
+
+Two mutations, each caught by exactly the layers that should catch it and no
+others:
+
+* **M1 -- the AST is ignored for a literal argument** (`mov rdi, 12345` hard-coded):
+  fails `literal_42` and `SourceChangesTheGeneratedImage`. It correctly LEAVES
+  `literal_12345` green, because that case coincides with the hard-coded value --
+  which is why a single passing case would never have been evidence.
+* **M2 -- declaration order ignored** (every local resolves to slot 0): fails
+  `two_locals` only. It correctly leaves `local_42` green, because that program's
+  only local *is* slot 0.
+
+That precision is the point: each mutation is caught by the case written to detect
+that specific way of being wrong, and survives the cases where the mutation is
+invisible.
+
+### 23.4 Three real defects this slice's own evidence found
+
+1. **`funcBody` is the statement LIST, not a Block node.** `parseBlock` returns
+   its statements directly. The first draft assumed a Block, fell through to a
+   single-element fallback, and handed the scanner a list where it expected a
+   statement -- every element read back with an empty node type and the refusal
+   said "statement kind [array]". The checker's own consumer is the authority:
+   `checkStmts(tab, funcBody(node), 0)`.
+2. **`let` and `var` are DIFFERENT node kinds.** `parseVarDecl` returns
+   `makeLetDecl` for `let` (NODE_LET_DECL) and `makeVarDecl` for `var`
+   (NODE_VAR_DECL); the checker tests for both. Matching only `NODE_VAR_DECL`
+   meant `let x = 1` was not recognised as a binding at all.
+3. **Integer literals are stored as SOURCE TEXT in both engines** (`IntLiteral.Value
+   string`), so the driver must coerce with `int(intLitVal(...))`. A first patch
+   used `int(pv)` -- passing the *node* -- which silently emitted `mov edi, 0` for
+   every program.
+
+A fourth defect is the instructive one:
+
+4. **The Win64 alignment `sub rsp, 8` invalidated every frame-relative load that
+   followed it.** `natLoadStack` addresses `[rsp + off]`, i.e. the *current* rsp,
+   so emitting `sub rsp, 8; mov (%rsp), %rdi` read 8 bytes below the first local.
+   The symptom was not a crash: with two locals the program printed `0` then `7`,
+   because the second `mov 8(%rsp)` happened to land back on slot 0. **The
+   literal-only case passed throughout**, because it loads an immediate rather
+   than a slot -- so a single passing case would have been taken as evidence that
+   the path was right. The fix is to load the argument BEFORE the alignment
+   adjustment; nothing between the load and the `call` touches RDI.
+
+And a fifth, found by the exit-code case: an unconditional `mov rax, 0` emitted
+after the body **clobbered an explicit `return`**, so `let z = 7; return z` exited
+0. The program printed nothing, so only the exit code exposed it. The implicit
+`return 0` is now emitted only when the scan found no `return`.
+
+### 23.5 Honest limitations
+
+* The supported subset is `let` of an integer literal, `print` of an integer
+  literal or local, and `return` of an integer literal or local. Everything else
+  is refused **by name** with K145. That refusal table is the honest state of 151A
+  after this slice: kcc compiles a small, growing subset natively and refuses the
+  rest explicitly rather than falling back.
+* The image travels as hex and is written by the CLI (23.1).
+* **`kccOwnsNativeTargets` is still `false`.** This slice is not the ownership
+  flip; it is the capability the flip will be justified by. Wiring the constant is
+  151D, together with the remaining value-model kinds.
+* Not claimed: parity with the Go engine for these constructs, or any of the
+  remaining kinds.
+
+### 23.6 KIR pin
+
+Unchanged from 22.6: **stale and red, deliberately**. The pin was last measured at
+12570 (Step 9a); Step 9b and 9c both move it, and it is **not predicted**.
