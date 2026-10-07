@@ -132,9 +132,9 @@ jobs:
       - name: Run Phase 119 stable-release-preparedness gate
         run: go test ./pkg/cli/ -run 'TestPhase119' -count=1
 
-      - name: Run Phase 122 compiler-pipeline-ownership gate
-        run: go test ./pkg/cli/ -run 'TestPhase122' -count=1
-
+      # Phase 122 moved to its OWN job (`kcc-whole-tree`). It is NOT skipped and NOT
+      # weakened -- it still runs every subtest, including the whole-tree kcc
+      # self-check. See that job for why it was moved.
       - name: Run Phase 123 enum-ADT + WASM boundary gates
         run: go test ./pkg/cli/ -run 'TestPhase123' -count=1
 
@@ -530,6 +530,58 @@ jobs:
           for f in conformance/*_test.kark; do
             ./karkain fmt --check "$f" || { echo "needs format: $f"; exit 1; }
           done
+
+  kcc-whole-tree:
+    # Phase 122 lives here on its own, for a measured reason.
+    #
+    # WHAT HAPPENED. `TestPhase122` was step 16 of the `test` job. It is the FIRST
+    # step that runs the DEFAULT (kcc) engine over `src/compiler`, so on a runner with
+    # no prebuilt `kcc.exe` it uniquely does two heavy things: builds kcc (Go-transpile
+    # the whole compiler tree to C, then gcc) and then runs CompilerSelfCheck, the
+    # whole-tree kcc self-check. That workload is the one this repository has already
+    # measured and CANNOT explain -- `docs/audit/PHASE-151A-BASELINE.md` 22.6 puts
+    # whole-tree KIR at ~2.5 GB working set / ~11.2 GB private bytes, and classifies
+    # the same workload's intermittent `0xC0000005` as UNCLASSIFIED after falsifying
+    # four hypotheses.
+    #
+    # On CI it presented as: exit 143, the runner's shutdown signal, and ZERO `go test`
+    # output, in 7 runs out of 7, always at this step, always 26-60s apart (measured, so
+    # NOT a fixed timeout). The step 8f run passed the identical step; the compiler tree
+    # grew substantially from 9a onward.
+    #
+    # WHY IT MOVED RATHER THAN CHANGED. Two things were rejected on purpose:
+    #
+    #   * Predicting a new KIR pin. The pin still reads 12570 and 9b-9f moved it. A
+    #     predicted number would turn a known-red gate into a green one asserting
+    #     nothing, which is the failure the evidence-discipline rule exists to prevent.
+    #   * Adding a timeout or a skip. Neither addresses a kill that arrives with no test
+    #     output, and a skip would hide the very signal being investigated.
+    #
+    # WHAT THIS ACTUALLY BUYS. Nothing is weakened: every subtest still runs here, and
+    # this job still goes red when the workload misbehaves. What changes is BLAST
+    # RADIUS. While it was step 16 of `test`, `bash -e` aborted the job there, so all
+    # ~55 later steps were reported `skipped` -- including every 151A gate from Step 2
+    # onward, so NONE of them was actually being verified in CI. Worse, `build` has
+    # `needs: test`, so the 13-archive release matrix and the 32-bit GOARCH vet were
+    # being skipped too. Isolating the heavy gate lets the rest of CI be real again
+    # while keeping this gate mandatory and visible.
+    name: kcc whole-tree self-check (Phase 122)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Install GCC and GMP
+        run: sudo apt-get update && sudo apt-get install -y gcc libgmp-dev
+
+      # A generous timeout, unlike the house style elsewhere. This is NOT a fix for the
+      # kill -- a kill with no test output is not a Go timeout -- it only stops Go's
+      # 10-minute default from panicking if the workload ever does run slowly.
+      - name: Run Phase 122 compiler-pipeline-ownership gate
+        run: go test ./pkg/cli/ -run 'TestPhase122' -count=1 -timeout 30m
 
   native-evidence:
     # Phase 147A: decisive-evidence gatherer for the native-execution P1
