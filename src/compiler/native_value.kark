@@ -637,8 +637,22 @@ func natIntRefusal(which) {
     // kind inference, which runs before emitExpr, so it never reaches the
     // emission site's own wording.
     if (which == 4) { return "error[K145]: unsupported expression *parser.PropagateExpr" }
-    if (which == 5) { return "error[K145]: unsupported return expression *parser.PropagateExpr" }
-    return ""
+if (which == 5) { return "error[K145]: unsupported return expression *parser.PropagateExpr" }
+  // Step 9g: a concatenation operand that is ITSELF a concatenation.
+  //
+  // natEmitStrValue handles a literal, then ASSUMES everything else is an
+  // identifier -- so `a + b + "ef"` parsed its left operand `(a + b)` as an
+  // identifier, called identName on a BinaryExpr, and indexed the slot plan with
+  // the garbage. Both `print(a + b + "ef")` and `return a + "cd"` died with
+  // "array index out of range" in natNativeSlotOff.
+  //
+  // Refusing BY NAME is the honest boundary for this slice. Recursing would need
+  // depth threaded through natEmitStrValue and a strTemp sized for the deepest
+  // chain, and the arena bound would then have to be re-proved per nesting level
+  // rather than per site. That is its own slice; what must not happen is a
+  // SHAPE REACHING EMISSION UNCHECKED, which is what produced the crash.
+  if (which == 6) { return "error[K145]: chained string concatenation is not lowered (a concatenation operand may not itself be a concatenation)" }
+  return ""
 }
 
 // natIntBody emits the straight-line integer reference programs. The shape
@@ -3669,16 +3683,30 @@ func natNativeScanValue(expr, stmts, plan, line) {
 func natNativeScanReturn(expr, stmts, plan, line) {
     let bad = natNativeScanValue(expr, stmts, plan, line)
     if (bad != "") { return bad }
-    if (nodeType(expr) == NODE_IDENT()) {
-        let k = natNativeSlotKind(plan, natNativeLocalIndex(stmts, identName(expr)))
-        if (k != natKindInt()) {
-            return natNativeRefuse("`return` of a " + natKindName(k) + " is not " +
-                "supported; a return value becomes the process exit status and must be " +
-                "an int", line)
-        }
-    }
-    return ""
-}
+if (nodeType(expr) == NODE_IDENT()) {
+  let k = natNativeSlotKind(plan, natNativeLocalIndex(stmts, identName(expr)))
+  if (k != natKindInt()) {
+  return natNativeRefuse("`return` of a " + natKindName(k) + " is not " +
+  "supported; a return value becomes the process exit status and must be " +
+  "an int", line)
+  }
+  return ""
+  }
+  // A concatenated string is a STRING, and a string is not an exit status.
+  // natNativeScanValue returned "" for `return a + "b"` because the concat is a
+  // perfectly valid string expression, so it reached emission and died in
+  // natEmitStrValue with "array index out of range".
+  //
+  // The test is the NODE TYPE and not "is it a literal or an identifier": a
+  // first draft refused everything that was not an int literal or an identifier
+  // and broke 9e's `return len(a)`, which is a CallExpr returning an int and must
+  // keep working. Only a BinaryExpr reaches here as a validated non-int value.
+  if (nodeType(expr) == NODE_BINARY()) {
+  return natNativeRefuse("`return` of a concatenated string is not supported; a " +
+  "return value becomes the process exit status and must be an int", line)
+  }
+  return ""
+  }
 
 // natNativeLower emits main's body into an existing emitter state.
 //
@@ -4053,10 +4081,10 @@ func natEmitStrValue(s, expr, stmts, plan, roffs) {
             natRodataOffsetFor(stringLitVal(expr), stmts, roffs))
         return natMovRegImm32(s, natRegRSI(), len(stringLitVal(expr)))
     }
-    let off = natNativeSlotOff(plan, natNativeLocalIndex(stmts, identName(expr)))
-    s = natLoadStack(s, natRegRDI(), off)
-    return natLoadStack(s, natRegRSI(), off + 8)
-}
+let off = natNativeSlotOff(plan, natNativeLocalIndex(stmts, identName(expr)))
+  s = natLoadStack(s, natRegRDI(), off)
+  return natLoadStack(s, natRegRSI(), off + 8)
+  }
 
 // The oracle's structure exactly, including the five staging units per depth in the
 // DEDICATED strTemp area:
@@ -4122,11 +4150,32 @@ func natNativeStrKind(e, stmts, plan) {
 }
 
 func natNativeScanConcat(e, stmts, plan, line) {
-    if (binaryOp(e) != "+") {
-        return natNativeRefuse("`" + binaryOp(e) + "` is not lowered by the native " +
-            "driver", line)
-    }
-    if (natNativeStrKind(binaryLeft(e), stmts, plan) != 1) {
+  if (binaryOp(e) != "+") {
+  return natNativeRefuse("`" + binaryOp(e) + "` is not lowered by the native " +
+  "driver", line)
+  }
+  // A CHAINED concatenation -- an operand that is ITSELF a `+` BinaryExpr.
+  //
+  // natNativeStrKind RECURSES, so `(a + b)` classified as a string and this
+  // validator was satisfied. The crash came later: natEmitStrValue handles a
+  // literal, then assumes everything else is an identifier, so it called
+  // identName on the nested BinaryExpr and indexed the slot plan with garbage --
+  // "array index out of range" in natNativeSlotOff. Both `print(a + b + "ef")`
+  // and `return a + "cd"` hit it.
+  //
+  // Refused BY NAME here rather than fixed by recursion: depth would have to be
+  // threaded through natEmitStrValue, strTemp sized for the deepest chain, and
+  // the arena bound re-proved per nesting level instead of per site. That is its
+  // own slice. What must not happen is a shape reaching emission unchecked.
+  if (nodeType(binaryLeft(e)) == NODE_BINARY()) {
+  return natNativeRefuse("chained string concatenation is not lowered (a " +
+  "concatenation operand may not itself be a concatenation)", line)
+  }
+  if (nodeType(binaryRight(e)) == NODE_BINARY()) {
+  return natNativeRefuse("chained string concatenation is not lowered (a " +
+  "concatenation operand may not itself be a concatenation)", line)
+  }
+  if (natNativeStrKind(binaryLeft(e), stmts, plan) != 1) {
         return natNativeRefuse("`+` needs two strings on the native target; the left " +
             "operand is not one", line)
     }
