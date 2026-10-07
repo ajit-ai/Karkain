@@ -637,8 +637,22 @@ func natIntRefusal(which) {
     // kind inference, which runs before emitExpr, so it never reaches the
     // emission site's own wording.
     if (which == 4) { return "error[K145]: unsupported expression *parser.PropagateExpr" }
-    if (which == 5) { return "error[K145]: unsupported return expression *parser.PropagateExpr" }
-    return ""
+if (which == 5) { return "error[K145]: unsupported return expression *parser.PropagateExpr" }
+  // Step 9g: a concatenation operand that is ITSELF a concatenation.
+  //
+  // natEmitStrValue handles a literal, then ASSUMES everything else is an
+  // identifier -- so `a + b + "ef"` parsed its left operand `(a + b)` as an
+  // identifier, called identName on a BinaryExpr, and indexed the slot plan with
+  // the garbage. Both `print(a + b + "ef")` and `return a + "cd"` died with
+  // "array index out of range" in natNativeSlotOff.
+  //
+  // Refusing BY NAME is the honest boundary for this slice. Recursing would need
+  // depth threaded through natEmitStrValue and a strTemp sized for the deepest
+  // chain, and the arena bound would then have to be re-proved per nesting level
+  // rather than per site. That is its own slice; what must not happen is a
+  // SHAPE REACHING EMISSION UNCHECKED, which is what produced the crash.
+  if (which == 6) { return "error[K145]: chained string concatenation is not lowered (a concatenation operand may not itself be a concatenation)" }
+  return ""
 }
 
 // natIntBody emits the straight-line integer reference programs. The shape
@@ -3581,18 +3595,42 @@ func natNativeStrLiterals(stmts) {
     while (i < len(stmts)) {
         let n = stmts[i]
         if (natNativeIsDecl(n)) {
-            let v = natNativeDeclValue(n)
-            if (nodeType(v) == NODE_STRING_LIT()) {
-                out = appendArray(out, stringLitVal(v))
-            }
+            out = natNativeStrLitAppend(out, natNativeDeclValue(n))
         }
         if (nodeType(n) == NODE_PRINT()) {
-            let pv = printVal(n)
-            if (nodeType(pv) == NODE_STRING_LIT()) {
-                out = appendArray(out, stringLitVal(pv))
-            }
+            out = natNativeStrLitAppend(out, printVal(n))
         }
         i = i + 1
+    }
+    return out
+}
+
+// natNativeStrLitAppend appends every string literal reachable from ONE expression,
+// descending through `+`.
+//
+// THE DESCENT IS THE STEP 9g FIX, and it is a defect fix rather than a refinement.
+// The previous collector only took a literal when the WHOLE value was a string
+// literal, so `print("ab" + "cd")` collected NOTHING. Two failures followed that looked
+// like one unrelated linker bug:
+//
+//   * natNativeUsesString returned false, so print_str was never emitted, while the
+//     concat arm still CALLED it. natFinish therefore returned the STRING
+//     "undefined label 'print_str'", which natNativeProgram passed to natPELink as if it
+//     were code. The image was nonsense and the first hpatches store ran off the end of
+//     it -- a panic in natPEStore64 with nothing to do with patch coordinates.
+//   * the literals were never interned, so their rodata offsets would have resolved to
+//     offset 0 (print_int's own "-") even once the helper was emitted.
+//
+// The arena-sizing path already descended into `+`, so the two collectors DISAGREED:
+// one sized an arena from literals the other could not see. They are now ONE function
+// with one rule, so they cannot disagree again.
+func natNativeStrLitAppend(out, e) {
+    if (nodeType(e) == NODE_STRING_LIT()) {
+        return appendArray(out, stringLitVal(e))
+    }
+    if (nodeType(e) == NODE_BINARY() && binaryOp(e) == "+") {
+        out = natNativeStrLitAppend(out, binaryLeft(e))
+        return natNativeStrLitAppend(out, binaryRight(e))
     }
     return out
 }
@@ -3627,6 +3665,7 @@ func natNativeScanValue(expr, stmts, plan, line) {
             "its kind is " + natKindName(k) + ", so print an element or len() instead",
             line)
     }
+    if (t == NODE_BINARY()) { return natNativeScanConcat(expr, stmts, plan, line) }
     if (t == NODE_INDEX()) { return natNativeScanIndex(expr, stmts, plan, line) }
     if (t == NODE_CALL()) { return natNativeScanLen(expr, stmts, plan, line) }
     return natNativeRefuse("expression of kind " + str(t) + " is neither an integer " +
@@ -3644,16 +3683,30 @@ func natNativeScanValue(expr, stmts, plan, line) {
 func natNativeScanReturn(expr, stmts, plan, line) {
     let bad = natNativeScanValue(expr, stmts, plan, line)
     if (bad != "") { return bad }
-    if (nodeType(expr) == NODE_IDENT()) {
-        let k = natNativeSlotKind(plan, natNativeLocalIndex(stmts, identName(expr)))
-        if (k != natKindInt()) {
-            return natNativeRefuse("`return` of a " + natKindName(k) + " is not " +
-                "supported; a return value becomes the process exit status and must be " +
-                "an int", line)
-        }
-    }
-    return ""
-}
+if (nodeType(expr) == NODE_IDENT()) {
+  let k = natNativeSlotKind(plan, natNativeLocalIndex(stmts, identName(expr)))
+  if (k != natKindInt()) {
+  return natNativeRefuse("`return` of a " + natKindName(k) + " is not " +
+  "supported; a return value becomes the process exit status and must be " +
+  "an int", line)
+  }
+  return ""
+  }
+  // A concatenated string is a STRING, and a string is not an exit status.
+  // natNativeScanValue returned "" for `return a + "b"` because the concat is a
+  // perfectly valid string expression, so it reached emission and died in
+  // natEmitStrValue with "array index out of range".
+  //
+  // The test is the NODE TYPE and not "is it a literal or an identifier": a
+  // first draft refused everything that was not an int literal or an identifier
+  // and broke 9e's `return len(a)`, which is a CallExpr returning an int and must
+  // keep working. Only a BinaryExpr reaches here as a validated non-int value.
+  if (nodeType(expr) == NODE_BINARY()) {
+  return natNativeRefuse("`return` of a concatenated string is not supported; a " +
+  "return value becomes the process exit status and must be an int", line)
+  }
+  return ""
+  }
 
 // natNativeLower emits main's body into an existing emitter state.
 //
@@ -3666,7 +3719,7 @@ func natNativeScanReturn(expr, stmts, plan, line) {
 //
 // The statement ORDINAL doubles as the label tag for `a[i]`, so no counter can fall
 // out of step with the statement list.
-func natNativeLower(s, stmts, plan, roffs) {
+func natNativeLower(s, stmts, plan, roffs, strTemp) {
     let idx = 0
     // sidx walks the rodata INPUT list in lockstep with the literals the program binds,
     // starting at 2 because entries 0 and 1 are print_int's own "-" and "\n". Lockstep
@@ -3674,6 +3727,8 @@ func natNativeLower(s, stmts, plan, roffs) {
     // recomputing an offset from the literal's VALUE instead would break the moment two
     // bindings shared one string, which natRodataSection interns only once.
     let sidx = 2
+    // Concat-site counter; used only to make the byte-copy labels unique.
+    let site = 0
     let i = 0
     while (i < len(stmts)) {
         let n = stmts[i]
@@ -3725,6 +3780,19 @@ func natNativeLower(s, stmts, plan, roffs) {
             // index before the alignment adjust is not a choice -- the scaled load
             // addresses the element area through a register base and would read eight
             // bytes low if it came after the `sub`.
+            // A `+` on two strings is the CONCAT arm. It is the OUTERMOST `if` rather
+            // than a fifth else-if because that needs exactly one brace pair; an earlier
+            // attempt appended an inner `} else {` without its match and produced a K001
+            // parse cascade.
+            //
+            // natStrConcat leaves (RDI, RSI) = (dst, len), which is already print_str's
+            // convention, so the call follows directly.
+            if (nodeType(pv) == NODE_BINARY()) {
+                s = natStrConcat(s, binaryLeft(pv), binaryRight(pv), 0, site, strTemp,
+                    stmts, plan, roffs)
+                s = natCallPrintStr(s)
+                site = site + 1
+            } else {
             if (nodeType(pv) == NODE_INT_LIT()) {
                 s = natMovRegImm32(s, natRegRDI(), int(intLitVal(pv)))
                 s = natCallPrintInt(s)
@@ -3763,6 +3831,7 @@ func natNativeLower(s, stmts, plan, roffs) {
                         }
                     }
                 }
+            }
             }
         }
         if (k == NODE_RETURN()) {
@@ -3825,8 +3894,11 @@ func natNativeProgram(ast) {
     // own layout pass, so a program with two locals gets a different frame from one
     // with one, and a program with an array gets a frame carrying that array's
     // element area. All three agree with the oracle's scanLets for the same program.
-    let lay = natFrameLayout(natNativePlanBytes(plan), 0, 0, 0, 0, 1)
+    let usesStr = 0
+    if (natNativeConcatSites(body) > 0) { usesStr = 1 }
+    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, 0, 0, 1)
     let frame = lay[6]
+    let strTemp = lay[2]
 
     let ro = natRodataSection(natNativeRodataList(body))
     // `ro` is [bytes, offsets]: one offset per INPUT entry, so the k-th program literal
@@ -3835,7 +3907,7 @@ func natNativeProgram(ast) {
     // placeholder the linker had no way to fill.
     let s = natWinStub()
     s = natSubRegImm32(s, natRegRSP(), frame)
-    s = natNativeLower(s, body, plan, ro[1])
+    s = natNativeLower(s, body, plan, ro[1], strTemp)
     // The implicit `return 0` is emitted ONLY when the program has no explicit
     // return, and it must come AFTER the body. Emitting it unconditionally was the
     // first draft's bug and it is instructive: `mov rax, 0` placed after the body
@@ -3860,6 +3932,12 @@ func natNativeProgram(ast) {
     if (natNativeUsesString(body)) {
         s = natPrintStrBody(s, 1, 1)
     }
+    // The arena and its allocator, ONLY when the program concatenates. It is emitted
+    // AFTER the body because the body CALLS it; a forward call would patch to a
+    // label that does not exist yet.
+    if (natNativeArenaBytes(body) > 0) {
+        s = natAllocHelper(s, natNativeArenaBytes(body))
+    }
     let text = natFinish(s)
 
     // The rodata patch list is what makes the linker resolve the immediates AND
@@ -3869,5 +3947,304 @@ func natNativeProgram(ast) {
     let rp = natFlatPairs(natStRodataPos(s), natStRodataOff(s))
     let ap = natFlatPairs(natStAbsPos(s), natStAbsIdx(s))
     let ip = natFlatPairs(natStIatPos(s), natStIatIdx(s))
-    return ["", natPELink(text, ro[0], [], rp, ip, ap, [], natPETextOff(), natPETextOff())]
+    // The arena rides inside .idata via the 151C3 plumbing: it is the heap argument
+    // and absolute arena pointers are flat [pos, off] hpatches pairs -- the SAME
+    // mechanism, not a second one. Both stay EMPTY for a program that does not
+    // allocate, which is what keeps every string-free image byte-identical.
+    let arenaLen = natNativeArenaBytes(body)
+    let heap = []
+    if (arenaLen > 0) { heap = natNativeArenaBytes0(arenaLen) }
+    let hp = natFlatPairs(natStHeapPos(s), natStHeapOff(s))
+    return ["", natPELink(text, ro[0], heap, rp, ip, ap, hp, natPETextOff(), natPETextOff())]
+}
+
+// ============================================================
+// Phase 151A Step 9g -- the arena allocator and string concatenation.
+// Port of the oracle's emitAllocHelper / emitByteCopy / emitStrConcat.
+// ============================================================
+
+func natHeapRef(s, r, heapOff) {
+    // This does NOT reuse natImm64Patch, and the reason is the crash it used to cause.
+    //
+    // natMovImm64Op(rd) = 184 + rd, which is correct only for rax..rdi (0..7). For R10
+    // it produced 0xC2 and for R11 **0xC3 -- which is the `ret` opcode**. So the arena
+    // base/limit were emitted as `48 C3 00 00 00 00 00 00 00 00`: a spurious `ret` in the
+    // middle of `alloc` followed by eight zero bytes that the CPU then decoded as
+    // instructions.
+    //
+    // That fault produced a STRUCTURALLY VALID PE -- the linker does not check opcode
+    // semantics -- which ran and then died with 0xC0000005. It is exactly the class of
+    // defect this slice's gates exist to catch, and it is why an invalid opcode must be
+    // read off the emitted bytes rather than assumed from the call site.
+    //
+    // REX.W + REX.B (0x49) carries the high register, and the opcode base is
+    // B8 + (rd & 7).
+    let rex = natMask(13) | natMask(14)          // 0x40 | 0x08 = 0x48, REX.W
+    if (natRegExt(r) == 1) { rex = rex | natMask(16) }   // REX.B for r8-r15
+    s = natByte(s, rex)
+    s = natByte(s, natMask(11) + (r & natMask(72)))     // 0xB8 + (rd & 7)
+    let pos = natLen(s)
+    let i = 0
+    while (i < 8) {
+        s = natByte(s, 0)
+        i = i + 1
+    }
+    s[13] = appendArray(s[13], pos)
+    s[14] = appendArray(s[14], heapOff)
+    return s
+}
+
+func natStoreBaseOff(s, val, base, off) {
+    let r = natMask(13) | natMask(14)
+    if (natRegExt(val) == 1) { r = r | natMask(15) }
+    if (natRegExt(base) == 1) { r = r | natMask(16) }
+    s = natByte(s, r)
+    s = natByte(s, natMask(18))
+    return natMemBaseOff(s, val, base, off)
+}
+
+// R10 = arena base, R11 = arena end (link-time imm64 patches).
+// [R10+0] cursor, [R10+8] limit. RDI = request, RAX = block start.
+//
+// The header lives INSIDE the arena, so no global and no writable image text is
+// needed. The cursor SELF-INITIALISES: it is zero in the image and zero is the
+// "not started" sentinel, so the first call sets it to arena+16 and stores it.
+//
+// Exhaustion is `ja` -- UNSIGNED above, so it also catches wraparound on an absurd
+// request. A signed compare would miss that and return a block overlapping live bytes.
+func natAllocHelper(s, heapLimitOff) {
+    s = natMark(s, "alloc")
+    s = natHeapRef(s, natRegR10(), 0)
+    s = natHeapRef(s, natRegR11(), heapLimitOff)
+    s = natLoadBaseOff(s, natRegRAX(), natRegR10(), 0)
+    s = natTestRegReg(s, natRegRAX(), natRegRAX())
+    s = natJnz(s, "alloc$have")
+    s = natMovRegReg(s, natRegRAX(), natRegR10())
+    s = natAddRegImm32(s, natRegRAX(), 16)
+    s = natStoreBaseOff(s, natRegRAX(), natRegR10(), 0)
+    s = natMark(s, "alloc$have")
+    s = natMovRegReg(s, natRegRCX(), natRegRDI())
+    s = natAddRegReg(s, natRegRCX(), natRegRAX())
+    s = natCmpRegReg(s, natRegRCX(), natRegR11())
+    s = natJa(s, "alloc$oom")
+    s = natStoreBaseOff(s, natRegRCX(), natRegR10(), 0)
+    s = natJmp(s, "alloc$done")
+    s = natMark(s, "alloc$oom")
+    s = natInt3(s)
+    s = natMark(s, "alloc$done")
+    return natRet(s)
+}
+
+// `n` is a RUNTIME value, so the count lives in a register and this is a real loop.
+// `tag` makes the labels unique per call site: the concat emits this twice per site and
+// kcc has no fresh() counter, so two copies of one label would be Marked twice and
+// natFinish refuses a duplicate label.
+func natByteCopy(s, dst, src, n, tag) {
+    let loopLbl = "cp" + str(tag) + "$loop"
+    let doneLbl = "cp" + str(tag) + "$done"
+    s = natXorRegReg(s, natRegRDX())
+    s = natMark(s, loopLbl)
+    s = natCmpRegReg(s, natRegRDX(), n)
+    s = natJae(s, doneLbl)
+    s = natLoadScaled8(s, natRegRBX(), src, natRegRDX(), 1, 0)
+    s = natStoreScaled8(s, natRegRBX(), dst, natRegRDX(), 1, 0)
+    s = natIncReg(s, natRegRDX())
+    s = natJmp(s, loopLbl)
+    s = natMark(s, doneLbl)
+    return s
+}
+
+func natCallAlloc(s) {
+    s = natSubRegImm32(s, natRegRSP(), 8)
+    s = natCall32(s)
+    let r = natRel32(s, "alloc")
+    s = r[0]
+    return natAddRegImm32(s, natRegRSP(), 8)
+}
+
+// natRodataSection returns one offset per INPUT entry with first-use interning, so the
+// k-th literal in the program is entry 2+k (0 and 1 are print_int's "-" and "\n").
+// The FIRST match is used, so a repeated literal resolves to the one copy interned.
+func natRodataOffsetFor(val, stmts, roffs) {
+    let lits = natNativeStrLiterals(stmts)
+    let i = 0
+    while (i < len(lits)) {
+        if (lits[i] == val) { return roffs[2 + i] }
+        i = i + 1
+    }
+    return 0
+}
+
+func natEmitStrValue(s, expr, stmts, plan, roffs) {
+    if (nodeType(expr) == NODE_STRING_LIT()) {
+        s = natRodataRefOff(s, natRegRDI(),
+            natRodataOffsetFor(stringLitVal(expr), stmts, roffs))
+        return natMovRegImm32(s, natRegRSI(), len(stringLitVal(expr)))
+    }
+let off = natNativeSlotOff(plan, natNativeLocalIndex(stmts, identName(expr)))
+  s = natLoadStack(s, natRegRDI(), off)
+  return natLoadStack(s, natRegRSI(), off + 8)
+  }
+
+// The oracle's structure exactly, including the five staging units per depth in the
+// DEDICATED strTemp area:
+//
+//   base+0 left ptr   base+8 left len
+//   base+16 right ptr base+24 right len
+//   base+32 allocated block
+//
+// strTemp rather than the int path's 8-bytes-per-depth bin scratch: five units are
+// needed and the int area would be overrun.
+//
+// The right half's destination is `block + llen`, and llen is a RUNTIME value, so the
+// oracle ADVANCES the destination register by the staged length instead of encoding the
+// offset in the SIB displacement -- which cannot hold it. That is why the copy loop
+// exists in this shape.
+func natStrConcat(s, left, right, depth, site, strTemp, stmts, plan, roffs) {
+    let base = strTemp + depth * 5 * 8
+    s = natEmitStrValue(s, left, stmts, plan, roffs)
+    s = natStoreStack(s, natRegRDI(), base)
+    s = natStoreStack(s, natRegRSI(), base + 8)
+    s = natEmitStrValue(s, right, stmts, plan, roffs)
+    s = natStoreStack(s, natRegRDI(), base + 16)
+    s = natStoreStack(s, natRegRSI(), base + 24)
+    s = natLoadStack(s, natRegRDI(), base + 8)
+    s = natLoadStack(s, natRegRSI(), base + 24)
+    s = natAddRegReg(s, natRegRDI(), natRegRSI())
+    s = natCallAlloc(s)
+    s = natStoreStack(s, natRegRAX(), base + 32)
+    s = natLoadStack(s, natRegR9(), base + 32)
+    s = natLoadStack(s, natRegR8(), base)
+    s = natLoadStack(s, natRegRCX(), base + 8)
+    s = natByteCopy(s, natRegR9(), natRegR8(), natRegRCX(), site * 2)
+    s = natLoadStack(s, natRegR9(), base + 32)
+    s = natLoadStack(s, natRegR8(), base + 8)
+    s = natAddRegReg(s, natRegR9(), natRegR8())
+    s = natLoadStack(s, natRegR8(), base + 16)
+    s = natLoadStack(s, natRegRCX(), base + 24)
+    s = natByteCopy(s, natRegR9(), natRegR8(), natRegRCX(), site * 2 + 1)
+    // The total is RECOMPUTED from the two staged lengths, not reused from RCX, which
+    // the copy loop leaves holding its exit counter.
+    s = natLoadStack(s, natRegRDI(), base + 32)
+    s = natLoadStack(s, natRegRSI(), base + 8)
+    s = natLoadStack(s, natRegRCX(), base + 24)
+    return natAddRegReg(s, natRegRSI(), natRegRCX())
+}
+
+func natNativeStrKind(e, stmts, plan) {
+    if (nodeType(e) == NODE_STRING_LIT()) { return 1 }
+    if (nodeType(e) == NODE_BINARY()) {
+        if (binaryOp(e) == "+") {
+            if (natNativeStrKind(binaryLeft(e), stmts, plan) == 1) { return 1 }
+            return 0 - 1
+        }
+        return 0 - 2
+    }
+    if (nodeType(e) == NODE_IDENT()) {
+        let ord = natNativeLocalIndex(stmts, identName(e))
+        if (ord < 0) { return 0 - 2 }
+        if (natNativeSlotKind(plan, ord) == natKindString()) { return 1 }
+        return 0 - 1
+    }
+    return 0 - 2
+}
+
+func natNativeScanConcat(e, stmts, plan, line) {
+  if (binaryOp(e) != "+") {
+  return natNativeRefuse("`" + binaryOp(e) + "` is not lowered by the native " +
+  "driver", line)
+  }
+  // A CHAINED concatenation -- an operand that is ITSELF a `+` BinaryExpr.
+  //
+  // natNativeStrKind RECURSES, so `(a + b)` classified as a string and this
+  // validator was satisfied. The crash came later: natEmitStrValue handles a
+  // literal, then assumes everything else is an identifier, so it called
+  // identName on the nested BinaryExpr and indexed the slot plan with garbage --
+  // "array index out of range" in natNativeSlotOff. Both `print(a + b + "ef")`
+  // and `return a + "cd"` hit it.
+  //
+  // Refused BY NAME here rather than fixed by recursion: depth would have to be
+  // threaded through natEmitStrValue, strTemp sized for the deepest chain, and
+  // the arena bound re-proved per nesting level instead of per site. That is its
+  // own slice. What must not happen is a shape reaching emission unchecked.
+  if (nodeType(binaryLeft(e)) == NODE_BINARY()) {
+  return natNativeRefuse("chained string concatenation is not lowered (a " +
+  "concatenation operand may not itself be a concatenation)", line)
+  }
+  if (nodeType(binaryRight(e)) == NODE_BINARY()) {
+  return natNativeRefuse("chained string concatenation is not lowered (a " +
+  "concatenation operand may not itself be a concatenation)", line)
+  }
+  if (natNativeStrKind(binaryLeft(e), stmts, plan) != 1) {
+        return natNativeRefuse("`+` needs two strings on the native target; the left " +
+            "operand is not one", line)
+    }
+    if (natNativeStrKind(binaryRight(e), stmts, plan) != 1) {
+        return natNativeRefuse("`+` needs two strings on the native target; the right " +
+            "operand is not one", line)
+    }
+    return ""
+}
+
+func natNativeConcatSites(stmts) {
+    let n = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeConcatIn(printVal(st)) }
+        if (natNativeIsDecl(st)) { n = n + natNativeConcatIn(natNativeDeclValue(st)) }
+        i = i + 1
+    }
+    return n
+}
+
+func natNativeConcatIn(e) {
+    if (nodeType(e) != NODE_BINARY()) { return 0 }
+    if (binaryOp(e) != "+") { return 0 }
+    return 1 + natNativeConcatIn(binaryLeft(e)) + natNativeConcatIn(binaryRight(e))
+}
+
+// natNativeArenaBytes is the compile-time arena size: sites * totalLiteralBytes + 16.
+//
+// SOUNDNESS rests on two facts, not on hope:
+//  1. Every concat SITE runs at most once. A concat reached from a loop body would run
+//     once per iteration, which a compile-time size cannot cover. The driver does not
+//     lower loops at all, so such a program is refused before emission; the rule is
+//     restated here because it is the ASSUMPTION this bound rests on.
+//  2. Every string value in a supported program is a literal or a concatenation of
+//     literals, so no runtime string exceeds the sum of the program's literals.
+// Together they bound the sum of all allocations. +16 is the allocator header, which
+// lives inside the arena.
+//
+// Exhaustion is therefore unreachable for a supported program and is kept anyway:
+// alloc traps with Int3 rather than writing outside the arena.
+func natNativeArenaBytes(stmts) {
+    let sites = natNativeConcatSites(stmts)
+    if (sites == 0) { return 0 }
+    return sites * natNativeStrTotalBytes(stmts) + 16
+}
+
+func natNativeStrTotalBytes(stmts) {
+    let total = 0
+    let lits = natNativeStrLiterals(stmts)
+    let j = 0
+    while (j < len(lits)) {
+        total = total + len(lits[j])
+        j = j + 1
+    }
+    return total
+}
+
+// The arena is all zeros because the header SELF-INITIALISES: the cursor is zero in the
+// image and zero is the "not started" sentinel. The stored limit is never read either --
+// natAllocHelper materialises the arena END from the link-time patch -- so no
+// initialisation step is needed at all.
+func natNativeArenaBytes0(n) {
+    let out = []
+    let i = 0
+    while (i < n) {
+        out = appendArray(out, 0)
+        i = i + 1
+    }
+    return out
 }
