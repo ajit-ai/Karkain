@@ -3251,10 +3251,10 @@ func natNativePlanBytes(plan) {
 // whether the program came through the Go or the self-hosted engine.
 func natNativeRefuse(what, line) {
     return "error[K145]: native target: " + what + " (main.kark line " + str(line) +
-        "). The 151A Step 9d native driver lowers `let` of an integer literal or an " +
-        "integer array literal, `print` of an integer literal, a local or `a[i]`, and " +
-        "`return` of an integer literal or local. This is refused HERE, by kcc, and is " +
-        "not handed to the Go engine."
+        "). The 151A Step 9e native driver lowers `let` of an integer literal or an " +
+        "integer array literal, `print` and `return` of an integer literal, a local, " +
+        "`a[i]` or `len(a)`, and `return` of an integer literal or local. This is " +
+        "refused HERE, by kcc, and is not handed to the Go engine."
 }
 
 // natNativeRefuseNoLine is natNativeRefuse for a refusal where the offending
@@ -3263,10 +3263,10 @@ func natNativeRefuse(what, line) {
 // omitting it.
 func natNativeRefuseNoLine(what) {
     return "error[K145]: native target: " + what +
-        ". The 151A Step 9d native driver lowers `let` of an integer literal or an " +
-        "integer array literal, `print` of an integer literal, a local or `a[i]`, and " +
-        "`return` of an integer literal or local. This is refused HERE, by kcc, and is " +
-        "not handed to the Go engine."
+        ". The 151A Step 9e native driver lowers `let` of an integer literal or an " +
+        "integer array literal, `print` and `return` of an integer literal, a local, " +
+        "`a[i]` or `len(a)`, and `return` of an integer literal or local. This is " +
+        "refused HERE, by kcc, and is not handed to the Go engine."
 }
 
 // natNativeScan validates main's statements and counts its int locals in ONE
@@ -3301,53 +3301,13 @@ func natNativeScan(stmts) {
             }
         } else {
             if (k == NODE_PRINT()) {
-                let pv = printVal(n)
-                if (nodeType(pv) != NODE_INT_LIT()) {
-                    if (nodeType(pv) != NODE_IDENT()) {
-                        if (nodeType(pv) != NODE_INDEX()) {
-                            return [natNativeRefuse("print of an expression that is neither " +
-                                "an integer literal, a local nor an index", printLine(n)),
-                                plan, hasReturn]
-                        }
-                        let bad = natNativeScanIndex(pv, stmts, plan, printLine(n))
-                        if (bad != "") { return [bad, plan, hasReturn] }
-                    } else {
-                        let ord9d = natNativeLocalIndex(stmts, identName(pv))
-                        if (ord9d < 0) {
-                            return [natNativeRefuse("print of undeclared local `" +
-                                identName(pv) + "`", printLine(n)), plan, hasReturn]
-                        }
-                        // Printing a WHOLE collection is refused rather than
-                        // mis-lowered. `print(a)` on an array would otherwise load
-                        // the header's BASE POINTER -- one 8-byte slot -- and print
-                        // that address as if it were the array's value, which is a
-                        // valid image emitting a meaningless number. There is no
-                        // scalar reading of a collection, so there is nothing to
-                        // lower it to.
-                        if (natNativeSlotKind(plan, ord9d) != natKindInt()) {
-                            return [natNativeRefuse("cannot print `" + identName(pv) +
-                                "` as a whole; it is a " +
-                                natKindName(natNativeSlotKind(plan, ord9d)) +
-                                ", so print an element or a scalar instead",
-                                printLine(n)), plan, hasReturn]
-                        }
-                    }
-                }
+                let bad = natNativeScanValue(printVal(n), stmts, plan, printLine(n))
+                if (bad != "") { return [bad, plan, hasReturn] }
             } else {
                 if (k == NODE_RETURN()) {
-                    let rv = retVal(n)
                     hasReturn = 1
-                    if (nodeType(rv) != NODE_INT_LIT()) {
-                        if (nodeType(rv) != NODE_IDENT()) {
-                            return [natNativeRefuse("return of an expression that is " +
-                                "neither an integer literal nor a local", retLine(n)),
-                                plan, hasReturn]
-                        }
-                        if (natNativeLocalIndex(stmts, identName(rv)) < 0) {
-                            return [natNativeRefuse("return of undeclared local `" +
-                                identName(rv) + "`", retLine(n)), plan, hasReturn]
-                        }
-                    }
+                    let bad = natNativeScanValue(retVal(n), stmts, plan, retLine(n))
+                    if (bad != "") { return [bad, plan, hasReturn] }
                 } else {
                     return [natNativeRefuseNoLine("statement kind " + str(k) +
                         " in `func main` is not lowered by the native driver"),
@@ -3463,6 +3423,80 @@ func natNativeScanIndex(idx, stmts, plan, line) {
     return ""
 }
 
+// natNativeScanLen validates a `len(x)` call and returns "" or a refusal.
+//
+// Only `len` of an ARRAY LOCAL is supported, and every other shape is named rather
+// than coerced: len of a scalar, len of an undeclared name, len of an expression, and
+// any other builtin call all get their own message.
+func natNativeScanLen(call, stmts, plan, line) {
+    if (callFunc(call) != "len") {
+        return natNativeRefuse("call to `" + callFunc(call) + "` is not lowered by the " +
+            "native driver", line)
+    }
+    let args = callArgs(call)
+    if (len(args) != 1) {
+        return natNativeRefuse("len() takes exactly 1 argument, got " + str(len(args)), line)
+    }
+    if (nodeType(args[0]) != NODE_IDENT()) {
+        return natNativeRefuse("len() requires an array variable, not an expression", line)
+    }
+    let ord = natNativeLocalIndex(stmts, identName(args[0]))
+    if (ord < 0) {
+        return natNativeRefuse("len() of undeclared local `" + identName(args[0]) + "`", line)
+    }
+    if (natNativeSlotKind(plan, ord) != natKindArray()) {
+        return natNativeRefuse("len() requires an array, but `" + identName(args[0]) +
+            "` is not one (its kind is " + natKindName(natNativeSlotKind(plan, ord)) + ")",
+            line)
+    }
+    return ""
+}
+
+// natArrayLen loads an array's element count into RAX.
+//
+// The oracle's array branch of `emitLen` is exactly one instruction
+// (`e.LoadStack(RAX, off+8)`) because the count is the array header's second unit. The
+// map branch needs an extra indirection -- a map's address lives in its slot -- but
+// maps are not lowered by this driver yet, so that difference is not reachable here.
+//
+// The count offset is written literally as off+8 and NOT derived from
+// `natLocalOff(ord, natKindArray())`: an array's element AREA starts at off+16 while
+// its count is at off+8, so deriving the count from the slot formula would be wrong.
+func natArrayLen(s, off) {
+    return natLoadStack(s, natRegRAX(), off + 8)
+}
+
+// natNativeScanValue validates one expression in a value position -- what `print` and
+// `return` accept -- and returns "" or a refusal.
+//
+// One function for both, because a second copy is a second place for the accepted and
+// the refused shapes to drift apart, and a driver that accepts `print(a[i])` but
+// refuses `return a[i]` (or the reverse) is exactly the inconsistency a user cannot act
+// on.
+func natNativeScanValue(expr, stmts, plan, line) {
+    let t = nodeType(expr)
+    if (t == NODE_INT_LIT()) { return "" }
+    if (t == NODE_IDENT()) {
+        let ord = natNativeLocalIndex(stmts, identName(expr))
+        if (ord < 0) {
+            return natNativeRefuse("undeclared local `" + identName(expr) + "`", line)
+        }
+        // Printing a WHOLE collection is refused rather than mis-lowered: `print(a)`
+        // would otherwise load the header's base pointer and print that address as if
+        // it were the array's value. There is no scalar reading of a collection.
+        if (natNativeSlotKind(plan, ord) != natKindInt()) {
+            return natNativeRefuse("cannot print `" + identName(expr) + "` as a whole; " +
+                "its kind is " + natKindName(natNativeSlotKind(plan, ord)) +
+                ", so print an element or len() instead", line)
+        }
+        return ""
+    }
+    if (t == NODE_INDEX()) { return natNativeScanIndex(expr, stmts, plan, line) }
+    if (t == NODE_CALL()) { return natNativeScanLen(expr, stmts, plan, line) }
+    return natNativeRefuse("expression of kind " + str(t) + " is neither an integer " +
+        "literal, a local, an index nor len()", line)
+}
+
 // natNativeLower emits main's body into an existing emitter state.
 //
 // The `sub rsp, 8` around each call is Win64 ABI, not padding: `_start` aligns rsp
@@ -3523,8 +3557,16 @@ func natNativeLower(s, stmts, plan) {
                     s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i)
                     s = natMovRegReg(s, natRegRDI(), natRegRAX())
                 } else {
-                    s = natLoadStack(s, natRegRDI(),
-                        natNativeSlotOff(plan, natNativeLocalIndex(stmts, identName(pv))))
+                    if (nodeType(pv) == NODE_CALL()) {
+                        let ordl = natNativeLocalIndex(stmts,
+                            identName(callArgs(pv)[0]))
+                        s = natArrayLen(s, natNativeSlotOff(plan, ordl))
+                        s = natMovRegReg(s, natRegRDI(), natRegRAX())
+                    } else {
+                        s = natLoadStack(s, natRegRDI(),
+                            natNativeSlotOff(plan,
+                                natNativeLocalIndex(stmts, identName(pv))))
+                    }
                 }
             }
             s = natSubRegImm32(s, natRegRSP(), 8)
@@ -3538,8 +3580,20 @@ func natNativeLower(s, stmts, plan) {
             if (nodeType(rv) == NODE_INT_LIT()) {
                 s = natMovRegImm32(s, natRegRAX(), int(intLitVal(rv)))
             } else {
-                s = natLoadStack(s, natRegRAX(),
-                    natNativeSlotOff(plan, natNativeLocalIndex(stmts, identName(rv))))
+                if (nodeType(rv) == NODE_INDEX()) {
+                    let ord = natNativeLocalIndex(stmts, identName(indexLeft(rv)))
+                    s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(rv), i)
+                } else {
+                    if (nodeType(rv) == NODE_CALL()) {
+                        let ordl = natNativeLocalIndex(stmts,
+                            identName(callArgs(rv)[0]))
+                        s = natArrayLen(s, natNativeSlotOff(plan, ordl))
+                    } else {
+                        s = natLoadStack(s, natRegRAX(),
+                            natNativeSlotOff(plan,
+                                natNativeLocalIndex(stmts, identName(rv))))
+                    }
+                }
             }
         }
         i = i + 1

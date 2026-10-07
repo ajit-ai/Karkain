@@ -187,14 +187,13 @@ var nat9dRefusals = []struct {
 		code: "error[K102]",
 	},
 	{
-		// len() is a separate capability and must not be quietly accepted.
-		name: "len_of_array",
-		src:  "func main() {\n    let a = [7, 35]\n    print(len(a))\n}\n",
-		want: "neither an integer literal, a local nor an index",
-		code: "error[K145]",
-	},
-	{
-		// for-in is a separate capability.
+		// `len(a)` was pinned here as OUT OF SUBSET when 9d landed. Step 9e added it,
+		// so this case was removed rather than left asserting a refusal that is no
+		// longer honest -- and its behaviour is now gated properly by
+		// TestPhase151A9E_* , including the shape distinctions (len of a scalar, len
+		// of an expression, wrong arity). Moving a construct from "refused" to
+		// "supported" has to delete the old pin; keeping it would have made this gate
+		// fail on correct behaviour and taught its readers to ignore it.
 		name: "for_in_over_array",
 		src:  "func main() {\n    let a = [7, 35]\n    for x in a {\n        print(x)\n    }\n}\n",
 		want: "error[K145]",

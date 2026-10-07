@@ -3092,3 +3092,48 @@ re-measuring needs the Linux CI runner or the separate low-memory defect work.
 `for-in`, `push`, records, maps and the macOS entry/exit remain open, and the
 out-of-range index currently traps with `Int3` because kcc has no `karkain_runtime_error`
 (that is increment 152-B0 machinery).
+Also completed: **151A Step 9e - `len()` on arrays in kcc** (increment 151, slice A
+step 9e; verdict **IMPLEMENTED** -- NOT whole-image parity, NOT ownership; record
+`docs/audit/PHASE-151A-BASELINE.md` section 25). The first **builtin** to reach the
+AST driver, and deliberately a small slice: the oracle's array branch of `emitLen` is a
+single instruction (`e.LoadStack(RAX, off+8)`), so it is provable end-to-end with almost
+no new emission while establishing the shape every later builtin follows. **The count
+offset is written literally as off+8 and is deliberately NOT derived from
+`natLocalOff(ord, natKindArray())`**: an array's header is `[off]`=area base,
+`[off+8]`=COUNT, and the element AREA starts at off+16, so deriving the count from the
+slot formula would read the element area instead. The gate's `len_of_1` case exists for
+exactly that, because with one element the two are 8 bytes apart and the mistake yields
+a plausible pointer-sized number rather than an obvious failure. **`print` and `return`
+now share one `natNativeScanValue`** -- not cosmetic: 9d's refusal table had already
+caught the two paths diverging, and `TestPhase151A9E_PrintAndReturnAgree` walks the
+accepted shapes asserting both positions agree, which is a driver property rather than a
+single-program one. **One existing pin removed**: 9d pinned `print(len(a))` as REFUSED
+since `len` was out of subset then; 9e makes it supported, so that case was deleted from
+9d's table rather than left asserting a refusal that is no longer honest, and its
+behaviour is now gated by `TestPhase151A9E_*` including the shape distinctions. **Two
+wrong expectations in my own gate, recorded**: `localBytes` left at its zero value for
+`len_as_return_value` so the frame layer expected 608 while the program has a 32-byte
+array; and the arity expectation named the driver's own message when kcc's builtin-arity
+check fires **first** (`error[K104] builtin 'len' expects 1 arguments but got 2`), the
+same "caught earlier by the checker" class as 9d's `print(q[0])`/K102 -- asserting a
+diagnostic that can never fire teaches a reader to distrust a gate. Also fixed a
+refusal-text nit: the driver still described its subset as "Step 9d ... `return` of an
+integer literal or local", untrue once `len` and `a[i]` in return position were accepted.
+Gate `pkg/cli/phase151a9e_len_test.go`, `TestPhase151A9E_` **6 tests PASS** over 7
+programs with exact-bytes execution: `len_of_2`->`320a`, `len_of_3`->`330a`,
+`len_of_1`->`310a`, `len_then_element`->`330a39390a`,
+`len_with_scalar_after`->`320a` (reads the ARRAY's header, not the scalar's slot),
+`len_is_a_64_bit_header_field`->`330a`, and `len_as_return_value`->*(empty stdout)* with
+**exit 2** -- the exit code is the only observable there, which is why the gate asserts
+it. **Mutation-verified**: M3 pointing `natArrayLen` at off+16 fails **all 7** execution
+cases (each prints the element value instead of the count) while the frame, refusal,
+determinism and print/return-agreement layers correctly stay **green** -- the mutation
+changes only which header unit is loaded, and only execution can see that. Reverted,
+`native_value.kark` verified SHA-256 identical to pre-mutation content
+(`F8FFF0FFBC09ED5B9A59AF0441F43FEF...`), and the 9b + 9c + 9d + 9e gates then re-ran
+green together (49.1s). CI companion wired in the same change (step *Run 151A Step 9e
+len() gate*, pattern `TestPhase151A9E_`, verified not to collide with
+`TestPhase151A9D_`). **KIR pin remains stale/red by the same decision as 22.6/23.6/
+24.10** -- last measured 12570 at Step 9a, moved by 9b/9c/9d/9e, deliberately **not
+predicted**. `kccOwnsNativeTargets` stays `false`; **151A is not closed** -- `for-in`,
+`push`, strings + arena, records, maps and the macOS entry/exit remain open.
