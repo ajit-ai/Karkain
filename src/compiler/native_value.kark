@@ -3210,32 +3210,223 @@ func natNativeLocalIndex(stmts, name) {
 // variable-sized element area that the fixed-stride formula cannot express. That is
 // the same reason the oracle allocates sequentially: an array is a two-unit header
 // plus 8 bytes per element, so the next local starts after that area.
-func natNativePlan(stmts) {
+// ============================================================
+// Step 9h-1 - records: declaration collection and layout table
+// ============================================================
+//
+// A record VALUE is exactly one 8-byte unit whose content is the ADDRESS of a
+// compile-time-sized field area (the oracle's KindStruct). Nothing is allocated, so a
+// record program stays out of the heap arena entirely.
+//
+// Layout is the oracle's newStructInfo exactly: DECLARATION ORDER; int and float occupy
+// 1 unit, string occupies 2 units (ptr+len); every field starts on an 8-byte boundary,
+// so no padding rule exists and none is added.
+//
+// The table is a FLAT array because Karkain has no structs. Per record:
+//
+//   name, size, fieldCount, then fieldCount triples of (fieldName, off, kind)
+//
+// natStructFieldOff / natStructFieldKind resolve a field to its compile-time constants,
+// so a field access is ONE load/store at a constant displacement with no runtime
+// descriptor and no per-field tag.
+
+func natFieldSpecName(spec) {
+  let c = indexOf(spec, ":")
+  if (c < 0) { return spec }
+  return substr(spec, 0, c)
+}
+
+func natFieldSpecType(spec) {
+  let c = indexOf(spec, ":")
+  if (c < 0) { return "" }
+  return substr(spec, c + 1, len(spec) - c - 1)
+}
+
+// natFieldSpecKind mirrors newStructInfo's switch exactly. Anything that is not
+// int/string/float becomes natKindUnsupported(), which callers refuse LOUDLY rather
+// than silently mis-sizing the record. Nested records, arrays and maps inside a struct
+// are not in 150B3b.
+func natFieldSpecKind(ty) {
+  if (ty == "string") { return natKindString() }
+  if (ty == "float") { return natKindFloat() }
+  if (ty == "int") { return natKindInt() }
+  if (ty == "") { return natKindInt() }
+  return natKindUnsupported()
+}
+
+func natKindUnsupported() { return 0 - 1 }
+
+// natStructTable collects every top-level `type X struct {...}` declaration in
+// declaration order. Karkain has no reflection: this is the whole of the compile-time
+// record information the lowering needs.
+func natStructTable(stmts) {
+  let tbl = []
+  let i = 0
+  while (i < len(stmts)) {
+    let n = stmts[i]
+    if (nodeType(n) == NODE_STRUCT_DECL()) { tbl = natStructPushDecl(tbl, n) }
+    i = i + 1
+  }
+  return tbl
+}
+
+func natStructPushDecl(tbl, d) {
+  let specs = structDeclFields(d)
+  let rec = []
+  let size = 0
+  let j = 0
+  while (j < len(specs)) {
+    let sp = specs[j]
+    let fk = natFieldSpecKind(natFieldSpecType(sp))
+    rec = appendArray(rec, natFieldSpecName(sp))
+    rec = appendArray(rec, size)
+    rec = appendArray(rec, fk)
+    size = size + 8 * natKindUnits(fk)
+    j = j + 1
+  }
+  tbl = appendArray(tbl, structDeclName(d))
+  tbl = appendArray(tbl, size)
+  tbl = appendArray(tbl, len(specs))
+  let r = 0
+  while (r < len(rec)) { tbl = appendArray(tbl, rec[r]); r = r + 1 }
+  return tbl
+}
+
+// natStructRecAt returns the index of a record's fieldCount entry, or -1 when the type
+// is unknown. Stepping to the next record is header(3) + 3 per field.
+func natStructRecAt(tbl, typeName) {
+  let i = 0
+  while (i < len(tbl)) {
+    if (tbl[i] == typeName) { return i + 2 }
+    i = i + 3 + tbl[i + 2] * 3
+  }
+  return -1
+}
+
+// natStructSizeOf is the record's field-area size in BYTES, or -1 for an unknown type.
+func natStructSizeOf(tbl, typeName) {
+  let b = natStructRecAt(tbl, typeName)
+  if (b < 0) { return -1 }
+  return tbl[b - 1]
+}
+
+func natStructFieldOff(tbl, typeName, fieldName) {
+  let b = natStructRecAt(tbl, typeName)
+  if (b < 0) { return -1 }
+  let cnt = tbl[b]
+  let j = 0
+  while (j < cnt) {
+    let p = b + 1 + j * 3
+    if (tbl[p] == fieldName) { return tbl[p + 1] }
+    j = j + 1
+  }
+  return -1
+}
+
+func natStructFieldKind(tbl, typeName, fieldName) {
+  let b = natStructRecAt(tbl, typeName)
+  if (b < 0) { return -1 }
+  let cnt = tbl[b]
+  let j = 0
+  while (j < cnt) {
+    let p = b + 1 + j * 3
+    if (tbl[p] == fieldName) { return tbl[p + 2] }
+    j = j + 1
+  }
+  return -1
+}
+
+// ------------------------------------------------------------
+// Step 9h-1 - record lowering
+// ------------------------------------------------------------
+//
+// The record VALUE slot holds the field-area ADDRESS; the field area follows the slot
+// immediately, so fieldArea = slot + 8. Every field access recomputes that address
+// from the frame -- following natArrayValue's rule that a base is never carried across
+// an expression. natStoreBaseOff is the authoritative mem[base+off] = val primitive.
+
+// natRecordArea emits LEA of the field area and stores it in the record's slot.
+func natRecordArea(s, slotOff) {
+  s = natLeaRegStack(s, natRegRAX(), slotOff + 8)
+  return natStoreStack(s, natRegRAX(), slotOff)
+}
+
+// natRecordFieldAddr leaves the address of `base + off` in RAX. `base` is a REGISTER
+// holding the field-area address, reloaded by the caller from the record's frame slot.
+func natRecordFieldAddr(s, base, off) {
+  if (off == 0) { return s }
+  s = natAddRegImm32(s, base, off)
+  return s
+}
+
+// natRecordStoreLiteral stores one literal field of a record.
+//
+// The base register is passed in by the caller, which reloaded it from the record's
+// frame slot immediately before calling -- so no field expression is ever evaluated
+// between the reload and the store. That is what makes this correct for `p.x + p.y`
+// without inventing a persistent base register.
+//
+// A string field is TWO units: the interned rodata pointer at `off`, the length at
+// `off + 8`. Storing one unit would truncate it, which is exactly what `mixed_fields`
+// (string between an int and a float) is there to catch.
+//
+// Returns a TWO-element array [newState, newSidx] because Karkain has no multiple
+// return and no reference mechanism: the caller-owned rodata cursor must travel back
+// out with the emitter state.
+func natRecordStoreLiteral(s, lit, off, kind, roffs, sidx) {
+  let out = []
+  if (kind == natKindString()) {
+    s = natRodataRefOff(s, natRegRAX(), roffs[sidx])
+    s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
+    s = natMovRegImm32(s, natRegRAX(), len(stringLitVal(lit)))
+    s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off + 8)
+    out = appendArray(out, s)
+    out = appendArray(out, sidx + 1)
+    return out
+  }
+  s = natMovRegImm32(s, natRegRAX(), int(intLitVal(lit)))
+  s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
+  out = appendArray(out, s)
+  out = appendArray(out, sidx)
+  return out
+}
+
+func natNativePlan(stmts, tbl) {
     let plan = []
     let next = 0
-    let i = 0
-    while (i < len(stmts)) {
-        let n = stmts[i]
-        if (natNativeIsDecl(n)) {
-            let v = natNativeDeclValue(n)
-            let k = natKindInt()
-            let ne = 0
-            if (nodeType(v) == NODE_ARRAY_LIT()) {
-                k = natKindArray()
-                ne = len(arrayLitElems(v))
-            }
-            if (nodeType(v) == NODE_STRING_LIT()) { k = natKindString() }
-            plan = appendArray(plan, next)
-            plan = appendArray(plan, k)
-            plan = appendArray(plan, ne)
-            next = next + 8
-            if (natKindUnits(k) == 2) { next = next + 8 }
-            if (k == natKindArray()) { next = next + 8 * ne }
-        }
-        i = i + 1
-    }
-    return plan
-}
+let tbl = natStructTable(stmts)
+  let i = 0
+  while (i < len(stmts)) {
+  let n = stmts[i]
+  if (natNativeIsDecl(n)) {
+  let v = natNativeDeclValue(n)
+  let k = natKindInt()
+  let ne = 0
+  if (nodeType(v) == NODE_ARRAY_LIT()) {
+  k = natKindArray()
+  ne = len(arrayLitElems(v))
+  }
+  if (nodeType(v) == NODE_STRING_LIT()) { k = natKindString() }
+  // Step 9h-1: a record literal is ONE 8-byte unit whose value is the ADDRESS of its
+  // field area, and the area follows the slot immediately. `ne` carries the field area
+  // in UNITS -- the same convention the array clause uses for its element count -- so the
+  // byte contribution below stays `8 * ne` for both, and there is no second size formula.
+  if (nodeType(v) == NODE_STRUCT_LIT()) {
+  k = natKindStruct()
+  ne = natStructSizeOf(tbl, structLitName(v)) / 8
+  }
+  plan = appendArray(plan, next)
+  plan = appendArray(plan, k)
+  plan = appendArray(plan, ne)
+  next = next + 8
+  if (natKindUnits(k) == 2) { next = next + 8 }
+  if (k == natKindArray()) { next = next + 8 * ne }
+  if (k == natKindStruct()) { next = next + 8 * ne }
+  }
+  i = i + 1
+  }
+  return plan
+  }
 
 func natNativePlanCount(plan) { return len(plan) / 3 }
 
@@ -3254,10 +3445,16 @@ func natNativePlanBytes(plan) {
     let last = natNativePlanCount(plan) - 1
     let size = 8
     if (natKindUnits(natNativeSlotKind(plan, last)) == 2) { size = size + 8 }
-    if (natNativeSlotKind(plan, last) == natKindArray()) {
-        size = size + 8 * natNativeSlotElems(plan, last)
-    }
-    return natNativeSlotOff(plan, last) + size
+if (natNativeSlotKind(plan, last) == natKindArray()) {
+  size = size + 8 * natNativeSlotElems(plan, last)
+  }
+  // Step 9h-1: a record's footprint is 8 bytes for the value slot PLUS 8 * units of
+  // field area. Same `8 * extra` convention as the array clause, so planned bytes and
+  // natRecordArea's allocation cannot drift apart.
+  if (natNativeSlotKind(plan, last) == natKindStruct()) {
+  size = size + 8 * natNativeSlotElems(plan, last)
+  }
+  return natNativeSlotOff(plan, last) + size
 }
 
 // natNativeRefuse builds the refusal text. K145 is the native backend's own code
@@ -3266,9 +3463,11 @@ func natNativePlanBytes(plan) {
 // whether the program came through the Go or the self-hosted engine.
 func natNativeRefuse(what, line) {
     return "error[K145]: native target: " + what + " (main.kark line " + str(line) +
-        "). The 151A Step 9e native driver lowers `let` of an integer literal or an " +
-        "integer array literal, `print` and `return` of an integer literal, a local, " +
-        "`a[i]` or `len(a)`, and `return` of an integer literal or local. This is " +
+        "). The 151A Step 9h-2a native driver lowers `let` of an integer literal, a " +
+        "string literal, an integer array literal or a record literal; `print` and " +
+        "`return` of an integer literal, a local, `a[i]`, `len(a)`, an int/float record " +
+        "field, and (in direct print position) a string record field; and `record.field = " +
+        "value` for an integer local/literal or a string literal. This is " +
         "refused HERE, by kcc, and is not handed to the Go engine."
 }
 
@@ -3278,9 +3477,11 @@ func natNativeRefuse(what, line) {
 // omitting it.
 func natNativeRefuseNoLine(what) {
     return "error[K145]: native target: " + what +
-        ". The 151A Step 9e native driver lowers `let` of an integer literal or an " +
-        "integer array literal, `print` and `return` of an integer literal, a local, " +
-        "`a[i]` or `len(a)`, and `return` of an integer literal or local. This is " +
+        ". The 151A Step 9h-2a native driver lowers `let` of an integer literal, a " +
+        "string literal, an integer array literal or a record literal; `print` and " +
+        "`return` of an integer literal, a local, `a[i]`, `len(a)`, an int/float record " +
+        "field, and (in direct print position) a string record field; and `record.field = " +
+        "value` for an integer local/literal or a string literal. This is " +
         "refused HERE, by kcc, and is not handed to the Go engine."
 }
 
@@ -3294,8 +3495,41 @@ func natNativeRefuseNoLine(what) {
 //
 // `refusal` is "" when every statement is supported. The refusals NAME the
 // construct, because a refusal a user cannot act on is barely better than a crash.
-func natNativeScan(stmts) {
-    let plan = natNativePlan(stmts)
+// natNativeScanStructLit validates a record literal against the declared layout.
+// It is deliberately a VALIDATOR, not an emitter: unknown type, unknown field and
+// unsupported field kind are all loud refusals, so a mis-sized record can never reach
+// emission.
+func natNativeScanStructLit(tbl, lit, line) {
+let typeName = structLitName(lit)
+if (natStructSizeOf(tbl, typeName) < 0) {
+return natNativeRefuse("unknown record type `" + typeName + "`", line)
+}
+let fields = structLitFields(lit)
+let i = 0
+while (i < len(fields)) {
+let fname = identName(binaryLeft(fields[i]))
+if (natStructFieldOff(tbl, typeName, fname) < 0) {
+return natNativeRefuse("record `" + typeName + "` has no field `" + fname + "`", line)
+}
+let fk = natStructFieldKind(tbl, typeName, fname)
+if (fk == natKindString()) {
+if (nodeType(binaryRight(fields[i])) != NODE_STRING_LIT()) {
+return natNativeRefuse("record field `" + fname + "` is a string; only a string " +
+"literal is lowered for it in 151A Step 9h-1", line)
+}
+} else {
+if (nodeType(binaryRight(fields[i])) != NODE_INT_LIT()) {
+return natNativeRefuse("record field `" + fname + "` must be initialised with an " +
+"integer literal in 151A Step 9h-1", line)
+}
+}
+i = i + 1
+}
+return ""
+}
+
+func natNativeScan(stmts, tbl) {
+    let plan = natNativePlan(stmts, tbl)
     let hasReturn = 0
     let i = 0
     while (i < len(stmts)) {
@@ -3304,36 +3538,66 @@ func natNativeScan(stmts) {
         if (natNativeIsDecl(n)) {
             let v = natNativeDeclValue(n)
             let vt = nodeType(v)
-            if (vt == NODE_ARRAY_LIT()) {
-                let bad = natNativeScanElems(arrayLitElems(v), natNativeDeclLine(n))
-                if (bad != "") { return [bad, plan, hasReturn] }
-            } else {
-                if (vt == NODE_STRING_LIT()) {
-                    // Accepted as-is: the value is the literal's own bytes, interned
-                    // into rodata, so there is nothing to evaluate.
-                } else {
-                    if (vt != NODE_INT_LIT()) {
-                        return [natNativeRefuse("`let " + natNativeDeclName(n) +
-                            "` initialised from a non-integer expression", natNativeDeclLine(n)),
-                            plan, hasReturn]
-                    }
-                }
-            }
-        } else {
-            if (k == NODE_PRINT()) {
-                let bad = natNativeScanValue(printVal(n), stmts, plan, printLine(n))
+if (vt == NODE_ARRAY_LIT()) {
+let bad = natNativeScanElems(arrayLitElems(v), natNativeDeclLine(n))
+if (bad != "") { return [bad, plan, hasReturn] }
+} else {
+if (vt == NODE_STRUCT_LIT()) {
+// Step 9h-1: a record literal is validated by checking that the
+// declared type exists and that every named field exists with a
+// supported kind. An unknown type or field is a LOUD refusal, never
+// a silently mis-sized record.
+let bad = natNativeScanStructLit(tbl, v, natNativeDeclLine(n))
+if (bad != "") { return [bad, plan, hasReturn] }
+} else {
+if (vt == NODE_STRING_LIT()) {
+// Accepted as-is: the value is the literal's own bytes, interned
+// into rodata, so there is nothing to evaluate.
+} else {
+if (vt != NODE_INT_LIT()) {
+return [natNativeRefuse("`let " + natNativeDeclName(n) +
+"` initialised from a non-integer expression", natNativeDeclLine(n)),
+plan, hasReturn]
+}
+}
+}
+}
+} else {
+if (k == NODE_PRINT()) {
+                let bad = natNativeScanValue(printVal(n), stmts, plan, printLine(n), tbl, 1)
                 if (bad != "") { return [bad, plan, hasReturn] }
             } else {
                 if (k == NODE_RETURN()) {
                     hasReturn = 1
-                    let bad = natNativeScanReturn(retVal(n), stmts, plan, retLine(n))
+                    let bad = natNativeScanReturn(retVal(n), stmts, plan, retLine(n), tbl)
                     if (bad != "") { return [bad, plan, hasReturn] }
-                } else {
-                    return [natNativeRefuseNoLine("statement kind " + str(k) +
-                        " in `func main` is not lowered by the native driver"),
-                        plan, hasReturn]
-                }
+} else {
+  if (k == NODE_EXPR_STMT()) {
+  let e = exprStmtExpr(n)
+  if (natNativeIsAssignExpr(e)) {
+  let bad = natNativeScanAssign(tbl, stmts, plan, exprStmtLine(n), binaryLeft(e), binaryRight(e))
+  if (bad != "") { return [bad, plan, hasReturn] }
+  } else {
+  return [natNativeRefuseNoLine("expression statement `" + str(nodeType(e)) +
+  "` in `func main` is not lowered by the native driver"),
+  plan, hasReturn]
+  }
+  } else {
+  if (natNativeIsAssignExpr(n)) {
+  // 9h-2a: a BARE `=` BinaryExpr statement is the shape a `for` post arrives in --
+  // program.go:5280 wraps it into an ExprStmt only when walking. Refused by name, so
+  // loop-post assignment cannot be mistaken for supported statement assignment.
+  return [natNativeRefuseNoLine("loop-post assignment (a bare `=` expression) is refused " +
+  "in 151A Step 9h-2a; only `record.field = value` as a statement is lowered"),
+  plan, hasReturn]
+  } else {
+  return [natNativeRefuseNoLine("statement kind " + str(k) +
+  " in `func main` is not lowered by the native driver"),
+  plan, hasReturn]
+  }
+  }
             }
+        }
         }
         i = i + 1
     }
@@ -3597,9 +3861,18 @@ func natNativeStrLiterals(stmts) {
         if (natNativeIsDecl(n)) {
             out = natNativeStrLitAppend(out, natNativeDeclValue(n))
         }
-        if (nodeType(n) == NODE_PRINT()) {
-            out = natNativeStrLitAppend(out, printVal(n))
-        }
+if (nodeType(n) == NODE_PRINT()) {
+  out = natNativeStrLitAppend(out, printVal(n))
+  }
+  // 9h-2a: statement-level assignment. Without this arm `s.label = "changed"` records no
+  // roffs entry, so natNativeLowerAssign reads `roffs[sidx]` past the end -- the same
+  // collector/emitter desynchronisation 9h-1 fixed for record literals.
+  if (nodeType(n) == NODE_EXPR_STMT()) {
+  let ae = exprStmtExpr(n)
+  if (natNativeIsAssignExpr(ae)) {
+  out = natNativeStrLitAppend(out, binaryRight(ae))
+  }
+  }
         i = i + 1
     }
     return out
@@ -3628,12 +3901,42 @@ func natNativeStrLitAppend(out, e) {
     if (nodeType(e) == NODE_STRING_LIT()) {
         return appendArray(out, stringLitVal(e))
     }
-    if (nodeType(e) == NODE_BINARY() && binaryOp(e) == "+") {
-        out = natNativeStrLitAppend(out, binaryLeft(e))
-        return natNativeStrLitAppend(out, binaryRight(e))
-    }
-    return out
-}
+if (nodeType(e) == NODE_BINARY() && binaryOp(e) == "+") {
+  out = natNativeStrLitAppend(out, binaryLeft(e))
+  return natNativeStrLitAppend(out, binaryRight(e))
+  }
+  // 9h-2a: a `rec.field = "literal"` statement consumes one roffs entry, consumed by
+  // natNativeLowerAssign in exactly statement order. Without this arm the collector
+  // would not intern the literal and `roffs` would come out one entry short -- the same
+  // collector/emitter desynchronisation that 9h-1 fixed for record literals.
+  if (natNativeIsAssignExpr(e)) {
+  return natNativeStrLitAppend(out, binaryRight(e))
+  }
+  // Step 9h-1: descend a RECORD LITERAL's fields, in `structLitFields` order.
+  //
+  // This is a COLLECTOR/EMITTER ORDERING fix, not a refinement. natRecordStoreLiteral
+  // consumes exactly one roffs entry per STRING field, walking `structLitFields` in order.
+  // Before this arm the collector visited only `let` initialisers and `print` arguments,
+  // so a literal inside a struct literal was never interned: roffs came out one entry
+  // short and the store read `roffs[sidx]` past the end --
+  // "array index out of range" in natRecordStoreLiteral on `string_between_ints`.
+  //
+  // The order MUST match the emitter exactly. `let s = S{...}` reaches here through
+  // natNativeStrLitAppend(out, natNativeDeclValue(n)), so the fields are walked in the
+  // same order natRecordStoreLiteral walks them. Desynchronising the two is the identical
+  // defect 9g fixed when the concat descent was added: one more place where the accepted
+  // and recorded shapes can drift apart.
+  if (nodeType(e) == NODE_STRUCT_LIT()) {
+  let sf = structLitFields(e)
+  let j = 0
+  while (j < len(sf)) {
+  out = natNativeStrLitAppend(out, binaryRight(sf[j]))
+  j = j + 1
+  }
+  return out
+  }
+  return out
+  }
 
 // natNativeUsesString reports whether the program can produce a string at all, which
 // is what gates the print_str helper.
@@ -3648,7 +3951,212 @@ func natNativeUsesString(stmts) {
 // the refused shapes to drift apart, and a driver that accepts `print(a[i])` but
 // refuses `return a[i]` (or the reverse) is exactly the inconsistency a user cannot act
 // on.
-func natNativeScanValue(expr, stmts, plan, line) {
+// ------------------------------------------------------------
+// Step 9h-1 - record field reads
+// ------------------------------------------------------------
+
+// natRecordTypeOfLocal recovers a local's record type by re-walking the declarations for
+// a STRUCT-LITERAL binding of that name. The plan triple carries the kind but not the
+// type name, and adding a fourth plan element would change a structure every existing
+// consumer indexes positionally, so the type is resolved here from the SAME AST the
+// construction path used. Construction and read therefore cannot disagree.
+func natRecordTypeOfLocal(stmts, name) {
+  let i = 0
+  while (i < len(stmts)) {
+  let n = stmts[i]
+  if (natNativeIsDecl(n)) {
+  if (natNativeDeclName(n) == name) {
+  let v = natNativeDeclValue(n)
+  if (nodeType(v) == NODE_STRUCT_LIT()) { return structLitName(v) }
+  return ""
+  }
+  }
+  i = i + 1
+  }
+  return ""
+}
+
+// natRecordBase loads the record's field-area ADDRESS from its frame slot into `reg`.
+// The base is ALWAYS reloaded from the frame rather than carried in a register across a
+// field expression -- the rule natArrayValue already follows for an array element base.
+func natRecordBase(s, stmts, plan, name, reg) {
+  let ord = natNativeLocalIndex(stmts, name)
+  return natLoadStack(s, reg, natNativeSlotOff(plan, ord))
+}
+
+// natRecordFieldLoadInt loads an int/float field's single 8-byte unit into RAX.
+//
+// mem[base + off] is loaded with index = RCX = 0 and disp = off, which is the same
+// addressing natRecordStoreLiteral writes with, so read and write cannot disagree.
+func natRecordFieldLoadInt(s, stmts, plan, tbl, recName, fieldName) {
+  let tname = natRecordTypeOfLocal(stmts, recName)
+  let off = natStructFieldOff(tbl, tname, fieldName)
+  s = natRecordBase(s, stmts, plan, recName, natRegRBX())
+  s = natMovRegImm32(s, natRegRCX(), 0)
+  return natLoadScaled64(s, natRegRAX(), natRegRBX(), natRegRCX(), 1, off)
+}
+
+// natRecordFieldLoadStr loads a string field's TWO units into (RDI, RSI), which is the
+// established native string result convention.
+func natRecordFieldLoadStr(s, stmts, plan, tbl, recName, fieldName) {
+  let tname = natRecordTypeOfLocal(stmts, recName)
+  let off = natStructFieldOff(tbl, tname, fieldName)
+  s = natRecordBase(s, stmts, plan, recName, natRegRBX())
+  s = natMovRegImm32(s, natRegRCX(), 0)
+  s = natLoadScaled64(s, natRegRDI(), natRegRBX(), natRegRCX(), 1, off)
+  s = natLoadScaled64(s, natRegRSI(), natRegRBX(), natRegRCX(), 1, off + 8)
+  return s
+}
+
+// natNativeScanField validates `rec.field` against the record table.
+//
+// It resolves the base local, the record type, the field offset and the field kind, and
+// accepts only an int or float field. A string field is NOT accepted here: a string
+// reaches print through natEmitStrValue's own DotExpr arm, which is dispatched BEFORE
+// this validator runs.
+func natNativeScanField(expr, stmts, plan, line, tbl, allowStr) {
+  if (nodeType(dotLeft(expr)) != NODE_IDENT()) {
+  return natNativeRefuse("record field read is only lowered on a local record in " +
+  "151A Step 9h-1", line)
+  }
+  let recName = identName(dotLeft(expr))
+  if (natNativeLocalIndex(stmts, recName) < 0) {
+  return natNativeRefuse("undeclared local `" + recName + "` in a field read", line)
+  }
+    let tname = natRecordTypeOfLocal(stmts, recName)
+  if (tname == "") {
+  return natNativeRefuse("`" + recName + "` is not a record bound from a record " +
+  "literal, so `" + memberField(expr) + "` cannot be resolved", line)
+  }
+  let fname = memberField(expr)
+  if (natStructFieldOff(tbl, tname, fname) < 0) {
+  return natNativeRefuse("record `" + tname + "` has no field `" + fname + "`", line)
+  }
+  let fk = natStructFieldKind(tbl, tname, fname)
+  if (fk == natKindInt() || fk == natKindFloat()) { return "" }
+  // Step 9h-1: a string field is accepted ONLY in direct print position.
+  //
+  // `allowStr` is 1 from exactly one call site -- the NODE_PRINT scan, whose lowering
+  // already routes a NODE_DOT string to natEmitStrValue's DotExpr arm. It is 0 from
+  // `return`, because a return value becomes the process exit status and must be an int,
+  // and 0 for every other context. So this widens ONE context, not the expression surface.
+  if (fk == natKindString() && allowStr == 1) { return "" }
+  return natNativeRefuse("record field `" + fname + "` is a " + natKindName(fk) +
+  "; only int and float field reads are lowered in 151A Step 9h-1", line)
+}
+
+// natNativeIsAssignExpr reports whether `e` is a BinaryExpr carrying the "=" operator.
+func natNativeIsAssignExpr(e) {
+  if (nodeType(e) != NODE_BINARY()) { return 0 }
+  if (binaryOp(e) != "=") { return 0 }
+  return 1
+}
+
+// natNativeScanAssign validates `rec.field = rhs` (9h-2a).
+//
+// The LHS must be a NODE_DOT on a record local whose field resolves through the SAME
+// table natRecordFieldLoadInt uses -- no second field table exists or is created here.
+// The RHS must be an integer local/literal or a string literal, matching the two
+// representations natRecordStoreLiteral already writes (one unit; pointer + length).
+//
+// Integer ARITHMETIC on the RHS and assignment inside `if` are deliberately NOT
+// accepted: neither capability exists in this driver, so accepting them would create
+// exactly the accept-without-emit state that 9h-1 had to repair. Each is refused by
+// name instead of silently mis-lowered.
+func natNativeScanAssign(tbl, stmts, plan, line, lhs, rhs) {
+  if (nodeType(lhs) != NODE_DOT()) {
+    return natNativeRefuse("assignment target must be `record.field`; only a record " +
+    "field is lowered in 151A Step 9h-2a", line)
+  }
+  if (nodeType(dotLeft(lhs)) != NODE_IDENT()) {
+    return natNativeRefuse("assignment target `" + memberField(lhs) + "` must be a field " +
+    "of a local record", line)
+  }
+  let recName = identName(dotLeft(lhs))
+  if (natNativeLocalIndex(stmts, recName) < 0) {
+    return natNativeRefuse("undeclared local `" + recName + "` in a field assignment", line)
+  }
+  let tname = natRecordTypeOfLocal(stmts, recName)
+  if (tname == "") {
+    return natNativeRefuse("`" + recName + "` is not a record bound from a record " +
+    "literal, so `" + memberField(lhs) + "` cannot be assigned", line)
+  }
+  let fname = memberField(lhs)
+  if (natStructFieldOff(tbl, tname, fname) < 0) {
+    return natNativeRefuse("record `" + tname + "` has no field `" + fname + "`", line)
+  }
+  let fk = natStructFieldKind(tbl, tname, fname)
+  let rt = nodeType(rhs)
+  if (fk == natKindInt() || fk == natKindFloat()) {
+    if (rt == NODE_INT_LIT()) { return "" }
+    if (rt == NODE_IDENT()) {
+      let ord = natNativeLocalIndex(stmts, identName(rhs))
+      if (ord < 0) {
+        return natNativeRefuse("undeclared local `" + identName(rhs) + "` in a field " +
+        "assignment", line)
+      }
+      if (natNativeSlotKind(plan, ord) != natKindInt()) {
+        return natNativeRefuse("cannot assign a " +
+        natKindName(natNativeSlotKind(plan, ord)) + " to int field `" + fname + "`", line)
+      }
+      return ""
+    }
+    if (rt == NODE_BINARY()) {
+      return natNativeRefuse("integer arithmetic on the right-hand side of a field " +
+      "assignment is not lowered in 151A Step 9h-2a", line)
+    }
+    if (rt == NODE_DOT()) {
+      return natNativeRefuse("a record field read on the right-hand side of a field " +
+      "assignment is not lowered in 151A Step 9h-2a", line)
+    }
+    return natNativeRefuse("field `" + fname + "` is " + natKindName(fk) +
+    "; only an integer local or literal is assigned in 151A Step 9h-2a", line)
+  }
+  if (fk == natKindString()) {
+    if (rt == NODE_STRING_LIT()) { return "" }
+    return natNativeRefuse("field `" + fname + "` is a string; only a string literal " +
+    "is assigned in 151A Step 9h-2a", line)
+  }
+  return natNativeRefuse("field `" + fname + "` has kind " + natKindName(fk) +
+  ", which is not assignable in 151A Step 9h-2a", line)
+}
+
+// natNativeLowerAssign emits `rec.field = rhs` (9h-2a).
+//
+// The base is reloaded from the record's frame slot and the field is stored through
+// the SAME addressing natRecordStoreLiteral writes with -- natStoreBaseOff(base=RBX,
+// disp=off) -- so a field read and a field write cannot disagree about where the
+// field lives. A string writes BOTH units: the interned rodata pointer at `off` and the
+// length at `off + 8`, which is what natRecordFieldLoadStr reads back.
+//
+// Returns [newState, newSidx]: a string assignment consumes one rodata entry, so the
+// caller-owned cursor must travel back out, exactly as natRecordStoreLiteral does.
+func natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx, lhs, rhs) {
+  let recName = identName(dotLeft(lhs))
+  let fname = memberField(lhs)
+  let tname = natRecordTypeOfLocal(stmts, recName)
+  let off = natStructFieldOff(tbl, tname, fname)
+  let fk = natStructFieldKind(tbl, tname, fname)
+  s = natRecordBase(s, stmts, plan, recName, natRegRBX())
+  if (fk == natKindString()) {
+    s = natRodataRefOff(s, natRegRAX(), roffs[sidx])
+    s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
+    s = natMovRegImm32(s, natRegRAX(), len(stringLitVal(rhs)))
+    s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off + 8)
+    return [s, sidx + 1]
+  }
+  if (nodeType(rhs) == NODE_IDENT()) {
+    let ord = natNativeLocalIndex(stmts, identName(rhs))
+    s = natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
+    s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
+    return [s, sidx]
+  }
+  s = natMovRegImm32(s, natRegRAX(), int(intLitVal(rhs)))
+  s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
+  return [s, sidx]
+}
+
+func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr) {
     let t = nodeType(expr)
     if (t == NODE_INT_LIT()) { return "" }
     if (t == NODE_STRING_LIT()) { return "" }
@@ -3665,10 +4173,35 @@ func natNativeScanValue(expr, stmts, plan, line) {
             "its kind is " + natKindName(k) + ", so print an element or len() instead",
             line)
     }
-    if (t == NODE_BINARY()) { return natNativeScanConcat(expr, stmts, plan, line) }
-    if (t == NODE_INDEX()) { return natNativeScanIndex(expr, stmts, plan, line) }
-    if (t == NODE_CALL()) { return natNativeScanLen(expr, stmts, plan, line) }
-    return natNativeRefuse("expression of kind " + str(t) + " is neither an integer " +
+if (t == NODE_BINARY()) { return natNativeScanConcat(expr, stmts, plan, line) }
+  if (t == NODE_INDEX()) { return natNativeScanIndex(expr, stmts, plan, line) }
+  if (t == NODE_CALL()) { return natNativeScanLen(expr, stmts, plan, line) }
+  // Step 9h-1: a record field read, `rec.field`. NARROW by construction -- only an
+  // int or float field on a local bound from a record literal is accepted. Anything else
+  // (unknown base, unknown field, a string field, a non-identifier base, arithmetic) is
+  // refused by name.
+  //
+  // Accepting NODE_DOT does NOT weaken the invariant below: this arm is reached only
+  // after the record type AND the field offset AND the field kind are all resolved. An
+  // unresolved field returns a refusal and never reaches emission, so a struct field can
+  // never fall through to natMovRegImm32(RAX, intLitVal(v)).
+  if (t == NODE_DOT()) { return natNativeScanField(expr, stmts, plan, line, tbl, allowStr) }
+  // Step 9h-1 SAFETY REFUSAL. A struct literal must never fall through to the generic
+  // integer path: `natMovRegImm32(RAX, intLitVal(v))` on a NODE_STRUCT_LIT emits a
+  // STRUCTURALLY VALID PE that computes a meaningless integer, because intLitVal of a
+  // non-literal yields 0. That is the worst possible outcome for a native backend -- it
+  // is exactly the class of defect this gate exists to catch -- and it is what an earlier
+  // Session-A attempt produced when the planner recognised struct literals before the
+  // lowering did.
+  //
+  // This refusal is DELIBERATE and stays until literal construction is wired into
+  // natNativeLower. The planner deliberately does NOT yet recognise NODE_STRUCT_LIT
+  // either, so plan and lowering cannot disagree.
+  if (t == NODE_STRUCT_LIT()) {
+  return natNativeRefuse("record literals are not lowered by the native driver yet " +
+  "(151A Step 9h-1 is in progress); this is refused HERE, by kcc", line)
+  }
+  return natNativeRefuse("expression of kind " + str(t) + " is neither an integer " +
         "literal, a local, an index nor len()", line)
 }
 
@@ -3680,8 +4213,8 @@ func natNativeScanValue(expr, stmts, plan, line) {
 // the string's POINTER and exited with it. That is a valid image emitting a meaningless
 // exit code, which the oracle refuses outright ("string return values are not
 // supported"). The gate's refusal table found it.
-func natNativeScanReturn(expr, stmts, plan, line) {
-    let bad = natNativeScanValue(expr, stmts, plan, line)
+func natNativeScanReturn(expr, stmts, plan, line, tbl) {
+    let bad = natNativeScanValue(expr, stmts, plan, line, tbl, 0)
     if (bad != "") { return bad }
 if (nodeType(expr) == NODE_IDENT()) {
   let k = natNativeSlotKind(plan, natNativeLocalIndex(stmts, identName(expr)))
@@ -3719,7 +4252,7 @@ if (nodeType(expr) == NODE_IDENT()) {
 //
 // The statement ORDINAL doubles as the label tag for `a[i]`, so no counter can fall
 // out of step with the statement list.
-func natNativeLower(s, stmts, plan, roffs, strTemp) {
+func natNativeLower(s, stmts, plan, roffs, strTemp, tbl) {
     let idx = 0
     // sidx walks the rodata INPUT list in lockstep with the literals the program binds,
     // starting at 2 because entries 0 and 1 are print_int's own "-" and "\n". Lockstep
@@ -3738,7 +4271,29 @@ func natNativeLower(s, stmts, plan, roffs, strTemp) {
             if (nodeType(v) == NODE_ARRAY_LIT()) {
                 s = natArrayValue(s, natNativeSlotOff(plan, idx), arrayLitElems(v))
             } else {
-                if (nodeType(v) == NODE_STRING_LIT()) {
+if (nodeType(v) == NODE_STRUCT_LIT()) {
+      // Step 9h-1: the field area sits at slotOff+8; natRecordArea LEA's it and stores
+      // that ADDRESS into the record's value slot.
+      s = natRecordArea(s, natNativeSlotOff(plan, idx))
+      let rtype = structLitName(v)
+      let rfields = structLitFields(v)
+      let f = 0
+      while (f < len(rfields)) {
+        let fd = rfields[f]
+        let fname = identName(binaryLeft(fd))
+        let foff = natStructFieldOff(tbl, rtype, fname)
+        let fk = natStructFieldKind(tbl, rtype, fname)
+        let fv = binaryRight(fd)
+        // Reload the base from the record's frame slot immediately before each store,
+        // so no field expression is evaluated between the reload and the store.
+        s = natLoadStack(s, natRegRBX(), natNativeSlotOff(plan, idx))
+        let rr = natRecordStoreLiteral(s, fv, foff, fk, roffs, sidx)
+        s = rr[0]
+        sidx = rr[1]
+        f = f + 1
+      }
+    } else {
+    if (nodeType(v) == NODE_STRING_LIT()) {
                     // A string literal's value IS its own bytes, so the binding is two
                     // stores: the interned rodata pointer and the byte length. No arena
                     // is involved -- an arena is only needed to BUILD a string, and a
@@ -3749,12 +4304,13 @@ func natNativeLower(s, stmts, plan, roffs, strTemp) {
                     s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
                     sidx = sidx + 1
                 } else {
-                    s = natMovRegImm32(s, natRegRAX(), int(intLitVal(v)))
-                    s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
-                }
-            }
-            idx = idx + 1
-        }
+s = natMovRegImm32(s, natRegRAX(), int(intLitVal(v)))
+s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
+}
+}
+}
+idx = idx + 1
+}
         if (k == NODE_PRINT()) {
             let pv = printVal(n)
             // The argument is loaded BEFORE the alignment adjustment, and that
@@ -3788,8 +4344,8 @@ func natNativeLower(s, stmts, plan, roffs, strTemp) {
             // natStrConcat leaves (RDI, RSI) = (dst, len), which is already print_str's
             // convention, so the call follows directly.
             if (nodeType(pv) == NODE_BINARY()) {
-                s = natStrConcat(s, binaryLeft(pv), binaryRight(pv), 0, site, strTemp,
-                    stmts, plan, roffs)
+s = natStrConcat(s, binaryLeft(pv), binaryRight(pv), 0, site, strTemp,
+stmts, plan, roffs, tbl)
                 s = natCallPrintStr(s)
                 site = site + 1
             } else {
@@ -3808,10 +4364,22 @@ func natNativeLower(s, stmts, plan, roffs, strTemp) {
                         s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i)
                         s = natMovRegReg(s, natRegRDI(), natRegRAX())
                         s = natCallPrintInt(s)
-                    } else {
-                        if (nodeType(pv) == NODE_CALL()) {
-                            let ordl = natNativeLocalIndex(stmts,
-                                identName(callArgs(pv)[0]))
+} else {
+if (nodeType(pv) == NODE_DOT()) {
+let drec = identName(dotLeft(pv))
+let dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(stmts, drec), memberField(pv))
+if (dkn == natKindString()) {
+s = natEmitStrValue(s, pv, stmts, plan, roffs, tbl)
+s = natCallPrintStr(s)
+} else {
+s = natRecordFieldLoadInt(s, stmts, plan, tbl, drec, memberField(pv))
+s = natMovRegReg(s, natRegRDI(), natRegRAX())
+s = natCallPrintInt(s)
+}
+} else {
+if (nodeType(pv) == NODE_CALL()) {
+let ordl = natNativeLocalIndex(stmts,
+identName(callArgs(pv)[0]))
                             s = natArrayLen(s, natNativeSlotOff(plan, ordl))
                             s = natMovRegReg(s, natRegRDI(), natRegRAX())
                             s = natCallPrintInt(s)
@@ -3824,16 +4392,26 @@ func natNativeLower(s, stmts, plan, roffs, strTemp) {
                                     natNativeSlotOff(plan, ordp) + 8)
                                 s = natCallPrintStr(s)
                             } else {
-                                s = natLoadStack(s, natRegRDI(),
-                                    natNativeSlotOff(plan, ordp))
-                                s = natCallPrintInt(s)
-                            }
-                        }
-                    }
-                }
+s = natLoadStack(s, natRegRDI(),
+natNativeSlotOff(plan, ordp))
+s = natCallPrintInt(s)
+}
+}
+}
+}
+}
             }
             }
         }
+        if (k == NODE_EXPR_STMT()) {
+        let ae = exprStmtExpr(n)
+        if (natNativeIsAssignExpr(ae)) {
+        let rr = natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx,
+        binaryLeft(ae), binaryRight(ae))
+        s = rr[0]
+        sidx = rr[1]
+        }
+        } else {
         if (k == NODE_RETURN()) {
             let rv = retVal(n)
             if (nodeType(rv) == NODE_INT_LIT()) {
@@ -3854,6 +4432,7 @@ func natNativeLower(s, stmts, plan, roffs, strTemp) {
                     }
                 }
             }
+        }
         }
         i = i + 1
     }
@@ -3885,7 +4464,12 @@ func natNativeProgram(ast) {
             "karkain_main, so a `main` is required"), []]
     }
     let body = natNativeBodyStmts(mainFn)
-    let scan = natNativeScan(body)
+  // Step 9h-1: record declarations live at PROGRAM top level, not in main's body, so
+  // the layout table is built ONCE from the top-level statements and threaded into
+  // the planner, the scanner and the lowering. Building it from the body found no
+  // declarations at all and refused every record as an unknown type.
+  let tbl = natStructTable(stmts)
+    let scan = natNativeScan(body, tbl)
     if (scan[0] != "") { return [scan[0], []] }
     let plan = scan[1]
     let hasReturn = scan[2]
@@ -3907,7 +4491,7 @@ func natNativeProgram(ast) {
     // placeholder the linker had no way to fill.
     let s = natWinStub()
     s = natSubRegImm32(s, natRegRSP(), frame)
-    s = natNativeLower(s, body, plan, ro[1], strTemp)
+    s = natNativeLower(s, body, plan, ro[1], strTemp, tbl)
     // The implicit `return 0` is emitted ONLY when the program has no explicit
     // return, and it must come AFTER the body. Emitting it unconditionally was the
     // first draft's bug and it is instructive: `mov rax, 0` placed after the body
@@ -4075,8 +4659,13 @@ func natRodataOffsetFor(val, stmts, roffs) {
     return 0
 }
 
-func natEmitStrValue(s, expr, stmts, plan, roffs) {
-    if (nodeType(expr) == NODE_STRING_LIT()) {
+func natEmitStrValue(s, expr, stmts, plan, roffs, tbl) {
+  // Step 9h-1: a record string field -- the NARROW case only. A general DotExpr
+  // rewrite is deliberately NOT attempted.
+  if (nodeType(expr) == NODE_DOT()) {
+  return natRecordFieldLoadStr(s, stmts, plan, tbl, identName(dotLeft(expr)), memberField(expr))
+  }
+  if (nodeType(expr) == NODE_STRING_LIT()) {
         s = natRodataRefOff(s, natRegRDI(),
             natRodataOffsetFor(stringLitVal(expr), stmts, roffs))
         return natMovRegImm32(s, natRegRSI(), len(stringLitVal(expr)))
@@ -4100,12 +4689,12 @@ let off = natNativeSlotOff(plan, natNativeLocalIndex(stmts, identName(expr)))
 // oracle ADVANCES the destination register by the staged length instead of encoding the
 // offset in the SIB displacement -- which cannot hold it. That is why the copy loop
 // exists in this shape.
-func natStrConcat(s, left, right, depth, site, strTemp, stmts, plan, roffs) {
+func natStrConcat(s, left, right, depth, site, strTemp, stmts, plan, roffs, tbl) {
     let base = strTemp + depth * 5 * 8
-    s = natEmitStrValue(s, left, stmts, plan, roffs)
+    s = natEmitStrValue(s, left, stmts, plan, roffs, tbl)
     s = natStoreStack(s, natRegRDI(), base)
     s = natStoreStack(s, natRegRSI(), base + 8)
-    s = natEmitStrValue(s, right, stmts, plan, roffs)
+    s = natEmitStrValue(s, right, stmts, plan, roffs, tbl)
     s = natStoreStack(s, natRegRDI(), base + 16)
     s = natStoreStack(s, natRegRSI(), base + 24)
     s = natLoadStack(s, natRegRDI(), base + 8)
