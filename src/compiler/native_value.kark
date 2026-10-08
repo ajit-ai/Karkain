@@ -3560,7 +3560,7 @@ plan, hasReturn]
 }
 } else {
 if (k == NODE_PRINT()) {
-                let bad = natNativeScanValue(printVal(n), stmts, plan, printLine(n), tbl)
+                let bad = natNativeScanValue(printVal(n), stmts, plan, printLine(n), tbl, 1)
                 if (bad != "") { return [bad, plan, hasReturn] }
             } else {
                 if (k == NODE_RETURN()) {
@@ -3867,12 +3867,35 @@ func natNativeStrLitAppend(out, e) {
     if (nodeType(e) == NODE_STRING_LIT()) {
         return appendArray(out, stringLitVal(e))
     }
-    if (nodeType(e) == NODE_BINARY() && binaryOp(e) == "+") {
-        out = natNativeStrLitAppend(out, binaryLeft(e))
-        return natNativeStrLitAppend(out, binaryRight(e))
-    }
-    return out
-}
+if (nodeType(e) == NODE_BINARY() && binaryOp(e) == "+") {
+  out = natNativeStrLitAppend(out, binaryLeft(e))
+  return natNativeStrLitAppend(out, binaryRight(e))
+  }
+  // Step 9h-1: descend a RECORD LITERAL's fields, in `structLitFields` order.
+  //
+  // This is a COLLECTOR/EMITTER ORDERING fix, not a refinement. natRecordStoreLiteral
+  // consumes exactly one roffs entry per STRING field, walking `structLitFields` in order.
+  // Before this arm the collector visited only `let` initialisers and `print` arguments,
+  // so a literal inside a struct literal was never interned: roffs came out one entry
+  // short and the store read `roffs[sidx]` past the end --
+  // "array index out of range" in natRecordStoreLiteral on `string_between_ints`.
+  //
+  // The order MUST match the emitter exactly. `let s = S{...}` reaches here through
+  // natNativeStrLitAppend(out, natNativeDeclValue(n)), so the fields are walked in the
+  // same order natRecordStoreLiteral walks them. Desynchronising the two is the identical
+  // defect 9g fixed when the concat descent was added: one more place where the accepted
+  // and recorded shapes can drift apart.
+  if (nodeType(e) == NODE_STRUCT_LIT()) {
+  let sf = structLitFields(e)
+  let j = 0
+  while (j < len(sf)) {
+  out = natNativeStrLitAppend(out, binaryRight(sf[j]))
+  j = j + 1
+  }
+  return out
+  }
+  return out
+  }
 
 // natNativeUsesString reports whether the program can produce a string at all, which
 // is what gates the print_str helper.
@@ -3950,7 +3973,7 @@ func natRecordFieldLoadStr(s, stmts, plan, tbl, recName, fieldName) {
 // accepts only an int or float field. A string field is NOT accepted here: a string
 // reaches print through natEmitStrValue's own DotExpr arm, which is dispatched BEFORE
 // this validator runs.
-func natNativeScanField(expr, stmts, plan, line, tbl) {
+func natNativeScanField(expr, stmts, plan, line, tbl, allowStr) {
   if (nodeType(dotLeft(expr)) != NODE_IDENT()) {
   return natNativeRefuse("record field read is only lowered on a local record in " +
   "151A Step 9h-1", line)
@@ -3970,11 +3993,18 @@ func natNativeScanField(expr, stmts, plan, line, tbl) {
   }
   let fk = natStructFieldKind(tbl, tname, fname)
   if (fk == natKindInt() || fk == natKindFloat()) { return "" }
+  // Step 9h-1: a string field is accepted ONLY in direct print position.
+  //
+  // `allowStr` is 1 from exactly one call site -- the NODE_PRINT scan, whose lowering
+  // already routes a NODE_DOT string to natEmitStrValue's DotExpr arm. It is 0 from
+  // `return`, because a return value becomes the process exit status and must be an int,
+  // and 0 for every other context. So this widens ONE context, not the expression surface.
+  if (fk == natKindString() && allowStr == 1) { return "" }
   return natNativeRefuse("record field `" + fname + "` is a " + natKindName(fk) +
   "; only int and float field reads are lowered in 151A Step 9h-1", line)
 }
 
-func natNativeScanValue(expr, stmts, plan, line, tbl) {
+func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr) {
     let t = nodeType(expr)
     if (t == NODE_INT_LIT()) { return "" }
     if (t == NODE_STRING_LIT()) { return "" }
@@ -4003,7 +4033,7 @@ if (t == NODE_BINARY()) { return natNativeScanConcat(expr, stmts, plan, line) }
   // after the record type AND the field offset AND the field kind are all resolved. An
   // unresolved field returns a refusal and never reaches emission, so a struct field can
   // never fall through to natMovRegImm32(RAX, intLitVal(v)).
-  if (t == NODE_DOT()) { return natNativeScanField(expr, stmts, plan, line, tbl) }
+  if (t == NODE_DOT()) { return natNativeScanField(expr, stmts, plan, line, tbl, allowStr) }
   // Step 9h-1 SAFETY REFUSAL. A struct literal must never fall through to the generic
   // integer path: `natMovRegImm32(RAX, intLitVal(v))` on a NODE_STRUCT_LIT emits a
   // STRUCTURALLY VALID PE that computes a meaningless integer, because intLitVal of a
@@ -4032,7 +4062,7 @@ if (t == NODE_BINARY()) { return natNativeScanConcat(expr, stmts, plan, line) }
 // exit code, which the oracle refuses outright ("string return values are not
 // supported"). The gate's refusal table found it.
 func natNativeScanReturn(expr, stmts, plan, line, tbl) {
-    let bad = natNativeScanValue(expr, stmts, plan, line, tbl)
+    let bad = natNativeScanValue(expr, stmts, plan, line, tbl, 0)
     if (bad != "") { return bad }
 if (nodeType(expr) == NODE_IDENT()) {
   let k = natNativeSlotKind(plan, natNativeLocalIndex(stmts, identName(expr)))
@@ -4184,9 +4214,16 @@ stmts, plan, roffs, tbl)
                         s = natCallPrintInt(s)
 } else {
 if (nodeType(pv) == NODE_DOT()) {
-s = natRecordFieldLoadInt(s, stmts, plan, tbl, identName(dotLeft(pv)), memberField(pv))
+let drec = identName(dotLeft(pv))
+let dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(stmts, drec), memberField(pv))
+if (dkn == natKindString()) {
+s = natEmitStrValue(s, pv, stmts, plan, roffs, tbl)
+s = natCallPrintStr(s)
+} else {
+s = natRecordFieldLoadInt(s, stmts, plan, tbl, drec, memberField(pv))
 s = natMovRegReg(s, natRegRDI(), natRegRAX())
 s = natCallPrintInt(s)
+}
 } else {
 if (nodeType(pv) == NODE_CALL()) {
 let ordl = natNativeLocalIndex(stmts,
