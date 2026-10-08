@@ -3463,9 +3463,11 @@ if (natNativeSlotKind(plan, last) == natKindArray()) {
 // whether the program came through the Go or the self-hosted engine.
 func natNativeRefuse(what, line) {
     return "error[K145]: native target: " + what + " (main.kark line " + str(line) +
-        "). The 151A Step 9e native driver lowers `let` of an integer literal or an " +
-        "integer array literal, `print` and `return` of an integer literal, a local, " +
-        "`a[i]` or `len(a)`, and `return` of an integer literal or local. This is " +
+        "). The 151A Step 9h-2a native driver lowers `let` of an integer literal, a " +
+        "string literal, an integer array literal or a record literal; `print` and " +
+        "`return` of an integer literal, a local, `a[i]`, `len(a)`, an int/float record " +
+        "field, and (in direct print position) a string record field; and `record.field = " +
+        "value` for an integer local/literal or a string literal. This is " +
         "refused HERE, by kcc, and is not handed to the Go engine."
 }
 
@@ -3475,9 +3477,11 @@ func natNativeRefuse(what, line) {
 // omitting it.
 func natNativeRefuseNoLine(what) {
     return "error[K145]: native target: " + what +
-        ". The 151A Step 9e native driver lowers `let` of an integer literal or an " +
-        "integer array literal, `print` and `return` of an integer literal, a local, " +
-        "`a[i]` or `len(a)`, and `return` of an integer literal or local. This is " +
+        ". The 151A Step 9h-2a native driver lowers `let` of an integer literal, a " +
+        "string literal, an integer array literal or a record literal; `print` and " +
+        "`return` of an integer literal, a local, `a[i]`, `len(a)`, an int/float record " +
+        "field, and (in direct print position) a string record field; and `record.field = " +
+        "value` for an integer local/literal or a string literal. This is " +
         "refused HERE, by kcc, and is not handed to the Go engine."
 }
 
@@ -3567,12 +3571,33 @@ if (k == NODE_PRINT()) {
                     hasReturn = 1
                     let bad = natNativeScanReturn(retVal(n), stmts, plan, retLine(n), tbl)
                     if (bad != "") { return [bad, plan, hasReturn] }
-                } else {
-                    return [natNativeRefuseNoLine("statement kind " + str(k) +
-                        " in `func main` is not lowered by the native driver"),
-                        plan, hasReturn]
-                }
+} else {
+  if (k == NODE_EXPR_STMT()) {
+  let e = exprStmtExpr(n)
+  if (natNativeIsAssignExpr(e)) {
+  let bad = natNativeScanAssign(tbl, stmts, plan, exprStmtLine(n), binaryLeft(e), binaryRight(e))
+  if (bad != "") { return [bad, plan, hasReturn] }
+  } else {
+  return [natNativeRefuseNoLine("expression statement `" + str(nodeType(e)) +
+  "` in `func main` is not lowered by the native driver"),
+  plan, hasReturn]
+  }
+  } else {
+  if (natNativeIsAssignExpr(n)) {
+  // 9h-2a: a BARE `=` BinaryExpr statement is the shape a `for` post arrives in --
+  // program.go:5280 wraps it into an ExprStmt only when walking. Refused by name, so
+  // loop-post assignment cannot be mistaken for supported statement assignment.
+  return [natNativeRefuseNoLine("loop-post assignment (a bare `=` expression) is refused " +
+  "in 151A Step 9h-2a; only `record.field = value` as a statement is lowered"),
+  plan, hasReturn]
+  } else {
+  return [natNativeRefuseNoLine("statement kind " + str(k) +
+  " in `func main` is not lowered by the native driver"),
+  plan, hasReturn]
+  }
+  }
             }
+        }
         }
         i = i + 1
     }
@@ -3836,9 +3861,18 @@ func natNativeStrLiterals(stmts) {
         if (natNativeIsDecl(n)) {
             out = natNativeStrLitAppend(out, natNativeDeclValue(n))
         }
-        if (nodeType(n) == NODE_PRINT()) {
-            out = natNativeStrLitAppend(out, printVal(n))
-        }
+if (nodeType(n) == NODE_PRINT()) {
+  out = natNativeStrLitAppend(out, printVal(n))
+  }
+  // 9h-2a: statement-level assignment. Without this arm `s.label = "changed"` records no
+  // roffs entry, so natNativeLowerAssign reads `roffs[sidx]` past the end -- the same
+  // collector/emitter desynchronisation 9h-1 fixed for record literals.
+  if (nodeType(n) == NODE_EXPR_STMT()) {
+  let ae = exprStmtExpr(n)
+  if (natNativeIsAssignExpr(ae)) {
+  out = natNativeStrLitAppend(out, binaryRight(ae))
+  }
+  }
         i = i + 1
     }
     return out
@@ -3869,6 +3903,13 @@ func natNativeStrLitAppend(out, e) {
     }
 if (nodeType(e) == NODE_BINARY() && binaryOp(e) == "+") {
   out = natNativeStrLitAppend(out, binaryLeft(e))
+  return natNativeStrLitAppend(out, binaryRight(e))
+  }
+  // 9h-2a: a `rec.field = "literal"` statement consumes one roffs entry, consumed by
+  // natNativeLowerAssign in exactly statement order. Without this arm the collector
+  // would not intern the literal and `roffs` would come out one entry short -- the same
+  // collector/emitter desynchronisation that 9h-1 fixed for record literals.
+  if (natNativeIsAssignExpr(e)) {
   return natNativeStrLitAppend(out, binaryRight(e))
   }
   // Step 9h-1: descend a RECORD LITERAL's fields, in `structLitFields` order.
@@ -4002,6 +4043,117 @@ func natNativeScanField(expr, stmts, plan, line, tbl, allowStr) {
   if (fk == natKindString() && allowStr == 1) { return "" }
   return natNativeRefuse("record field `" + fname + "` is a " + natKindName(fk) +
   "; only int and float field reads are lowered in 151A Step 9h-1", line)
+}
+
+// natNativeIsAssignExpr reports whether `e` is a BinaryExpr carrying the "=" operator.
+func natNativeIsAssignExpr(e) {
+  if (nodeType(e) != NODE_BINARY()) { return 0 }
+  if (binaryOp(e) != "=") { return 0 }
+  return 1
+}
+
+// natNativeScanAssign validates `rec.field = rhs` (9h-2a).
+//
+// The LHS must be a NODE_DOT on a record local whose field resolves through the SAME
+// table natRecordFieldLoadInt uses -- no second field table exists or is created here.
+// The RHS must be an integer local/literal or a string literal, matching the two
+// representations natRecordStoreLiteral already writes (one unit; pointer + length).
+//
+// Integer ARITHMETIC on the RHS and assignment inside `if` are deliberately NOT
+// accepted: neither capability exists in this driver, so accepting them would create
+// exactly the accept-without-emit state that 9h-1 had to repair. Each is refused by
+// name instead of silently mis-lowered.
+func natNativeScanAssign(tbl, stmts, plan, line, lhs, rhs) {
+  if (nodeType(lhs) != NODE_DOT()) {
+    return natNativeRefuse("assignment target must be `record.field`; only a record " +
+    "field is lowered in 151A Step 9h-2a", line)
+  }
+  if (nodeType(dotLeft(lhs)) != NODE_IDENT()) {
+    return natNativeRefuse("assignment target `" + memberField(lhs) + "` must be a field " +
+    "of a local record", line)
+  }
+  let recName = identName(dotLeft(lhs))
+  if (natNativeLocalIndex(stmts, recName) < 0) {
+    return natNativeRefuse("undeclared local `" + recName + "` in a field assignment", line)
+  }
+  let tname = natRecordTypeOfLocal(stmts, recName)
+  if (tname == "") {
+    return natNativeRefuse("`" + recName + "` is not a record bound from a record " +
+    "literal, so `" + memberField(lhs) + "` cannot be assigned", line)
+  }
+  let fname = memberField(lhs)
+  if (natStructFieldOff(tbl, tname, fname) < 0) {
+    return natNativeRefuse("record `" + tname + "` has no field `" + fname + "`", line)
+  }
+  let fk = natStructFieldKind(tbl, tname, fname)
+  let rt = nodeType(rhs)
+  if (fk == natKindInt() || fk == natKindFloat()) {
+    if (rt == NODE_INT_LIT()) { return "" }
+    if (rt == NODE_IDENT()) {
+      let ord = natNativeLocalIndex(stmts, identName(rhs))
+      if (ord < 0) {
+        return natNativeRefuse("undeclared local `" + identName(rhs) + "` in a field " +
+        "assignment", line)
+      }
+      if (natNativeSlotKind(plan, ord) != natKindInt()) {
+        return natNativeRefuse("cannot assign a " +
+        natKindName(natNativeSlotKind(plan, ord)) + " to int field `" + fname + "`", line)
+      }
+      return ""
+    }
+    if (rt == NODE_BINARY()) {
+      return natNativeRefuse("integer arithmetic on the right-hand side of a field " +
+      "assignment is not lowered in 151A Step 9h-2a", line)
+    }
+    if (rt == NODE_DOT()) {
+      return natNativeRefuse("a record field read on the right-hand side of a field " +
+      "assignment is not lowered in 151A Step 9h-2a", line)
+    }
+    return natNativeRefuse("field `" + fname + "` is " + natKindName(fk) +
+    "; only an integer local or literal is assigned in 151A Step 9h-2a", line)
+  }
+  if (fk == natKindString()) {
+    if (rt == NODE_STRING_LIT()) { return "" }
+    return natNativeRefuse("field `" + fname + "` is a string; only a string literal " +
+    "is assigned in 151A Step 9h-2a", line)
+  }
+  return natNativeRefuse("field `" + fname + "` has kind " + natKindName(fk) +
+  ", which is not assignable in 151A Step 9h-2a", line)
+}
+
+// natNativeLowerAssign emits `rec.field = rhs` (9h-2a).
+//
+// The base is reloaded from the record's frame slot and the field is stored through
+// the SAME addressing natRecordStoreLiteral writes with -- natStoreBaseOff(base=RBX,
+// disp=off) -- so a field read and a field write cannot disagree about where the
+// field lives. A string writes BOTH units: the interned rodata pointer at `off` and the
+// length at `off + 8`, which is what natRecordFieldLoadStr reads back.
+//
+// Returns [newState, newSidx]: a string assignment consumes one rodata entry, so the
+// caller-owned cursor must travel back out, exactly as natRecordStoreLiteral does.
+func natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx, lhs, rhs) {
+  let recName = identName(dotLeft(lhs))
+  let fname = memberField(lhs)
+  let tname = natRecordTypeOfLocal(stmts, recName)
+  let off = natStructFieldOff(tbl, tname, fname)
+  let fk = natStructFieldKind(tbl, tname, fname)
+  s = natRecordBase(s, stmts, plan, recName, natRegRBX())
+  if (fk == natKindString()) {
+    s = natRodataRefOff(s, natRegRAX(), roffs[sidx])
+    s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
+    s = natMovRegImm32(s, natRegRAX(), len(stringLitVal(rhs)))
+    s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off + 8)
+    return [s, sidx + 1]
+  }
+  if (nodeType(rhs) == NODE_IDENT()) {
+    let ord = natNativeLocalIndex(stmts, identName(rhs))
+    s = natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
+    s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
+    return [s, sidx]
+  }
+  s = natMovRegImm32(s, natRegRAX(), int(intLitVal(rhs)))
+  s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
+  return [s, sidx]
 }
 
 func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr) {
@@ -4251,6 +4403,15 @@ s = natCallPrintInt(s)
             }
             }
         }
+        if (k == NODE_EXPR_STMT()) {
+        let ae = exprStmtExpr(n)
+        if (natNativeIsAssignExpr(ae)) {
+        let rr = natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx,
+        binaryLeft(ae), binaryRight(ae))
+        s = rr[0]
+        sidx = rr[1]
+        }
+        } else {
         if (k == NODE_RETURN()) {
             let rv = retVal(n)
             if (nodeType(rv) == NODE_INT_LIT()) {
@@ -4271,6 +4432,7 @@ s = natCallPrintInt(s)
                     }
                 }
             }
+        }
         }
         i = i + 1
     }
