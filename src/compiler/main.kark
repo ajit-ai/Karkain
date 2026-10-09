@@ -828,15 +828,12 @@ func sourceLines(text) {
     let pos = 0
     let n = len(text)
     while (pos < n) {
-        let rest = substr(text, pos, n - pos)
-        let nl = indexOf(rest, "\n")
-        if (nl < 0) {
-            out = appendArray(out, rest)
-            pos = n
-        } else {
-            out = appendArray(out, substr(rest, 0, nl + 1))
-            pos = pos + nl + 1
-        }
+        let start = pos
+        while (pos < n && text[pos] != "\n") { pos = pos + 1 }
+        let end = pos + 1
+        if (end > n) { end = n }
+        out = appendArray(out, substr(text, start, end - start))
+        pos = end
     }
     return out
 }
@@ -916,16 +913,25 @@ func moduleImportNames(source) {
 func stripModuleImports(text) {
     let lines = sourceLines(text)
     let out = ""
+    let pos = 0
+    let runStart = -1
     let i = 0
     while (i < len(lines)) {
         let line = lines[i]
+        let ll = len(line)
         if (isImportLine(line) == 1) {
+            if (runStart >= 0) {
+                out = out + substr(text, runStart, pos - runStart)
+                runStart = -1
+            }
             if (hasSuffix(line, "\n") == 1) { out = out + "\n" }
         } else {
-            out = out + line
+            if (runStart < 0) { runStart = pos }
         }
+        pos = pos + ll
         i = i + 1
     }
+    if (runStart >= 0) { out = out + substr(text, runStart, pos - runStart) }
     return out
 }
 
