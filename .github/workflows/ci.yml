@@ -222,6 +222,33 @@ jobs:
         # gate above (Linux) with structural validation elsewhere.
         run: go test ./pkg/cli/ -run 'TestPhase148' -count=1
 
+      # 151A Step 9h: records (structs) through the AST driver -- the last big
+      # gap in the native value model. A record is ONE 8-byte unit whose value
+      # IS the address of its field area, so field access reloads the base from
+      # the frame and nothing is allocated.
+      #
+      # PLACED BEFORE THE BROAD TestPhase151 STEP ON PURPOSE. This step was
+      # originally wired after the 9x family, which put it downstream of
+      # 'Run Phase 151 kcc native-parity gates'. That broad step matches
+      # TestPhase151A9H_* as well, so the dedicated step was duplicated coverage
+      # AND it was hostage to it: when the broad step failed, GitHub Actions
+      # skipped every later step and this gate never executed at all -- run
+      # 37916964991 shipped a red CI with zero 9h log lines. A gate that can be
+      # skipped by an unrelated failure downstream of it is not a gate.
+      #
+      # Running it FIRST means the 9h conclusion is always visible on its own,
+      # whatever the broad step does. The redundancy with the broad step is
+      # inherited and harmless (it already matches 9D/9E/9F/9G too); what this
+      # buys is ordering, not extra coverage.
+      #
+      # Distinct pattern on purpose: 'TestPhase151A9G_' does not match
+      # 'TestPhase151A9H_', so a 9h regression cannot hide behind a green 9g step.
+      #
+      # The gate executes the kcc-produced PE on Windows and skips the execution
+      # layer on Linux the way 9d/9g do; image-level layers run everywhere.
+      - name: Run 151A Step 9h records gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A9H_' -count=1 -timeout 30m
+
       # Increment 151: the kcc native-parity track. These four gates were
       # written but NOT wired here between 146D and this step, so every green
       # run in that window was reporting success without exercising them --
@@ -507,19 +534,6 @@ jobs:
       # structural layers run everywhere.
       - name: Run 151A Step 9g string concat gate
         run: go test ./pkg/cli/ -run 'TestPhase151A9G_' -count=1 -timeout 30m
-
-      # 151A Step 9h: records (structs) through the AST driver -- the last big
-      # gap in the native value model. A record is ONE 8-byte unit whose value
-      # IS the address of its field area, so field access reloads the base from
-      # the frame and nothing is allocated.
-      #
-      # Distinct pattern on purpose: 'TestPhase151A9G_' does not match
-      # 'TestPhase151A9H_', so a 9h regression cannot hide behind a green 9g step.
-      #
-      # The gate executes the kcc-produced PE on Windows and skips the execution
-      # layer on Linux the way 9d/9g do; image-level layers run everywhere.
-      - name: Run 151A Step 9h records gate
-        run: go test ./pkg/cli/ -run 'TestPhase151A9H_' -count=1 -timeout 30m
 
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
