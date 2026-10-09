@@ -802,8 +802,33 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// The KIR delta is code growth only. Step 8d added NO frame region, so no
 	// frame-dependent displacement moved -- an earlier reading of that work
 	// predicted a re-pin of every frame number and was wrong.
-	if text != 12570 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 12570 (11412 + 344 Steps 5/6 + 103 Step 7 + 91 Step 8a + 213 Step 8b + 139 Step 8c + 87 Step 8d + 30 Step 8e + 69 Step 8f + 82 Step 9a); output follows: %s", text, out)
+	//
+	// RE-PINNED AFTER STEPS 9b-9h: 12570 -> 13637. The pin stopped moving at Step
+	// 9a (00735ba) while ten commits of native-driver source landed without
+	// re-measuring it, so both this gate and Phase 122's KIRContinuity reported
+	// a pin mismatch on every run from Step 9b onward -- recorded as
+	// "stale/red by decision" in PHASE-151A-BASELINE.md, because re-measuring
+	// needed the whole-tree verify that the ~4 GB host rule defers.
+	//
+	// The +1067 is aggregate code growth, and it is NOT decomposed per step
+	// here on purpose: those ten deltas were never measured individually, so
+	// inventing per-step numbers would be a guess dressed as an accounting. What
+	// IS established, by measurement on this tree:
+	//
+	//   12570  Step 9a pin (00735ba), the last one measured
+	//   13638  measured at 029958b, i.e. WITH the natNativePlan shadowing defect
+	//   13637  measured at f08276b, i.e. with 4a10e27's fix that removes the
+	//          one `let tbl = natStructTable(stmts)` statement KIR renders
+	//
+	// so the shadowing fix accounts for exactly -1, and the remaining growth is
+	// Steps 9b/9c/9d/9e/9f/9g, their corrective change (e1a6400), and the three
+	// record-lowering commits (7d6db10, f64d394, 82bb1f3).
+	//
+	// 13637 was measured twice on f08276b with kcc.exe DELETED between runs, so
+	// each count came from a fresh compile of the committed source rather than
+	// from a cached binary: text=13637 verify=13637.
+	if text != 13637 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 13637 (12570 at Step 9a + 1067 from Steps 9b-9h, their corrective change, and the record lowering; see the comment above for the measured chain); output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

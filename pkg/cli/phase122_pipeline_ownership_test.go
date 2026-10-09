@@ -218,8 +218,18 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// plus the two new emitter-state accessors; the surrounding comment
 		// block above is not rendered by KIR, which is why 176 added source
 		// lines move the pin by 82 rather than by 176.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 12570 {
-			t.Errorf("whole-tree kir text = %d lines, want 12570:\n%s", got, out)
+		//
+		// RE-PINNED AFTER STEPS 9b-9h: 12570 -> 13637, for the same reason this
+		// pin stopped moving at Step 9a while ten commits of native-driver source
+		// landed. The deltas were never measured per step, so only the measured
+		// chain is stated: 12570 (Step 9a pin) -> 13638 (at 029958b, WITH the
+		// natNativePlan shadowing defect) -> 13637 (at f08276b, with 4a10e27's
+		// fix removing the one statement KIR renders). 13637 was measured twice
+		// on f08276b with kcc.exe deleted between runs, so both counts come from
+		// a fresh compile of the committed source. This pin is shared with
+		// TestPhase151A5_KIRPinHolds, which carries the fuller accounting.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 13637 {
+			t.Errorf("whole-tree kir text = %d lines, want 13637:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
