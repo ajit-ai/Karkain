@@ -3394,7 +3394,14 @@ func natRecordStoreLiteral(s, lit, off, kind, roffs, sidx) {
 func natNativePlan(stmts, tbl) {
     let plan = []
     let next = 0
-let tbl = natStructTable(stmts)
+  // 9h-DEFECT-FIX: this function previously contained
+  //   `let tbl = natStructTable(stmts)`
+  // which SHADOWED the tbl parameter with a rebuild from main's BODY. Top-level
+  // `type X struct` declarations live at program level, never in main's body, so
+  // natStructSizeOf returned -1, `ne` became 0, and the record's field area
+  // reserved ZERO bytes: measured, `Point{x,y}` + `let n = 5` printed 5/4/5
+  // (n aliased p.x) and every record frame was 624 regardless of field area.
+  // The table must be the one natNativeProgram built from the program statements.
   let i = 0
   while (i < len(stmts)) {
   let n = stmts[i]
