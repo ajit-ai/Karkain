@@ -43,6 +43,7 @@ package cli
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -287,6 +288,73 @@ func TestPhase151A9H_FrameFollowsTheValueModelRule(t *testing.T) {
 					"without the field area lets the next local alias the first "+
 					"field, which is the 9h-DEFECT-FIX.\n  source: %s",
 					want, got, want, c.localBytes, c.src)
+			}
+		})
+	}
+}
+
+// TestPhase151A9H_OutOfSubsetShapesAreRefusedByName is layer 4: the refusal layer.
+//
+// nat9hRefusals describes nine shapes the record lowering does NOT support. Until
+// this test existed the table was written but never exercised, so it documented an
+// intent without protecting it -- the same "production code with no gate" class this
+// file's header says it was opened to close.
+//
+// THE EXPECTATIONS ARE MEASURED, NOT INVENTED. Every case was driven through kcc
+// and its diagnostic text recorded before a single assertion below was written, so
+// a refusal that shifts to a different message fails instead of quiet-passing on a
+// hope. Two measured facts shape the assertions:
+//
+//   - eight cases are refused by the native DRIVER with error[K145], and each of
+//     those messages carries the long "151A Step 9h-2a native driver lowers ..."
+//     enumeration plus "not handed to the Go engine";
+//   - `unknown_type` is refused EARLIER by kcc's own type checker with error[K106]
+//     ("use of undefined type 'Q' in struct literal"). That is a strictly stronger
+//     outcome -- the program never reached the native lowering at all -- so it is
+//     deliberately exempt from the Go-engine assertion below.
+//
+// A bare error code is not enough to distinguish a refusal from the failures this
+// layer exists to catch, so each case also has to:
+//
+//   - NOT be hex. A "refusal" followed by hex bytes is a program that was silently
+//     mis-lowered into a real image while also emitting a diagnostic -- the worst
+//     outcome, because it looks like a refusal and runs like a miscompile.
+//   - be TEXT. nat9cBuild already fails a crash that produces no output, which is
+//     what separates a refusal from a driver crash or a killed process.
+//   - NAME the offending construct, so a refusal firing for the wrong reason fails.
+//
+// NOTE on `field_arithmetic`: its measured diagnostic is the chained-concatenation
+// refusal, which is imprecise for a program that is really about record fields.
+// That is a documented diagnostic-quality gap in the file's own comment and is NOT
+// pinned here as if it were correct -- this case asserts the K145 refusal only.
+func TestPhase151A9H_OutOfSubsetShapesAreRefusedByName(t *testing.T) {
+	for _, r := range nat9hRefusals {
+		r := r
+		t.Run(r.name, func(t *testing.T) {
+			out := nat9cBuild(t, r.src)
+
+			// A refusal must be TEXT, never an image. This is checked first so a
+			// silently mis-lowered program is reported as such rather than being
+			// waved through by the string checks below.
+			if isHex9d(strings.TrimSpace(out)) {
+				t.Fatalf("a REFUSED program also produced an image:\n%.200s", out)
+			}
+
+			if !strings.Contains(out, r.code) {
+				t.Fatalf("expected %s, got:\n%.400s", r.code, out)
+			}
+			if !strings.Contains(out, r.want) {
+				t.Errorf("refusal does not name the offending construct %q:\n%.400s",
+					r.want, out)
+			}
+			// "not handed to the Go engine" is what distinguishes a driver refusal
+			// from a silent fallback into the Go backend. It is asserted only for
+			// the driver's OWN refusals: a case kcc's checker rejects earlier
+			// carries that checker's diagnostic instead and has no reason to
+			// mention the engine, because the program never reached the lowering.
+			if r.code == "error[K145]" && !strings.Contains(out, "not handed to the Go engine") {
+				t.Errorf("refusal does not say the construct is not handed to the Go "+
+					"engine; an unexplained refusal invites a fallback:\n%.300s", out)
 			}
 		})
 	}
