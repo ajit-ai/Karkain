@@ -508,6 +508,19 @@ jobs:
       - name: Run 151A Step 9g string concat gate
         run: go test ./pkg/cli/ -run 'TestPhase151A9G_' -count=1 -timeout 30m
 
+      # 151A Step 9h: records (structs) through the AST driver -- the last big
+      # gap in the native value model. A record is ONE 8-byte unit whose value
+      # IS the address of its field area, so field access reloads the base from
+      # the frame and nothing is allocated.
+      #
+      # Distinct pattern on purpose: 'TestPhase151A9G_' does not match
+      # 'TestPhase151A9H_', so a 9h regression cannot hide behind a green 9g step.
+      #
+      # The gate executes the kcc-produced PE on Windows and skips the execution
+      # layer on Linux the way 9d/9g do; image-level layers run everywhere.
+      - name: Run 151A Step 9h records gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A9H_' -count=1 -timeout 30m
+
       # `karkain run` stdout parity between the default (kcc) engine and the
       # Go engine. The kcc run path used to fold the compiler's build banner
       # into the program's stdout and TrimSpace its output, so the last line
