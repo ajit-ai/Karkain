@@ -626,30 +626,42 @@ func buildNativeFile(path, target) {
       // fallback, so it is load-bearing and must stay greppable.
       print("[kcc] native request " + target + " (os=" + nativeTargetOS(target) + "): " + fileBaseName(path))
 
-      // Step 9c built the whole-program driver (natNativeProgram), and it is REAL and
-      // measured -- `karkain native-ast <file.kark>` drives it over a user's
-      // program, emits a linked PE, and the 9c gate executes it. It is reached
-      // from THAT subcommand and deliberately NOT from here.
+      // Phase 151D: kcc now OWNS the Windows PE target for a real program.
       //
-      // This path still refuses, because kccOwnsNativeTargets is still false. A
-      // first draft of Step 9c replaced the refusal below with an emit "since the
-      // driver exists now", and the increment-151 gates caught it immediately:
-      // TestPhase151_NoSilentGoFallback reported a refusal that no longer named
-      // K116, and TestPhase151_HarnessDetectsNonParity found an image that
-      // existed WITHOUT kcc provenance.
+      // The emitter below is not new code. It is natNativeProgram, the same
+      // whole-program driver that `karkain native-ast <file.kark>` drives and
+      // that the 9c/9e/9f/9g/9h gates execute on Windows and structurally
+      // check on Linux. What changed is that it is wired to the user-facing
+      // `--target native-x86_64-windows` instead of living only behind a
+      // measurement subcommand.
       //
-      // Both failures are the gates working. The user-facing switch is a
-      // capability CLAIM, and flipping the emission while the claim is still
-      // false makes `karkain build --target native-*` succeed in a way that no
-      // gate authorises. The driver being proven and the switch being thrown are
-      // two different things; 151D throws the switch, and it must do so in the
-      // same change that makes this path emit.
-      print("error[K116]: the self-hosted engine (kcc) has no machine-code backend, so it cannot emit --target " + target + ".")
-      print("  kcc emits C23 only. The " + target + " C-free target is implemented by the Go backend alone.")
+      // ONLY native-x86_64-windows. kcc has no ELF or Mach-O emitter for a
+      // user program: native_elf.kark and native_macho.kark lower the FIXED
+      // reference corpora that 151C/151C2 compare against the Go oracle, and
+      // neither takes a program. So the other two targets keep refusing, and
+      // that refusal is the honest answer rather than a gap to paper over:
+      // invoking this emitter for them would silently produce a PE under a
+      // Linux or macOS target NAME, which is a miscompile, not a fallback.
+      //
+      // The provenance line above is load-bearing: the Go layer must see it
+      // before it will write any bytes, so an image without provenance can
+      // never be presented as a kcc build.
+      if (target == "native-x86_64-windows") {
+        let nres = natNativeProgram(ast)
+        if (nres[0] != "") {
+          print(nres[0])
+          return
+        }
+        print("[kcc] native image " + str(len(nres[1])) + " bytes")
+        print(natToHex(nres[1]))
+        return
+      }
+
+      print("error[K116]: the self-hosted engine (kcc) emits a native image for native-x86_64-windows only, so it cannot emit --target " + target + ".")
+      print("  kcc has no ELF or Mach-O emitter for a user program: native_elf.kark and native_macho.kark")
+      print("  lower the fixed reference corpora that 151C/151C2 compare against the Go oracle, and neither takes one.")
       print("  This is refused here, by kcc, rather than silently handed to the Go engine.")
-      print("  kcc native codegen is increment 151A/B/C (see docs/audit/PHASE-151A-BASELINE.md).")
-      print("  Step 9c's whole-program driver exists and is measured via `karkain native-ast`;")
-      print("  emitting on this path is 151D, which also flips kccOwnsNativeTargets.")
+      print("  The " + target + " C-free target is implemented by the Go backend alone.")
 }
 
 func buildFile(path, target) {

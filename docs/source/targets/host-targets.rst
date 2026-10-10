@@ -72,11 +72,74 @@ Host detection is used for exactly two things:
 2. Deciding whether a cross-run is possible — cross-run restrictions
    compare machines via ``SameMachine``, never triples.
 
-Host detection is **never** a substitute for an explicit target: the
-same-machine C-driver selection compiles ``native`` with the historical
-host probe (byte-identical flags), and a foreign target is always
-compiled by cross-compiler discovery (:doc:`cross-compilation`). There is
-no silent host fallback for a foreign triple.
+  Host detection is **never** a substitute for an explicit target: the
+  same-machine C-driver selection compiles ``native`` with the historical
+  host probe (byte-identical flags), and a foreign target is always
+  compiled by cross-compiler discovery (:doc:`cross-compilation`). There is
+  no silent host fallback for a foreign triple.
+
+C-free native targets (``native-x86_64-*``)
+===========================================
+
+In addition to the triples above, three **C-free machine-code targets**
+exist. They emit a linked executable directly, with no C compiler on
+``PATH`` — no ``gcc``, ``clang`` or ``cl``. They are built from any host
+for any of the three containers; ``run`` requires the host OS to match
+the target OS and is refused elsewhere with the Phase-111 build-only
+hint (exit 6).
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 20 54
+
+   * - Target
+     - Container
+     - Engine ownership
+   * - ``native-x86_64-windows``
+     - PE32+ (``.exe``)
+     - **Self-hosted (kcc)** and Go. Since Phase 151D kcc emits this
+       target itself, through the same whole-program driver that
+       ``karkain native-ast`` uses. Every kcc build prints its provenance
+       line, and the CLI refuses to write bytes that lack it.
+   * - ``native-x86_64-linux``
+     - ELF64 (``.elf``)
+     - **Go backend only.** kcc refuses with ``error[K116]``. It has no
+       ELF emitter for a user program: ``native_elf.kark`` lowers the
+       fixed reference corpora that Phase 151C compares against the Go
+       oracle, and does not take a program.
+   * - ``native-x86_64-macos``
+     - Mach-O PIE (``.macho``)
+     - **Go backend only.** kcc refuses with ``error[K116]``, for the
+       same reason as ELF.
+
+Engine selection vs. target ownership
+-------------------------------------
+
+Ownership of a native target and the default engine are two separate
+facts, and both are worth stating precisely:
+
+- The **default engine** is the self-hosted engine (kcc) unless
+  ``--engine go`` or ``KARKAIN_ENGINE=go`` says otherwise.
+- A native target requested under kcc is answered by kcc. Where kcc owns
+  the target it emits it; where it does not, it refuses with ``K116``
+  and names the target. It never hands the request silently to the Go
+  backend — the earlier behaviour, measured in
+  ``docs/audit/PHASE-151-BASELINE.md`` §1.1, produced a Go image with no
+  signal that the engine had changed.
+- To build all three native targets, use the Go engine
+  (``--engine go``). That is a supported, documented path, not a
+  workaround.
+
+Verified status of this claim
+-----------------------------
+
+``native-x86_64-windows`` is marked self-hosted because kcc-built
+images have been **executed** and produced correct output
+(``pkg/cli/phase151_kcc_native_test.go``). The Linux and macOS rows are
+marked Go-backend-only because kcc refuses them by name in its own
+source (``src/compiler/main.kark``, ``buildNativeFile``); no
+Mach-O-execution claim is made anywhere, since no Intel Mac runner
+exists in CI.
 
 .. seealso::
 
