@@ -1829,7 +1829,7 @@ void print_value(Value v) {
 Value binary_op(Value left, const char* op, Value right) {
     // Phase 55: string comparison operators (ordering + equality)
     if (left.type == TYPE_STRING && right.type == TYPE_STRING) {
-        int c = strcmp(left.strVal, right.strVal);
+        int c = strcmp(left.strVal ? left.strVal : "", right.strVal ? right.strVal : "");
         if (strcmp(op, "==") == 0) return make_int(c == 0);
         if (strcmp(op, "!=") == 0) return make_int(c != 0);
         if (strcmp(op, "<") == 0) return make_int(c < 0);

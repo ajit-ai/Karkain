@@ -591,35 +591,67 @@ func TestPhase151A9D_NoGoFallback(t *testing.T) {
 			"fallback or a catch-all:\n%.300s", out)
 	}
 
-	// karkain build --target native-x86_64-windows on the DEFAULT engine must still
-	// refuse with K116 and exit 6, and must write no image.
+	// Phase 151D split this in two. kcc OWNS native-x86_64-windows, so a
+	// default-engine build of that target must now SUCCEED with kcc provenance
+	// — that is the deliverable, and asserting the old blanket K116 here would
+	// fail on correct behaviour and, worse, forbid the thing 151D ships.
+	//
+	// The targets kcc does NOT own keep the original contract verbatim: refuse
+	// with K116, exit 6, and leave nothing on disk.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "p.kark")
 	if err := os.WriteFile(src, []byte("func main() {\n    let a = [7, 35]\n    print(a[1])\n}\n"), 0o644); err != nil {
 		t.Fatalf("writing the test program: %v", err)
 	}
-	cmd := exec.Command(karkain, "build", "--target", "native-x86_64-windows", src)
-	out, err := cmd.CombinedOutput()
-	code := 0
-	if ee, ok := err.(*exec.ExitError); ok {
-		code = ee.ExitCode()
-	} else if err != nil {
-		t.Fatalf("running karkain build: %v", err)
+
+	for _, tgt := range []string{NativeLinuxTarget, NativeMacOSTarget} {
+		tgt := tgt
+		t.Run("refuses "+tgt, func(t *testing.T) {
+			out, err := exec.Command(karkain, "build", "--target", tgt, src).CombinedOutput()
+			code := 0
+			if ee, ok := err.(*exec.ExitError); ok {
+				code = ee.ExitCode()
+			} else if err != nil {
+				t.Fatalf("running karkain build (%s): %v", tgt, err)
+			}
+			s := string(out)
+			if !strings.Contains(s, "K116") {
+				t.Errorf("%s: native target build did not refuse with K116; kcc does not own "+
+					"this target, so a silent success would be the Go-fallback regression.%s",
+					tgt, s)
+			}
+			if code != 6 {
+				t.Errorf("%s: native target refusal exit = %d, want 6 (ExitEnv)", tgt, code)
+			}
+			entries, _ := os.ReadDir(dir)
+			for _, e := range entries {
+				if strings.HasSuffix(e.Name(), ".exe") {
+					t.Errorf("%s: a refused native build still wrote %s; the refusal must not "+
+						"leave an image behind", tgt, e.Name())
+				}
+			}
+		})
 	}
-	s := string(out)
-	if !strings.Contains(s, "K116") {
-		t.Errorf("native target build did not refuse with K116; Step 151D-first "+
-			"guaranteed this refusal and Step 9d must not have removed it.\n"+
-			"  exit=%d output:\n%.400s", code, s)
-	}
-	if code != 6 {
-		t.Errorf("native target refusal exit = %d, want 6 (ExitEnv)", code)
-	}
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".exe") {
-			t.Errorf("a refused native build still wrote %s; the refusal must not "+
-				"leave an image behind", e.Name())
+
+	// The target kcc owns: built by the DEFAULT engine, which is kcc. Success
+	// here is the point of 151D, but it is only legitimate WITH provenance.
+	t.Run("owns native-x86_64-windows", func(t *testing.T) {
+		out, err := exec.Command(karkain, "build", "--target", NativeWindowsTarget, src).CombinedOutput()
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatalf("running karkain build: %v", err)
 		}
-	}
+		s := string(out)
+		if code != 0 {
+			t.Fatalf("%s: kcc owns this target in 151D but the default-engine build failed "+
+				"(exit %d):\n%.400s", NativeWindowsTarget, code, s)
+		}
+		if !strings.Contains(s, kccNativeProvenance+" "+NativeWindowsTarget) {
+			t.Errorf("%s: a default-engine native build succeeded with no kcc provenance; "+
+				"without it the image cannot be attributed to the self-hosted engine:\n%.400s",
+				NativeWindowsTarget, s)
+		}
+	})
 }

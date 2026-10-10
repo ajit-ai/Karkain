@@ -36,14 +36,26 @@ Release status
    :ref:`build-from-source <installation-source-build>` path below is the
    way to get the toolchain.
 
-.. note::
+  .. note::
 
-   The binaries ship the **self-contained Go engine**. The self-hosted
-   ``kcc`` engine (the default engine when present) is compiled from the
-   repository's ``src/compiler`` sources, so to use it: run from a clone of
-   the repository, or point the ``KARKAIN_KCC`` environment variable at an
-   ``src/compiler`` directory. To use the self-contained Go engine instead,
-   pass ``--engine go`` to ``karkain`` (or set ``KARKAIN_ENGINE=go``).
+     The binaries ship the **self-contained Go engine**. The self-hosted
+     ``kcc`` engine (the default engine when present) is compiled from the
+     repository's ``src/compiler`` sources, so to use it: run from a clone of
+     the repository, or point the ``KARKAIN_KCC`` environment variable at an
+     ``src/compiler`` directory. To use the self-contained Go engine instead,
+     pass ``--engine go`` to ``karkain`` (or set ``KARKAIN_ENGINE=go``).
+
+  .. note::
+
+     **Go is reference-only for the C-free native targets, not globally.**
+     The three ``native-x86_64-*`` targets build with no C compiler at all.
+     Of those, ``native-x86_64-windows`` is also emitted by the self-hosted
+     engine (kcc) since Phase 151D, while ``native-x86_64-linux`` and
+     ``native-x86_64-macos`` are built by the Go backend alone — kcc refuses
+     them with ``error[K116]``. Building all three therefore still needs the
+     Go engine, so the Go toolchain is still a prerequisite for building the
+     compiler itself. See :doc:`/targets/host-targets` for the ownership
+     table.
 
 Archive naming convention:
 
