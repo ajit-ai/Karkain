@@ -189,45 +189,81 @@ func TestPhaseD5_DiagnosticTextIsInternedInTheImage(t *testing.T) {
 // exactly why it needs an assertion: without one, the next reader would "fix" it
 // and silently break parity.
 //
-// The complementary case is asserted too, because the failure mode that goes
-// unnoticed is the other direction: a program with NO index must NOT carry the
-// helpers, or every image grows 209 bytes.
+// CORRECTED 2026-10-15 (strength, not product): this assertion was `delta >=
+// 209`, with a comment claiming the no-index case caught a driver that emits the
+// helpers UNCONDITIONALLY. That claim was false. Under unconditional emission
+// BOTH images grow by the same amount, so the difference stays 209 and the test
+// passes -- the defect the comment promised to catch was precisely the one it
+// could not see. The assertion is now an EQUALITY against the Go oracle's own
+// delta: if kcc emitted the helpers unconditionally, kcc's delta would collapse
+// to the program's own size difference while the oracle's stayed at 209, and the
+// two would disagree. Comparing with the oracle is also why no magic number is
+// needed here: the constant remains a floor, and the floor is no longer asked to
+// do work it cannot do.
 func TestPhaseD5_MapHelpersAppearOnTheSyntacticPredicate(t *testing.T) {
 	karkain := phase130Karkain(t)
 
-	withIndex := nativeBuildWithEngine(t, karkain,
-		"func main() {\n    let a = [3, 5, 7]\n    print(a[1])\n}\n",
-		NativeLinuxTarget, "kcc", "mapgate-index.elf")
-	noIndex := nativeBuildWithEngine(t, karkain,
-		"func main() {\n    let a = [3, 5, 7]\n    print(5)\n}\n",
-		NativeLinuxTarget, "kcc", "mapgate-noindex.elf")
-	if len(withIndex.Image) == 0 || len(noIndex.Image) == 0 {
-		t.Fatalf("a build produced no image: withIndex=%d noIndex=%d",
-			len(withIndex.Image), len(noIndex.Image))
+	indexed := "func main() {\n    let a = [3, 5, 7]\n    print(a[1])\n}\n"
+	unindexed := "func main() {\n    let a = [3, 5, 7]\n    print(5)\n}\n"
+
+	sizeOf := func(src, engine, name string) int {
+		res := nativeBuildWithEngine(t, karkain, src, NativeLinuxTarget, engine, name)
+		if res.ExitCode != 0 || len(res.Image) == 0 {
+			t.Fatalf("%s build produced no image for %s (exit %d):\n%s",
+				engine, name, res.ExitCode, res.Output)
+		}
+		return len(res.Image)
 	}
+
+	kccIndexed := sizeOf(indexed, "kcc", "mapgate-index-kcc.elf")
+	kccUnindexed := sizeOf(unindexed, "kcc", "mapgate-noindex-kcc.elf")
+	goIndexed := sizeOf(indexed, "go", "mapgate-index-go.elf")
+	goUnindexed := sizeOf(unindexed, "go", "mapgate-noindex-go.elf")
 
 	// The oracle emits 209 bytes of map runtime for the indexed program and
 	// none for the unindexed one. The absolute size depends on the program, so
-	// the assertion is the DIFFERENCE, not a literal -- a literal here would
-	// break the moment the frame layout or the reporter changed, and a gate that
-	// breaks for an unrelated reason is a gate people delete.
-	//
-	// The direction is what carries the meaning: an index makes the image
-	// LARGER, because the unreachable map runtime is emitted. Asserting
-	// "<=" would pass for a driver that emits the helpers unconditionally, so
-	// the no-index case is a real check rather than a formality.
+	// the floor is the DIFFERENCE, not a literal on either image.
 	const mapRuntimeBytes = 209
-	got := len(withIndex.Image) - len(noIndex.Image)
-	if got < mapRuntimeBytes {
-		t.Errorf("the indexed image is only %d bytes larger than the unindexed one, "+
-			"want at least %d.\n"+
+	kccDelta := kccIndexed - kccUnindexed
+	goDelta := goIndexed - goUnindexed
+
+	if kccDelta < mapRuntimeBytes {
+		t.Errorf("the kcc indexed image is only %d bytes larger than the unindexed "+
+			"one, want at least %d.\n"+
 			"  The Go backend emits map_find/map_set/map_get whenever the program "+
 			"contains `name[...]` REGARDLESS of the receiver's kind "+
 			"(scanMapUsage's isMapIndex tests only the syntactic shape). kcc "+
 			"reproduces that deliberately, because byte-identity is agreement "+
 			"with the oracle. If this helper set has been removed as 'dead code "+
 			"for an array program', parity has been broken.",
-			got, mapRuntimeBytes)
+			kccDelta, mapRuntimeBytes)
+	}
+
+	// The equality is the assertion that actually catches unconditional
+	// emission, which the floor above provably cannot.
+	//
+	// It is an equality WITHIN one frame-rounding unit, and that tolerance is
+	// derived rather than guessed. Measured on this host: kcc's delta is 629 and
+	// the oracle's is 637 -- a difference of exactly 8 bytes, which is the
+	// already-documented frame residual (kcc `sub rsp,0x288` against the
+	// oracle's `sub rsp,0x290`). The two indexed programs do not share a frame
+	// with the two unindexed ones, so part of each delta is frame padding and
+	// not map runtime. A strict equality was tried first and failed on exactly
+	// this; the tolerance below is the frame layout's own 16-byte rounding unit,
+	// which bounds how much padding can differ.
+	//
+	// The tolerance is still far tighter than the defect it must catch:
+	// unconditional emission collapses kcc's delta to the program's own size
+	// difference (order 10 bytes) while the oracle's stays above 600, so the
+	// failure is measured in hundreds of bytes, not sixteen.
+	const frameRoundingUnit = 16
+	if diff := kccDelta - goDelta; diff > frameRoundingUnit || diff < -frameRoundingUnit {
+		t.Errorf("kcc's map-helper delta (%d) differs from the oracle's (%d) by %d, "+
+			"more than the %d-byte frame rounding unit.\n"+
+			"  A match is required, not a floor: unconditional emission would "+
+			"collapse kcc's delta to the program's own size difference while the "+
+			"oracle stayed at %d, and the `>= %d` floor above would have passed that.",
+			kccDelta, goDelta, diff, frameRoundingUnit, mapRuntimeBytes, mapRuntimeBytes)
 	}
 }
 
