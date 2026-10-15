@@ -13,6 +13,7 @@
 | `docs/audit/KARKAIN-INDEPENDENCE-ROADMAP.md` | I / S / L / P / D track definitions + per-module stdlib backlog |
 | `docs/source/development/semver-policy.rst` | what a patch / minor / major may contain |
 | `docs/source/status/scope.rst`, `docs/source/reference/stable-api.rst` | the public status + API ledger |
+| `docs/audit/KARKAIN_MATURITY_SCORECARD.md` | Language Quality Scorecard (30 dimensions in four categories) + engineering Gates A-F + benchmark/conformance policy, re-derived 2026-10-15 at `develop` = `cc44c95` |
 | `ROADMAP.md` | historical phase log (Phases 1–49) |
 
 ---
