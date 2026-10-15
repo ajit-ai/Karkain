@@ -1121,7 +1121,31 @@ func natInt3(s) {
 // matters: without it `C1 /4` is a 32-bit shift.
 func natShlRegImm(s, r, imm) {
     s = natRex(s, 1, 0, r)
-    s = natByte(s, natMask(4))       // C1 /4 is SHL r/m32, imm8
+    // CORRECTED 2026-10-15: this was natMask(4), which returns 195 == 0xC3 --
+    // the RET opcode -- while the comment below claimed 0xC1. The emitted
+    // sequence was therefore `48 C3 E0 <imm>` where the oracle emits
+    // `48 C1 E0 <imm>`: a function-RETURN opcode in the middle of the map
+    // runtime, reached by natMapFind/natMapSet at native_value.kark:3033 and
+    // :3086. A silent miscompile, not a loud failure -- the helper truncates
+    // itself and the following bytes decode as unrelated instructions.
+    //
+    // The ModRM byte is 0xE0 for rax and 0xE1 for rcx, because SHL r/m64,imm8
+    // is opcode group /4: modrm(3,4,rm) = (3<<6)|(4<<3)|rm. The defective
+    // sequences were `48 C3 E0 05` and `48 C3 E1 05`; the correct ones are
+    // `48 C1 E0 05` and `48 C1 E1 05`. An earlier draft of this comment said
+    // `C8`, which is group /1 -- an encoding neither implementation ever
+    // emitted. ModRM bits 3-5 hold the GROUP number, not a register; reading
+    // 0xC8 as "rax" is the same slip as mistaking 195 for 193.
+    //
+    // It shipped because no gate compares these BYTES: the array_index parity
+    // shape is only asserted to DIFFER from the oracle, and the D5 gate compares
+    // image SIZE deltas. natMask(64) is the 0xC1 shift-by-imm8 group and already
+    // existed in the table, unused.
+    //
+    // Selector 64, NOT a fresh literal: the table is a shared namespace and this
+    // file's own history records two wrong constants that hand-conversion
+    // produced (Phase 151B).
+    s = natByte(s, natMask(64))      // 0xC1 /4 shift-by-imm8 group
     s = natModrm(s, 3, 4, r)
     return natByte(s, imm)
 }
