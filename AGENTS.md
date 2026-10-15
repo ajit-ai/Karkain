@@ -1,5 +1,24 @@
 # Karkain Development Conventions
 
+## Implementation Control System (authoritative entry point)
+
+**`docs/audit/KARKAIN-IMPLEMENTATION-CONTROL.md` is the single authoritative
+implementation queue.** Read it before choosing what to work on: it carries the
+status vocabulary (proposed / approved / in-progress / blocked / verified /
+deferred / completed), the current next-slice recommendation and its reasoning,
+the rule that a gate is a test file *plus* a `ci.yml` step, the staleness checks
+for contradictory status records, and the three-place process for recording a
+deferral.
+
+Companion authorities: `docs/audit/KARKAIN-VERSION-PLAN.md` (version scope),
+`docs/release/<version>-CHECKLIST.md` (closure conditions), this file
+(completion record), `docs/audit/KARKAIN_MATURITY_SCORECARD.md` (30-dimension
+quality assessment and the benchmark/conformance policy).
+
+Three documents are **historical snapshots** and must not be read as current
+status: `docs/audit/NEXT_PHASE_RECOMMENDATION.md`,
+`docs/audit/KARKAIN_IMPLEMENTATION_MATRIX.md` and `ROADMAP.md`.
+
 ## Branch Workflow (MANDATORY RULE)
 
 After EVERY Phase completion and successful test run:
