@@ -111,7 +111,7 @@ Ordered by version, then by dependency. Statuses derived 2026-10-15 at
 |----|------|--------|-------|
 | 155, 156, 158-161 | v1.3.0: OS stdlib modules, native function-call lowering, linear types, atomics | `proposed` | Theme and exit criteria only; no baseline notes exist yet |
 | 153 | DAP debugger server | `proposed` | Explicitly **not authorised**; no DAP server exists in the repository |
-| TYPE-DESIGN | Unified type and variable declaration design | `approved` as a design milestone | See `docs/audit/UNIFIED-TYPE-DECLARATION-DESIGN.md`; implementation requires a separate authorised slice |
+| TYPE-DESIGN | Unified type and variable declaration design | `proposed` (design milestone, **awaiting owner sign-off**) | `docs/audit/UNIFIED-TYPE-DECLARATION-DESIGN.md`; decisions D-1..D-6 are open, so the document is a proposal and not an approved design. Implementation requires a separate authorised slice |
 
 ## 5. Next-slice selection policy
 
@@ -221,3 +221,4 @@ owner-authorized amendment. An agent may propose one; it may not record one.
 | Date | Change |
 |------|--------|
 | 2026-10-15 | Control system established. Queue, status vocabulary, evidence conventions, selection policy, staleness rules and deferral process added. Derived statuses from commits, gate files and `ci.yml` patterns at `develop` = `64c63c6` |
+| 2026-10-15 | Cross-workstream consistency review: `TYPE-DESIGN` corrected from `approved` to `proposed`. The design document and the version plan both state the design is awaiting owner sign-off, so `approved` was a contradiction introduced by this control system and is corrected here under Rule 3 |
