@@ -658,7 +658,13 @@ func buildNativeFile(path, target) {
         let nos = 0
         if (target == "native-x86_64-windows") { nos = 1 }
         if (target == "native-x86_64-macos") { nos = 2 }
-        let nres = natNativeProgramOS(ast, nos)
+        // The source basename goes in as a THIRD argument because the Phase-100 runtime
+        // diagnostic names the file it failed in ("... at <file>:<line>"), and the
+        // oracle passes its own sourceBase() -- the BASENAME, not the path the user
+        // typed. A path would make the diagnostic differ from the Go engine's on the
+        // same program, which is a divergence rather than extra detail. fileBaseName
+        // already exists for exactly this and is defined above in this file.
+        let nres = natNativeProgramOS(ast, nos, fileBaseName(path))
         if (nres[0] != "") {
           print(nres[0])
           return

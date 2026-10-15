@@ -559,11 +559,37 @@ func natSetTargetOS(s, os) {
 // natNewEmitter returns a fresh emitter state: empty code, no labels, no
 // rel32 fixups, no imm64 placeholders.
 // Phase 151A Step 9g grows the state from thirteen slots to fifteen.
-// Phase A1 grows it again to sixteen (the target OS), so it is sixteen slots
-// long; natNewEmitter is the ONLY constructor, so this stays purely additive:
-// no existing emission changes and no previously-shipped byte moves.
+// Phase A1 grows it again to sixteen (the target OS).
+// Phase D5 grows it to SEVENTEEN: the `fresh` counter (slot 16), which mirrors
+// the Go builder's b.uid and is what makes a `b.fresh(prefix)` label name
+// reproducible -- "idxbad$3" and "idxbad$4" are different NAMES, so the whole
+// array-index call site moves if the counter order differs, even though a rel32
+// encodes only a displacement and the BYTES could still match.
+//
+// natNewEmitter is the ONLY constructor, so every growth is purely additive: no
+// existing emission changes and no previously-shipped byte moves.
 func natNewEmitter(unused) {
-    return [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], []]
+    return [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0]
+}
+
+// natStUid is the fresh-label counter (emitter slot 16).
+func natStUid(s) { return s[16] }
+
+// natFresh mirrors Builder.fresh (program.go:1570): bump the counter and return
+// "<prefix>$<uid>".
+//
+// It exists because label NAMES are load-bearing here in a way they are not for
+// a reader of the disassembly. The Step 3 record found that renumbering a label
+// pair left the byte differential green on all ten cases and failed only the
+// label-discipline layer -- a rel32 stores a displacement, so two different
+// label names can produce identical bytes while the naming discipline is wrong.
+// The kcc array-index call site allocates its two labels the way the oracle does
+// (badLbl then doneLbl, in that order), and natFresh is what makes those names
+// come out as "idxbad$3"/"idxok$4" rather than as literals this file would have
+// to keep in sync by hand.
+func natFresh(s, prefix) {
+    s[16] = s[16] + 1
+    return [s, prefix + "$" + str(s[16])]
 }
 
 // natLen reports how many bytes have been emitted so far. It is the value
@@ -1084,6 +1110,20 @@ func natCallReg(s, r) {
 // exhausted export walk reaches this rather than producing silent wrong code.
 func natInt3(s) {
     return natByte(s, natMask(38))
+}
+
+// natShlRegImm emits `shl r64, imm8` (Phase D5), the byte-for-byte counterpart
+// of Emitter.ShlRegImm (pkg/native/emit.go).
+//
+// The map runtime needs it because the entry stride is a power of two (32), so
+// the oracle scales an entry INDEX with a shift rather than a multiply -- one
+// instruction, and no register for the multiplier. `imm8` is 5, and the REX.W
+// matters: without it `C1 /4` is a 32-bit shift.
+func natShlRegImm(s, r, imm) {
+    s = natRex(s, 1, 0, r)
+    s = natByte(s, natMask(4))       // C1 /4 is SHL r/m32, imm8
+    s = natModrm(s, 3, 4, r)
+    return natByte(s, imm)
 }
 
 // natStoreAbs64 emits `mov [imm64], rax` -- REX.W + A3 + eight immediate bytes --

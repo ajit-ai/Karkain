@@ -831,6 +831,25 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// last three defects standing between an ALLOCATING program and byte-identity.
 	// Measured twice on this host with `karkain kir --verify src/compiler/kir.kark`
 	// -- text=13755 verify=13755 -- and never predicted.
+	//
+	// 14050 (Phase D5): the kcc native target gained the Phase-152-B0
+	// runtime-error REPORTER (natRuntimeErrorHelper plus both stderr routes and
+	// the exit-with-code tail) and the map HELPER SET (natMapFind/natMapSet/
+	// natMapGet), plus the natFresh counter that makes b.fresh's label names
+	// reproducible. The reporter alone was not the whole of the array_index gap
+	// -- disassembly located the other half (a constant 209 bytes that turned out
+	// to be emitMapFind) and both were needed; see
+	// docs/audit/PHASE-D5-BASELINE.md.
+	//
+	// Measured with `karkain kir --verify src/compiler/kir.kark` and never
+	// predicted -- text=14050 verify=14050, the two numbers coming from one
+	// invocation of that command as the gate runs it.
+	//
+	// NOTE ON A STALE STRING this comment previously carried: the failure
+	// message said "want 13743" while the assertion beside it said 13755, because
+	// D4 updated the assertion and not the message. A message that names a
+	// different number than the assertion it sits next to is worse than no
+	// message -- it sends the next reader looking for a fourth revision.
 //
 // 13743 (Phase D2): the driver now emits the SAME BYTES as the Go oracle for
 	// the non-allocating subset -- print_str unconditionally, the oracle's
@@ -865,8 +884,8 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 // 13637 was measured twice on f08276b with kcc.exe DELETED between runs, so
 	// each count came from a fresh compile of the committed source rather than
 	// from a cached binary: text=13637 verify=13637.
-	if text != 13755 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 13743 (12570 at Step 9a + 1067 from Steps 9b-9h and their corrective change + 37 for the A1 OS-parameterised driver and ELF linker arm + 55 for Phase B's Mach-O arm, target-OS emitter slot and syscall parameterisation + 7 for Phase D1's oracle emission order and split entry stub + 7 for Phase D2's oracle reconciliation; see the comment above for the measured chain); output follows: %s", text, out)
+	if text != 14050 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 14050; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

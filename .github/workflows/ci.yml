@@ -305,6 +305,24 @@ jobs:
       - name: Run Phase D2 kcc/Go native byte-identity gate
         run: go test ./pkg/cli/ -run 'TestPhaseD2_' -count=1 -timeout 30m -v
 
+      # Phase D5, the array_index narrowing. Two mechanisms were closed on the
+      # kcc side: the native driver gained the Phase-152-B0 runtime-error
+      # REPORTER (an out-of-range index now emits the Phase-100 diagnostic and
+      # exits 1 the way the oracle does, instead of trapping silently), and the
+      # map helper set is emitted on the SAME syntactic predicate as the
+      # oracle's scanMapUsage -- INCLUDING its deliberate over-approximation
+      # (`_, isVar := ix.Left.(*parser.Identifier)` also matches array
+      # indices), which is why an array-only program legitimately carries
+      # emitMapFind's bytes on both engines.
+      #
+      # Named explicitly and with a distinct pattern: 'TestPhaseD5_' matches
+      # none of 'TestPhase151A*' or 'TestPhaseD2_', so these execution
+      # assertions cannot hide behind a green broad step. The execution
+      # differential runs the kcc-produced Windows PE where the host can run
+      # it, and asserts the exit contract structurally elsewhere.
+      - name: Run Phase D5 kcc native array-bounds gate
+        run: go test ./pkg/cli/ -run 'TestPhaseD5_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing
