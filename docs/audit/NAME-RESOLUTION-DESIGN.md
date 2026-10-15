@@ -1,7 +1,32 @@
 # Karkain Whole-Program Name Resolution + Module/Visibility — DESIGN PROPOSAL
 
-Status: **PROPOSAL — requires sign-off.** This is a language-design decision, not
-a wiring change. Nothing here is implemented yet.
+Status: **PARTIALLY IMPLEMENTED - the "PROPOSAL, nothing here is implemented"
+header below is stale as of 2026-10-15.** Rechecked against the repository:
+
+* **Option B (the recommendation, section 5) WAS implemented.**
+  `pkg/sema/resolve.go` exists with 922 lines and the recommended shape:
+  `NewResolver`, `collectDefs`, `indexModules`, `validateImports`,
+  `checkEscapeReturns`. Duplicate-definition and undefined-name diagnostics
+  ship as K102/K107 on both engines, and `public` visibility with qualified
+  calls shipped in Phase 103.
+* **Section 1's finding is no longer true.** It states "no name resolution, no
+  module scoping, no visibility model" and that references are "resolved only by
+  the C linker". Resolution is now a Karkain-level diagnostic pass, and a
+  project that triggers it is rejected by the compiler rather than by `ld`.
+* **What is genuinely still open:** a *default* per-file visibility rule, and the
+  full `pub`/`private` module system (Option A), which this document defers to a
+  separate sign-off. See `docs/audit/UNIFIED-TYPE-DECLARATION-DESIGN.md`
+  section 4, which keeps the current restriction (no exported mutable globals)
+  rather than opening it.
+
+The original text is retained below as the historical proposal, including its
+own conclusion. It should not be used to describe current status; the control
+queue at `docs/audit/KARKAIN-IMPLEMENTATION-CONTROL.md` is the authority.
+
+---
+
+Status (original): **PROPOSAL — requires sign-off.** This is a language-design
+decision, not a wiring change. Nothing here is implemented yet.
 
 ## 1. FINDING
 
