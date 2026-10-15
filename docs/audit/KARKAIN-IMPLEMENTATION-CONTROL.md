@@ -269,7 +269,7 @@ library and runtime, `SEC-` security and supply chain, `PERF-` performance,
 | LANG-001 | `let` carries no mutability meaning; only `const` is immutable | S2 | `proposed` (design decision) | `parseVarDecl` handles all three keywords; Phase 112 leaves let/var reassignment untouched | `UNIFIED-TYPE-DECLARATION-DESIGN.md`, D-1..D-6 | owner decision |
 | LANG-002 | The `let` immutability flip is breaking and breaks a frozen gated corpus | S2 | `blocked` on LANG-001 | The 151A Step 2b reference reassigns a `let` | as LANG-001 | major-version boundary |
 | LANG-003 | Type annotations are strings; no type values, no inference | S2 | `proposed` | `VarDeclStmt.Type string`; AR5 scored 3 | `TYPE_SYSTEM_AUDIT.md`, AR5 | separate programme |
-| GOV-001 | Increment 154 is baselined and gated but NOT implemented | S1 (v1.2.0) | `approved` | `PHASE-154-BASELINE.md`; no implementation exists | owner scheduling; gate is `stage2 == stage3` with Go absent | v1.2.0 |
+| GOV-001 | Increment 154 is baselined and gated but NOT implemented | S1 (v1.2.0) | `approved`, **blocked by host environment 2026-10-15** | `PHASE-154-BASELINE.md`; the `forceGoEngine` pin still exists at `pkg/bootstrap/bootstrap.go:152`. The gate needs `stage2 == stage3` with Go absent, which **cannot run on the dev host today**: 874 MB free against the Phase-127 K127 guard's 1536 MB threshold, so stage-2 refuses with `error[K127]` before doing any work. Not started rather than started-unverifiable | needs >=1.5 GiB free RAM, or the CI runner (which REL-002 shows is currently unsafe for the minutes-long stage-2 burn) | v1.2.0 |
 | GOV-002 | Increment 165 (Docker/GHCR) not started | S3 | `proposed` | Free-floating; no baseline | none | v1.5.0 |
 | GOV-003 | No rollback runbook | S3 | `proposed` | OM4 scored 2 for want of one | none | v1.3.0 |
 | DOC-001 | Several `docs/audit/*` documents contradict current code | S3 | `completed` | Three carry evidence-backed historical banners; scorecard section 7 lists them | `Select-String -Path docs/audit/NEXT_PHASE_RECOMMENDATION.md -Pattern HISTORICAL` | closed 2026-10-15 |
@@ -311,3 +311,20 @@ its decisive experiment changes the build (`-fsanitize=address`, or
 **This section is the register's authority for the recommendation.** If section
 5 and section 9.4 ever disagree, this one wins, because it is the newer record
 and carries the evidence.
+
+### 9.5 v1.2.0 condition status, reconciled 2026-10-15
+
+Against the checklist's six-condition amended gate, verified this date:
+
+| # | Condition | Status | Evidence |
+|---|-----------|--------|----------|
+| 1 | hello with no C compiler | **met** | checklist §2.1; 152-A gate |
+| 4 | native byte-identity where the gate requires parity | **met as written**, one documented limitation | 6 shapes asserted byte-identical by `TestPhaseD2_KccAndGoEmitIdenticalImages`; `array_index` asserted to DIFFER (1088 vs 1096) by `TestPhaseD2_KnownNonParityIsStillNonParity`. **Owner decision pending**: fund D6, or formally accept the 8-byte non-parity |
+| 5 | `stage2 == stage3` | **open** | B2 / REL-002; also blocked by GOV-001 |
+| 6 | no Go toolchain for self-bootstrap | **open** | GOV-001 unimplemented (`forceGoEngine` still pins `KARKAIN_ENGINE=go`) |
+| 7 | `installation.rst` names Go reference-only | **met** | `docs/source/getting-started/installation.rst:50` |
+| 8 | full QA battery | **open** | runs last, after 5 and 6 |
+
+**REL-001 is not among these conditions.** It is a risk to condition 8's
+*evidence* quality (a crash during the battery would invalidate that run), not a
+blocker. See `REL-001-CRASH-INVESTIGATION.md` and checklist §2.2.
