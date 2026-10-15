@@ -222,3 +222,92 @@ owner-authorized amendment. An agent may propose one; it may not record one.
 |------|--------|
 | 2026-10-15 | Control system established. Queue, status vocabulary, evidence conventions, selection policy, staleness rules and deferral process added. Derived statuses from commits, gate files and `ci.yml` patterns at `develop` = `64c63c6` |
 | 2026-10-15 | Cross-workstream consistency review: `TYPE-DESIGN` corrected from `approved` to `proposed`. The design document and the version plan both state the design is awaiting owner sign-off, so `approved` was a contradiction introduced by this control system and is corrected here under Rule 3 |
+## 9. Issue register
+
+Extended 2026-10-15. The queue in section 4 answers "what is next"; this
+register answers "what is wrong, how bad, and what would prove it fixed".
+Every entry carries a stable ID, a severity, a status from section 2, the
+evidence that establishes it, and the validation command that settles it.
+
+**Severity ladder:** `S1` blocks a release condition or a gate;
+`S2` is a correctness or reliability defect with bounded impact;
+`S3` is a capability or quality gap; `S4` is an improvement.
+
+**ID prefixes:** `REL-` reliability, `NAT-` native backend, `STD-` standard
+library and runtime, `SEC-` security and supply chain, `PERF-` performance,
+`CONF-` conformance and testing, `DOC-` documentation, `GOV-` governance,
+`LANG-` language design.
+
+### 9.1 Status discipline
+
+- `completed` requires a gate, a CI step, a commit and an `AGENTS.md` record.
+- `verified locally` means a command ran on a named host; the host is named.
+- `CI-enforced` means a `ci.yml` step runs it; the step name is given.
+- An **unexecuted** check is reported as unexecuted, never as passing.
+- A **structurally** validated item is never reported as execution-verified.
+
+### 9.2 Register
+
+| ID | Title | Sev | Status | Evidence | Validation command | Target |
+|----|-------|-----|--------|----------|--------------------|--------|
+| REL-001 | kcc access violation `0xC0000005` on multi-minute whole-tree runs; root cause UNCLASSIFIED | S1 | `blocked` | Intermittent, nondeterministic on byte-identical sources; three hypotheses falsified (low-RAM, 64 MiB stack, corrupt binary) | `go run ./cmd/karkain kir --verify src/compiler/kir.kark` (3+ runs; record exit, output length, elapsed) | v1.2.0 |
+| REL-002 | Seed-closure stage-2 transpile kills CI runners ~35 s in; mechanism proven on a dev host | S1 | `blocked` | Five consecutive runner deaths; the `bootstrap-closure` job is discovery-only, not a required check | `go test ./pkg/bootstrap -run TestBootstrap_SeedClosure -count=1` on a CI runner | v1.2.0 |
+| REL-003 | No fuzz targets anywhere in the repository | S3 | `approved` | `func Fuzz` count = 0 | `Select-String -Path pkg/**/*_test.go -Pattern 'func Fuzz'` | v1.3.0 |
+| REL-004 | No binary-size or artifact budget exists | S3 | `proposed` | Scorecard CE8 scored 2 for this reason | policy exists; numbers do not | v1.3.0 |
+| REL-005 | Whole-tree KIR pin cannot be re-verified on the dev host | S2 | `blocked` by REL-001 | Pin stands at 14050, verified once (908.3 s) | as REL-001 | with REL-001 |
+| NAT-001 | `array_index` residual: kcc 1088 vs oracle 1096 bytes | S3 | `deferred` (not selected) | `sub rsp,0x288` vs `sub rsp,0x290` | `go test ./pkg/cli -run TestPhaseD2_KnownNonParityIsStillNonParity -count=1` | after the value model settles |
+| NAT-002 | macOS Mach-O execution unverified | S2 | `blocked` | No macOS runner anywhere; every Mach-O claim since increment 149 is structural | none possible without a runner | v1.3.0+ |
+| NAT-003 | kcc native driver covers a subset; `for-in`, `push`, maps, floats and macOS entry/exit are refused by name | S2 | `approved` (unblocked) | The refusal table is the honest current state | `go test ./pkg/cli -run 'TestPhaseD5_|TestPhase151A9' -count=1` | v1.2.0 |
+| STD-001 | `stdlib_v2` and `std.net` build with no C compiler | S1 (v1.2.0 closure) | `deferred` to v1.3.0 | Owner amendment 2026-10-10; recorded verbatim in checklist section 2 | `TestPhase152A_SocketCapabilityBoundaryRejected` | v1.3.0 |
+| STD-002 | `MM-K-time` unassessable - no inventory row, no module | S3 | `proposed` | `KARKAIN-LANGUAGE-COMPLETENESS.md` | none | v1.3.0 |
+| SEC-001 | No SBOM, no artifact signing, no CVE-handling SLA | S2 | `proposed` | OM5 scored 2; cosign is planned in 165, which is not started | none | v1.3.0 |
+| SEC-002 | Remote registry and git fetch are explicit "not available" errors | S3 | `proposed` (by design) | `pkg/pm` refuses rather than faking | n/a | v1.3.0+ |
+| PERF-001 | No performance baseline, so no regression threshold can be stated | S3 | `proposed` | One `Benchmark` function exists; the Phase 141 RSS table has no baseline commit | `go test ./pkg/native -bench BenchmarkNativeCompile -benchmem -count=3` | v1.3.0 |
+| PERF-002 | `TestPhase107_CodegenSpawnJoin` OOM flake on the ~4 GB host | S3 | `needs evidence` | Passes in isolation at 3.8 s; fails in combined runs | `go test ./pkg/codegen -run TestPhase107_CodegenSpawnJoin -count=1` | investigate when convenient |
+| CONF-001 | The corpus is golden-based: a wrong value both engines agree on would pass | S2 | `proposed` | 151P0 added value assertions for exactly this reason | 151P0 gate (green) | v1.3.0 |
+| CONF-002 | Gates A and E not re-executed in the 2026-10-15 pass | S3 | `implemented, unverified` for this pass | Reported "not re-run" in scorecard section 5 | `go test ./pkg/cli -run 'TestPhase122' -count=1` in isolation | when the host allows |
+| LANG-001 | `let` carries no mutability meaning; only `const` is immutable | S2 | `proposed` (design decision) | `parseVarDecl` handles all three keywords; Phase 112 leaves let/var reassignment untouched | `UNIFIED-TYPE-DECLARATION-DESIGN.md`, D-1..D-6 | owner decision |
+| LANG-002 | The `let` immutability flip is breaking and breaks a frozen gated corpus | S2 | `blocked` on LANG-001 | The 151A Step 2b reference reassigns a `let` | as LANG-001 | major-version boundary |
+| LANG-003 | Type annotations are strings; no type values, no inference | S2 | `proposed` | `VarDeclStmt.Type string`; AR5 scored 3 | `TYPE_SYSTEM_AUDIT.md`, AR5 | separate programme |
+| GOV-001 | Increment 154 is baselined and gated but NOT implemented | S1 (v1.2.0) | `approved` | `PHASE-154-BASELINE.md`; no implementation exists | owner scheduling; gate is `stage2 == stage3` with Go absent | v1.2.0 |
+| GOV-002 | Increment 165 (Docker/GHCR) not started | S3 | `proposed` | Free-floating; no baseline | none | v1.5.0 |
+| GOV-003 | No rollback runbook | S3 | `proposed` | OM4 scored 2 for want of one | none | v1.3.0 |
+| DOC-001 | Several `docs/audit/*` documents contradict current code | S3 | `completed` | Three carry evidence-backed historical banners; scorecard section 7 lists them | `Select-String -Path docs/audit/NEXT_PHASE_RECOMMENDATION.md -Pattern HISTORICAL` | closed 2026-10-15 |
+
+### 9.3 Prioritisation, and why
+
+Ranked by correctness and safety impact first, then blocking dependencies,
+then scope and regression risk, then release impact - **not** by file count,
+apparent complexity, or preference for new features.
+
+1. **REL-001** (S1, unclassified crash). It is the only blocker on REL-005,
+   the highest-severity open item with no root cause, and its decisive
+   experiment is cheap. An unknown-cause crash can hide anything behind it.
+2. **GOV-001** (S1, 154 not implemented). A v1.2.0 closure condition that is
+   already baselined, so no planning stands between it and a slice. Second only
+   because it is large and interacts with REL-002.
+3. **NAT-003** (S2, driver subset). The largest remaining gap inside increment
+   151, unblocked, and mechanically incremental - the value-model kinds follow
+   an established pattern.
+4. **NAT-001 / D6** (S3). Cosmetic relative to the open kinds, and closing it
+   early reopens frozen frame pins. Deliberately last among the 151 work.
+5. **STD-001** (deferred to v1.3.0). Carried by an explicit owner amendment;
+   picking it up inside v1.2.0 would contradict that amendment.
+
+### 9.4 Single recommendation, runner-up, deferrals
+
+**Recommended next slice: REL-001**, a root-cause investigation slice for the
+kcc access violation. Status `proposed`; it requires owner authorisation because
+its decisive experiment changes the build (`-fsanitize=address`, or
+`-Wl,--stack,`).
+
+* **Runner-up: NAT-003**, the next native-driver value-model kind. Unblocked and
+  approvable today; second because it does not unblock measurement.
+* **Deferred, with reasons:** NAT-001 (premature), STD-001 (owner amendment),
+  NAT-002 (needs a runner, which is an owner decision), SEC-001 and PERF-001
+  (real but not release-blocking), LANG-001 (owner decision on language
+  semantics), GOV-003 (no incident has required it yet).
+
+**This section is the register's authority for the recommendation.** If section
+5 and section 9.4 ever disagree, this one wins, because it is the newer record
+and carries the evidence.
