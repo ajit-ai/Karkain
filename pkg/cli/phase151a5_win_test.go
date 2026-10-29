@@ -845,6 +845,22 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// predicted -- text=14050 verify=14050, the two numbers coming from one
 	// invocation of that command as the gate runs it.
 	//
+	// 14385 (NAT-CALL, the v1.3.0 opener): the native driver became able to
+	// lower a CALL to a user-defined function, which is a structural change to
+	// how the compiler source reads rather than a flag: natNativeSubset and
+	// natNativeScanFor replaced the single-program scan, natNativeScanFor runs
+	// once PER FUNCTION with the parameter list and an isMain discriminator,
+	// natNativeScanIntExpr/natNativeScanCall/natNativeExprHasCall/
+	// natNativeMaxExtras carry the per-function extras scan, the plan grew a
+	// fourth slot (the binding NAME, because two functions each binding `x`
+	// are two distinct slots), and emission gained natEmitIntExpr,
+	// natEmitIntCall, natNativeHomeParams, natNativeEmitFunc and
+	// natNativeLower. KIR renders the AST, so the emitted-image work
+	// (natNativeProgramOS ordering, the elfs/PE link arms) contributes nothing
+	// here; the +335 is the analysis half. Measured with
+	// `karkain kir --verify src/compiler/kir.kark` in the gate's own
+	// invocation -- text=14385 verify=14385 -- and never predicted.
+	//
 	// NOTE ON A STALE STRING this comment previously carried: the failure
 	// message said "want 13743" while the assertion beside it said 13755, because
 	// D4 updated the assertion and not the message. A message that names a
@@ -884,8 +900,8 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 // 13637 was measured twice on f08276b with kcc.exe DELETED between runs, so
 	// each count came from a fresh compile of the committed source rather than
 	// from a cached binary: text=13637 verify=13637.
-	if text != 14050 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 14050; see the comment above for the measured chain. output follows: %s", text, out)
+	if text != 14385 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 14385; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

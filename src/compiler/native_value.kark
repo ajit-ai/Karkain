@@ -3606,21 +3606,24 @@ func natNativeDeclLine(n) {
     return varDeclLine(n)
 }
 
-// natNativeLocalIndex returns the slot index of the local called `name`, or -1.
+// natNativeSlotIndex returns the slot index of the local or PARAMETER called
+// `name`, or -1.
 //
-// Declaration order IS the slot order (natLocalOff), the same rule the oracle
-// uses, so the two agree on layout without sharing a table. The FIRST binding
-// wins: re-binding a name is shadowing, which is a later slice, and silently using
-// the last one would let the frame and the value disagree.
-func natNativeLocalIndex(stmts, name) {
-    let idx = 0
+// It searches the PLAN, not the statement list, and that is a correctness
+// requirement rather than a tidy-up. A parameter has no declaration statement
+// inside the body, so no body walk can ever find one; NAT-CALL gives every
+// function's parameters the plan's first slots, and the plan carries each
+// slot's NAME so both kinds of binding resolve through one lookup.
+//
+// Declaration order IS the slot order (natLocalOff), the same rule the oracle's
+// layout() uses -- parameters first, then body bindings -- so the two agree on
+// layout without sharing a table. The FIRST binding wins: re-binding a name is
+// shadowing, which is a later slice, and silently using the last one would let
+// the frame and the value disagree.
+func natNativeSlotIndex(plan, name) {
     let i = 0
-    while (i < len(stmts)) {
-        let n = stmts[i]
-        if (natNativeIsDecl(n)) {
-            if (natNativeDeclName(n) == name) { return idx }
-            idx = idx + 1
-        }
+    while (i < natNativePlanCount(plan)) {
+        if (natNativeSlotName(plan, i) == name) { return i }
         i = i + 1
     }
     return 0 - 1
@@ -3846,8 +3849,39 @@ func natRecordStoreLiteral(s, lit, off, kind, roffs, sidx) {
 }
 
 func natNativePlan(stmts, tbl) {
+    return natNativePlanFor([], stmts, tbl)
+}
+
+// natNativePlanFor is the real planner: PARAMETERS first, then the body's
+// bindings in declaration order, which is exactly the order the oracle's
+// layout() uses (pkg/native/program.go:4411-4428 for the parameters, then
+// scanLets for the body).
+//
+// PARAMETERS ARE INT, and that is a measured statement rather than a choice:
+// kcc's parser stores parameter NAMES only (parseFunc discards the type
+// annotation -- see src/compiler/parser.kark), so no annotation is available
+// here even though the source carries one. A one-unit int slot is therefore the
+// only honest reading of what this compiler knows. It is not a silent widening:
+// an argument whose kind is not int is REFUSED at the call site by
+// natNativeScanCall, so a string/array/record argument is named rather than
+// mis-homed into a one-unit int slot.
+//
+// The plan is FOUR slots wide -- [off, kind, elems, name] -- because
+// natNativeSlotIndex resolves a name against it and a parameter has no
+// declaration statement for a body walk to find. That widening is what lets the
+// scanner and the lowering share one lookup for parameters and locals.
+func natNativePlanFor(params, stmts, tbl) {
     let plan = []
     let next = 0
+    let pi = 0
+    while (pi < len(params)) {
+  plan = appendArray(plan, next)
+  plan = appendArray(plan, natKindInt())
+  plan = appendArray(plan, 0)
+  plan = appendArray(plan, params[pi])
+  next = next + 8
+  pi = pi + 1
+  }
   // 9h-DEFECT-FIX: this function previously contained
   //   `let tbl = natStructTable(stmts)`
   // which SHADOWED the tbl parameter with a rebuild from main's BODY. Top-level
@@ -3879,6 +3913,7 @@ func natNativePlan(stmts, tbl) {
   plan = appendArray(plan, next)
   plan = appendArray(plan, k)
   plan = appendArray(plan, ne)
+  plan = appendArray(plan, natNativeDeclName(n))
   next = next + 8
   if (natKindUnits(k) == 2) { next = next + 8 }
   if (k == natKindArray()) { next = next + 8 * ne }
@@ -3889,11 +3924,12 @@ func natNativePlan(stmts, tbl) {
   return plan
   }
 
-func natNativePlanCount(plan) { return len(plan) / 3 }
+func natNativePlanCount(plan) { return len(plan) / 4 }
 
-func natNativeSlotOff(plan, idx) { return plan[idx * 3] }
-func natNativeSlotKind(plan, idx) { return plan[idx * 3 + 1] }
-func natNativeSlotElems(plan, idx) { return plan[idx * 3 + 2] }
+func natNativeSlotOff(plan, idx) { return plan[idx * 4] }
+func natNativeSlotKind(plan, idx) { return plan[idx * 4 + 1] }
+func natNativeSlotElems(plan, idx) { return plan[idx * 4 + 2] }
+func natNativeSlotName(plan, idx) { return plan[idx * 4 + 3] }
 
 // natNativePlanBytes is the total locals-region size, which is the first argument
 // natFrameLayout takes.
@@ -3918,18 +3954,36 @@ if (natNativeSlotKind(plan, last) == natKindArray()) {
   return natNativeSlotOff(plan, last) + size
 }
 
+// natNativeSubset is the SHARED tail of every native refusal, kept in one place
+// so the described surface cannot drift between a refusal that knows its line
+// number and one that does not.
+//
+// It is deliberately an enumeration rather than a promise: a user reading a
+// refusal needs to know what IS lowered, and a stale list is worse than a short
+// one. NAT-CALL added the two items this text names -- an integer expression,
+// and a call to a user function -- because both became reachable in that slice.
+//
+// The two phrases `native target:` and `not handed to the Go engine.` are part
+// of the refusal CONTRACT that frozen gates assert, so they stay even as the
+// enumeration between them changes.
+func natNativeSubset() {
+    return "The native driver lowers `let` of an integer literal, a string literal, " +
+        "an integer array literal or a record literal, and `let` of an integer " +
+        "expression inside a called function; `print` and `return` of an integer " +
+        "literal, a local, `a[i]`, `len(a)`, an int/float record field, an integer " +
+        "expression (`+ - *`, unary `-`), a call to a user function, and (in direct " +
+        "print position) a string record field; and `record.field = value` for an " +
+        "integer local/literal or a string literal. This is refused HERE, by kcc, " +
+        "and is not handed to the Go engine."
+}
+
 // natNativeRefuse builds the refusal text. K145 is the native backend's own code
 // -- the same one the increment-150 gates use for a construct the native target
 // will not lower -- so a user sees one consistent family of native refusals
 // whether the program came through the Go or the self-hosted engine.
 func natNativeRefuse(what, line) {
     return "error[K145]: native target: " + what + " (main.kark line " + str(line) +
-        "). The 151A Step 9h-2a native driver lowers `let` of an integer literal, a " +
-        "string literal, an integer array literal or a record literal; `print` and " +
-        "`return` of an integer literal, a local, `a[i]`, `len(a)`, an int/float record " +
-        "field, and (in direct print position) a string record field; and `record.field = " +
-        "value` for an integer local/literal or a string literal. This is " +
-        "refused HERE, by kcc, and is not handed to the Go engine."
+        "). " + natNativeSubset()
 }
 
 // natNativeRefuseNoLine is natNativeRefuse for a refusal where the offending
@@ -3937,13 +3991,7 @@ func natNativeRefuse(what, line) {
 // what makes a refusal actionable; inventing a line number would be worse than
 // omitting it.
 func natNativeRefuseNoLine(what) {
-    return "error[K145]: native target: " + what +
-        ". The 151A Step 9h-2a native driver lowers `let` of an integer literal, a " +
-        "string literal, an integer array literal or a record literal; `print` and " +
-        "`return` of an integer literal, a local, `a[i]`, `len(a)`, an int/float record " +
-        "field, and (in direct print position) a string record field; and `record.field = " +
-        "value` for an integer local/literal or a string literal. This is " +
-        "refused HERE, by kcc, and is not handed to the Go engine."
+    return "error[K145]: native target: " + what + ". " + natNativeSubset()
 }
 
 // natNativeScan validates main's statements and counts its int locals in ONE
@@ -3989,48 +4037,64 @@ i = i + 1
 return ""
 }
 
-func natNativeScan(stmts, tbl) {
-    let plan = natNativePlan(stmts, tbl)
+// natNativeWhere names the function a refusal came from, for the message tail. It is
+// a suffix rather than a prefix so the frozen gates that assert the phrase
+// "is not lowered by the native driver" keep matching, and so main's wording is
+// byte-identical to the pre-NAT-CALL text.
+func natNativeWhere(isMain) {
+    if (isMain == 1) { return " in `func main`" }
+    return " in a called function"
+}
+
+// natNativeStmtKindName names the statement a refusal came from.
+//
+// A refusal that says "statement kind 5" names a NUMBER, which is not something a
+// user can act on -- the 151 baseline calls that out as a refusal that invites a
+// fallback. An unrecognised kind keeps the number rather than being mislabelled.
+func natNativeStmtKindName(k) {
+    if (k == NODE_IF()) { return "`if` statement" }
+    if (k == NODE_WHILE()) { return "`while` statement" }
+    if (k == NODE_FOR()) { return "`for` statement" }
+    if (k == NODE_FOR_IN()) { return "`for-in` statement" }
+    if (k == NODE_BREAK()) { return "`break` statement" }
+    if (k == NODE_CONTINUE()) { return "`continue` statement" }
+    return "statement kind " + str(k)
+}
+
+func natNativeScanFor(params, stmts, tbl, fns, isMain) {
+    let plan = natNativePlanFor(params, stmts, tbl)
     let hasReturn = 0
     let i = 0
     while (i < len(stmts)) {
         let n = stmts[i]
         let k = nodeType(n)
         if (natNativeIsDecl(n)) {
-            let v = natNativeDeclValue(n)
-            let vt = nodeType(v)
-if (vt == NODE_ARRAY_LIT()) {
-let bad = natNativeScanElems(arrayLitElems(v), natNativeDeclLine(n))
-if (bad != "") { return [bad, plan, hasReturn] }
-} else {
-if (vt == NODE_STRUCT_LIT()) {
-// Step 9h-1: a record literal is validated by checking that the
-// declared type exists and that every named field exists with a
-// supported kind. An unknown type or field is a LOUD refusal, never
-// a silently mis-sized record.
-let bad = natNativeScanStructLit(tbl, v, natNativeDeclLine(n))
-if (bad != "") { return [bad, plan, hasReturn] }
-} else {
-if (vt == NODE_STRING_LIT()) {
-// Accepted as-is: the value is the literal's own bytes, interned
-// into rodata, so there is nothing to evaluate.
-} else {
-if (vt != NODE_INT_LIT()) {
-return [natNativeRefuse("`let " + natNativeDeclName(n) +
-"` initialised from a non-integer expression", natNativeDeclLine(n)),
-plan, hasReturn]
-}
-}
-}
-}
-} else {
+            let bad = natNativeScanDecl(n, plan, tbl, fns, isMain)
+            if (bad != "") { return [bad, plan, hasReturn] }
+        } else {
 if (k == NODE_PRINT()) {
-                let bad = natNativeScanValue(printVal(n), stmts, plan, printLine(n), tbl, 1)
-                if (bad != "") { return [bad, plan, hasReturn] }
+                // A CALLEE's `print` is INT-only, and the branch is not cosmetic.
+                //
+                // natNativeScanValue is right for main: a string literal is
+                // printable as itself, and main's literal collector interns it. A
+                // callee's literals are never collected -- the rodata list is built
+                // from main's body alone (baseline section 3.2) -- so `print("hi")`
+                // in a callee passed this validator, reached natRodataRefOff with an
+                // offset that was never interned, and CRASHED kcc with
+                // "runtime error: array index out of range". Measured, not inferred:
+                // the fixture is in the NAT-CALL gate's refusal table. Refusing it
+                // here keeps the callee subset int-only by name instead of by crash.
+                if (isMain == 0) {
+                    let bad = natNativeScanIntExpr(printVal(n), plan, printLine(n), fns, 0)
+                    if (bad != "") { return [bad, plan, hasReturn] }
+                } else {
+                    let bad = natNativeScanValue(printVal(n), stmts, plan, printLine(n), tbl, 1, fns)
+                    if (bad != "") { return [bad, plan, hasReturn] }
+                }
             } else {
                 if (k == NODE_RETURN()) {
                     hasReturn = 1
-                    let bad = natNativeScanReturn(retVal(n), stmts, plan, retLine(n), tbl)
+                    let bad = natNativeScanReturn(retVal(n), stmts, plan, retLine(n), tbl, fns)
                     if (bad != "") { return [bad, plan, hasReturn] }
 } else {
   if (k == NODE_EXPR_STMT()) {
@@ -4039,9 +4103,21 @@ if (k == NODE_PRINT()) {
   let bad = natNativeScanAssign(tbl, stmts, plan, exprStmtLine(n), binaryLeft(e), binaryRight(e))
   if (bad != "") { return [bad, plan, hasReturn] }
   } else {
-  return [natNativeRefuseNoLine("expression statement `" + str(nodeType(e)) +
-  "` in `func main` is not lowered by the native driver"),
+  // NAT-CALL: a bare call statement -- `show(7)` for a void callee -- is the only
+  // way to reach a function that PRINTS. Without this arm a non-main function that
+  // prints is unreachable, because the only other call positions (`print(...)` and
+  // `return ...`) both require an int. It is an accepted statement rather than a
+  // widened expression, so the discarded RAX changes nothing about the value model:
+  // natEmitIntCall lowers the call, and a void callee's implicit `xor rax,rax` is
+  // simply never read.
+  if (nodeType(e) == NODE_CALL()) {
+  let bad = natNativeScanCall(e, plan, exprStmtLine(n), fns)
+  if (bad != "") { return [bad, plan, hasReturn] }
+  } else {
+  return [natNativeRefuseNoLine("expression statement `" + getNodeType(e) +
+  "` is not lowered by the native driver"),
   plan, hasReturn]
+  }
   }
   } else {
   if (natNativeIsAssignExpr(n)) {
@@ -4052,8 +4128,8 @@ if (k == NODE_PRINT()) {
   "in 151A Step 9h-2a; only `record.field = value` as a statement is lowered"),
   plan, hasReturn]
   } else {
-  return [natNativeRefuseNoLine("statement kind " + str(k) +
-  " in `func main` is not lowered by the native driver"),
+  return [natNativeRefuseNoLine(natNativeStmtKindName(k) +
+  " is not lowered by the native driver" + natNativeWhere(isMain)),
   plan, hasReturn]
   }
   }
@@ -4063,6 +4139,343 @@ if (k == NODE_PRINT()) {
         i = i + 1
     }
     return ["", plan, hasReturn]
+}
+
+// natNativeScanDecl validates one `let`/`var` binding.
+//
+// The split is not cosmetic. MAIN keeps the exact arms 9c-9h froze -- a literal of
+// one of the four supported kinds and nothing else -- because those arms are pinned
+// by byte-identity gates and NAT-CALL has no reason to move them. A CALLED function
+// accepts an int EXPRESSION, which is what makes a callee like `add(a, b)` return
+// `a + b` at all.
+//
+// The asymmetry is deliberate and is named in the refusal text rather than hidden:
+// `let c = a + b` in main is still refused, while the same line inside a callee is
+// lowered. Widening main's arm would have moved frozen bytes for no gain, and this
+// slice is scoped to calls, not to a general expression driver.
+func natNativeScanDecl(n, plan, tbl, fns, isMain) {
+    let v = natNativeDeclValue(n)
+    if (isMain == 0) {
+        return natNativeScanIntExpr(v, plan, natNativeDeclLine(n), fns, 0)
+    }
+    let vt = nodeType(v)
+    if (vt == NODE_ARRAY_LIT()) {
+        return natNativeScanElems(arrayLitElems(v), natNativeDeclLine(n))
+    }
+    if (vt == NODE_STRUCT_LIT()) {
+        // Step 9h-1: a record literal is validated by checking that the
+        // declared type exists and that every named field exists with a
+        // supported kind. An unknown type or field is a LOUD refusal, never
+        // a silently mis-sized record.
+        return natNativeScanStructLit(tbl, v, natNativeDeclLine(n))
+    }
+    if (vt == NODE_STRING_LIT()) {
+        // Accepted as-is: the value is the literal's own bytes, interned
+        // into rodata, so there is nothing to evaluate.
+        return ""
+    }
+    if (vt != NODE_INT_LIT()) {
+        return natNativeRefuse("`let " + natNativeDeclName(n) +
+            "` initialised from a non-integer expression", natNativeDeclLine(n))
+    }
+    return ""
+}
+
+// natNativeIsStrBinary reports whether a `+` is a STRING concatenation.
+//
+// It exists because NAT-CALL made integer `+` reachable, and until then every `+`
+// in a program WAS a concat. natNativeConcatIn/print's dispatch both used "is the
+// node a BinaryExpr with +" as the test, which was exactly right while int
+// arithmetic was refused and is exactly wrong now: an int `+` would turn usesStr
+// on (adding 41 bytes of print_str and a spurious 1024-byte arena) and would route
+// an int addition into natStrConcat, whose operand arms expect literals and
+// identifiers.
+//
+// UNKNOWN classifies as NOT a string on purpose. natNativeStrKind returns -2 for a
+// call and for an int literal, and in this slice a call returns an int, so an
+// unknown operand cannot make an expression a concat. The alternative -- treating
+// unknown as string -- would refuse int calls.
+func natNativeIsStrBinary(e, stmts, plan) {
+    if (natNativeStrKind(binaryLeft(e), stmts, plan) == 1) { return 1 }
+    if (natNativeStrKind(binaryRight(e), stmts, plan) == 1) { return 1 }
+    return 0
+}
+
+// natNativeFuncs returns every top-level function as a flat descriptor list, three
+// slots each: [name, params, body]. Source order is preserved because that is the
+// order the oracle emits functions in, and emission order decides every byte
+// offset after the helpers.
+//
+// `params` comes back exactly as the parser stored it: NAMES only. That is why
+// natNativePlanFor treats every parameter as a one-unit int -- see its header.
+func natNativeFuncs(stmts) {
+    let out = []
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        if (nodeType(n) == NODE_FUNC_DECL()) {
+            out = appendArray(out, funcName(n))
+            out = appendArray(out, funcParams(n))
+            out = appendArray(out, funcBody(n))
+        }
+        i = i + 1
+    }
+    return out
+}
+
+func natNativeFuncCount(fns) { return len(fns) / 3 }
+func natNativeFuncNameAt(fns, i) { return fns[i * 3] }
+func natNativeFuncParamsAt(fns, i) { return fns[i * 3 + 1] }
+func natNativeFuncBodyAt(fns, i) { return fns[i * 3 + 2] }
+
+// natNativeFuncIndex returns the descriptor index for `name`, or -1.
+func natNativeFuncIndex(fns, name) {
+    let i = 0
+    while (i < natNativeFuncCount(fns)) {
+        if (natNativeFuncNameAt(fns, i) == name) { return i }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// natNativeFuncLabel is the oracle's naming rule (program.go:4811-4814), reproduced
+// rather than invented: main is `karkain_main` because the entry stub calls that
+// symbol, and every other function is `fn_<name>`. The `$ret` label a body jumps to
+// is derived from THIS label, so the two cannot disagree.
+func natNativeFuncLabel(name) {
+    if (name == "main") { return "karkain_main" }
+    return "fn_" + name
+}
+
+// natNativeExprHasCall reports whether an expression contains a call anywhere inside.
+//
+// It exists to REFUSE one shape rather than to accept one. The argument spill is
+// PER ARGUMENT INDEX and is reused by every call: `f(g(1), h(2))` evaluates g, stores
+// its result at argTemp(0), then evaluates h -- whose own argument is staged at
+// argTemp(0), clobbering f's first argument. The oracle has the same defect and this
+// slice does not fix it; it refuses it, by name, so it cannot be mistaken for working.
+// An argument at index 0 is unaffected (its spill is written last), which is why the
+// check is conditioned on the index rather than applied to every argument.
+func natNativeExprHasCall(e) {
+    let t = nodeType(e)
+    if (t == NODE_CALL()) { return 1 }
+    if (t == NODE_BINARY()) {
+        return natNativeExprHasCall(binaryLeft(e)) + natNativeExprHasCall(binaryRight(e))
+    }
+    if (t == NODE_UNARY()) { return natNativeExprHasCall(unaryOperand(e)) }
+    return 0
+}
+
+// natNativeScanCall validates a call to a USER function.
+//
+// Everything here is a refusal path except the recursive argument check, and that is
+// the point: a call is either fully understood (arity, defined callee, int arguments)
+// or named. `len` is refused HERE rather than treated as undefined, because it IS
+// defined -- it is a builtin the driver lowers in main but not inside a callee, and
+// telling a user their call to a real builtin is "undefined" would be a worse
+// diagnostic than the true one.
+func natNativeScanCall(e, plan, line, fns) {
+    let fname = callFunc(e)
+    if (fname == "len") {
+        return natNativeRefuse("`len()` inside a called function is not lowered by the " +
+            "native driver in this slice", line)
+    }
+    let fi = natNativeFuncIndex(fns, fname)
+    if (fi < 0) {
+        // A callee that is not one of this program's functions is a BUILTIN in every
+        // case that reaches here: kcc's checker already rejects a genuinely undefined
+        // function with error[K101] before the driver runs (measured). Naming it as a
+        // builtin is therefore accurate, and it keeps the phrase "is not lowered by
+        // the native driver" that the frozen 9e gate asserts -- the first draft said
+        // "call to undefined function `abs`", which is not true of `abs` and which
+        // turned a correct refusal into a wrong diagnostic.
+        if (isCheckerBuiltin(fname) == 1) {
+            return natNativeRefuse("call to builtin `" + fname + "` is not lowered by " +
+                "the native driver in this slice (only a function defined in this " +
+                "program can be called)", line)
+        }
+        return natNativeRefuse("call to undefined function `" + fname + "`", line)
+    }
+    let params = natNativeFuncParamsAt(fns, fi)
+    let args = callArgs(e)
+    if (len(args) != len(params)) {
+        return natNativeRefuse("call to `" + fname + "` has " + str(len(args)) +
+            " argument(s) but `" + fname + "` declares " + str(len(params)), line)
+    }
+    let i = 0
+    while (i < len(args)) {
+        if (i >= 1) {
+            if (natNativeExprHasCall(args[i]) == 1) {
+                return natNativeRefuse("argument " + str(i + 1) + " of the call to `" +
+                    fname + "` contains another call; the argument spill area is reused " +
+                    "across calls, so an inner call would clobber an earlier argument -- " +
+                    "bind the inner result to a local first", line)
+            }
+        }
+        // Every parameter is an int in this slice (the parser stores parameter NAMES
+        // only, so a parameter's declared kind is not recoverable here). Naming the
+        // offending argument's kind and the parameter it targets matches the oracle's
+        // own diagnostic word for word -- measured: `error[K145]: string argument for
+        // int parameter 'n' (call to 'f')` -- instead of falling through to the generic
+        // "expression of kind 23", which names a node number nobody can act on.
+        let wk = natNativeArgKindName(args[i], plan)
+        if (wk != "") {
+            return natNativeRefuse(wk + " argument for int parameter `" +
+                params[i] + "` (call to `" + fname + "`)", line)
+        }
+        let bad = natNativeScanIntExpr(args[i], plan, line, fns, 0)
+        if (bad != "") { return bad }
+        i = i + 1
+    }
+    return ""
+}
+
+// natNativeArgKindName names the kind of a call argument that this slice CANNOT pass,
+// or "" when the argument is not one of the named cases and the ordinary int scan
+// should decide. It exists to make the diagnostic specific: the scan below would
+// otherwise report a node NUMBER.
+func natNativeArgKindName(e, plan) {
+    let t = nodeType(e)
+    if (t == NODE_STRING_LIT()) { return "string" }
+    if (t == NODE_FLOAT_LIT()) { return "float" }
+    if (t == NODE_BOOL_LIT()) { return "bool" }
+    if (t == NODE_IDENT()) {
+        let ord = natNativeSlotIndex(plan, identName(e))
+        if (ord >= 0) {
+            let k = natNativeSlotKind(plan, ord)
+            if (k != natKindInt()) { return natKindName(k) }
+        }
+    }
+    return ""
+}
+
+// natNativeScanIntExpr validates an INTEGER expression and nothing else.
+//
+// The subset is the oracle's int path: literals, int locals, `+ - *`, unary `-`, and
+// calls to user functions. It deliberately has no `stmts`/`roffs`/`tbl` parameter --
+// an int expression cannot touch rodata, a record or a string path, and passing them
+// would invite an arm that does.
+//
+// `depth` mirrors the oracle exactly (program.go:6717-6723): the operator is checked
+// BEFORE the depth guard, and both operands are emitted at depth+1. Unary `-` passes
+// the SAME depth (program.go:5944), which is why `-a + b` and `a + b` nest alike.
+func natNativeScanIntExpr(e, plan, line, fns, depth) {
+    let t = nodeType(e)
+    if (t == NODE_INT_LIT()) { return "" }
+    if (t == NODE_IDENT()) {
+        let ord = natNativeSlotIndex(plan, identName(e))
+        if (ord < 0) {
+            return natNativeRefuse("undeclared local `" + identName(e) + "`", line)
+        }
+        let k = natNativeSlotKind(plan, ord)
+        if (k != natKindInt()) {
+            return natNativeRefuse("`" + identName(e) + "` is " + natKindName(k) +
+                "; only an int may appear in an arithmetic expression or be passed to a " +
+                "function in this slice", line)
+        }
+        return ""
+    }
+    if (t == NODE_UNARY()) {
+        if (unaryOp(e) != "-") {
+            return natNativeRefuse("unsupported unary operator '" + unaryOp(e) + "'", line)
+        }
+        return natNativeScanIntExpr(unaryOperand(e), plan, line, fns, depth)
+    }
+    if (t == NODE_BINARY()) {
+        let op = binaryOp(e)
+        if (op != "+" && op != "-" && op != "*") {
+            return natNativeRefuse("unsupported operator '" + op + "' (want +, - or *)", line)
+        }
+        if (depth >= natMaxBinDepth()) {
+            return natNativeRefuse("expression nesting exceeds " + str(natMaxBinDepth()) +
+                " binary levels", line)
+        }
+        let bad = natNativeScanIntExpr(binaryLeft(e), plan, line, fns, depth + 1)
+        if (bad != "") { return bad }
+        return natNativeScanIntExpr(binaryRight(e), plan, line, fns, depth + 1)
+    }
+    if (t == NODE_CALL()) { return natNativeScanCall(e, plan, line, fns) }
+    // getNodeType, not a node NUMBER. "expression of kind 23" was the first draft and
+    // it names something a reader cannot act on; the AST bridge's own name is what the
+    // rest of the compiler reports.
+    return natNativeRefuse("`" + getNodeType(e) + "` is not an integer expression " +
+        "the native driver lowers here", line)
+}
+
+// natNativeMaxExtras reproduces the oracle's scanMaxExtras (program.go:4494): the
+// largest number of 8-byte argument UNITS any call in this function leaves in the
+// caller-frame extras area. It is measured PER FUNCTION because the extras area is
+// reserved in the CALLER's frame, so one function's deep call must not enlarge
+// another's frame.
+func natNativeMaxExtras(stmts) {
+    let best = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        if (natNativeIsDecl(n)) {
+            let m = natNativeMaxExtrasExpr(natNativeDeclValue(n))
+            if (m > best) { best = m }
+        }
+        if (nodeType(n) == NODE_PRINT()) {
+            let m = natNativeMaxExtrasExpr(printVal(n))
+            if (m > best) { best = m }
+        }
+        if (nodeType(n) == NODE_RETURN()) {
+            let m = natNativeMaxExtrasExpr(retVal(n))
+            if (m > best) { best = m }
+        }
+        // NAT-CALL: a bare call statement carries its arguments in exactly the same
+        // extras area a call in any other position does, so leaving this arm out
+        // gives a statement-position call a maxExtra of 0 and writes its 7th unit
+        // OUTSIDE the reserved region -- over the caller's own frame. It cannot be
+        // caught by the other arms either: `show(1,2,3,4,5,6,7)` as a statement is
+        // not a decl, not a print and not a return.
+        if (nodeType(n) == NODE_EXPR_STMT()) {
+            let m = natNativeMaxExtrasExpr(exprStmtExpr(n))
+            if (m > best) { best = m }
+        }
+        i = i + 1
+    }
+    return best
+}
+
+func natNativeMaxExtrasExpr(e) {
+    let t = nodeType(e)
+    if (t == NODE_BINARY()) {
+        let l = natNativeMaxExtrasExpr(binaryLeft(e))
+        let r = natNativeMaxExtrasExpr(binaryRight(e))
+        if (l > r) { return l }
+        return r
+    }
+    if (t == NODE_UNARY()) { return natNativeMaxExtrasExpr(unaryOperand(e)) }
+    if (t == NODE_CALL()) {
+        let args = callArgs(e)
+        // UNITS BEYOND THE SIX REGISTER ARGUMENTS, not the total. The oracle floors at
+        // zero and subtracts `len(argRegs)` (program.go:4512-4514:
+        // `if e := units - len(argRegs); e > max`). Returning the TOTAL here reserved
+        // 56 bytes of extras for a seven-argument call where the oracle reserves 8 --
+        // a 48-byte frame difference on the caller, which showed up as a byte-identity
+        // failure on `main` alone while the callee (which has no calls) matched.
+        //
+        // Every argument in this subset is ONE unit; a string argument would be two,
+        // and the scan refuses one at a call site, so `len(args)` is exact here.
+        let units = len(args)
+        let best = 0
+        if (units > 6) { best = units - 6 }
+        let inner = 0
+        let i = 0
+        while (i < len(args)) {
+            let m = natNativeMaxExtrasExpr(args[i])
+            if (m > inner) { inner = m }
+            i = i + 1
+        }
+        // Both, because the oracle takes the max of this call's overflow and its
+        // arguments' overflow: `f(g(1),2,3,4,5,6,7)` overflows by 1 and its argument
+        // by 0, while `f(g(1,2,3,4,5,6,7))` overflows by 0 and its argument by 1.
+        if (inner > best) { return inner }
+        return best
+    }
+    return 0
 }
 
 // natArrayValue materialises an array literal into its frame slot: the (base, len)
@@ -4214,7 +4627,7 @@ func natNativeScanIndex(idx, stmts, plan, line) {
     if (nodeType(target) != NODE_IDENT()) {
         return natNativeRefuse("index target must be a local variable", line)
     }
-    let ord = natNativeLocalIndex(stmts, identName(target))
+    let ord = natNativeSlotIndex(plan, identName(target))
     if (ord < 0) {
         return natNativeRefuse("index of undeclared local `" + identName(target) + "`", line)
     }
@@ -4246,7 +4659,7 @@ func natNativeScanLen(call, stmts, plan, line) {
         return natNativeRefuse("len() requires an array or string variable, not an " +
             "expression", line)
     }
-    let ord = natNativeLocalIndex(stmts, identName(args[0]))
+    let ord = natNativeSlotIndex(plan, identName(args[0]))
     if (ord < 0) {
         return natNativeRefuse("len() of undeclared local `" + identName(args[0]) + "`", line)
     }
@@ -4588,7 +5001,7 @@ func natRecordTypeOfLocal(stmts, name) {
 // The base is ALWAYS reloaded from the frame rather than carried in a register across a
 // field expression -- the rule natArrayValue already follows for an array element base.
 func natRecordBase(s, stmts, plan, name, reg) {
-  let ord = natNativeLocalIndex(stmts, name)
+  let ord = natNativeSlotIndex(plan, name)
   return natLoadStack(s, reg, natNativeSlotOff(plan, ord))
 }
 
@@ -4628,7 +5041,7 @@ func natNativeScanField(expr, stmts, plan, line, tbl, allowStr) {
   "151A Step 9h-1", line)
   }
   let recName = identName(dotLeft(expr))
-  if (natNativeLocalIndex(stmts, recName) < 0) {
+  if (natNativeSlotIndex(plan, recName) < 0) {
   return natNativeRefuse("undeclared local `" + recName + "` in a field read", line)
   }
     let tname = natRecordTypeOfLocal(stmts, recName)
@@ -4681,7 +5094,7 @@ func natNativeScanAssign(tbl, stmts, plan, line, lhs, rhs) {
     "of a local record", line)
   }
   let recName = identName(dotLeft(lhs))
-  if (natNativeLocalIndex(stmts, recName) < 0) {
+  if (natNativeSlotIndex(plan, recName) < 0) {
     return natNativeRefuse("undeclared local `" + recName + "` in a field assignment", line)
   }
   let tname = natRecordTypeOfLocal(stmts, recName)
@@ -4698,7 +5111,7 @@ func natNativeScanAssign(tbl, stmts, plan, line, lhs, rhs) {
   if (fk == natKindInt() || fk == natKindFloat()) {
     if (rt == NODE_INT_LIT()) { return "" }
     if (rt == NODE_IDENT()) {
-      let ord = natNativeLocalIndex(stmts, identName(rhs))
+      let ord = natNativeSlotIndex(plan, identName(rhs))
       if (ord < 0) {
         return natNativeRefuse("undeclared local `" + identName(rhs) + "` in a field " +
         "assignment", line)
@@ -4754,7 +5167,7 @@ func natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx, lhs, rhs) {
     return [s, sidx + 1]
   }
   if (nodeType(rhs) == NODE_IDENT()) {
-    let ord = natNativeLocalIndex(stmts, identName(rhs))
+    let ord = natNativeSlotIndex(plan, identName(rhs))
     s = natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
     s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
     return [s, sidx]
@@ -4764,12 +5177,12 @@ func natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx, lhs, rhs) {
   return [s, sidx]
 }
 
-func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr) {
+func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr, fns) {
     let t = nodeType(expr)
     if (t == NODE_INT_LIT()) { return "" }
     if (t == NODE_STRING_LIT()) { return "" }
     if (t == NODE_IDENT()) {
-        let ord = natNativeLocalIndex(stmts, identName(expr))
+        let ord = natNativeSlotIndex(plan, identName(expr))
         if (ord < 0) {
             return natNativeRefuse("undeclared local `" + identName(expr) + "`", line)
         }
@@ -4781,9 +5194,18 @@ func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr) {
             "its kind is " + natKindName(k) + ", so print an element or len() instead",
             line)
     }
-if (t == NODE_BINARY()) { return natNativeScanConcat(expr, stmts, plan, line) }
+if (t == NODE_BINARY()) {
+    if (natNativeIsStrBinary(expr, stmts, plan) == 1) {
+        return natNativeScanConcat(expr, stmts, plan, line)
+    }
+    return natNativeScanIntExpr(expr, plan, line, fns, 0)
+}
+  if (t == NODE_UNARY()) { return natNativeScanIntExpr(expr, plan, line, fns, 0) }
   if (t == NODE_INDEX()) { return natNativeScanIndex(expr, stmts, plan, line) }
-  if (t == NODE_CALL()) { return natNativeScanLen(expr, stmts, plan, line) }
+  if (t == NODE_CALL()) {
+      if (callFunc(expr) == "len") { return natNativeScanLen(expr, stmts, plan, line) }
+      return natNativeScanCall(expr, plan, line, fns)
+  }
   // Step 9h-1: a record field read, `rec.field`. NARROW by construction -- only an
   // int or float field on a local bound from a record literal is accepted. Anything else
   // (unknown base, unknown field, a string field, a non-identifier base, arithmetic) is
@@ -4821,11 +5243,22 @@ if (t == NODE_BINARY()) { return natNativeScanConcat(expr, stmts, plan, line) }
 // the string's POINTER and exited with it. That is a valid image emitting a meaningless
 // exit code, which the oracle refuses outright ("string return values are not
 // supported"). The gate's refusal table found it.
-func natNativeScanReturn(expr, stmts, plan, line, tbl) {
-    let bad = natNativeScanValue(expr, stmts, plan, line, tbl, 0)
+func natNativeScanReturn(expr, stmts, plan, line, tbl, fns) {
+    // A string LITERAL in return position is refused explicitly, and this is a
+    // PRE-EXISTING hole rather than a NAT-CALL regression: natNativeScanValue accepts
+    // a string literal unconditionally (it must, because a literal is printable as
+    // itself), so the `allowStr` flag never reached that arm and `return "x"` passed
+    // this validator, fell through to the return dispatch, and resolved identName() on
+    // a literal to a slot that does not exist. It is closed here rather than left for
+    // a crash to find.
+    if (nodeType(expr) == NODE_STRING_LIT()) {
+        return natNativeRefuse("`return` of a string is not supported; a return value " +
+            "becomes the process exit status and must be an int", line)
+    }
+    let bad = natNativeScanValue(expr, stmts, plan, line, tbl, 0, fns)
     if (bad != "") { return bad }
 if (nodeType(expr) == NODE_IDENT()) {
-  let k = natNativeSlotKind(plan, natNativeLocalIndex(stmts, identName(expr)))
+  let k = natNativeSlotKind(plan, natNativeSlotIndex(plan, identName(expr)))
   if (k != natKindInt()) {
   return natNativeRefuse("`return` of a " + natKindName(k) + " is not " +
   "supported; a return value becomes the process exit status and must be " +
@@ -4843,25 +5276,179 @@ if (nodeType(expr) == NODE_IDENT()) {
   // and broke 9e's `return len(a)`, which is a CallExpr returning an int and must
   // keep working. Only a BinaryExpr reaches here as a validated non-int value.
   if (nodeType(expr) == NODE_BINARY()) {
+  if (natNativeIsStrBinary(expr, stmts, plan) == 1) {
   return natNativeRefuse("`return` of a concatenated string is not supported; a " +
   "return value becomes the process exit status and must be an int", line)
+  }
   }
   return ""
   }
 
-// natNativeLower emits main's body into an existing emitter state.
+// natEmitIntExpr lowers an INTEGER expression into RAX.
 //
-// The `sub rsp, 8` around each call is Win64 ABI, not padding: `_start` aligns rsp
-// to 16 and then calls, so rsp is 8 (mod 16) at main entry, and a call site
-// requires rsp to be 0 (mod 16) immediately before the `call`. The 8 bytes restore
-// that alignment and are released immediately after. `natWinWrite` inside
-// print_int depends on it -- its own three pushes plus the 32-byte shadow only land
-// on 0 (mod 16) when print_int is entered with that alignment.
+// It mirrors the oracle's emitExpr for exactly the kinds NAT-CALL admits, and the
+// byte shapes are the oracle's, not invented:
+//
+//   - literal: MovRegImm64(RAX) -- the 64-bit form, for the same reason D2 recorded
+//     on the print path (program.go:5887).
+//   - local/parameter: LoadStack(RAX, slot) -- one instruction, because the slot is a
+//     compile-time displacement.
+//   - unary minus: operand at the SAME depth, then NegReg(RAX) (program.go:5944).
+//     Passing depth+1 here would double the scratch usage of `-a + b` for no reason.
+//   - binary: left at depth+1, stage RAX into binTemp+depth*8, right at depth+1,
+//     RCX<-RAX, RAX<-the staged left, then the operator (program.go:6717-6745). The
+//     operator is checked BEFORE the depth guard in the oracle; here the SCAN has
+//     already refused every operator outside the set, so the emitter only has to
+//     lower the three it accepts.
+//
+// There is deliberately no `stmts`, `roffs` or `tbl`: an integer expression cannot
+// reference rodata, a record or a string, and passing them would invite an arm that
+// does. Anything else falls through to the CALL arm, which is the only other integer
+// producer in this slice.
+func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
+    let t = nodeType(e)
+    if (t == NODE_INT_LIT()) {
+        return natMovRegImm64(s, natRegRAX(), int(intLitVal(e)))
+    }
+    if (t == NODE_IDENT()) {
+        let ord = natNativeSlotIndex(plan, identName(e))
+        return natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
+    }
+    if (t == NODE_UNARY()) {
+        s = natEmitIntExpr(s, unaryOperand(e), plan, fns, binTemp, extrasBase, frame, depth)
+        return natNegReg(s, natRegRAX())
+    }
+    if (t == NODE_BINARY()) {
+        s = natEmitIntExpr(s, binaryLeft(e), plan, fns, binTemp, extrasBase, frame, depth + 1)
+        s = natStoreStack(s, natRegRAX(), binTemp + depth * 8)
+        s = natEmitIntExpr(s, binaryRight(e), plan, fns, binTemp, extrasBase, frame, depth + 1)
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        s = natLoadStack(s, natRegRAX(), binTemp + depth * 8)
+        let op = binaryOp(e)
+        if (op == "+") { return natAddRegReg(s, natRegRAX(), natRegRCX()) }
+        if (op == "-") { return natSubRegReg(s, natRegRAX(), natRegRCX()) }
+        return natMulRegReg(s, natRegRAX(), natRegRCX())
+    }
+    return natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth)
+}
+
+// natEmitIntCall lowers a call to a USER function and leaves the result in RAX.
+//
+// The convention is Phase 148's, reproduced rather than simplified, because a
+// different-but-reasonable staging order would still work and still be wrong:
+//
+//   1. Evaluate every argument and spill it. Unit i goes to argTemp(i) for i < 6;
+//      further units go to extrasBase + (i-6)*8.
+//   2. Load units 0..5 back into RDI,RSI,RDX,RCX,R8,R9. The spill exists because
+//      argument 1's evaluation would otherwise clobber argument 0's register.
+//   3. If any unit exceeded the six registers, materialise R10 = extrasBase -- the
+//      CALLEE addresses its extras through R10, which it must home before its first
+//      call destroys it.
+//   4. call <label>.
+//
+// ARGUMENT i IS UNIT i here, and that is sound rather than sloppy: kcc's parser
+// stores parameter NAMES only, so every parameter is a one-unit int, and
+// natNativeScanCall refuses any argument whose kind is not int. A two-unit argument
+// (a string) would need the (arg, unit) split the oracle uses -- including the
+// `r == RSI` high-half rule -- and the refusal is what keeps that unrepresentable
+// state unreachable rather than silently mis-homed.
+//
+// WINDOWS GETS ITS OWN 8 BYTES. `call` pushes a return address, so a callee entered
+// from an rsp%-16==8 call site lands at 0 (mod 16) and every aligned SSE spill it
+// makes faults. System V callers do not require the adjustment and the oracle does
+// not emit it, so Linux and macOS emit nothing and stay byte-identical; Windows
+// already differs from the oracle's bytes (its whole entry and stdout path do), so
+// correctness there costs nothing that parity was measuring.
+func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
+    let fname = callFunc(e)
+    let args = callArgs(e)
+    let isWin = 0
+    if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
+    let i = 0
+    while (i < len(args)) {
+        s = natEmitIntExpr(s, args[i], plan, fns, binTemp, extrasBase, frame, depth)
+        if (i < 6) {
+            s = natStoreStack(s, natRegRAX(), natArgTemp(i, frame))
+        } else {
+            s = natStoreStack(s, natRegRAX(), extrasBase + (i - 6) * 8)
+        }
+        i = i + 1
+    }
+    let k = 0
+    while (k < len(args)) {
+        if (k < 6) {
+            s = natLoadStack(s, natArgReg(k), natArgTemp(k, frame))
+        }
+        k = k + 1
+    }
+    if (len(args) > 6) {
+        s = natLeaRegStack(s, natRegR10(), extrasBase)
+    }
+    if (isWin == 1) { s = natSubRegImm32(s, natRegRSP(), 8) }
+    s = natCall32(s)
+    // natRel32 returns the [state, patch-position] PAIR, not the state. Assigning it
+    // straight to `s` leaves `s` holding two elements, and the very next helper that
+    // reads a slot (natCallPrintInt reads natStTargetOS) fails with an array-index
+    // error far from here. Step 8d's corpus always destructured the pair; this is the
+    // production copy and it has to as well.
+    let rr = natRel32(s, natNativeFuncLabel(fname))
+    s = rr[0]
+    if (isWin == 1) { s = natAddRegImm32(s, natRegRSP(), 8) }
+    return s
+}
+
+// natNativeHomeParams copies the argument registers into the parameter slots at
+// function entry.
+//
+// This MUST run before anything else in the body, and the reason is not style: R10
+// carries the extras base, and R10 is caller-saved, so the first call the body makes
+// destroys it. The oracle's own emitFunc says the same thing (program.go:4832-4836)
+// and homes parameters at the top of the prologue for exactly that reason.
+func natNativeHomeParams(s, params, plan) {
+    let unit = 0
+    let i = 0
+    while (i < len(params)) {
+        let ord = natNativeSlotIndex(plan, params[i])
+        let units = natKindUnits(natNativeSlotKind(plan, ord))
+        let k = 0
+        while (k < units) {
+            if (unit < 6) {
+                s = natStoreStack(s, natArgReg(unit), natNativeSlotOff(plan, ord) + k * 8)
+            } else {
+                s = natLoadBaseOff(s, natRegRAX(), natRegR10(), (unit - 6) * 8)
+                s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, ord) + k * 8)
+            }
+            unit = unit + 1
+            k = k + 1
+        }
+        i = i + 1
+    }
+    return s
+}
+
+// natNativeLower emits one function's body into an existing emitter state.
+//
+// The `sub rsp, 8` around a USER call is Win64 ABI, not padding, and it lives in
+// natEmitIntCall rather than here: `_start` aligns rsp to 16 and then calls, so rsp
+// is 8 (mod 16) at function entry, and a call site requires rsp to be 0 (mod 16)
+// immediately before the `call`. The 8 bytes restore that alignment and are released
+// immediately after. Calls to the emitted HELPERS do not need it -- print_int and
+// print_str take no arguments from the aligned SSE area and are entered the same way
+// the oracle enters them -- so adding it there would break byte-identity for nothing.
 //
 // The statement ORDINAL doubles as the label tag for `a[i]`, so no counter can fall
 // out of step with the statement list.
-func natNativeLower(s, stmts, plan, roffs, strTemp, tbl, rtErr, rtKindSlot, srcOff, srcLen) {
-    let idx = 0
+func natNativeLower(s, stmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel) {
+    // The scratch regions come from the CALLER's layout, because the caller is the
+    // function being lowered. Reading them here instead of threading three more
+    // arguments keeps ONE source of truth: natFrameLayout is the only place a frame
+    // number is decided, and a function's binTemp must be ITS binTemp -- a callee
+    // with a different locals region has a different scratch offset, and reusing
+    // main's would stage operands over the callee's own locals.
+    let binTemp = lay[1]
+    let strTemp = lay[2]
+    let extrasBase = lay[4]
+    let frame = lay[6]
     // sidx walks the rodata INPUT list in lockstep with the literals the program binds,
     // starting at 2 because entries 0 and 1 are print_int's own "-" and "\n". Lockstep
     // is what makes a literal's recorded offset agree with the list the linker interns;
@@ -4875,6 +5462,13 @@ func natNativeLower(s, stmts, plan, roffs, strTemp, tbl, rtErr, rtKindSlot, srcO
         let n = stmts[i]
         let k = nodeType(n)
         if (natNativeIsDecl(n)) {
+            // The slot index is resolved by NAME against the plan rather than carried
+            // as a running counter, because a function's first bindings are its
+            // PARAMETERS and those have no declaration statement to count. A counter
+            // would make `func add(a, b)` put its first `let` in the slot a parameter
+            // already owns. natNativeSlotIndex searches the plan, whose first slots are
+            // the parameters, so both kinds of binding resolve through one lookup.
+            let idx = natNativeSlotIndex(plan, natNativeDeclName(n))
             let v = natNativeDeclValue(n)
             if (nodeType(v) == NODE_ARRAY_LIT()) {
                 s = natArrayValue(s, natNativeSlotOff(plan, idx), arrayLitElems(v))
@@ -4912,12 +5506,11 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
                     sidx = sidx + 1
                 } else {
-s = natMovRegImm64(s, natRegRAX(), int(intLitVal(v)))
+s = natEmitIntExpr(s, v, plan, fns, binTemp, extrasBase, frame, 0)
 s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
 }
 }
 }
-idx = idx + 1
 }
         if (k == NODE_PRINT()) {
             let pv = printVal(n)
@@ -4951,6 +5544,25 @@ idx = idx + 1
             //
             // natStrConcat leaves (RDI, RSI) = (dst, len), which is already print_str's
             // convention, so the call follows directly.
+            //
+            // The int-expression arm is decided FIRST and by KIND rather than by node
+            // type, because `+` is two different operations now: on two strings it is a
+            // concat (the arena path), and on two ints it is arithmetic (the binTemp
+            // path). Before NAT-CALL every `+` in a printable position WAS a concat, so
+            // the node type alone was the right test; using it alone now would route
+            // `print(a + b)` into natStrConcat, whose operands are resolved as string
+            // slots. Unary `-` is included for the same reason: the scan accepts it, so
+            // the lowering must reach it.
+            let isIntExpr = 0
+            if (nodeType(pv) == NODE_BINARY()) {
+                if (natNativeIsStrBinary(pv, stmts, plan) == 0) { isIntExpr = 1 }
+            }
+            if (nodeType(pv) == NODE_UNARY()) { isIntExpr = 1 }
+            if (isIntExpr == 1) {
+                s = natEmitIntExpr(s, pv, plan, fns, binTemp, extrasBase, frame, 0)
+                s = natMovRegReg(s, natRegRDI(), natRegRAX())
+                s = natCallPrintInt(s)
+            } else {
             if (nodeType(pv) == NODE_BINARY()) {
 s = natStrConcat(s, binaryLeft(pv), binaryRight(pv), 0, site, strTemp,
 stmts, plan, roffs, tbl)
@@ -4975,7 +5587,7 @@ stmts, plan, roffs, tbl)
                     sidx = sidx + 1
                 } else {
                     if (nodeType(pv) == NODE_INDEX()) {
-                        let ord = natNativeLocalIndex(stmts, identName(indexLeft(pv)))
+                        let ord = natNativeSlotIndex(plan, identName(indexLeft(pv)))
                         s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i, rtKindSlot, srcOff, srcLen, printLine(n))
                         s = natMovRegReg(s, natRegRDI(), natRegRAX())
                         s = natCallPrintInt(s)
@@ -4993,13 +5605,19 @@ s = natCallPrintInt(s)
 }
 } else {
 if (nodeType(pv) == NODE_CALL()) {
-let ordl = natNativeLocalIndex(stmts,
+// `len` lowers in place; a call to a USER function goes through the
+// call ABI. They share the print_int tail and nothing else.
+if (callFunc(pv) == "len") {
+let ordl = natNativeSlotIndex(plan,
 identName(callArgs(pv)[0]))
                             s = natArrayLen(s, natNativeSlotOff(plan, ordl))
+                        } else {
+                        s = natEmitIntCall(s, pv, plan, fns, binTemp, extrasBase, frame, 0)
+                        }
                             s = natMovRegReg(s, natRegRDI(), natRegRAX())
                             s = natCallPrintInt(s)
                         } else {
-                            let ordp = natNativeLocalIndex(stmts, identName(pv))
+                            let ordp = natNativeSlotIndex(plan, identName(pv))
                             if (natNativeSlotKind(plan, ordp) == natKindString()) {
                                 s = natLoadStack(s, natRegRDI(),
                                     natNativeSlotOff(plan, ordp))
@@ -5025,6 +5643,7 @@ identName(callArgs(pv)[0]))
             }
             }
         }
+        }
         if (k == NODE_EXPR_STMT()) {
         let ae = exprStmtExpr(n)
         if (natNativeIsAssignExpr(ae)) {
@@ -5032,31 +5651,39 @@ identName(callArgs(pv)[0]))
         binaryLeft(ae), binaryRight(ae))
         s = rr[0]
         sidx = rr[1]
+        } else {
+        // A bare call statement -- see the scan arm for why it exists. The result is
+        // discarded, which is exactly what a void callee's caller does; a callee that
+        // DOES return a value here is not an error, just an unused one, matching the
+        // oracle's expression-statement handling.
+        s = natEmitIntCall(s, ae, plan, fns, binTemp, extrasBase, frame, 0)
         }
         } else {
         if (k == NODE_RETURN()) {
             let rv = retVal(n)
-            if (nodeType(rv) == NODE_INT_LIT()) {
-                // 64-bit immediate into RAX, matching the oracle: emitReturn
-                // delegates to emitExpr, whose IntLiteral case is
-                // MovRegImm64(RAX, ...) (pkg/native/program.go:5887). The
-                // 32-bit form here was a second operand-form difference from
-                // the same root cause as the print path.
-                s = natMovRegImm64(s, natRegRAX(), int(intLitVal(rv)))
+            // The dispatch is by NODE TYPE only where the type alone is decisive.
+            // `a[i]` and `len(a)` are their own lowerings; everything else that is
+            // an INT belongs to the shared integer expression walker. That walker's
+            // IntLiteral and Identifier cases are byte-for-byte what this block used
+            // to emit inline (MovRegImm64 into RAX; LoadStack into RAX), which is why
+            // the frozen return_value golden does not move.
+            if (nodeType(rv) == NODE_INDEX()) {
+                let ord = natNativeSlotIndex(plan, identName(indexLeft(rv)))
+                s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(rv), i, rtKindSlot, srcOff, srcLen, retLine(n))
             } else {
-                if (nodeType(rv) == NODE_INDEX()) {
-                    let ord = natNativeLocalIndex(stmts, identName(indexLeft(rv)))
-                    s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(rv), i, rtKindSlot, srcOff, srcLen, retLine(n))
-                } else {
-                    if (nodeType(rv) == NODE_CALL()) {
-                        let ordl = natNativeLocalIndex(stmts,
-                            identName(callArgs(rv)[0]))
+                let handledLen = 0
+                if (nodeType(rv) == NODE_CALL()) {
+                    // `len` is a driver builtin rather than a user function, so it is
+                    // NOT routed through natEmitIntCall: that function lowers the call
+                    // ABI, and `len` has no callee to call.
+                    if (callFunc(rv) == "len") {
+                        let ordl = natNativeSlotIndex(plan, identName(callArgs(rv)[0]))
                         s = natArrayLen(s, natNativeSlotOff(plan, ordl))
-                    } else {
-                        s = natLoadStack(s, natRegRAX(),
-                            natNativeSlotOff(plan,
-                                natNativeLocalIndex(stmts, identName(rv))))
+                        handledLen = 1
                     }
+                }
+                if (handledLen == 0) {
+                    s = natEmitIntExpr(s, rv, plan, fns, binTemp, extrasBase, frame, 0)
                 }
             }
             // Route the return through the single teardown the label marks, the
@@ -5074,12 +5701,47 @@ identName(callArgs(pv)[0]))
             // idiom (0xE8) and the two differ by exactly one byte; Step 8e
             // records making this mistake once already, where a bare movabs
             // with no jump at all came out the other end.
-            s = natJmp(s, "karkain_main$ret")
+            s = natJmp(s, retLabel)
         }
         }
         i = i + 1
     }
     return s
+}
+
+// natNativeEmitFunc emits one function in the oracle's exact shape
+// (pkg/native/program.go:4805-4873): label, frame prologue, parameter homing, body,
+// implicit zero return, `$ret` label, frame teardown, ret.
+//
+// The frame is computed HERE, per function, from that function's own plan and its
+// own maximum extras. That is not tidiness: the scratch regions (binTemp, extras) sit
+// after the locals, so a function with more locals has different offsets for
+// everything, and reusing main's layout for a callee would stage operands over the
+// callee's own locals.
+//
+// `usesStr` is 0 for a callee in this slice because the scan refuses every string
+// construct inside a non-main body, and computing it per function anyway is what
+// keeps that statement true if the subset ever widens.
+//
+// It is defined AFTER natNativeLower on purpose: this file is assembled and compiled
+// in source order, so a function that CALLS another must be declared later than it
+// (the Phase-133 "wrapper use-before-def" class). Every other definition here follows
+// the same rule.
+func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin) {
+    let usesStr = 0
+    if (natNativeConcatSites(body, plan) > 0) { usesStr = 1 }
+    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, 0, natNativeMaxExtras(body), isWin)
+    let frame = lay[6]
+    let label = natNativeFuncLabel(name)
+    let retLabel = label + "$ret"
+    s = natMark(s, label)
+    if (frame > 0) { s = natSubRegImm32(s, natRegRSP(), frame) }
+    s = natNativeHomeParams(s, params, plan)
+    s = natNativeLower(s, body, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel)
+    if (hasReturn == 0) { s = natXorRegReg(s, natRegRAX()) }
+    s = natMark(s, retLabel)
+    if (frame > 0) { s = natAddRegImm32(s, natRegRSP(), frame) }
+    return natRet(s)
 }
 
 // natNativeProgram compiles a PARSED PROGRAM to a native PE image.
@@ -5149,17 +5811,46 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
   // the planner, the scanner and the lowering. Building it from the body found no
   // declarations at all and refused every record as an unknown type.
   let tbl = natStructTable(stmts)
-    let scan = natNativeScan(body, tbl)
+    // NAT-CALL: the program is no longer one function. `fns` is every top-level
+    // function declaration in SOURCE ORDER, which is the order the oracle emits them
+    // in and therefore the order their labels must be assigned in -- `fresh()`
+    // numbering is global, so emitting a helper for one function before another moves
+    // every subsequent label displacement and breaks byte-identity.
+    let fns = natNativeFuncs(stmts)
+    let mainIdx = natNativeFuncIndex(fns, "main")
+    if (mainIdx < 0) {
+        return [natNativeRefuseNoLine("no `func main`; the native entry stub calls " +
+            "karkain_main, so a `main` is required"), []]
+    }
+    let mainParams = natNativeFuncParamsAt(fns, mainIdx)
+    // A parameterised main has no caller to pass arguments, so the entry stub would
+    // hand it whatever the kernel left in the argument registers. Refused by name
+    // rather than mis-homed.
+    if (len(mainParams) > 0) {
+        return [natNativeRefuseNoLine("`main` must take no parameters on the native " +
+            "target: the entry stub calls it with none"), []]
+    }
+    let scan = natNativeScanFor(mainParams, body, tbl, fns, 1)
     if (scan[0] != "") { return [scan[0], []] }
     let plan = scan[1]
-    let hasReturn = scan[2]
+    let mainHasReturn = scan[2]
 
     // The frame is DERIVED from the program's own bindings through the value model's
     // own layout pass, so a program with two locals gets a different frame from one
     // with one, and a program with an array gets a frame carrying that array's
     // element area. All three agree with the oracle's scanLets for the same program.
+    //
+    // NAT-CALL moves the layout PER FUNCTION (into natNativeEmitFunc): the scratch
+    // regions sit after the locals, so a callee with a different locals region has a
+    // different binTemp and extrasBase, and reusing main's would stage a callee's
+    // operands over its own locals. What stays here is the part that is genuinely a
+    // property of the PROGRAM rather than of a function -- whether a string path, an
+    // arena or the runtime-error reporter exists at all. That is sound only because
+    // the scan refuses every one of those constructs inside a non-main body, so a
+    // callee can never be the first to need them; if that ever changes, those
+    // predicates must move per function too.
     let usesStr = 0
-    if (natNativeConcatSites(body) > 0) { usesStr = 1 }
+    if (natNativeConcatSites(body, plan) > 0) { usesStr = 1 }
     // isWin is the BOOLEAN form of targetOS, for the two places that genuinely
     // only care about the Windows/Unix split: the frame's 16-byte alignment rule
     // and the stdout write SHAPE (Win64 kernel32 vs a raw syscall). Both treat
@@ -5168,12 +5859,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // (slot 15), not from here.
     let isWin = 0
     if (targetOS == natOSWindows()) { isWin = 1 }
-    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, 0, 0, isWin)
-    let frame = lay[6]
-    let strTemp = lay[2]
 
-    let s = natNewEmitter(0)
-    s = natSetTargetOS(s, targetOS)
     // Phase D5: the runtime-error reporter and its rodata.
     //
     // The gate is `natNativeUsesRuntimeError`, which must look INSIDE a
@@ -5278,8 +5964,9 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // print_str. So the gate was optimizing against an invented baseline rather
     // than the one parity is measured against.
     s = natPrintStrBody(s, isWin, 1)
-    if (natNativeArenaBytes(body) > 0) {
-        s = natAllocHelper(s, natNativeArenaBytes(body))
+    let arenaLen = natNativeArenaBytes(body, plan)
+    if (arenaLen > 0) {
+        s = natAllocHelper(s, arenaLen)
     }
     // The map runtime, on the oracle's syntactic predicate rather than on the
     // program's actual needs -- see natMapFind's header and the D5 baseline §3.1.
@@ -5300,45 +5987,43 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     if (usesRtErr == 1) {
         s = natRuntimeErrorHelper(s, rtErr, isWin)
     }
-    // then the user function, in the oracle's own shape: a label, a frame
-    // prologue, the body, the epilogue.
-    s = natMark(s, "karkain_main")
-    s = natSubRegImm32(s, natRegRSP(), frame)
-    s = natNativeLower(s, body, plan, ro[1], strTemp, tbl, rtErr, rtKindSlot, srcOff, srcLen)
-    // The implicit `return 0` is emitted ONLY when the program has no explicit
-    // return, and it must come AFTER the body. Emitting it unconditionally was the
-    // first draft's bug and it is instructive: `mov rax, 0` placed after the body
-    // clobbered the value an explicit `return <local>` had just loaded, so
-    // `let z = 7; return z` exited 0 instead of 7. The program printed nothing, so
-    // a stdout-only assertion would not have noticed -- the exit code is what
-    // exposed it.
+    // Then the user functions, in SOURCE ORDER, each in the oracle's own shape: a
+    // label, a frame prologue, parameter homing, the body, the `$ret` label, the
+    // epilogue.
     //
-    // RAX is main's return value and _start passes it straight to ExitProcess, so
-    // this is the process exit status, not a discarded value.
-    if (hasReturn == 0) {
-        // xor eax, eax, NOT mov eax, 0. The oracle zeroes the implicit return
-        // with XorRegReg(RAX) (pkg/native/program.go:4860, inside
-        // `if !returned`), and the two encodings differ by 2 bytes -- so this
-        // was one of the last operand-form differences keeping the images apart.
-        s = natXorRegReg(s, natRegRAX())
+    // NAT-CALL scans and emits in ONE pass. That is deliberate rather than merely
+    // compact: a scan that ran over the whole program first would have to build a
+    // plan per function anyway, and a mid-loop refusal DISCARDS the partial emitter
+    // (the caller writes nothing unless the image comes back valid), so there is no
+    // state to unwind. Every function is scanned with `isMain` set only for main, so
+    // the callee subset and main's frozen arms cannot be confused.
+    //
+    // MAIN IS NOT SPECIAL-CASED ANY MORE: it is emitted by the same call, which is
+    // what keeps its shape -- and therefore its bytes -- identical to the oracle's
+    // emitFunc rather than a second implementation that happens to agree.
+    let fi = 0
+    while (fi < natNativeFuncCount(fns)) {
+        let fname = natNativeFuncNameAt(fns, fi)
+        let fparams = natNativeFuncParamsAt(fns, fi)
+        let fbody = natNativeFuncBodyAt(fns, fi)
+        let fplan = plan
+        let fhasReturn = mainHasReturn
+        let fisMain = 0
+        if (fname == "main") { fisMain = 1 }
+        if (fisMain == 0) {
+            // A callee's own plan and return flag. A refusal here aborts the WHOLE
+            // program: a half-emitted image is not a build with a warning, it is an
+            // image whose missing function is a link-time surprise.
+            let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0)
+            if (fscan[0] != "") { return [fscan[0], []] }
+            fplan = fscan[1]
+            fhasReturn = fscan[2]
+        }
+        s = natNativeEmitFunc(s, fname, fparams, fbody, fplan, fhasReturn, fns,
+            ro[1], tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin)
+        fi = fi + 1
     }
-    // The `$ret` label and the jump that reaches it, both of which kcc was
-    // missing entirely.
-    //
-    // The oracle marks `<name>$ret` HERE, after the implicit-return zeroing and
-    // before the frame teardown (program.go:4861), and every `return`
-    // statement ends with `jmp <name>$ret` (program.go:4900). kcc emitted the
-    // value and then the epilogue inline, so the label had no reason to exist --
-    // and the missing 5-byte `jmp rel32` was the whole of the return_value gap.
-    //
-    // Why the oracle routes every return through one label rather than inlining
-    // the epilogue at each site: the frame teardown (AddRsp, then the Phase-150C
-    // callee-saved pops) has to be emitted exactly ONCE per function, after the
-    // `returned` flag is known. A `jmp` to it is how that is arranged.
-    s = natMark(s, "karkain_main$ret")
-    s = natAddRegImm32(s, natRegRSP(), frame)
-    s = natRet(s)
-    // and `_start` LAST, calling into the function marked above.
+    // and `_start` LAST, calling into `karkain_main`.
     if (isWin == 1) {
         s = natWinEntry(s)
     } else {
@@ -5362,7 +6047,6 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // and absolute arena pointers are flat [pos, off] hpatches pairs -- the SAME
     // mechanism, not a second one. Both stay EMPTY for a program that does not
     // allocate, which is what keeps every string-free image byte-identical.
-    let arenaLen = natNativeArenaBytes(body)
     let heap = []
     if (arenaLen > 0) { heap = natNativeArenaBytes0(arenaLen) }
     let hp = natFlatPairs(natStHeapPos(s), natStHeapOff(s))
@@ -5667,7 +6351,7 @@ func natEmitStrValue(s, expr, stmts, plan, roffs, tbl) {
             natRodataOffsetFor(stringLitVal(expr), stmts, roffs))
         return natMovRegImm32(s, natRegRSI(), len(stringLitVal(expr)))
     }
-let off = natNativeSlotOff(plan, natNativeLocalIndex(stmts, identName(expr)))
+let off = natNativeSlotOff(plan, natNativeSlotIndex(plan, identName(expr)))
   s = natLoadStack(s, natRegRDI(), off)
   return natLoadStack(s, natRegRSI(), off + 8)
   }
@@ -5727,7 +6411,7 @@ func natNativeStrKind(e, stmts, plan) {
         return 0 - 2
     }
     if (nodeType(e) == NODE_IDENT()) {
-        let ord = natNativeLocalIndex(stmts, identName(e))
+        let ord = natNativeSlotIndex(plan, identName(e))
         if (ord < 0) { return 0 - 2 }
         if (natNativeSlotKind(plan, ord) == natKindString()) { return 1 }
         return 0 - 1
@@ -5772,22 +6456,29 @@ func natNativeScanConcat(e, stmts, plan, line) {
     return ""
 }
 
-func natNativeConcatSites(stmts) {
+func natNativeConcatSites(stmts, plan) {
     let n = 0
     let i = 0
     while (i < len(stmts)) {
         let st = stmts[i]
-        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeConcatIn(printVal(st)) }
-        if (natNativeIsDecl(st)) { n = n + natNativeConcatIn(natNativeDeclValue(st)) }
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeConcatIn(printVal(st), stmts, plan) }
+        if (natNativeIsDecl(st)) { n = n + natNativeConcatIn(natNativeDeclValue(st), stmts, plan) }
         i = i + 1
     }
     return n
 }
 
-func natNativeConcatIn(e) {
+func natNativeConcatIn(e, stmts, plan) {
     if (nodeType(e) != NODE_BINARY()) { return 0 }
     if (binaryOp(e) != "+") { return 0 }
-    return 1 + natNativeConcatIn(binaryLeft(e)) + natNativeConcatIn(binaryRight(e))
+    // The STRING gate. Counting every `+` was correct only while integer `+` was
+    // refused outright; NAT-CALL makes `a + b` reachable, and an int addition that
+    // counted as a concat site would switch usesStr on (41 bytes of print_str) and
+    // reserve an arena the program never allocates from -- breaking byte-identity
+    // for a program that only does arithmetic.
+    if (natNativeIsStrBinary(e, stmts, plan) != 1) { return 0 }
+    return 1 + natNativeConcatIn(binaryLeft(e), stmts, plan) +
+        natNativeConcatIn(binaryRight(e), stmts, plan)
 }
 
 // natNativeArenaBytes is the compile-time arena size: sites * totalLiteralBytes + 16.
@@ -5819,8 +6510,8 @@ func natNativeConcatIn(e) {
 // (program.go:1618). Folding the header in before the floor would make a
 // floored arena 1024 bytes instead of 16 + 1024, so the header must be added
 // after the floor has already been applied to the data size.
-func natNativeArenaBytes(stmts) {
-    let sites = natNativeConcatSites(stmts)
+func natNativeArenaBytes(stmts, plan) {
+    let sites = natNativeConcatSites(stmts, plan)
     if (sites == 0) { return 0 }
     let dataBytes = sites * natNativeStrTotalBytes(stmts)
     if (dataBytes < natArenaMinSize()) { dataBytes = natArenaMinSize() }

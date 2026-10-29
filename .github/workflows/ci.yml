@@ -331,6 +331,24 @@ jobs:
       - name: Run Phase D8 native bounds-diagnostic length gate
         run: go test ./pkg/cli/ -run 'TestPhaseD8_' -count=1 -timeout 30m -v
 
+      # NAT-CALL, the v1.3.0 opener: a real .kark function called from `main`,
+      # lowered by kcc's native driver and EXECUTED through the C-free path.
+      #
+      # Placed with the other native-target gates because its evidence is the
+      # same kind: EXECUTED PE goldens on this Windows runner (exact stdout
+      # bytes, never trimmed), a Linux ELF byte-identity DIFFERENTIAL against
+      # the Go oracle, frames derived independently from the layout rule,
+      # Windows-only call alignment, a refusal table that shrinks BY NAME, and
+      # the self-hosted provenance marker that a Go fallback cannot produce.
+      #
+      # Named explicitly with its own pattern, and deliberately not folded into
+      # the broad 'TestPhase151' family: 'TestPhaseNATCall_' is matched by no
+      # other step, so a NAT-CALL regression cannot hide behind a green
+      # neighbour. The gate also asserts THIS step exists, because a gate is a
+      # test file PLUS a ci.yml entry.
+      - name: Run NAT-CALL kcc native user-call gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATCall_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

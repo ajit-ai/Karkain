@@ -231,8 +231,18 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		//
 		// This pin is shared with TestPhase151A5_KIRPinHolds, which carries the
 		// fuller accounting.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 14050 {
-			t.Errorf("whole-tree kir text = %d lines, want 14050:\n%s", got, out)
+		//
+		// RE-PINNED FOR NAT-CALL: 14050 -> 14385 (+335). The driver gained
+		// per-function analysis and lowering (natNativeSubset/natNativeScanFor/
+		// natNativeScanIntExpr/natNativeScanCall/natNativeMaxExtras), a fourth
+		// plan slot carrying the binding name, and the emission split
+		// (natEmitIntExpr/natEmitIntCall/natNativeHomeParams/natNativeEmitFunc/
+		// natNativeLower) that lets a real user function be called from `main`.
+		// Measured with `karkain kir --verify src/compiler/kir.kark` in this
+		// gate's own invocation -- text=14385 verify=14385 -- and never
+		// predicted.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 14385 {
+			t.Errorf("whole-tree kir text = %d lines, want 14385:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

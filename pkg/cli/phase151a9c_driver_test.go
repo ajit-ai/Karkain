@@ -98,13 +98,29 @@ var nat9cCases = []nat9cCase{
 		wantOut: []byte{}, wantExit: 3,
 	},
 	{
+		// A kcc-SIDE NARROWING, recorded as one rather than presented as a language
+		// limit: the Go oracle DOES lower `while` with a comparison condition and
+		// emits an image for this program. kcc refuses it, so this case pins kcc's
+		// own current boundary. Closing it is NAT-CTRL work, not this slice's.
 		name:     "refuse_while",
 		src:      "func main() {\n    while 1 < 2 {\n        print(9)\n    }\n}\n",
 		wantExit: 0, refuse: "error[K145]",
 	},
 	{
+		// `print(1 + 2)` was pinned here as REFUSED when 9c landed, because the driver
+		// had no integer-expression lowering at all. NAT-CALL added `+ - *` and unary
+		// `-` to every position (a callee needs them to be worth calling), so that
+		// exact program now compiles and prints 3. The case is REPLACED rather than
+		// deleted, keeping the table's intent -- "an expression this driver cannot
+		// lower is refused by name" -- with an operator that stays out of scope.
+		//
+		// `/` is the right replacement because the refusal is TRUE PARITY, measured:
+		// the Go oracle answers `unsupported operator '/' (want +, - or *)` for the
+		// same program, so this pins a shared boundary rather than a kcc narrowing.
+		// (`refuse_while` above is the opposite case and is commented as such: the
+		// oracle lowers `while`, kcc does not, so that one is a kcc-side narrowing.)
 		name:     "refuse_binary_expression",
-		src:      "func main() {\n    print(1 + 2)\n}\n",
+		src:      "func main() {\n    print(1 / 2)\n}\n",
 		wantExit: 0, refuse: "error[K145]",
 	},
 	{

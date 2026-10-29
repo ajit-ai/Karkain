@@ -84,10 +84,12 @@ type elfProgram struct {
 // nothing here is Linux-specific and the corpus cannot drift into claiming the
 // Linux path supports something Windows does not.
 //
-// `print(-7)` is deliberately NOT here: the AST driver does not lower unary
-// minus, and it refuses it identically on both targets (verified: the Windows
-// path returns the same error[K145]). Including it would assert a capability
-// neither target has; the honest place for it is the refusal table.
+// `print(-7)` used to be excluded here because the AST driver did not lower
+// unary minus. NAT-CALL (the v1.3.0 opener) added it to the shared integer
+// expression walker, so it moved from the refusal table to this corpus -- the
+// same replacement the 9e record describes for `len()`. What remains outside the
+// subset, and is refused by name on every target, is integer division and any
+// float expression; both sit in the refusal table below.
 var elfCorpus = []elfProgram{
 	{"print_literal", "func main() {\n    print(42)\n}\n"},
 	{"let_and_print", "func main() {\n    let x = 123\n    print(x)\n}\n"},
@@ -96,6 +98,7 @@ var elfCorpus = []elfProgram{
 	{"len_of_array", "func main() {\n    let a = [3, 5, 7]\n    print(len(a))\n}\n"},
 	{"print_string", "func main() {\n    print(\"hi\")\n}\n"},
 	{"concat", "func main() {\n    print(\"ab\" + \"cd\")\n}\n"},
+	{"unary_minus", "func main() {\n    print(-7)\n}\n"},
 }
 
 // TestPhase151D_LinuxEmitsAValidELF is the core claim: kcc emits an ELF for a
@@ -331,13 +334,26 @@ func TestPhase151D_LinuxRefusesUnsupportedPrograms(t *testing.T) {
 	}{
 		{"no_main", "func helper() {\n    print(1)\n}\n"},
 		{"unsupported_loop", "func main() {\n    let i = 0\n    while i < 3 {\n        print(i)\n        i = i + 1\n    }\n}\n"},
-		{"unsupported_call", "func main() {\n    print(helper())\n}\n\nfunc helper() int {\n    return 1\n}\n"},
 		{"unsupported_if", "func main() {\n    let x = 1\n    if x > 0 {\n        print(x)\n    }\n}\n"},
-		// Unary minus is outside the driver's subset and is refused the SAME
-		// way on both targets -- verified against the pre-existing Windows
-		// path, which returns the same error[K145]. It is listed here so the
-		// refusal is pinned rather than left as an unasserted gap.
-		{"unsupported_unary_minus", "func main() {\n    print(-7)\n}\n"},
+		// A CORRECTIVE CHANGE against the frozen A1 baseline, recorded in
+		// docs/audit/NAT-CALL-BASELINE.md section 8 rather than silently here.
+		//
+		// Two rows that used to sit in this table -- a user function call and
+		// unary minus -- are NOT refusals any more: NAT-CALL (the v1.3.0
+		// opener) taught the driver both, and the rows failed with "kcc
+		// ACCEPTED a program it cannot lower (exit 0)". They were REPLACED
+		// rather than deleted, because this table's property is "a program the
+		// driver cannot lower is refused BY NAME and writes no image", and a
+		// table that quietly shrinks stops being evidence for it. The two
+		// substitutes are still outside the subset on every target and are
+		// covered by name in the NAT-CALL gate's refusal table:
+		//
+		//   * integer division, which the driver refuses rather than inventing
+		//     a truncation or a divide-by-zero contract;
+		//   * a float expression, which has encoder primitives (151A Steps
+		//     8a-8e) but no statement lowering yet.
+		{"unsupported_division", "func main() {\n    print(1 / 2)\n}\n"},
+		{"unsupported_float", "func main() {\n    print(1.5)\n}\n"},
 	}
 	for _, c := range cases {
 		c := c
