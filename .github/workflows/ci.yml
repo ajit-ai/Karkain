@@ -404,9 +404,31 @@ jobs:
       - name: Run Increment 152-B2 native sha256_hex gate
         run: go test ./pkg/native/ -run 'TestPhase152B2_|TestSHA256Harness_' -count=1 -timeout 20m
 
-      # Increment 154 (v1.2.0) — I-6 self-bootstrap: retires the
+      # Increment 154 (v1.2.0) - I-6 self-bootstrap: retires the
       # `KARKAIN_ENGINE=go` stage-1 pin so compiler children run the default
       # self-hosted kcc engine ("kcc builds kcc").
+      #
+      # SPLIT, measured 2026-10-29. This step had never actually executed in CI:
+      # every run since 2026-10-10 failed earlier (at what is now step 16) and
+      # skipped the rest, so the gate's first real execution was run
+      # 40815666047. It failed 110 s in with **exit 143** (SIGTERM), ~35-60 s
+      # after the stage-2 transpile started -- the same signature REL-002 / B2
+      # recorded for `TestBootstrap_SeedClosure` in the Phase-143 report, and
+      # not a compiler defect (no witness line, no timer, no OOM or crash
+      # fingerprint). A gate that reports a runner limit as a compiler failure
+      # also masks every step after it, which is how 27 downstream steps stayed
+      # unexercised.
+      #
+      # So the gate is split the way Phase 143 split the seed closure:
+      #   * `TestPhase154_PinMechanism` (here) proves the contract 154 actually
+      #     changes -- whether KARKAIN_ENGINE=go reaches a compiler child's
+      #     environment -- with no compiler build, so this required job reports
+      #     a real conclusion instead of a skip.
+      #   * `TestPhase154_ControlPinActive` / `_PinRetired` / `_NoGoEnginePin`
+      #     keep their full three-stage assertions but are opt-in behind
+      #     KARKAIN_SEED_CLOSURE=1 (see the `phase154-closure` job). A skip here
+      #     is NOT evidence: v1.2.0 conditions 5-6 stay open until a capable
+      #     host runs them.
       - name: Run Increment 154 self-bootstrap gate
         run: go test ./pkg/bootstrap/ -run 'TestPhase154_' -count=1 -timeout 60m
 
@@ -920,6 +942,95 @@ jobs:
         with:
           name: seed-closure
           path: seed-closure.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Increment 154: the end-to-end self-bootstrap proof, isolated on purpose.
+  #
+  # The same runner limitation as B2 above: run 40815666047 gave the required
+  # `Test` job's "Run Increment 154 self-bootstrap gate" step its FIRST ever
+  # execution and it was killed with exit 143 (SIGTERM) 110 s in, ~35-60 s
+  # after the stage-2 transpile started. That is the measured REL-002 / B2
+  # signature, not a defect in increment 154's code, and it had been invisible
+  # because every run since 2026-10-10 died at an earlier step.
+  #
+  # So the required job keeps the fast half (`TestPhase154_PinMechanism`, which
+  # proves the pin actually reaches a compiler child) and this job carries the
+  # three-stage half. THIS JOB IS DISCOVERY, NOT A RELEASE GATE: it is not a
+  # required check, so it reports red without blocking anything, and v1.2.0
+  # conditions 5-6 stay OPEN until a run here completes.
+  #
+  # A skip, timeout, exit 143 or partial stage build is explicitly a FAILURE,
+  # never a pass -- see the verification step. Note what is NOT attempted here:
+  # `TestPhase154_ControlPinActive` and `TestPhase154_NoGoEnginePin` each drive
+  # their own full three-stage build, so running them alongside the main
+  # assertion would triple an already-killed burn on a runner that cannot finish
+  # one. Their witnesses exist and a capable host can run them with the same
+  # opt-in; until then they are recorded as unproven rather than implied green.
+  phase154-closure:
+    name: Increment 154 self-bootstrap (discovery, non-gating)
+    runs-on: ubuntu-latest
+    # No GOMEMLIMIT, unlike the `test` job -- same reasoning as B2 above: one
+    # test, and dropping the variable keeps the exit-143 diagnosis free of an
+    # extra unknown.
+    timeout-minutes: 60
+    env:
+      KARKAIN_SEED_CLOSURE: '1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install GCC and GMP
+        run: sudo apt-get update && sudo apt-get install -y gcc libgmp-dev
+
+      - name: Show toolchain and available memory
+        run: |
+          echo "go: $(go version)"
+          echo "gcc: $(gcc -dumpversion)"
+          grep -E 'MemTotal|MemAvailable' /proc/meminfo
+
+      # `tee` writes incrementally so an external kill still leaves a partial
+      # log for the upload step; pipefail keeps the status the test's.
+      - name: Run TestPhase154_PinRetired
+        run: |
+          set -o pipefail
+          go test ./pkg/bootstrap/ -run '^TestPhase154_PinRetired$' -count=1 -v 2>&1 | tee phase154-closure.log
+
+      - name: Verify the self-bootstrap actually completed
+        if: always()
+        run: |
+          if [ ! -f phase154-closure.log ]; then
+            echo "::error::no log produced; the test never ran (killed before output?)"
+            exit 1
+          fi
+          if grep -q -- '--- SKIP: TestPhase154_PinRetired' phase154-closure.log; then
+            echo "::error::TestPhase154_PinRetired SKIPPED. Increment 154 is NOT proven -- a skip is not evidence (error[K127] memory guard, or absent go/gcc)."
+            grep -E 'K127|insufficient|quarantined' phase154-closure.log || true
+            exit 1
+          fi
+          if grep -q -- 'FAIL' phase154-closure.log; then
+            echo "::error::increment 154 self-bootstrap FAILED -- inspect the log before drawing any conclusion."
+            grep -E 'FAIL|Error|error\[' phase154-closure.log | head -20 || true
+            exit 1
+          fi
+          # The byte count must be non-zero: an empty stage-2 binary would make
+          # a "bitwise identical" claim vacuous.
+          if ! grep -qE 'phase154 witness: pin RETIRED, stage2 == stage3 bitwise identical \([1-9][0-9]* bytes\)' phase154-closure.log; then
+            echo "::error::no qualifying stage2 == stage3 witness line. The self-bootstrap did not complete; increment 154 is NOT proven."
+            grep -E 'Stage [123]|witness' phase154-closure.log || true
+            exit 1
+          fi
+          echo "Witnessed: pin retired, stage2 == stage3 bitwise identical (size in the log)."
+
+      - name: Upload phase154-closure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase154-closure
+          path: phase154-closure.log
           if-no-files-found: warn
           retention-days: 30
 
