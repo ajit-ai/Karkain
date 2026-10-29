@@ -112,7 +112,7 @@ that property is why the 1.0/1.1 lines shipped at all.
 | Pre-1.0 | Language/compiler foundation | 1–90 | Complete |
 | v1.0.0 | Stable/self-hosted foundation | 91–128 | Complete |
 | v1.1.0 | Toolchain/native foundation | 128–149 | Complete |
-| **v1.2.0** | **Sovereignty I — Off C, Off Go** | **150, 151P0, 151, 152, 154** (165 free-floating) | **In progress** |
+| **v1.2.0** | **Sovereignty I — Off C, Off Go** | **150, 151P0, 151, 152, 154** (165 free-floating) | **In progress** — 152 conditions 2–3 and 154 conditions 5–6 **carried to v1.3.0**; effective gate is conditions 1, 4, 7, 8 |
 | v1.3.0 | Language + library completeness | 155, 156, 158–161 | Planned |
 | v1.4.0 | Tooling/debugging/observability | 153, 157, 163, 164, 175, 176 | Planned |
 | v1.5.0 | Platforms + packaging | 166–172 | Planned |
@@ -147,7 +147,7 @@ Notes on this matrix:
 | Version | Exit criteria |
 |---|---|
 | **1.1.0** | only the owner ceremony: tag `v1.1.0` on current `main`, CI archives + checksums, `verify-install`/`rc-journey` against the shipped binary, docs marker flip |
-| **1.2.0** | hello with `gcc`/`clang`/`cl` **absent from `PATH`**; `stage2 == stage3` with **no Go toolchain**; native images byte-identical Go↔kcc where the gate requires parity; Go described as *reference only* in `installation.rst`; full QA battery. **Amended 2026-10-10 (owner-authorized):** the `stdlib_v2` and `std.net` no-C requirements are **carried over to v1.3.0 as UNMET** — see `docs/release/v1.2.0-CHECKLIST.md` §2.1 and §4 for the measured blockers and the v1.3.0 work items |
+| **1.2.0** | hello with `gcc`/`clang`/`cl` **absent from `PATH`**; native images byte-identical Go↔kcc where the gate requires parity; Go described as *reference only* in `installation.rst`; full QA battery. **Amended 2026-10-10 (owner-authorized):** the `stdlib_v2` and `std.net` no-C requirements are **carried over to v1.3.0 as UNMET** — see `docs/release/v1.2.0-CHECKLIST.md` §2.1 and §4 for the measured blockers and the v1.3.0 work items. **Amended 2026-10-29 (owner-authorized):** `stage2 == stage3` and the no-Go self-bootstrap closure are **also carried over to v1.3.0 as UNMET** (§2.3) — increment 154 is implemented (`62a6323`) but the proof is capacity/runner-blocked. Effective gate: conditions **1, 4, 7, 8** |
 | **1.3.0** | OS stdlib modules ship (both engines); **native function-call lowering plus a genuine `import std.*` program that builds and executes through the C-free native path** (carried over from v1.2.0 Condition 2); **a native networking capability with an explicit platform-support decision, and a real `std.net` program that builds and runs without a C compiler on each platform claimed as supported** (carried over from v1.2.0 Condition 3); PM/scaffolding owned by kcc; generics v2 + `const` folding; linear types enforced; atomic surface with litmus goldens; **zero** Go-engine-only core rows |
 | **1.4.0** | DWARF consumed (breakpoints/step); `prof`/SIMD/DWARF parity on kcc; KIR consumed by the backend; every known wrong-code class fixed or a loud `K1xx` |
 | **1.5.0** | `--target freestanding` links with no libc; WASM GC/components + `wit`; MSI/DEB/RPM/DMG artifacts install in clean environments; riscv64 real; Android triple |
@@ -228,11 +228,12 @@ was derived from the baseline files' presence in the tree, not from this prose:
 | Increment | Baseline note | Delivery state |
 |-----------|---------------|----------------|
 | 152 | `PHASE-152-BASELINE.md` | **partial** — 152-A, 152-B0, 152-B1, 152-B2 shipped; closure conditions 2 and 3 carried to v1.3.0 as UNMET |
-| 154 | `PHASE-154-BASELINE.md` | **not implemented** — baseline, gate and CI wiring exist; no implementation |
+| 154 | `PHASE-154-BASELINE.md` | **implemented, unverified** — `62a6323` delivered the pin retirement, `compilerChildEnv`/`CompilerChildEnv`, the gate, the CI step and `reference/`. The proof is carried to v1.3.0: this host is under the K127 threshold and a hosted runner kills the stage-2 transpile with exit 143. `TestPhase154_PinMechanism` keeps the pin contract gated in the required `Test` job |
 | 165 | none | **not baselined, not started** |
 
 A baseline note is evidence of *planning*. It is not evidence of delivery, which
-is why 154 appears here with a baseline and no implementation.
+is why 152 is `partial` and 154 is `implemented, unverified` rather than
+`complete` — each row states the evidence it actually has.
 
 ### 4.0 Version policy: released, active, future
 
@@ -242,7 +243,7 @@ shipped.
 | State | Version | Evidence |
 |-------|---------|----------|
 | **Released** | **1.1.0** | `VERSION` = `1.1.0`; tag `v1.1.0` exists; the version plan lists increments 128-149 as complete |
-| **Active development** | **1.2.0 "Sovereignty I"** | open, in progress; increments 150, 151P0, 151, 152, 154 in scope, 165 free-floating |
+| **Active development** | **1.2.0 "Sovereignty I"** | open, in progress; increments 150, 151P0, 151, 152, 154 in scope, 165 free-floating. 154's end-to-end proof is carried to v1.3.0 (§4.1) |
 | **Future** | 1.3.0, 1.4.0, 1.5.0, 1.6.0, 2.0.0 | themes and exit criteria only; **not baselined** |
 
 **`VERSION` stays `1.1.0` until v1.2.0 is cut.** Editing a roadmap document does
@@ -277,17 +278,19 @@ can land at any point in the sequence without unblocking or blocking 150–154.
 
 The release closes **only** when every one of these holds. Conditions **2** and
 **3** are recorded verbatim for integrity but are **carried over to v1.3.0 as
-UNMET** under the owner-authorized amendment of 2026-10-10; the amended v1.2.0
-gate is the remaining six, and `docs/release/v1.2.0-CHECKLIST.md` §2.1 is the
-authoritative statement.
+UNMET** under the owner-authorized amendment of 2026-10-10, and conditions **5**
+and **6** are carried the same way under the owner-authorized amendment of
+**2026-10-29**; the effective v1.2.0 gate is therefore conditions **1, 4, 7 and
+8**, and `docs/release/v1.2.0-CHECKLIST.md` §2.1 and §2.3 are the authoritative
+statements.
 
 1. hello builds and runs with `gcc`, `clang` and `cl` all **absent from `PATH`**
 2. `stdlib_v2` works in that same no-C environment — **CARRIED OVER → v1.3.0 (unmet)**
 3. one `std.net` program builds and runs under the defined no-C constraint — **CARRIED OVER → v1.3.0 (unmet)**
 4. native images are **byte-identical** between the Go compiler and `kcc`
    wherever the gate requires parity
-5. `stage2 == stage3` — the self-hosted build is bit-reproducible
-6. **no Go toolchain is required** for that self-bootstrap closure
+5. `stage2 == stage3` — the self-hosted build is bit-reproducible — **CARRIED OVER → v1.3.0 (unmet)**
+6. **no Go toolchain is required** for that self-bootstrap closure — **CARRIED OVER → v1.3.0 (unmet)**
 7. `installation.rst` identifies Go as **reference-only**
 8. the full version QA battery passes (units, Phase-114 corpus on both engines,
    conformance, probes, every gate file, Sphinx `-W` + linkcheck,
@@ -298,13 +301,18 @@ closed as "green except X": an unmet condition moves to the next version or to
 an explicit, written carry-over list. `AGENTS.md` carries the frozen-increment
 rule that governs how these are evidenced.
 
-The two carried-over conditions are unmet for measured reasons, not for want of
-evidence: the native driver lowers **no function call at all** (`src/compiler/
-native_value.kark` refuses any call, and every `std.*` capability is a call), and
-`pkg/native` has no socket emitter — `TestPhase152A_
-SocketCapabilityBoundaryRejected` proves `net_*` is rejected on the native
-target. Both are missing capability, and the v1.3.0 work items are recorded in
-`docs/release/v1.2.0-CHECKLIST.md` §4.
+The **four** carried-over conditions are unmet for measured reasons, not for
+want of evidence. Conditions 2 and 3: the native driver lowers **no function
+call at all** (`src/compiler/native_value.kark` refuses any call, and every
+`std.*` capability is a call), and `pkg/native` has no socket emitter —
+`TestPhase152A_SocketCapabilityBoundaryRejected` proves `net_*` is rejected on
+the native target. Conditions 5 and 6: increment 154 is **implemented**
+(`62a6323`) but its proof needs a host with ≥1.5 GiB free physical (this one
+measures 427–673 MB against the Phase 127 `error[K127]` threshold) **or** a CI
+runner that survives the minutes-long stage-2 transpile (exit 143 SIGTERM; see
+REL-002 / B2). All four are missing capability or missing capacity, never
+skipped ordering, and the v1.3.0 work items are recorded in
+`docs/release/v1.2.0-CHECKLIST.md` §4 and `docs/release/v1.3.0-CHECKLIST.md` §1.
 
 **What 1.2.0 does not claim.** It does not make building the *compiler* C-free:
 after 154 the toolchain is Go-free but bootstrap still links through a C
@@ -403,8 +411,8 @@ any of them. They gate native/PM work, so they open 1.3.0 as increment 155.
 | Version | Increments | State | Blocker |
 |---|---|---|---|
 | 1.1.0 | 128–149 | **in-tree complete**, gates green | owner tag/archive ceremony |
-| 1.2.0 | 150, 151P0, 151, 152, 154, 165 | **open, in progress** - increment 150 **complete** (150A-150D); **151P0 complete**; **151D complete** (`kccOwnsNativeTargets` flipped; kcc owns `native-x86_64-windows`, ELF/Mach-O remain Go-only and refuse K116); 152 partially delivered (152-A, 152-B0, 152-B1, 152-B2); 154/165 not started. **Closure conditions 2 and 3 carried over to v1.3.0 as UNMET** (owner-authorized 2026-10-10) | B2 (seed closure not runner-proven); conditions 4-8 open |
-| 1.3.0 | 155, 156, 158, 159, 160, 161 | **planned, not baselined** — theme + exit criteria only; per-increment scope unwritten. **Accepts two carry-over work items from v1.2.0**: native function-call lowering + a no-C `stdlib_v2` build-and-run gate (Condition 2), and native networking with a platform-support decision (Condition 3) | needs the 1.2.0 native/lib baseline |
+| 1.2.0 | 150, 151P0, 151, 152, 154, 165 | **open, in progress** — increment 150 **complete** (150A–150D); **151P0 complete**; **151 complete** (`kccOwnsNativeTargets` flipped and all three C-free targets kcc-owned: Windows PE executes, Linux ELF is CI-executed, Mach-O is structural for want of a macOS runner); 152 partially delivered (152-A, 152-B0, 152-B1, 152-B2); 154 **implemented, unverified** (`62a6323`); 165 not started. **Closure conditions 2 and 3 carried over to v1.3.0 as UNMET** (owner-authorized 2026-10-10) **and 5 and 6 likewise** (owner-authorized 2026-10-29) — effective gate: conditions 1, 4, 7, 8 | B2 / REL-002 (seed-closure burn not runner-proven) for the carried 154 proof; conditions 4 and 8 open |
+| 1.3.0 | 155, 156, 158, 159, 160, 161 | **PREPARED, not open** — `docs/release/v1.3.0-CHECKLIST.md` records the theme, ten closure conditions, the ordered queue and the numbering rationale, but **no increment is authorized until v1.2.0 is tagged**. **Accepts four carry-over work items from v1.2.0**: native function-call lowering + a no-C `stdlib_v2` build-and-run gate (Condition 2), native networking with a platform-support decision (Condition 3), and increment 154's `stage2 == stage3` / no-Go proof (Conditions 5–6) | needs the 1.2.0 native/lib baseline |
 | 1.4.0 | 153, 157, 163, 164, 175, 176 | **planned, not baselined** | needs the 1.3.0 library rows |
 | 1.5.0 | 166, 167, 168, 169, 170, 171, 172 | **planned, not baselined** | macOS signing and BSD VM are owner/community items |
 | 1.6.0 | 162, 174, 179* | **planned, not baselined** | 179 needs an operated registry service |
