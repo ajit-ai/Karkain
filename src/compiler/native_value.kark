@@ -4161,7 +4161,15 @@ func natArrayIndex(s, off, idx, tag, roffsKind, srcOff, srcLen, line) {
     // Arguments: kind (ptr,len), file (ptr,len), line -- the native user-call
     // convention, units 0-4 of argRegs.
     s = natRodataRefOff(s, natRegRDI(), roffsKind)
-    s = natMovRegImm32(s, natRegRSI(), 25)   // len("array index out of range")
+    // Phase D8: this was the literal 25, while "array index out of range" is
+    // 24 characters -- the reporter was told the string was one byte longer
+    // than it is. The oracle derives it with len("array index out of range")
+    // (program.go:6324); the same derivation is used here, written from the
+    // LITERAL rather than from the interned offset because the interning list
+    // is only an offset table and carries no lengths. Using len() on the
+    // literal means a future edit to the message can no longer desynchronise
+    // the immediate from the text, which is the defect this line WAS.
+    s = natMovRegImm32(s, natRegRSI(), len("array index out of range"))
     s = natRodataRefOff(s, natRegRDX(), srcOff)
     s = natMovRegImm32(s, natRegRCX(), srcLen)
     s = natMovRegImm32(s, natRegR8(), line)

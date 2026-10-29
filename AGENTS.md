@@ -3760,3 +3760,36 @@ and after (98754 characters), only 57 of 1158 lines changed, and the only
 non-ASCII characters remaining are the six legitimate ones (em-dash, middle
 dot, down-arrow, en-dash, section sign, right-arrow) with no U+FFFD and no
 BOM. Encoding-clean before commit.
+
+Also completed: **Corrective change - stale WASM fixtures rejected by the
+hardened parser** (2026-10-29; not a new increment, no phase number, recorded
+per the Governance rule). CI had been red on every push since 2026-10-11
+(first failure run 38112881054, a docs-only commit). Measured cause: the
+parser-hardening commit `b71b92e` correctly rejects a dangling binary operator,
+and three fixtures still used `i++`/`n--`, which Karkain has never supported
+(`i++` lexes as `i + +`). The defect was in the fixtures, not the parser:
+`examples/wasm/control_flow/main.kark` (lines 3 and 14) and two inline sources
+in `pkg/cli/phase123_cli_test.go` (`WasmGetArgs`, `WasmDeterminism`) were
+rewritten to `i = i + 1` / `n = n - 1`. Verified by
+`go test ./pkg/cli/ -run 'TestPhase123' -count=1`: 7 tests / 16 subtests PASS
+(87.7s), including `TestPhase123_WasmExampleCorpus/control_flow`,
+`WasmGetArgs` and `WasmDeterminism`. The fixtures were invalid all along; only
+the pre-hardening parser's permissiveness made them pass.
+
+Also completed: **Phase D8 - the array-bounds diagnostic length (COMPLETE)**.
+`natArrayIndex` in `src/compiler/native_value.kark` emitted the literal 25 as
+the length of `"array index out of range"`, which is 24 bytes, so the kcc
+runtime reporter read one byte past the string. The Go oracle derives it with
+`len("array index out of range")` (`pkg/native/program.go:6324`), making this a
+kcc-only divergence with no behavioural test able to see it: the diagnostic
+goes to a stream that the 152-B0 `GetStdHandle` limitation leaves empty on this
+host, and the D5 gate counts image bytes rather than decoding the immediate.
+The fix derives the length from the literal, so a future edit to the message
+cannot desynchronise it. Gate `pkg/cli/phase151d8_diaglen_test.go`
+(`TestPhaseD8_`), CI step *Run Phase D8 native bounds-diagnostic length gate*.
+Evidence: PASS locally; **mutation-verified** by restoring the literal 25,
+which fails with "the bounds-diagnostic length immediate is 25, want 24" and
+the two encodings (`BE 19 00 00 00` vs `BE 18 00 00 00`); reverted and re-ran
+with `TestPhaseD5_` green (27.5s). No emitted-byte behaviour changes for any
+program that does not index out of bounds; the fix moves one immediate in the
+failure arm only.

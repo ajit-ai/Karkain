@@ -323,6 +323,14 @@ jobs:
       - name: Run Phase D5 kcc native array-bounds gate
         run: go test ./pkg/cli/ -run 'TestPhaseD5_' -count=1 -timeout 30m -v
 
+      # Phase D8, the bounds-diagnostic length immediate. The pre-fix emitter
+      # sent the literal 25 as the length of a 24-byte message, so the reporter
+      # could read one byte past the string. Named explicitly rather than left
+      # to the D5 step: D5 counts image bytes and never decodes the immediate,
+      # which is exactly why this defect survived it.
+      - name: Run Phase D8 native bounds-diagnostic length gate
+        run: go test ./pkg/cli/ -run 'TestPhaseD8_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing
