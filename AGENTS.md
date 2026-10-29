@@ -3793,3 +3793,76 @@ the two encodings (`BE 19 00 00 00` vs `BE 18 00 00 00`); reverted and re-ran
 with `TestPhaseD5_` green (27.5s). No emitted-byte behaviour changes for any
 program that does not index out of bounds; the fix moves one immediate in the
 failure arm only.
+
+Also completed: **Corrective change - the increment 154 gate had never executed in
+CI, and cannot complete on a hosted runner** (2026-10-29; not a new increment, no
+phase number, recorded per the Governance rule). Two measured facts, the second
+explaining the first. (1) **The gate had never run.** CI run `40815666047`
+(`develop` = `fb7cbf6`) gave the step *Run Increment 154 self-bootstrap gate* its
+**first execution since it was added on 2026-10-12**: every run in between died
+earlier (at what is now step 16) and skipped the rest, verified on run
+`38606695556` where step 16 is `failure` and steps 17-44 are `skipped` (the 154
+step is index 54). Its preceding history is therefore **empty, not green**. (2)
+**That first execution failed for a runner reason, not a compiler one.** The
+check-run annotation reads `Process completed with exit code 143.`; the step ran
+`04:15:03Z` -> `04:16:53Z` = **110 s**, i.e. ~35-60 s into the stage-2 transpile.
+Exit 143 is SIGTERM, and that is the exact signature `PHASE-143-FINAL-REPORT.md`
+section F already records for `TestBootstrap_SeedClosure` (five consecutive
+runner deaths, no witness line even unbuffered, no timer/OOM/crash fingerprint,
+while the short smoke proof passes on the same runner) and which REL-002 / B2
+tracks. **So increment 154's failure is that class, and the larger cost was not
+the one red step but the 24 gates behind it** (steps 55-78, including the whole
+151A/151B/151C/151D native family, 152-A/B1/B2, D5 and D8), which were skipped
+and have still never executed in CI.
+
+The repair mirrors the Phase-143 arrangement rather than inventing a second
+weaker rule. `pkg/bootstrap/phase154_selfbootstrap_test.go` gains
+`requireSeedClosure(t)` (same variable, same wording, same reason), which gates
+`TestPhase154_ControlPinActive` / `_PinRetired` / `_NoGoEnginePin`;
+`TestPhase154_ReferenceArchive` stays ungated. The required `Test` job keeps a
+**real** conclusion through a new `TestPhase154_PinMechanism`, which proves the
+contract 154 actually changes - whether `KARKAIN_ENGINE=go` reaches a compiler
+child's environment - by launching `go env GOOS` in both pin states and
+inspecting `CompilerChildEnv()`; it builds no compiler, so it costs 0.09 s.
+Witness lines (`phase154 witness: pin RETIRED, stage2 == stage3 bitwise
+identical (N bytes)` and two siblings) make completion greppable rather than
+inferred from an exit code. `.github/workflows/ci.yml` gains a non-gating
+`phase154-closure` discovery job modelled on `bootstrap-closure`:
+`KARKAIN_SEED_CLOSURE: '1'`, 60-minute timeout, no `GOMEMLIMIT` (one test, and
+the exit-143 diagnosis should carry no extra unknown), `tee` + `pipefail` so an
+external kill still leaves a partial log for the artifact upload, running **only**
+`TestPhase154_PinRetired` with a verification step that treats a missing log, a
+`--- SKIP:`, a `FAIL`, **or a witness line with a zero byte count** as failures.
+
+Evidence for the harness itself, not just its claims: **M1** (pin becomes a
+no-op) fails with `pin active: compiler child env does not carry
+KARKAIN_ENGINE=go`; **M2** (`forceGoEngine` applied unconditionally, ignoring the
+pin state) fails with `pin retired: compiler child env still carries
+KARKAIN_ENGINE=go`; both reverted and `bootstrap.go` restored to its exact
+pre-mutation content, SHA-256
+`D6790736A94A99DAE5D569800D430064738DDE27CF336D17072212193D717191`. The CI
+verification block was **executed against five synthetic logs** (good / skip /
+fail / 0-byte witness / no witness) under bash: only the good one exits 0. Locally
+`go test ./pkg/bootstrap/ -run 'TestPhase154_' -count=1 -v` exits 0 with
+`TestPhase154_PinMechanism` PASS, `TestPhase154_ReferenceArchive` PASS and the
+three heavy tests SKIP with the honest message; `go vet ./pkg/bootstrap/` clean
+and the file gofmt-clean when LF-normalised and BOM-free (the CRLF-only artifact
+the repo already carries).
+
+**What is NOT claimed.** v1.2.0 closure **conditions 5-6 stay OPEN**: nothing
+here proves kcc can rebuild itself end to end, only that the pin contract is real
+and that the end-to-end proof is waiting for a host that can run it.
+`TestPhase154_ControlPinActive` and `TestPhase154_NoGoEnginePin` remain
+**unproven** - each drives its own full three-stage build, so running them beside
+the main assertion would triple a burn the runner cannot finish once - and they
+are recorded as unproven rather than implied green by their sibling's pass. The
+discovery job is not a required check, so it may report red without blocking.
+Documents corrected in the same change rather than left to mislead:
+`docs/audit/PHASE-154-BASELINE.md` section 4 named a `TestPhase154_NoGoQACheck`
+that does not exist and described `_NoGoEnginePin` as running with `go` shadowed
+(it does not), and section 8 is the new corrective record;
+`docs/audit/KARKAIN-IMPLEMENTATION-CONTROL.md` carried GOV-001 as *"baselined and
+gated but NOT implemented ... not started"*, which was wrong - increment 154
+shipped at `62a6323` - so GOV-001 is now `implemented, unverified` with the
+two-fold blockage (host capacity and the runner kill) and conditions 5-6 restated
+as open in section 9.5.

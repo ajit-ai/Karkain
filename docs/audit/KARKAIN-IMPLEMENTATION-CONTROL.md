@@ -106,7 +106,7 @@ against).
 | ID | Item | Status | Blocker | Evidence |
 |----|------|--------|---------|----------|
 | KIR-REMEASURE | Re-measure the whole-tree KIR pin | `completed` 2026-10-29 **(on CI, not on this host)** | - | Pin **14050** is now asserted on every push by the *kcc whole-tree self-check (Phase 122)* job, which passed at `fb7cbf6` (run `40815666047`); two dev-host measurements at `e83385f` agree. The dev host itself remains unreliable for the multi-minute run (REL-001, UNCLASSIFIED), so the CI job is the measurement path and `TestPhase151A5_KIRPinHolds` still asserts the pin exactly when the host allows |
-| B2-SEED | Seed-closure burn on CI runners | `blocked` | Six consecutive runner deaths (latest 2026-10-29, run `40815666047`) ~35 s into the stage-2 transpile, with no witness line, timer, OOM or crash fingerprint | `bootstrap-closure` CI job is **discovery-only and not a required check**; the mechanism itself is proven on a dev host (143) |
+| B2-SEED | Seed-closure burn on CI runners | `blocked` | Six consecutive runner deaths (latest 2026-10-29, run `40815666047`) ~35 s into the stage-2 transpile, with no witness line, timer, OOM or crash fingerprint. **The same class independently reproduced by the increment 154 step on the same run** (`exit 143`, 110 s, its first-ever execution) | `bootstrap-closure` and `phase154-closure` CI jobs are **discovery-only and not required checks**; the mechanism itself is proven on a dev host (143) |
 
 ### 4.3 Later versions (planned, not baselined)
 
@@ -184,11 +184,13 @@ now would stall behind a decision rather than produce a gate.
 * **D6.** Its 8-byte frame delta is cosmetic, and closing it moves
   `natFrameLayout`, which every Step 1-9d displacement is pinned against. Do it
   once, after the value model settles, not now.
-* **GOV-001 / increment 154.** Baselined and gated, but blocked by this host:
-  measured 427 MB free physical against the Phase 127 `error[K127]` threshold of
-  1536 MiB, so the gate refuses before doing work. It is a memory problem on the
-  dev host and a runner-stability problem on CI (REL-002), not a work-ordering
-  problem.
+* **GOV-001 / increment 154.** **Implemented, not merely baselined** (corrected
+  2026-10-29: it shipped at `62a6323`). What remains is the end-to-end proof,
+  which is blocked twice over: this host measures 427 MB free physical against
+  the Phase 127 `error[K127]` threshold of 1536 MiB, and the CI runner kills the
+  stage-2 transpile with exit 143 ~35-60 s in (REL-002 / B2). It is a capacity
+  and runner-stability problem, not a work-ordering problem, and it is not
+  startable work — see `PHASE-154-BASELINE.md` §8.
 * **153 (DAP).** Not authorised, and no DAP server exists in the repository.
 * **152-A/A1/B1/B2 and D5/D8 follow-ups.** Already delivered; finishing their
   slice list is not a next-slice recommendation.
@@ -251,6 +253,7 @@ owner-authorized amendment. An agent may propose one; it may not record one.
 | 2026-10-15 | Control system established. Queue, status vocabulary, evidence conventions, selection policy, staleness rules and deferral process added. Derived statuses from commits, gate files and `ci.yml` patterns at `develop` = `64c63c6` |
 | 2026-10-15 | Cross-workstream consistency review: `TYPE-DESIGN` corrected from `approved` to `proposed`. The design document and the version plan both state the design is awaiting owner sign-off, so `approved` was a contradiction introduced by this control system and is corrected here under Rule 3 |
 | 2026-10-29 | Queue re-derived at `develop` = `fb7cbf6` (the D8 corrective change). Added the **D8** row. Closed **REL-005** on a third, independent measurement from a different host and OS (CI job *kcc whole-tree self-check (Phase 122)*, run `40815666047`, pin exactly **14050**), which also turns **KIR-REMEASURE** from `blocked` into `completed` with CI as the measurement path. Re-recorded **GOV-001** as `blocked` by capacity (427 MB free physical against the 1536 MiB K127 threshold, measured this date) rather than by ordering. Recommendation rewritten: **STD-001** - the carried v1.2.0 conditions 2-3, entered through native user-call lowering - replaces REL-001, whose remaining hypotheses have no cheap decisive experiment left; the **type-system foundation** becomes the runner-up |
+| 2026-10-29 | **GOV-001 corrected from `not implemented` to `implemented, unverified`** under Rule 3. Increment 154 shipped at `62a6323` (pin retirement, `compilerChildEnv`/`CompilerChildEnv`, gate file, CI step, `reference/`, baseline). What is blocked is the **end-to-end proof**, and for two measured reasons, not one: the dev host is under the K127 threshold **and** CI run `40815666047` gave the gate its first-ever execution, which failed with `exit 143` (SIGTERM) 110 s in - the REL-002 / B2 runner class. The 154 gate is now split (fast `TestPhase154_PinMechanism` in the required job, mutation-verified M1/M2; three-stage half opt-in via `KARKAIN_SEED_CLOSURE=1` in a new non-gating `phase154-closure` job that rejects a SKIP, a FAIL and a zero-byte witness). Conditions 5-6 stay **open**. Record: `PHASE-154-BASELINE.md` §8 |
 
 ## 9. Issue register
 
@@ -281,7 +284,7 @@ library and runtime, `SEC-` security and supply chain, `PERF-` performance,
 | ID | Title | Sev | Status | Evidence | Validation command | Target |
 |----|-------|-----|--------|----------|--------------------|--------|
 | REL-001 | kcc access violation `0xC0000005` on multi-minute whole-tree runs; root cause UNCLASSIFIED | S1 | `blocked` (UNCLASSIFIED) | **Diagnostic investigation 2026-10-15 at `80a9455`: crash NOT reproduced in 4 isolated-build runs** (466/608/473 s at a 64 MiB stack reserve, 487 s control at 2 MiB; free RAM 596-814 MB), plus 2 earlier clean runs = 5 consecutive. ASan proven **unavailable** on this toolchain (`cannot find -lasan`, MSYS2 UCRT64 gcc 14.2.0); the `-Wl,--stack,67108864` diagnostic was verified in the PE header (2 MiB -> 64 MiB). Full evidence: `REL-001-CRASH-INVESTIGATION.md`. **No root cause claimed - a run that does not crash cannot discriminate between hypotheses.** Prior record: intermittent on byte-identical sources; low-RAM, 64 MiB-stack and corrupt-binary hypotheses falsified | `go run ./cmd/karkain kir --verify src/compiler/kir.kark` (3+ runs; record exit, output length, elapsed) | v1.2.0 |
-| REL-002 | Seed-closure stage-2 transpile kills CI runners ~35 s in; mechanism proven on a dev host | S1 | `blocked` | Five consecutive runner deaths; the `bootstrap-closure` job is discovery-only, not a required check | `go test ./pkg/bootstrap -run TestBootstrap_SeedClosure -count=1` on a CI runner | v1.2.0 |
+| REL-002 | Seed-closure (and now increment 154) stage-2 transpile kills CI runners ~35 s in; mechanism proven on a dev host | S1 | `blocked` | Seven recorded runner deaths, all `exit 143`; five from the seed closure (143) plus 154's own step on run `40815666047` (110 s, first-ever execution) and the `bootstrap-closure` job on the same run. Both jobs are discovery-only, not required checks | `go test ./pkg/bootstrap -run TestBootstrap_SeedClosure -count=1` on a CI runner | v1.2.0 |
 | REL-003 | No fuzz targets anywhere in the repository | S3 | `approved` | `func Fuzz` count = 0 | `Select-String -Path pkg/**/*_test.go -Pattern 'func Fuzz'` | v1.3.0 |
 | REL-004 | No binary-size or artifact budget exists | S3 | `proposed` | Scorecard CE8 scored 2 for this reason | policy exists; numbers do not | v1.3.0 |
 | REL-005 | Whole-tree KIR pin re-verification on the dev host | S2 | **`closed` 2026-10-29** | Third, independent measurement on a **different host and OS**: CI run `40815666047`, job *kcc whole-tree self-check (Phase 122)*, commit `fb7cbf6` - PASS, `TestPhase122_PipelineOwnership` asserting the pin at exactly **14050**. That joins the two 2026-10-15 dev-host runs at `e83385f` (908.3 s via `TestPhase151A5_KIRPinHolds`, 996 s via the CLI; both `text=14050 verify=14050`). The two `src/compiler` commits since that measurement were checked for KIR neutrality by probe rather than assumed: `f(25)` and `f(len("array index out of range"))` both render as one `(= s (call f ...))` line, so D5 and D8 could not have moved the count. The pin is now asserted on every push by a runner that is not this host | as REL-001, plus the CI job | `closed` |
@@ -299,7 +302,7 @@ library and runtime, `SEC-` security and supply chain, `PERF-` performance,
 | LANG-001 | `let` carries no mutability meaning; only `const` is immutable | S2 | `proposed` (design decision) | `parseVarDecl` handles all three keywords; Phase 112 leaves let/var reassignment untouched | `UNIFIED-TYPE-DECLARATION-DESIGN.md`, D-1..D-6 | owner decision |
 | LANG-002 | The `let` immutability flip is breaking and breaks a frozen gated corpus | S2 | `blocked` on LANG-001 | The 151A Step 2b reference reassigns a `let` | as LANG-001 | major-version boundary |
 | LANG-003 | Type annotations are strings; no type values, no inference | S2 | `proposed` | `VarDeclStmt.Type string`; AR5 scored 3 | `TYPE_SYSTEM_AUDIT.md`, AR5 | separate programme |
-| GOV-001 | Increment 154 is baselined and gated but NOT implemented | S1 (v1.2.0) | `approved`, **`blocked` by host memory (re-measured 2026-10-29: 427 MB free physical against the 1536 MiB K127 threshold)** | `PHASE-154-BASELINE.md`; the `forceGoEngine` pin still exists at `pkg/bootstrap/bootstrap.go:152`. The gate needs `stage2 == stage3` with Go absent, which **cannot run on the dev host**: stage 2 refuses with `error[K127]` before doing any work (874 MB free on 2026-10-15, 427 MB on 2026-10-29). Not started rather than started-unverifiable. Blocked on capacity, not on design or ordering | needs >=1.5 GiB free RAM, or a CI runner that survives the minutes-long stage-2 burn (REL-002) | v1.2.0 (carry-over to v1.3.0 if capacity does not arrive) |
+| GOV-001 | Increment 154 is **implemented** (`62a6323`); only its end-to-end proof is blocked | S1 (v1.2.0) | `implemented, unverified` — **proof blocked twice over** (dev host re-measured 2026-10-29: 427 MB free physical vs the 1536 MiB K127 threshold; CI runner killed with exit 143, `REL-002`/`B2`) | `PHASE-154-BASELINE.md` §8. In the tree since `62a6323`: the pin retirement (`SetGoEnginePin`/`RetireGoEnginePin`/`GoEnginePinRetired`), `compilerChildEnv`/`CompilerChildEnv`, the gate file, a CI step and `reference/`. The earlier "NOT implemented / the pin still exists / not started" wording described a state that never existed on `main` and is corrected under Rule 3. The fast half (`TestPhase154_PinMechanism`, 0.09 s, mutation-verified M1/M2) runs in the required `Test` job; the three-stage half is opt-in via `KARKAIN_SEED_CLOSURE=1` and carried by the non-gating `phase154-closure` job | needs >=1.5 GiB free RAM, or a CI runner that survives the minutes-long stage-2 burn (REL-002) | v1.2.0 conditions 5-6 stay OPEN (carry-over to v1.3.0 if capacity does not arrive) |
 | GOV-002 | Increment 165 (Docker/GHCR) not started | S3 | `proposed` | Free-floating; no baseline | none | v1.5.0 |
 | GOV-003 | No rollback runbook | S3 | `proposed` | OM4 scored 2 for want of one | none | v1.3.0 |
 | DOC-001 | Several `docs/audit/*` documents contradict current code | S3 | `completed` | Three carry evidence-backed historical banners; scorecard section 7 lists them | `Select-String -Path docs/audit/NEXT_PHASE_RECOMMENDATION.md -Pattern HISTORICAL` | closed 2026-10-15 |
@@ -321,10 +324,10 @@ apparent complexity, or preference for new features.
    work. Second because it is a design milestone awaiting owner sign-off
    (D-1..D-6 open) and its biggest decision is a major-version boundary, so
    starting now would stall behind a decision rather than produce a gate.
-3. **GOV-001** (S1, increment 154 not implemented). Still a real v1.2.0
-   condition, but **not schedulable on this host**: 427 MB free physical against
-   the 1536 MiB guard, so those ranks cannot be acted on here. Rank is not the
-   binding constraint; capacity is.
+3. **GOV-001** (S1, increment 154 implemented; end-to-end proof blocked). Still a
+   real v1.2.0 condition, but **not schedulable on this host**: 427 MB free
+   physical against the 1536 MiB guard, and the CI runner kills the burn with
+   exit 143. Rank is not the binding constraint; capacity is.
 4. **REL-001** (S1, unclassified crash). No remaining cheap decisive experiment:
    ASan unavailable (measured), 64 MiB stack falsified (measured), low-RAM and
    corrupt-binary falsified, five consecutive isolated runs clean. It no longer
@@ -360,8 +363,9 @@ than as a competing item.
   right *second* because it needs a decision before it needs a gate.
 * **Deferred, with reasons:** NAT-001 / D6 (premature - reopens frozen frame
   pins for 8 bytes), NAT-002 (no macOS runner exists; every Mach-O claim stays
-  structural), GOV-001 (blocked by host memory: 427 MB free vs the 1536 MiB
-  guard - a capacity problem, not an ordering one), REL-002 / B2-SEED (runner
+  structural), GOV-001 (implemented at `62a6323`; its end-to-end proof is blocked
+  by host memory: 427 MB free vs the 1536 MiB guard - a capacity problem, not an
+  ordering one), REL-002 / B2-SEED (runner
   behaviour; discovery job only, needs an owner decision), REL-001 (evidence
   kept, no cheap experiment left, and it no longer blocks the pin), SEC-001 and
   PERF-001 (real but not release-blocking), LANG-001 / LANG-002 (owner decision,
@@ -379,8 +383,8 @@ Against the checklist's six-condition amended gate, verified this date:
 |---|-----------|--------|----------|
 | 1 | hello with no C compiler | **met** | checklist §2.1; 152-A gate |
 | 4 | native byte-identity where the gate requires parity | **met as written**, one documented limitation | 6 shapes asserted byte-identical by `TestPhaseD2_KccAndGoEmitIdenticalImages`; `array_index` asserted to DIFFER (1088 vs 1096) by `TestPhaseD2_KnownNonParityIsStillNonParity`. **Owner decision pending**: fund D6, or formally accept the 8-byte non-parity |
-| 5 | `stage2 == stage3` | **open** | B2 / REL-002; also blocked by GOV-001 |
-| 6 | no Go toolchain for self-bootstrap | **open** | GOV-001 unimplemented (`forceGoEngine` still pins `KARKAIN_ENGINE=go`) |
+| 5 | `stage2 == stage3` | **open** | implemented (154, `62a6323`); the proof is B2 / REL-002 blocked — dev host under the K127 threshold, CI runner exit 143. Fast pin-contract half green (`TestPhase154_PinMechanism`) |
+| 6 | no Go toolchain for self-bootstrap | **open** | implemented (pin retirement + `retireGoEnginePin` are in the tree); the end-to-end no-Go burn is the same blocked proof as condition 5. Tracked as GOV-001 `implemented, unverified` |
 | 7 | `installation.rst` names Go reference-only | **met** | `docs/source/getting-started/installation.rst:50` |
 | 8 | full QA battery | **open** | runs last, after 5 and 6 |
 

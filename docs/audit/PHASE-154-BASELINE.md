@@ -76,10 +76,46 @@ Shrink the compile-time surface of the Karkain toolchain: the default user path 
 ## 4. Gates (each is a test file **plus** its CI entry — AGENTS.md "gate is a test file plus a CI entry")
 
 - `pkg/bootstrap/phase154_selfbootstrap_test.go`
-  - `TestPhase154_PinRetired` — asserts the go pin is retired (`goEnginePin == false`), that a compiler child's environment carries no `KARKAIN_ENGINE=go`, and that a transplanted stage-2 build therefore runs with the default kcc engine.
-  - `TestPhase154_NoGoEnginePin` — asserts the pin retirement is what makes the closure go-free: with `go` unresolvable (shadowed) and the pin retired, stages 2 and 3 run and `stage2 == stage3` (SHA) bit-identical.
-  - `TestPhase154_ReferenceArchive` — asserts `reference/` exists, is gitignored, documents its role, and that the archived tree is the only Go tree on the user path.
-  - `TestPhase154_NoGoQACheck` — bounded smoke of the no-Go state (unit subsets + a native link round trip) so CI reports the 154 gate itself, not a skip.
-- CI step (named explicitly, not incidentally picked up): `.github/workflows/ci.yml` — "Run Increment 154 self-bootstrap gate" → `go test ./pkg/bootstrap/ -run 'TestPhase154_' -count=1 -timeout 60m`.
+  - `TestPhase154_PinMechanism` — **the fast half, and the only part that runs in the required `Test` job.** Proves the contract 154 actually changes (whether `KARKAIN_ENGINE=go` reaches a compiler child's environment) in both pin states, using a probe child and `CompilerChildEnv()`. No compiler is built, so the required job reports a real conclusion rather than a skip. It is deliberately not a substitute for the end-to-end proof.
+  - `TestPhase154_ControlPinActive` — control: with the pin still active, all three stages build and `stage2 == stage3`, and the child env carried the Go pin. Opt-in behind `KARKAIN_SEED_CLOSURE=1`.
+  - `TestPhase154_PinRetired` — the 154 main assertion: with the pin retired, stages 2 and 3 run the default self-hosted kcc engine and `stage2 == stage3` (SHA) bit-identical. Opt-in behind `KARKAIN_SEED_CLOSURE=1`; the `phase154-closure` discovery job runs exactly this test.
+  - `TestPhase154_NoGoEnginePin` — the direct contract: after retirement no compiler child's environment carries `KARKAIN_ENGINE=go`. Opt-in behind `KARKAIN_SEED_CLOSURE=1`.
+  - `TestPhase154_ReferenceArchive` — asserts `reference/` exists, is gitignored, and documents its role as the differential oracle.
+- CI steps (named explicitly, not incidentally picked up): `.github/workflows/ci.yml` — "Run Increment 154 self-bootstrap gate" (`go test ./pkg/bootstrap/ -run 'TestPhase154_' -count=1 -timeout 60m`, in the required `Test` job) plus the non-gating `phase154-closure` discovery job that sets `KARKAIN_SEED_CLOSURE=1` and treats a skip as a failure.
 - **No-Go full QA battery** (criterion 4) is verified by the owner at the version-close ceremony — the same arrangement as the 152-A no-C closure gate on the Linux host, and the B2 seed-closure job on capable runners.
+
+**Corrected 2026-10-29.** The list above previously named a `TestPhase154_NoGoQACheck` that does not exist, described `TestPhase154_NoGoEnginePin` as running with `go` shadowed (it does not; the shadowing proof is `TestBootstrap_SeedClosure`), and named one CI step where there are now two. Recorded rather than quietly rewritten, because a gate list that names a non-existent test is how a gate comes to be believed without ever running. §8 has the measurement that exposed this.
+
+---
+
+## 8. Corrective record — the gate had never executed in CI, and cannot complete on a hosted runner (2026-10-29)
+
+**This is a corrective change against the committed 154 baseline (`62a6323`), not a new increment and not a reopen of its scope.** Increment 154's implementation — the pin retirement, `SetGoEnginePin`/`RetireGoEnginePin`/`GoEnginePinRetired`, `compilerChildEnv`/`CompilerChildEnv`, the gate file, the CI step and `reference/` — shipped and is in the tree. What follows is a measurement about **where the proof can run**, plus the harness repair that follows from it.
+
+### 8.1 The measurement
+
+1. **The gate had never executed.** CI run `40815666047` (`develop` = `fb7cbf6`) gave the step "Run Increment 154 self-bootstrap gate" its **first execution since it was added on 2026-10-12**. Every run in between died earlier — at what is now step 16 — and skipped the rest: run `38606695556` records step 16 `failure` and steps 17–44 `skipped`, and the 154 step sits at index 54. So the step's green/red history before 2026-10-29 is empty, not green.
+2. **That first execution failed, and not for a compiler reason.** The check-run annotation reads `Process completed with exit code 143.` The step started `04:15:03Z` and completed `04:16:53Z` — **110 s** — i.e. ~35–60 s into the stage-2 transpile. Exit 143 is SIGTERM.
+3. **That signature is already recorded in this repository.** `PHASE-143-FINAL-REPORT.md` §F records five consecutive GitHub-runner deaths ~35 s into the same stage-2 transpile, exit 143, with no witness line even unbuffered and no timer/OOM/crash fingerprint anywhere in-repo, while the short smoke proof passes on the same runner. `REL-002` / `B2` is the same limitation and the `bootstrap-closure` job exists because of it. **154's failure is that class, not a defect in 154.**
+4. **The cost of leaving it there is larger than one red step.** Steps 55–78 — 24 further gates, including the whole 151A/151B/151C/151D native family, 152-A/B1/B2, D5 and D8 — were `skipped` behind it and have still never executed in CI. A gate that reports a runner limit as a compiler failure therefore also hides everything behind it.
+
+### 8.2 What changed
+
+- **The three-stage tests are opt-in**, via a new `requireSeedClosure(t)` helper that keys on the **same** variable and states the **same** reason as Phase 143's seed closure (`KARKAIN_SEED_CLOSURE=1`). It is the same measured limitation, so it is not a second, weaker rule.
+- **A fast half runs in the required job.** `TestPhase154_PinMechanism` proves the contract 154 actually changes — whether `KARKAIN_ENGINE=go` reaches a compiler child's environment — by launching `go env GOOS` in both pin states and inspecting `CompilerChildEnv()`. Neither half builds a compiler, so the required `Test` job now reports a real pass instead of a skip.
+- **Witness lines were added** to the three heavy tests (`phase154 witness: pin RETIRED, stage2 == stage3 bitwise identical (N bytes)`, plus the control and no-go-pin variants) so a completion is greppable rather than inferred from an exit code.
+- **A non-gating `phase154-closure` discovery job** was added to `.github/workflows/ci.yml`, mirroring `bootstrap-closure`: it sets `KARKAIN_SEED_CLOSURE: '1'`, runs **only** `TestPhase154_PinRetired` (the main assertion) with `tee` + `pipefail` so an external kill still leaves a partial log, never sets `GOMEMLIMIT` (one test, and the exit-143 diagnosis should carry no extra unknown), and has a verification step that treats a **missing log, a SKIP, a FAIL, or a witness line with a zero byte count** as failures.
+
+### 8.3 Evidence for the harness itself
+
+- **Mutation M1** — replace the pin's effect with a no-op (`_ = cmd`): `TestPhase154_PinMechanism` fails with `pin active: compiler child env does not carry KARKAIN_ENGINE=go`. Reverted.
+- **Mutation M2** — apply `forceGoEngine(cmd)` unconditionally, ignoring the pin state: the same test fails with `pin retired: compiler child env still carries KARKAIN_ENGINE=go`. Reverted. `bootstrap.go` was then restored and its SHA-256 verified as `D6790736A94A99DAE5D569800D430064738DDE27CF336D17072212193D717191`, the pre-mutation content.
+- **The CI verification block was executed, not just written**: five synthetic logs (good / skip / fail / 0-byte witness / no witness) were fed to it under bash; only the good one exits 0, and the 0-byte case is rejected by the witness regex.
+- Locally `go test ./pkg/bootstrap/ -run 'TestPhase154_' -count=1 -v` exits 0 with `TestPhase154_PinMechanism` PASS (0.09 s), `TestPhase154_ReferenceArchive` PASS, and the three heavy tests SKIP with the honest message. `go vet ./pkg/bootstrap/` clean.
+
+### 8.4 What is NOT claimed
+
+- **v1.2.0 closure conditions 5–6 stay OPEN.** Nothing here proves that kcc can rebuild itself end-to-end; it proves that the pin contract is real and that the end-to-end proof is waiting for a host that can run it.
+- **`TestPhase154_ControlPinActive` and `TestPhase154_NoGoEnginePin` remain unproven.** They each drive a full three-stage build, so running them alongside the main assertion would triple a burn the runner already cannot finish once. They are recorded as unproven rather than implied green by their sibling's pass.
+- **The discovery job is not a release gate.** It is not a required check, so it may report red without blocking; a green there is the only thing that would close the claim.
 
