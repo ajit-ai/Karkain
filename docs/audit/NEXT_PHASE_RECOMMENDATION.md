@@ -1,5 +1,20 @@
 # KARKAIN NEXT IMPLEMENTATION PHASE RECOMMENDATION
 
+> **HISTORICAL - superseded 2026-10-15. Do not act on this document.**
+>
+> The recommendation below ("Phase 56-C: parser OOM fix") was written when
+> self-hosting was blocked by an unbounded parser argument loop. That defect is
+> fixed and gated: `pkg/parser/parser.go` now carries an `advanceIfStalled`
+> no-progress guard (`parser.go:51`), and the recommended parser unit tests
+> exist. Phases 88-95 shipped self-hosted lexing, parsing, checking and C
+> codegen; increment 150 and increment 151 added three kcc-owned native targets.
+> Every "KNOWN FAILURES" line below describes a condition that no longer holds.
+>
+> The current next implementation slice is derived and recorded in
+> `docs/audit/KARKAIN-IMPLEMENTATION-CONTROL.md` section 5, not here. This file
+> is retained as history only, per the rule that a completed phase is never
+> presented as pending work.
+
 The prompt requires exactly ONE next implementation phase, based on repository evidence.
 
 ```

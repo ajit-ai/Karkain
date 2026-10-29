@@ -13,6 +13,9 @@
 | `docs/audit/KARKAIN-INDEPENDENCE-ROADMAP.md` | I / S / L / P / D track definitions + per-module stdlib backlog |
 | `docs/source/development/semver-policy.rst` | what a patch / minor / major may contain |
 | `docs/source/status/scope.rst`, `docs/source/reference/stable-api.rst` | the public status + API ledger |
+| `docs/audit/KARKAIN_MATURITY_SCORECARD.md` | Language Quality Scorecard (30 dimensions in four categories) + engineering Gates A-F + benchmark/conformance policy, re-derived 2026-10-15 at `develop` = `cc44c95` |
+| `docs/audit/KARKAIN-IMPLEMENTATION-CONTROL.md` | the single authoritative implementation queue: status vocabulary, current next slice, staleness and deferral rules |
+| `docs/audit/UNIFIED-TYPE-DECLARATION-DESIGN.md` | design milestone: unified type/variable declaration proposal (awaiting sign-off) |
 | `ROADMAP.md` | historical phase log (Phases 1–49) |
 
 ---
@@ -109,7 +112,7 @@ that property is why the 1.0/1.1 lines shipped at all.
 | Pre-1.0 | Language/compiler foundation | 1–90 | Complete |
 | v1.0.0 | Stable/self-hosted foundation | 91–128 | Complete |
 | v1.1.0 | Toolchain/native foundation | 128–149 | Complete |
-| **v1.2.0** | **Sovereignty I — Off C, Off Go** | **150, 151, 152, 154** + 165 | **In progress** |
+| **v1.2.0** | **Sovereignty I — Off C, Off Go** | **150, 151P0, 151, 152, 154** (165 free-floating) | **In progress** |
 | v1.3.0 | Language + library completeness | 155, 156, 158–161 | Planned |
 | v1.4.0 | Tooling/debugging/observability | 153, 157, 163, 164, 175, 176 | Planned |
 | v1.5.0 | Platforms + packaging | 166–172 | Planned |
@@ -215,8 +218,51 @@ LH-1 unless explicitly requested. **LH-2 is not started.**
 **Baselined increments have a baseline note.** 150: `PHASE-150-BASELINE.md`.
 151: `PHASE-151-BASELINE.md` (written 2026-09-27; the measured silent-Go-fallback
 finding in its §1.1 is why the 148/150 gates must re-run with the kcc engine
-un-pinned — they cannot currently tell parity from fallback). 152, 154 and 165
-are **not yet baselined**; a number is assigned when an increment is scheduled.
+un-pinned — they cannot currently tell parity from fallback).
+
+**Corrected 2026-10-15.** The sentence this replaces read "152, 154 and 165 are
+not yet baselined". That was stale: **152 and 154 are baselined**
+(`PHASE-152-BASELINE.md`, `PHASE-154-BASELINE.md`) and **165 is not**. Status
+was derived from the baseline files' presence in the tree, not from this prose:
+
+| Increment | Baseline note | Delivery state |
+|-----------|---------------|----------------|
+| 152 | `PHASE-152-BASELINE.md` | **partial** — 152-A, 152-B0, 152-B1, 152-B2 shipped; closure conditions 2 and 3 carried to v1.3.0 as UNMET |
+| 154 | `PHASE-154-BASELINE.md` | **not implemented** — baseline, gate and CI wiring exist; no implementation |
+| 165 | none | **not baselined, not started** |
+
+A baseline note is evidence of *planning*. It is not evidence of delivery, which
+is why 154 appears here with a baseline and no implementation.
+
+### 4.0 Version policy: released, active, future
+
+One coherent statement, so that no document can imply an unreleased version has
+shipped.
+
+| State | Version | Evidence |
+|-------|---------|----------|
+| **Released** | **1.1.0** | `VERSION` = `1.1.0`; tag `v1.1.0` exists; the version plan lists increments 128-149 as complete |
+| **Active development** | **1.2.0 "Sovereignty I"** | open, in progress; increments 150, 151P0, 151, 152, 154 in scope, 165 free-floating |
+| **Future** | 1.3.0, 1.4.0, 1.5.0, 1.6.0, 2.0.0 | themes and exit criteria only; **not baselined** |
+
+**`VERSION` stays `1.1.0` until v1.2.0 is cut.** Editing a roadmap document does
+not change the release version: `VERSION` moves in the tag-cut commit, and the
+version-identity tests (88/90/115/118/119/120/142) pin it at that moment. Any
+document that appears to promote 1.3.0+ to shipped is defective.
+
+### 4.0.1 Design milestones (not features)
+
+A design document is not an implementation increment and carries no delivery
+claim. Recorded here so it is visible without being mistaken for planned work
+already under way:
+
+| Item | State | Note |
+|------|-------|------|
+| Unified type and variable declaration design | **design milestone, awaiting owner sign-off** | `UNIFIED-TYPE-DECLARATION-DESIGN.md`; decisions D-1..D-6 are open, and the `let` immutability flip is breaking, so it is deferred to a major boundary |
+| Whole-program name resolution | **partially implemented** | Option B shipped in `pkg/sema/resolve.go`; the full module system (Option A) remains unapproved |
+
+The current implementation queue, including which single slice is recommended
+next, is `KARKAIN-IMPLEMENTATION-CONTROL.md`.
 
 ### 4.1 v1.2.0 — Sovereignty I: closure conditions
 

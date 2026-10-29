@@ -323,3 +323,36 @@ asserting a bug.
   behaviour asserted is the exit code.
 - **That the reporter is generally available on the kcc target.** Only the
   `array_index` call site is wired (§7.4). The 152-B1 codec sites are not.
+
+---
+
+## 11. Corrective change D8 - the length immediate (COMPLETE, 2026-10-29)
+
+**Not a new increment.** Recorded against the completed D5 baseline per the
+Governance rule.
+
+- **Owning layer:** `natArrayIndex` in `src/compiler/native_value.kark`, the
+  failure arm that calls `karkain_runtime_error`.
+- **Demonstrated failure:** the emitter wrote the literal `25` into RSI as the
+  length of `"array index out of range"`, which is **24** bytes. The reporter
+  therefore received a length one byte greater than the string. The Go oracle
+  derives the value with `len("array index out of range")`
+  (`pkg/native/program.go:6324`), so this was a kcc-only divergence.
+- **Why D5 could not see it:** the diagnostic is written to a stream that the
+  152-B0 `GetStdHandle` limitation leaves empty for PE images on this host, and
+  D5's differential counts image bytes rather than decoding the immediate. A
+  one-byte change inside an immediate does not move the total.
+- **Correction:** `natMovRegImm32(s, natRegRSI(), len("array index out of range"))`.
+  Deriving from the literal, rather than from the interned offset table (which
+  carries no lengths), means a future edit to the message cannot desynchronise
+  the immediate.
+- **Downstream behaviour:** no byte moves for any program that does not index
+  out of bounds. The failure arm changes one immediate (`BE 19 00 00 00` ->
+  `BE 18 00 00 00`); no frame displacement, label or container field moves.
+- **Gate:** `pkg/cli/phase151d8_diaglen_test.go` (`TestPhaseD8_`), CI step
+  *Run Phase D8 native bounds-diagnostic length gate*. It locates the argument
+  sequence by decoding it and asserts the immediate, reporting the observed
+  value in the failure message.
+- **Evidence:** PASS locally. **Mutation-verified** by restoring the literal
+  `25`, which fails with "the bounds-diagnostic length immediate is 25, want
+  24"; reverted and re-ran with `TestPhaseD5_` green (27.5s).

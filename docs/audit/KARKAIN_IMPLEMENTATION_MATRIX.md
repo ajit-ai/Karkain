@@ -1,5 +1,25 @@
 # KARKAIN IMPLEMENTATION MATRIX
 
+> **HISTORICAL SNAPSHOT - superseded 2026-10-15. Do not use for current status.**
+>
+> This matrix was accurate at the time of the Phase 79-82 audit window and is
+> retained as a point-in-time record. Several of its rows are contradicted by
+> later, verified work, and the contradictions are enumerated rather than
+> quietly rewritten:
+>
+> | Row here | Current state | Evidence |
+> |----------|---------------|----------|
+> | "Parser OOM / runaway-memory safety - EXPERIMENTAL (BROKEN)" | Fixed; a no-progress guard (`advanceIfStalled`, `pkg/parser/parser.go:51`) plus parser unit tests exist | `pkg/parser` suite green |
+> | "General type checker - NOT_IMPLEMENTED" | A two-pass checker exists on the self-hosted engine emitting K101-K115; the Go engine has no whole-program type checker | `src/compiler/checker.kark`, Phase 99, LH-1/LH-2 |
+> | "Generics (`<T>` syntax) - syntax not parsed" | Generics v1 shipped with explicit bracket type arguments (`f[int](x)`), on both engines | Phase 146 a/b/c, 146D close-out |
+> | "Symbol table / scope resolution - NOT_IMPLEMENTED" | Partially: `public` visibility, qualified calls and five module diagnostics shipped; a whole-program name table remains a **proposal** | Phase 103; `docs/audit/NAME-RESOLUTION-DESIGN.md` is still a PROPOSAL |
+> | "Self-hosting - Stage1 transpile OOM-blocked" | `stage2 == stage3` bitwise identical; the compiler builds itself | `pkg/bootstrap`, Phase 143/154 |
+> | "Concurrency not wired into default path" | Wired, and byte-identical on both engines | Phase 107, Phase 137 |
+>
+> For current, evidence-backed status use
+> `docs/audit/KARKAIN-IMPLEMENTATION-CONTROL.md` (queue and next slice) and
+> `docs/audit/KARKAIN_MATURITY_SCORECARD.md` (30 dimensions, four categories).
+
 Status values: IMPLEMENTED / PARTIALLY_IMPLEMENTED / EXPERIMENTAL / PLANNED / NOT_IMPLEMENTED / UNKNOWN.
 Nothing is marked IMPLEMENTED without source/tests evidence.
 

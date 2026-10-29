@@ -121,7 +121,10 @@ func TestPhaseD2_KccAndGoEmitIdenticalImages(t *testing.T) {
 // is measurably still different, and it is now the largest gap in the increment
 // by a wide margin:
 //
-//	array_index  kcc 496  vs go 1096   (was 481; D4's REX.B fix moved it 15)
+//	array_index  kcc 1088  vs go 1096   (was 496 at the D4 baseline)
+//	              ... and the residual 8 bytes are EXACTLY the frame delta:
+//	              Go main is `sub rsp,0x290` (656), kcc `sub rsp,0x288`
+//	              (648). See the "WHAT REMAINS" section below.
 //
 // Asserting it DIFFER is the point. It converts "we know this differs" from a
 // comment nobody re-reads into an assertion that has to be updated on purpose,
@@ -129,29 +132,47 @@ func TestPhaseD2_KccAndGoEmitIdenticalImages(t *testing.T) {
 // it is still wrong. A missing assertion is how a known gap quietly becomes an
 // unknown one.
 //
-// WHY array_index is deferred rather than merely unfinished: it is not a
-// byte-form difference. Both images were dumped and mapped region by region --
-// karkain_main is nearly identical (Go `sub rsp,0x290`, kcc `sub rsp,0x288`),
-// but Go emits 12 `ret`s where kcc emits 4, because the Go backend emits a set
-// of bounds-checked ARRAY HELPER routines (three, ~200 bytes, each with its own
-// `jge`/`jnz` guard) while kcc inlines its bounds check at the use site. Those
-// helpers are what call the Phase-152-B0 runtime-error reporter, which exists
-// for the Go backend only -- 152-B0 added 379 lines to pkg/native/program.go and
-// touched no .kark file. On the kcc target an out-of-range index TRAPS with Int3
-// instead of reporting "runtime error: array index out of range at <file>:<line>"
-// and exiting 1.
+// WHY array_index is deferred rather than merely unfinished -- and this text
+// REPLACES an earlier version of itself that was wrong in an instructive way.
 //
-// A port of the reporter was attempted and REVERTED. It emitted, and a valid
-// index then printed correctly, but the out-of-range case crashed with
-// 0xC0000005 where the Go backend exits 1 cleanly -- 152-B0 already documents
-// that GetStdHandle(STD_ERROR_HANDLE) returns INVALID_HANDLE_VALUE on minimal
-// PEs, which is a trap in exactly this area. Shipping a diagnostic that crashes
-// instead of trapping would be strictly worse than the honest Int3, so the port
-// was reverted rather than shipped half-working.
+// The earlier text said the gap was the Phase-152-B0 runtime-error reporter
+// being Go-backend-only. That was HALF the gap, and closing it alone could not
+// have reached parity. Phase D5 found the other half by DISASSEMBLY: locating
+// each image's runtime-error digit loop (`cqo; div rcx`) puts Go at .text 579
+// and kcc at 370 -- a constant 209-byte delta -- and the region Go had and kcc
+// lacked disassembled to Builder.emitMapFind VERBATIM (`shl rax,5` for the
+// 32-byte entry stride, `add rax,16` for the header, the linear key compare).
 //
-// So this needs a properly BASELINED increment, not a patch: the array helper
-// set, a working PE stderr path against the INVALID_HANDLE_VALUE limitation,
-// and source-basename plumbing so `file:line` is real rather than a placeholder.
+// So Go emits the whole map helper set into an image containing no map at all,
+// because scanMapUsage's isMapIndex decides "is this a map index" purely from
+// the syntactic shape `name[...]` and never consults the receiver's kind:
+//
+//	_, isVar := ix.Left.(*parser.Identifier)
+//	return isVar
+//
+// `print(a[1])` on an ARRAY therefore sets usesMap = true. D5 reproduces that
+// over-approximation on both sides, because byte-identity is defined as
+// agreement with the oracle. Tightening BOTH engines to consult the receiver's
+// kind would drop those 209 bytes from every array image on both sides and is
+// strictly closer to what a program needs -- but it changes the Go backend and
+// every frozen Go-side gold, so it is an owner decision recorded in
+// docs/audit/PHASE-D5-BASELINE.md rather than one taken here.
+//
+// WHAT REMAINS, measured: exactly 8 bytes, and it is a frame-layout rule rather
+// than anything to do with arrays. Go main is `sub rsp,0x290` (656) and kcc is
+// `sub rsp,0x288` (648), with identical localBytes read from the oracle source.
+// That is natFrameLayout's rounding, frozen in Step 1 with every Step 1-9d
+// displacement pinned against it, so closing it is D6 and it cannot be done
+// here without reopening all of those.
+//
+// EXECUTION, which the byte numbers alone cannot show: D5's reporter makes the
+// kcc PE behave like the Go PE on this host. A valid index prints 5 and exits 0;
+// an out-of-range index exits 1 with empty stdout -- matching the Go backend
+// exactly. The stderr TEXT is empty for BOTH engines here, which is the
+// 152-B0 GetStdHandle(STD_ERROR_HANDLE) limitation recorded in
+// PHASE-152-BASELINE.md, so the exit code is the observable, not the message.
+// (An earlier port attempt crashed 0xC0000005 on exactly this path; that was a
+// defect in the attempt, not the route, and it is fixed.)
 func TestPhaseD2_KnownNonParityIsStillNonParity(t *testing.T) {
 	karkain := phase130Karkain(t)
 

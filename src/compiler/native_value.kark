@@ -2882,7 +2882,385 @@ func natRodataCorpus() {
 
 // natStdOutHandle is STD_OUTPUT_HANDLE, -11 as the 32-bit constant the oracle
 // moves into RCX (4294967285 = 0xFFFFFFF5).
+// natRuntimeErrorHelper is the Phase-100/152-B0 runtime-error reporter, the
+// body the Go backend calls `emitRuntimeErrorHelper` (program.go:3712-3793).
+//
+// WHY IT EXISTS ON kcc AT ALL: 152-B0 added 379 lines to
+// pkg/native/program.go and touched NO .kark file, so the reporter existed on
+// the Go engine only. That is the whole of why `array_index` was 600 bytes short
+// of parity -- not a byte-form difference, but a missing mechanism.
+//
+//	frame layout (offsets are the oracle's constants, not derived):
+//	  +0   kind pointer     +8   kind length
+//	  +16  file pointer    +24   file length
+//	  +32  line            +40..+64  digit scratch, written BACKWARDS from +64
+//	  frame = 64
+//
+// The five argument units are homed into the frame on entry because evaluating
+// the arguments already happened at the call site, and the caller's registers
+// are not preserved across the calls this body makes.
+//
+// `rt` is the reporter's own rodata substring list -- ["runtime error: ",
+// " at ", ":", "\n"] in interning order -- passed in rather than looked up, so
+// this function carries no knowledge of where in the section they landed. That
+// is what lets the SAME helper serve any call site (the 152-B1 codec sites come
+// later), and it is why the rodata offsets are resolved against the CALLER's
+// section rather than computed here.
+func natRuntimeErrorHelper(s, rt, winWrite) {
+    s = natMark(s, "karkain_runtime_error")
+    s = natSubRegImm32(s, natRegRSP(), 64)
+    s = natStoreStack(s, natRegRDI(), 0)     // kind ptr
+    s = natStoreStack(s, natRegRSI(), 8)     // kind len
+    s = natStoreStack(s, natRegRDX(), 16)    // file ptr
+    s = natStoreStack(s, natRegRCX(), 24)    // file len
+    s = natStoreStack(s, natRegR8(), 32)     // line
+
+    // "runtime error: "
+    s = natMovRegImm32(s, natRegRDI(), 2)
+    s = natRodataRefOff(s, natRegRSI(), rt[0])
+    s = natMovRegImm32(s, natRegRDX(), 15)
+    s = natStderrWrite(s, winWrite)
+
+    // <kind>
+    s = natLoadStack(s, natRegRSI(), 0)
+    s = natLoadStack(s, natRegRDX(), 8)
+    s = natMovRegImm32(s, natRegRDI(), 2)
+    s = natStderrWrite(s, winWrite)
+
+    // " at "
+    s = natMovRegImm32(s, natRegRDI(), 2)
+    s = natRodataRefOff(s, natRegRSI(), rt[1])
+    s = natMovRegImm32(s, natRegRDX(), 4)
+    s = natStderrWrite(s, winWrite)
+
+    // <file>
+    s = natLoadStack(s, natRegRSI(), 16)
+    s = natLoadStack(s, natRegRDX(), 24)
+    s = natMovRegImm32(s, natRegRDI(), 2)
+    s = natStderrWrite(s, winWrite)
+
+    // ":"
+    s = natMovRegImm32(s, natRegRDI(), 2)
+    s = natRodataRefOff(s, natRegRSI(), rt[2])
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    s = natStderrWrite(s, winWrite)
+
+    // <line> as decimal -- the SAME divide-by-10 digit loop print_int uses, with
+    // the digit pointer walking DOWN from the frame top so the byte count is
+    // (frame top) - (current pointer). The oracle states that the line is always
+    // > 0 so no sign handling is needed and the digit area cannot underflow; a
+    // call site with no line reports the kind alone.
+    s = natLoadStack(s, natRegRAX(), 32)
+    s = natLeaRegStack(s, natRegRSI(), 64)
+    s = natMovRegImm32(s, natRegRCX(), 10)
+    s = natMark(s, "rtline$loop")
+    s = natCqo(s)
+    s = natDivReg(s, natRegRCX())
+    s = natAddRegImm32(s, natRegRDX(), 48)   // 48 is '0'
+    s = natDecReg(s, natRegRSI())
+    s = natStoreMem8(s, natRegRSI(), natRegRDX())
+    s = natTestRegReg(s, natRegRAX(), natRegRAX())
+    s = natJnz(s, "rtline$loop")
+    // RDX = byte count = (frame top) - RSI, with RSI still the start pointer.
+    s = natLeaRegStack(s, natRegRDX(), 64)
+    s = natSubRegReg(s, natRegRDX(), natRegRSI())
+    s = natMovRegImm32(s, natRegRDI(), 2)
+    s = natStderrWrite(s, winWrite)
+
+    // "\n"
+    s = natMovRegImm32(s, natRegRDI(), 2)
+    s = natRodataRefOff(s, natRegRSI(), rt[3])
+    s = natMovRegImm32(s, natRegRDX(), 1)
+    s = natStderrWrite(s, winWrite)
+
+    // exit(1)
+    s = natExitWithCode(s, 1, winWrite)
+    // The oracle emits the teardown and a ret even though the block above never
+    // returns. That is not dead code to be tidied away: it is what makes the
+    // helper a well-formed callee for every CALLER, and the array-index
+    // call site relies on the reporter being callable the ordinary way.
+    s = natAddRegImm32(s, natRegRSP(), 64)
+    return natRet(s)
+}
+
+// The map runtime: natMapFind, natMapSet and natMapGet, the byte-for-byte
+// counterparts of emitMapFind / emitMapSet / emitMapGet.
+//
+// WHY THESE EXIST ON kcc FOR A PROGRAM WITH NO MAP is the D5 baseline's §3.1
+// finding, and it is not a porting error to reproduce. The Go backend's
+// scanMapUsage decides "is this a map index" with:
+//
+//	_, isVar := ix.Left.(*parser.Identifier)
+//	return isVar
+//
+// -- purely the syntactic shape `name[...]`, never the receiver's kind. So
+// `print(a[1])` on an ARRAY sets usesMap = true and the oracle emits all three
+// helpers as code the program can never reach. Byte-identity is defined as
+// agreement with the oracle, so kcc emits them on the SAME predicate.
+//
+// `natNativeUsesMap` below therefore implements `isMapIndex` deliberately, and
+// its comment names the over-approximation rather than quietly widening it. The
+// alternative -- tightening BOTH engines to consult the receiver's kind -- is
+// recorded in the baseline as an owner decision, because it changes the Go
+// backend and every frozen Go-side gold.
+//
+// LABEL NAMES again come from natFresh in the oracle's allocation order, for
+// the Step 3 reason: a rel32 stores a displacement, so a wrong label name can
+// leave every byte identical while the discipline is wrong.
+
+// natMapFind scans the entries and returns the address of the one whose key
+// matches, or 0. RDI = map address, RSI = key. RAX = result.
+func natMapFind(s) {
+    let fa = natFresh(s, "mapfind")
+    s = fa[0]
+    let loop = fa[1]
+    let fb = natFresh(s, "mapfind$found")
+    s = fb[0]
+    let found = fb[1]
+    let fc = natFresh(s, "mapfind$miss")
+    s = fc[0]
+    let notFound = fc[1]
+    s = natMark(s, "map_find")
+    // R8 = map, RCX = index, R9 = count.
+    s = natMovRegReg(s, natRegR8(), natRegRDI())
+    s = natXorRegReg(s, natRegRCX())
+    s = natLoadBaseOff(s, natRegR9(), natRegR8(), natMapCountOff())
+    s = natMark(s, loop)
+    s = natCmpRegReg(s, natRegRCX(), natRegR9())
+    s = natJge(s, notFound)
+    // entry = map + mapHeaderBytes + index*mapEntryBytes
+    s = natMovRegReg(s, natRegRAX(), natRegRCX())
+    s = natShlRegImm(s, natRegRAX(), natMapEntryShift())
+    s = natAddRegReg(s, natRegRAX(), natRegR8())
+    s = natAddRegImm32(s, natRegRAX(), natMapHeaderBytes())
+    s = natLoadBaseOff(s, natRegRDX(), natRegRAX(), natMapKeyOff())
+    s = natCmpRegReg(s, natRegRDX(), natRegRSI())
+    s = natJz(s, found)
+    s = natIncReg(s, natRegRCX())
+    s = natJmp(s, loop)
+    s = natMark(s, found)
+    s = natRet(s)
+    s = natMark(s, notFound)
+    s = natXorRegReg(s, natRegRAX())
+    return natRet(s)
+}
+
+// natMapSet stores key -> (v0, v1), appending when the key is absent.
+// RDI = map, RSI = key, RDX = value0, RCX = value1.
+//
+// map_find clobbers RDX and RCX, so the value pair is staged in a 16-byte
+// helper frame first. That frame is entirely internal: the helper restores rsp
+// before every ret, so a caller never sees it.
+func natMapSet(s) {
+    let fa = natFresh(s, "mapset$full")
+    s = fa[0]
+    let full = fa[1]
+    let fb = natFresh(s, "mapset$appended")
+    s = fb[0]
+    let appended = fb[1]
+    s = natMark(s, "map_set")
+    s = natSubRegImm32(s, natRegRSP(), 16)
+    s = natStoreStack(s, natRegRDX(), 0)
+    s = natStoreStack(s, natRegRCX(), 8)
+    s = natCall32(s)
+    let r = natRel32(s, "map_find")
+    s = r[0]
+    s = natTestRegReg(s, natRegRAX(), natRegRAX())
+    s = natJz(s, appended)
+    // Existing entry: overwrite key and both value units.
+    s = natStoreBaseOff(s, natRegRSI(), natRegRAX(), natMapKeyOff())
+    s = natLoadStack(s, natRegRDX(), 0)
+    s = natStoreBaseOff(s, natRegRDX(), natRegRAX(), natMapVal0Off())
+    s = natLoadStack(s, natRegRDX(), 8)
+    s = natStoreBaseOff(s, natRegRDX(), natRegRAX(), natMapVal1Off())
+    s = natAddRegImm32(s, natRegRSP(), 16)
+    s = natRet(s)
+    s = natMark(s, appended)
+    // RDI still holds the map (map_find never writes it).
+    s = natLoadBaseOff(s, natRegR8(), natRegRDI(), natMapCountOff())
+    s = natLoadBaseOff(s, natRegR9(), natRegRDI(), natMapCapOff())
+    s = natCmpRegReg(s, natRegR8(), natRegR9())
+    s = natJae(s, full)
+    // entry = map + mapHeaderBytes + count*mapEntryBytes
+    s = natMovRegReg(s, natRegRCX(), natRegR8())
+    s = natShlRegImm(s, natRegRCX(), natMapEntryShift())
+    s = natAddRegReg(s, natRegRCX(), natRegRDI())
+    s = natAddRegImm32(s, natRegRCX(), natMapHeaderBytes())
+    s = natStoreBaseOff(s, natRegRSI(), natRegRCX(), natMapKeyOff())
+    s = natLoadStack(s, natRegRDX(), 0)
+    s = natStoreBaseOff(s, natRegRDX(), natRegRCX(), natMapVal0Off())
+    s = natLoadStack(s, natRegRDX(), 8)
+    s = natStoreBaseOff(s, natRegRDX(), natRegRCX(), natMapVal1Off())
+    s = natIncReg(s, natRegR8())
+    s = natStoreBaseOff(s, natRegR8(), natRegRDI(), natMapCountOff())
+    s = natAddRegImm32(s, natRegRSP(), 16)
+    s = natRet(s)
+    s = natMark(s, full)
+    // Out of capacity. The oracle traps rather than growing: map capacity is a
+    // compile-time bound (see scanMapUsage), so reaching this means the bound
+    // was wrong, and an Int3 says so instead of corrupting a neighbouring
+    // entry.
+    s = natInt3(s)
+    s = natAddRegImm32(s, natRegRSP(), 16)
+    return natRet(s)
+}
+
+// natMapGet returns the value pair for a key. RDI = map, RSI = key.
+// RAX = value0, RDX = value1.
+func natMapGet(s) {
+    let fa = natFresh(s, "mapget$miss")
+    s = fa[0]
+    let miss = fa[1]
+    let fb = natFresh(s, "mapget$have")
+    s = fb[0]
+    let have = fb[1]
+    s = natMark(s, "map_get")
+    s = natCall32(s)
+    let r = natRel32(s, "map_find")
+    s = r[0]
+    s = natTestRegReg(s, natRegRAX(), natRegRAX())
+    s = natJz(s, miss)
+    // R8 = entry, so loading into RAX cannot destroy the base.
+    s = natMovRegReg(s, natRegR8(), natRegRAX())
+    s = natLoadBaseOff(s, natRegRAX(), natRegR8(), natMapVal0Off())
+    s = natLoadBaseOff(s, natRegRDX(), natRegR8(), natMapVal1Off())
+    s = natMark(s, have)
+    s = natRet(s)
+    s = natMark(s, miss)
+    s = natXorRegReg(s, natRegRAX())
+    s = natXorRegReg(s, natRegRDX())
+    return natRet(s)
+}
+
+// The map layout constants, mirroring the Go block at program.go:173-190.
+//
+// Written as ARITHMETIC rather than literals wherever the value is derived, so
+// a reader can check the derivation. 32 is 1<<5, which is why the oracle shifts
+// rather than multiplies, and the header is TWO units (count, capacity).
+func natMapHeaderUnits() { return 2 }
+func natMapEntryUnits() { return 4 }
+func natMapEntryShift() { return 5 }
+func natMapHeaderBytes() { return natMapHeaderUnits() * 8 }
+func natMapCountOff() { return 0 }
+func natMapCapOff() { return 8 }
+func natMapKeyOff() { return 0 }
+func natMapVal0Off() { return 8 }
+func natMapVal1Off() { return 16 }
+
+// natNativeUsesMap is the kcc form of scanMapUsage's usesMap for the ONE
+// question D5 needs: does the program contain an `name[...]`?
+//
+// It deliberately implements the oracle's over-approximation (see the section
+// header above) rather than checking the receiver's kind. A future increment
+// that tightens BOTH engines must change this function and isMapIndex TOGETHER,
+// which is why the predicate is named after isMapIndex rather than after what
+// it means.
+//
+// The two call shapes D5 can lower -- an index in print position and an index
+// in return position -- are both checked, because the gate and the lowering must
+// not disagree: a shape the gate misses is emitted with no map runtime, and a
+// shape it sees that the lowering refuses is dead weight.
+func natNativeUsesMap(stmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        if (natStmtHasIndex(stmts[i]) == 1) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
 func natStdOutHandle() { return 4294967285 }
+
+// natStdErrHandle is STD_ERROR_HANDLE (0xFFFFFFF6), the counterpart of
+// natStdOutHandle's 0xFFFFFFF5.
+//
+// WRITTEN AS ARITHMETIC, NOT AS A LITERAL, and the reason is the Step 8b
+// lesson. 0xFFFFFFF6 is 4294967286, which is PAST the largest signed 64-bit
+// value's 32-bit range and past this language's literal clamp -- the Step 8b
+// record is the `1<<63` sign mask silently clamped to ...807, which produced a
+// wrong immediate that compiled cleanly and printed every negative float
+// without its sign.
+//
+// So it is written as `-10`. That is not a clever encoding: MovRegImm32 masks
+// its immediate to 32 bits, and -10's two's-complement 32-bit form is exactly
+// 0xFFFFFFF6. The arithmetic keeps the -10 <-> 0xFFFFFFF6 relationship visible to
+// a reader, where a bare 4294967286 would look like it should work and would
+// not.
+func natStdErrHandle() { return 0 - 10 }
+
+// natWinWriteStderr is natWinWrite with STD_ERROR_HANDLE in place of
+// STD_OUTPUT_HANDLE -- the whole of the difference, because the oracle factors
+// the two out as emitWriteStderr -> emitWinWriteHandle(handle).
+//
+// The 152-B0 / 152-B1 record is that on THIS HOST stderr output is empty for PE
+// images, because GetStdHandle(STD_ERROR_HANDLE) returns INVALID_HANDLE_VALUE on
+// a minimal image. That is a property of the ROUTE, not of kcc: the Go backend
+// goes through the identical sequence and is equally silent, exiting 1 with no
+// output. So this function reproduces the oracle's route rather than routing
+// somewhere that "works better" -- a stdout diagnostic would be a DIVERGENCE
+// from the oracle, not an improvement, and would cost byte-identity.
+func natWinWriteStderr(s) {
+    s = natPushReg(s, natRegRBX())
+    s = natPushReg(s, natRegRSI())
+    s = natPushReg(s, natRegRDX())
+    s = natSubRegImm32(s, natRegRSP(), 32)
+    s = natMovRegImm32(s, natRegRCX(), natStdErrHandle())
+    s = natIatCall(s, natRegRAX(), natIatGetStdHandle())
+    s = natCallReg(s, natRegRAX())
+    s = natAddRegImm32(s, natRegRSP(), 32)
+    s = natPopReg(s, natRegRDX())
+    s = natPopReg(s, natRegRSI())
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natMovRegReg(s, natRegR8(), natRegRDX())
+    s = natMovRegReg(s, natRegRDX(), natRegRSI())
+    s = natSubRegImm32(s, natRegRSP(), 48)
+    s = natLeaRegStack(s, natRegR9(), 24)
+    s = natXorRegReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), 32)
+    s = natIatCall(s, natRegRAX(), natIatWriteFile())
+    s = natCallReg(s, natRegRAX())
+    s = natAddRegImm32(s, natRegRSP(), 48)
+    return natPopReg(s, natRegRBX())
+}
+
+// natWriteStderr is the LINUX/macOS body of the oracle's emitWriteStderr: fd 2
+// plus the raw write syscall. The Windows body is natWinWriteStderr.
+//
+// It is natPayloadWrite with the descriptor changed from 1 to 2, and NOT a
+// generalisation of natWriteStdout: the oracle spells the two out separately, so
+// keeping them separate here is what lets the frozen stdout bytes stay frozen.
+func natWriteStderr(s) {
+    s = natMovRegImm32(s, natRegRDI(), 2)
+    s = natMovRegImm32(s, natRegRAX(), 1)   // Linux write(2)
+    return natSyscall(s)
+}
+
+// natStderrWrite dispatches on the OS, matching emitWriteStderr's switch.
+func natStderrWrite(s, winWrite) {
+    if (winWrite == 1) { return natWinWriteStderr(s) }
+    return natWriteStderr(s)
+}
+
+// natExitWithCode mirrors Builder.emitExitWithCode (program.go:2279):
+// ExitProcess(code) on Windows, exit(code) through the raw syscall elsewhere.
+// Phase 100 ends every runtime diagnostic with exit code 1, and that 1 is the
+// OBSERVABLE on this host -- stderr is empty, so the exit code is what a test
+// can actually assert (the 152-B1 record asserts it for the same reason).
+//
+// The Windows body does NOT rebalance rsp or return: ExitProcess does not
+// return, and the oracle returns immediately after the iatCall without adding
+// back the shadow it just subtracted.
+func natExitWithCode(s, code, winWrite) {
+    if (winWrite == 1) {
+        s = natMovRegImm32(s, natRegRCX(), code)
+        s = natSubRegImm32(s, natRegRSP(), 32)
+        s = natIatCall(s, natRegRAX(), natIatExitProcess())
+        return natCallReg(s, natRegRAX())
+    }
+    s = natMovRegImm32(s, natRegRDI(), code)
+    s = natMovRegImm32(s, natRegRAX(), 60)   // Linux exit(2)
+    return natSyscall(s)
+}
 
 // natWinWrite mirrors Builder.emitWinWrite in pkg/native/program.go.
 //
@@ -3738,25 +4116,71 @@ func natArrayValue(s, off, elems) {
 // statement ordinal. Two prints of the same array would otherwise Mark the same label
 // twice, and natFinish refuses a duplicate label rather than silently emitting two
 // fixups to the same slot.
-func natArrayIndex(s, off, idx, tag) {
-    let negLbl = "idx" + str(tag) + "$neg"
-    let failLbl = "idx" + str(tag) + "$fail"
-    let okLbl = "idx" + str(tag) + "$ok"
+// natArrayIndex lowers `a[i]`, and is the byte-for-byte counterpart of
+// Builder.emitArrayIndex (program.go:6287-6335).
+//
+// The $fail arm used to be an Int3 TRAP. The 150A note recorded that as
+// temporary ("the native target has no stderr runtime diagnostic yet -- 150B
+// wires the message"), and Phase D5 is that wiring: the reporter now exists on
+// BOTH engines (152-B0 for the Go backend, this for kcc), so the trap is replaced
+// by the real Phase-100 diagnostic -- the same "array index out of range" kind,
+// the same file:line, on stderr, ending in exit(1).
+//
+// LABEL NAMING IS LOAD-BEARING. The oracle allocates badLbl then doneLbl via
+// b.fresh, so the names are "idxbad$3" and "idxok$4" -- counters, not literals.
+// A previous version here derived them from the `tag` argument instead, which
+// produced the same SHAPE but different names, and a rel32 encodes only a
+// displacement: the bytes could have matched while the naming discipline was
+// wrong, which is precisely what Step 3's label layer was added to catch. So the
+// two names come from natFresh in the oracle's order and nothing is hand-written.
+//
+// `roffsKind` indexes the WHOLE rodata offset array (print_int's own two
+// entries come first), and `srcOff`/`srcLen` are the interned source basename.
+// `line` is the diagnostic's line.
+func natArrayIndex(s, off, idx, tag, roffsKind, srcOff, srcLen, line) {
+    let fa = natFresh(s, "idxbad")
+    s = fa[0]
+    let badLbl = fa[1]
+    let fb = natFresh(s, "idxok")
+    s = fb[0]
+    let doneLbl = fb[1]
     s = natMovRegImm32(s, natRegRCX(), int(intLitVal(idx)))
     s = natLoadStack(s, natRegRBX(), off)
     s = natLoadStack(s, natRegRAX(), off + 8)
+    // Bounds: 0 <= i < len, else the Phase-100 runtime error. Both arms jump to
+    // the same block, which never returns (it ends in exit(1)).
     s = natTestRegReg(s, natRegRCX(), natRegRCX())
-    s = natJns(s, negLbl)
-    s = natJmp(s, failLbl)
-    s = natMark(s, negLbl)
+    s = natJns(s, badLbl + "$neg")
+    s = natJmp(s, badLbl + "$fail")
+    s = natMark(s, badLbl + "$neg")
     s = natCmpRegReg(s, natRegRCX(), natRegRAX())
-    s = natJge(s, failLbl)
+    s = natJge(s, badLbl + "$fail")
     s = natLoadScaled64(s, natRegRAX(), natRegRBX(), natRegRCX(), 8, 0)
-    s = natJmp(s, okLbl)
-    s = natMark(s, failLbl)
-    // The measured boundary: trap rather than raise. See the header note.
-    s = natInt3(s)
-    s = natMark(s, okLbl)
+    s = natJmp(s, doneLbl)
+    s = natMark(s, badLbl + "$fail")
+    // Arguments: kind (ptr,len), file (ptr,len), line -- the native user-call
+    // convention, units 0-4 of argRegs.
+    s = natRodataRefOff(s, natRegRDI(), roffsKind)
+    // Phase D8: this was the literal 25, while "array index out of range" is
+    // 24 characters -- the reporter was told the string was one byte longer
+    // than it is. The oracle derives it with len("array index out of range")
+    // (program.go:6324); the same derivation is used here, written from the
+    // LITERAL rather than from the interned offset because the interning list
+    // is only an offset table and carries no lengths. Using len() on the
+    // literal means a future edit to the message can no longer desynchronise
+    // the immediate from the text, which is the defect this line WAS.
+    s = natMovRegImm32(s, natRegRSI(), len("array index out of range"))
+    s = natRodataRefOff(s, natRegRDX(), srcOff)
+    s = natMovRegImm32(s, natRegRCX(), srcLen)
+    s = natMovRegImm32(s, natRegR8(), line)
+    s = natCall32(s)
+    let cr = natRel32(s, "karkain_runtime_error")
+    s = cr[0]
+    // The reporter ends in exit(1) and does not return, but the emitter does
+    // not assume that: mark the join so the success path can never fall into
+    // the diagnostic block. (Its absence was a real regression in the oracle --
+    // every array-using PE golden then ran the diagnostic on a VALID index.)
+    s = natMark(s, doneLbl)
     return s
 }
 
@@ -3944,6 +4368,68 @@ func natPrintStrBody(s, winWrite, offNewline) {
 // The ORDER is load-bearing in the same way. natRodataSection returns one offset per
 // INPUT entry, with a repeated literal resolving to the slot it was first interned
 // into, so the k-th literal in the program is always input entry 2+k.
+// natNativeUsesRuntimeError reports whether the program contains an operation
+// that can raise a Phase-100 diagnostic -- currently ONLY an array index, the
+// single call site the reporter is wired for in Phase D5.
+//
+// WHY IT LOOKS INSIDE A STATEMENT rather than at its node type: an earlier
+// version compared only `nodeType(n) == NODE_INDEX()`, which never fires for the
+// shape the gate exists to catch. `print(a[1])` is a NODE_PRINT whose ARGUMENT
+// is the index, so the predicate returned 0, the reporter was never emitted, and
+// the lowering still recorded a reference to `karkain_runtime_error` -- an
+// undefined label, which natFinish reports as a refusal. From the outside that
+// looked like the port had no effect at all, and it is exactly the failure the
+// evidence-discipline rule exists to prevent: a check that can pass without
+// checking anything.
+//
+// A gate that is a PREDICATE rather than a hardcoded 1 is also what keeps a
+// program that cannot fault from carrying ~615 bytes of reporter it never calls.
+// Those bytes are not free: the reporter's rodata strings sit in the section and
+// move every address after them.
+func natNativeUsesRuntimeError(stmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        if (natStmtHasIndex(stmts[i]) == 1) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// natStmtHasIndex reports whether a statement CONTAINS an array index.
+//
+// It inspects both places the driver can lower an index -- a print argument and
+// a return value -- because those are the only two it reaches today. Both are
+// checked so that the gate and the lowering cannot disagree: a shape the gate
+// fails to see is emitted without the reporter, and a shape it sees but the
+// lowering refuses is dead weight. Neither is loud.
+func natStmtHasIndex(n) {
+    let k = nodeType(n)
+    if (k == NODE_INDEX()) { return 1 }
+    if (k == NODE_PRINT()) {
+        if (natExprHasIndex(printVal(n)) == 1) { return 1 }
+        return 0
+    }
+    if (k == NODE_RETURN()) { return natExprHasIndex(retVal(n)) }
+    return 0
+}
+
+// natExprHasIndex looks through an expression for an index node.
+//
+// The driver lowers an index directly under a print or a return, so one level is
+// enough. It is a named function rather than an inline test because the SAME
+// question is asked in two places, and one copy that is later extended without
+// the other is how the two drift apart.
+func natExprHasIndex(e) {
+    return natNodeIsIndex(e)
+}
+
+// natNodeIsIndex is the single node-kind test, so `natExprHasIndex` has exactly
+// one definition of what an index IS.
+func natNodeIsIndex(e) {
+    if (nodeType(e) == NODE_INDEX()) { return 1 }
+    return 0
+}
+
 func natNativeRodataList(stmts) {
     let lits = natNativeStrLiterals(stmts)
     let strs = ["-", "\n"]
@@ -4374,7 +4860,7 @@ if (nodeType(expr) == NODE_IDENT()) {
 //
 // The statement ORDINAL doubles as the label tag for `a[i]`, so no counter can fall
 // out of step with the statement list.
-func natNativeLower(s, stmts, plan, roffs, strTemp, tbl) {
+func natNativeLower(s, stmts, plan, roffs, strTemp, tbl, rtErr, rtKindSlot, srcOff, srcLen) {
     let idx = 0
     // sidx walks the rodata INPUT list in lockstep with the literals the program binds,
     // starting at 2 because entries 0 and 1 are print_int's own "-" and "\n". Lockstep
@@ -4490,7 +4976,7 @@ stmts, plan, roffs, tbl)
                 } else {
                     if (nodeType(pv) == NODE_INDEX()) {
                         let ord = natNativeLocalIndex(stmts, identName(indexLeft(pv)))
-                        s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i)
+                        s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i, rtKindSlot, srcOff, srcLen, printLine(n))
                         s = natMovRegReg(s, natRegRDI(), natRegRAX())
                         s = natCallPrintInt(s)
 } else {
@@ -4560,7 +5046,7 @@ identName(callArgs(pv)[0]))
             } else {
                 if (nodeType(rv) == NODE_INDEX()) {
                     let ord = natNativeLocalIndex(stmts, identName(indexLeft(rv)))
-                    s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(rv), i)
+                    s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(rv), i, rtKindSlot, srcOff, srcLen, retLine(n))
                 } else {
                     if (nodeType(rv) == NODE_CALL()) {
                         let ordl = natNativeLocalIndex(stmts,
@@ -4621,7 +5107,7 @@ identName(callArgs(pv)[0]))
 // `natNativeProgram` is a one-line wrapper naming the Windows target rather
 // than a second copy of the driver.
 func natNativeProgram(ast) {
-    return natNativeProgramOS(ast, natOSWindows())
+    return natNativeProgramOS(ast, natOSWindows(), "")
 }
 
 // natNativeProgramOS compiles a PARSED PROGRAM to a native image for one OS.
@@ -4650,7 +5136,7 @@ func natNativeProgram(ast) {
 // Calling natPELink for Linux (or vice versa) would not fail loudly; it would
 // produce a PE under a Linux target NAME. That is a miscompile, so the container
 // choice is made once, here, by the same targetOS that chose the stub.
-func natNativeProgramOS(ast, targetOS) {
+func natNativeProgramOS(ast, targetOS, sourceBase) {
     let stmts = ast[1]
     let mainFn = natNativeFindMain(stmts)
     if (mainFn == 0) {
@@ -4686,11 +5172,66 @@ func natNativeProgramOS(ast, targetOS) {
     let frame = lay[6]
     let strTemp = lay[2]
 
-    let ro = natRodataSection(natNativeRodataList(body))
-    // `ro` is [bytes, offsets]: one offset per INPUT entry, so the k-th program literal
-    // is entry 2+k. It is computed BEFORE emission because the body needs those offsets
-    // to record its rodata references, and computing them after would mean recording a
-    // placeholder the linker had no way to fill.
+    let s = natNewEmitter(0)
+    s = natSetTargetOS(s, targetOS)
+    // Phase D5: the runtime-error reporter and its rodata.
+    //
+    // The gate is `natNativeUsesRuntimeError`, which must look INSIDE a
+    // statement for an index rather than at the statement's own node type. An
+    // earlier version compared only `nodeType(n) == NODE_INDEX()`, which never
+    // fires for the shape the gate exists to catch: `print(a[1])` is a
+    // NODE_PRINT whose ARGUMENT is the index. The gate returned 0, the reporter
+    // was never emitted, and the lowering still recorded a reference to
+    // `karkain_runtime_error` -- an undefined label. That looked like the port
+    // simply had no effect, and it is the "a gate that can pass without checking
+    // anything" failure the evidence discipline warns about.
+    //
+    // The reporter's strings are appended to the rodata INPUT list AFTER the
+    // program's own literals, and the source basename LAST, because that is the
+    // order the oracle interns them in: helpers are emitted BEFORE the user
+    // function, so the reporter's "runtime error: " / " at " / ":" / "\n" are
+    // interned first, and the call site's "array index out of range" plus the
+    // file name come later. Interning is by FIRST USE, so a different order
+    // produces different offsets and every baked address after it moves.
+    let usesRtErr = 0
+    if (natNativeUsesRuntimeError(body) == 1) { usesRtErr = 1 }
+    let lits = natNativeStrLiterals(body)
+    let strs = ["-", "\n"]
+    let li = 0
+    while (li < len(lits)) {
+        strs = appendArray(strs, lits[li])
+        li = li + 1
+    }
+    let rtKindSlot = 0
+    let srcOff = 0
+    let srcLen = 0
+    let rtErr = []
+    if (usesRtErr == 1) {
+        strs = appendArray(strs, "runtime error: ")
+        strs = appendArray(strs, " at ")
+        strs = appendArray(strs, ":")
+        strs = appendArray(strs, "\n")
+        strs = appendArray(strs, "array index out of range")
+        // The source basename goes through the SAME interning list rather than
+        // being special-cased, so `file:line` is genuine and the offset comes
+        // from the same mechanism as every other string.
+        strs = appendArray(strs, sourceBase)
+        rtKindSlot = 2 + len(lits) + 4
+        srcOff = 2 + len(lits) + 5
+        srcLen = len(sourceBase)
+    }
+    let ro = natRodataSection(strs)
+    // The reporter's own four strings, read back OUT of the section's offset
+    // array rather than assumed -- the D5 baseline's §8.3 risk. rtErr[k] is the
+    // offset of the k-th reporter string in the interned section.
+    if (usesRtErr == 1) {
+        let rk = 0
+        let rbase = 2 + len(lits)
+        while (rk < 4) {
+            rtErr = appendArray(rtErr, ro[1][rbase + rk])
+            rk = rk + 1
+        }
+    }
     // The entry stub is OS-specific and nothing else is: all three Mark
     // `_start` first and Mark `karkain_main` last, so every label displacement
     // the body and the helpers encode is identical between them. That is what
@@ -4740,11 +5281,30 @@ func natNativeProgramOS(ast, targetOS) {
     if (natNativeArenaBytes(body) > 0) {
         s = natAllocHelper(s, natNativeArenaBytes(body))
     }
+    // The map runtime, on the oracle's syntactic predicate rather than on the
+    // program's actual needs -- see natMapFind's header and the D5 baseline §3.1.
+    // Order matters: emitHelpers runs print_int, print_str, [print_float],
+    // [alloc], map, runtime_error (program.go:2497-2520), and the map helpers
+    // call alloc, so they must come after it.
+    if (natNativeUsesMap(body) == 1) {
+        s = natMapFind(s)
+        s = natMapSet(s)
+        s = natMapGet(s)
+    }
+    // ... and LAST among the helpers, the Phase-152-B0 runtime-error reporter,
+    // only when the program can raise a diagnostic.
+    //
+    // The ORDER is the oracle's (program.go:2497-2520): print_int, print_str,
+    // [print_float], [alloc], [map], runtime_error. Placing it before the
+    // allocator would reorder .text and move every baked address after it.
+    if (usesRtErr == 1) {
+        s = natRuntimeErrorHelper(s, rtErr, isWin)
+    }
     // then the user function, in the oracle's own shape: a label, a frame
     // prologue, the body, the epilogue.
     s = natMark(s, "karkain_main")
     s = natSubRegImm32(s, natRegRSP(), frame)
-    s = natNativeLower(s, body, plan, ro[1], strTemp, tbl)
+    s = natNativeLower(s, body, plan, ro[1], strTemp, tbl, rtErr, rtKindSlot, srcOff, srcLen)
     // The implicit `return 0` is emitted ONLY when the program has no explicit
     // return, and it must come AFTER the body. Emitting it unconditionally was the
     // first draft's bug and it is instructive: `mov rax, 0` placed after the body

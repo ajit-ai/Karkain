@@ -379,7 +379,7 @@ func TestPhase123_WasmGetArgs(t *testing.T) {
 	src := `func main() {
     let args = getArgs()
     print(len(args))
-    for (let i = 0; i < len(args); i++) {
+    for (let i = 0; i < len(args); i = i + 1) {
         print(args[i])
     }
 }
@@ -482,7 +482,7 @@ func TestPhase123_WasmDeterminism(t *testing.T) {
 	if wt == "" {
 		t.Skip("wasmtime not found")
 	}
-	src := `func main() { let s = 0; for (let i = 1; i <= 100; i++) { s = s + i }; print(s) }
+	src := `func main() { let s = 0; for (let i = 1; i <= 100; i = i + 1) { s = s + i }; print(s) }
 `
 	dir := t.TempDir()
 	srcFile := filepath.Join(dir, "main.kark")

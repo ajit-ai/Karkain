@@ -116,3 +116,26 @@ is kept.
   write a UTF-8 BOM (`EF BB BF`) that the Go lexer rejects — fixtures must be
   BOM-stripped (the conformance fixture and negative goldens were written
   BOM-free).
+
+---
+
+## 6. Corrective change (2026-10-29) - stale increment/decrement fixtures
+
+**Not a new phase.** Recorded against the frozen Phase 123 baseline per the
+Governance rule.
+
+- **Owning layer:** the test fixtures, not the compiler. `examples/wasm/control_flow/main.kark`
+  and two inline sources in `pkg/cli/phase123_cli_test.go`.
+- **Demonstrated failure:** CI has been red on every push since 2026-10-11
+  (first failure run 38112881054). `TestPhase123_WasmExampleCorpus/control_flow`,
+  `TestPhase123_WasmGetArgs` and `TestPhase123_WasmDeterminism` fail with
+  `error[K001]: expected expression after '+' operator`.
+- **Why:** parser hardening (`b71b92e`) now rejects a dangling binary operator.
+  The fixtures used `i++` and `n--`, which Karkain has never supported: the
+  lexer produces `i + +`, and the old parser silently accepted it. The
+  fixtures were invalid all along; only the pre-hardening permissiveness let
+  them pass.
+- **Correction:** `i++` -> `i = i + 1`, `n--` -> `n = n - 1`. No parser or
+  codegen change, so emitted behavior for valid programs is untouched.
+- **Evidence:** `go test ./pkg/cli/ -run 'TestPhase123' -count=1` - 7 tests /
+  16 subtests PASS (87.7s), including the three previously failing ones.

@@ -12,6 +12,38 @@
 > ...).
 
 
+## Language Quality & Gates (2026-10)
+
+**Forward view lives in `docs/audit/KARKAIN-VERSION-PLAN.md`; quality
+measurement lives in `docs/audit/KARKAIN_MATURITY_SCORECARD.md`.** That
+scorecard is the single authoritative Language Quality Scorecard (30
+dimensions in the four required categories - operational maturity,
+architecture, compiler engineering, ecosystem - on a 0-5 scale with NE),
+re-derived from repository evidence at `develop` = `cc44c95` (Phase D5
+committed). It supersedes the Phase-49-era table that previously scored
+self-hosting, generics and modules as unbuilt.
+
+Six measurable engineering gates (A-F) are defined there over **existing**
+CI-tested infrastructure - no new gate files or CI steps were created. The
+scorecard distinguishes a gate that is **defined** from one **executed
+locally** and one **CI-enforced**, and reports the first two honestly where
+they were not re-run in the pass that last touched them:
+
+| Gate | One-line question | Primary existing execution |
+|------|-------------------|----------------------------|
+| A | Language conformance on both engines | `conformance/` (59 tests), probes 11/11, 151P0, LH-1/LH-2 |
+| B | Go↔kcc byte-identical parity | Phase 114 corpus gate + phases 123/133/137/146 parity gates |
+| C | Self-hosting & pipeline ownership | `pkg/bootstrap` bitwise identity, Phase 154, Phase 99, Phase 122 |
+| D | Native target integrity (kcc-owned) | Phases 151/151D/A1/B/D2/D3/D5 gates, `pkg/native` suite, Windows PE execution |
+| E | Tooling runs end-to-end | Phases 82/86 (fmt), 96 (test), 135 (registry), 136 (LSP), 140 (dbg) |
+| F | Release readiness under the version checklist | v1.2.0 checklist §2, `scripts/qa/run-full-qa.ps1`, Phases 118/142 |
+
+Governance rule (same as `AGENTS.md`): a failing gate is **evidence**, not
+authorization. Fixes proceed only through an explicitly authorized increment
+slice with its own baseline note. The scorecard publishes no aggregate
+letter grade — NE entries (macOS Mach-O execution, accelerator hardware,
+MM-K-time) are reported, never averaged.
+
 ## Vision
 
 Karkain is a unified heterogeneous systems language for:

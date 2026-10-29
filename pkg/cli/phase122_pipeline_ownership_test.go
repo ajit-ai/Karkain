@@ -231,8 +231,8 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		//
 		// This pin is shared with TestPhase151A5_KIRPinHolds, which carries the
 		// fuller accounting.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 13755 {
-			t.Errorf("whole-tree kir text = %d lines, want 13755:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 14050 {
+			t.Errorf("whole-tree kir text = %d lines, want 14050:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
