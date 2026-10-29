@@ -331,6 +331,11 @@ jobs:
       - name: Run Phase D8 native bounds-diagnostic length gate
         run: go test ./pkg/cli/ -run 'TestPhaseD8_' -count=1 -timeout 30m -v
 
+      # Push in main: kcc's native driver lowers push() in main, allocating a
+      # new array in the arena, copying old elements, and appending v.
+      - name: Run push-in-main native gate
+        run: go test ./pkg/cli/ -run 'TestPushMain_' -count=1 -timeout 30m -v
+
       # NAT-CALL, the v1.3.0 opener: a real .kark function called from `main`,
       # lowered by kcc's native driver and EXECUTED through the C-free path.
       #

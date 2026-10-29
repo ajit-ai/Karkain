@@ -3906,10 +3906,16 @@ func natNativePlanFor(params, stmts, tbl) {
   // field area, and the area follows the slot immediately. `ne` carries the field area
   // in UNITS -- the same convention the array clause uses for its element count -- so the
   // byte contribution below stays `8 * ne` for both, and there is no second size formula.
-  if (nodeType(v) == NODE_STRUCT_LIT()) {
-  k = natKindStruct()
-  ne = natStructSizeOf(tbl, structLitName(v)) / 8
-  }
+    if (nodeType(v) == NODE_STRUCT_LIT()) {
+        k = natKindStruct()
+        ne = natStructSizeOf(tbl, structLitName(v)) / 8
+    }
+    if (nodeType(v) == NODE_CALL()) {
+        if (callFunc(v) == "push") {
+            k = natKindArray()
+            ne = 0
+        }
+    }
   plan = appendArray(plan, next)
   plan = appendArray(plan, k)
   plan = appendArray(plan, ne)
@@ -3968,7 +3974,7 @@ if (natNativeSlotKind(plan, last) == natKindArray()) {
 // enumeration between them changes.
 func natNativeSubset() {
     return "The native driver lowers `let` of an integer literal, a string literal, " +
-        "an integer array literal or a record literal, and `let` of an integer " +
+        "an integer array literal or a record literal, `let ... = push(arr, v)`, and `let` of an integer " +
         "expression inside a called function; `print` and `return` of an integer " +
         "literal, a local, `a[i]`, `len(a)`, an int/float record field, an integer " +
         "expression (`+ - *`, unary `-`), a call to a user function, and (in direct " +
@@ -4173,6 +4179,28 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
         // Accepted as-is: the value is the literal's own bytes, interned
         // into rodata, so there is nothing to evaluate.
         return ""
+    }
+    if (vt == NODE_CALL()) {
+        if (callFunc(v) == "push") {
+            let args = callArgs(v)
+            if (len(args) != 2) {
+                return natNativeRefuse("push() takes exactly 2 arguments (got " + str(len(args)) + ")", natNativeDeclLine(n))
+            }
+            if (nodeType(args[0]) != NODE_IDENT()) {
+                return natNativeRefuse("push() requires an array variable (got " + getNodeType(args[0]) + ")", natNativeDeclLine(n))
+            }
+            let srcName = identName(args[0])
+            let srcOrd = natNativeSlotIndex(plan, srcName)
+            if (srcOrd < 0) {
+                return natNativeRefuse("undeclared local `" + srcName + "`", natNativeDeclLine(n))
+            }
+            if (natNativeSlotKind(plan, srcOrd) != natKindArray()) {
+                return natNativeRefuse("push() requires an array receiver (got " + natKindName(natNativeSlotKind(plan, srcOrd)) + ")", natNativeDeclLine(n))
+            }
+            let bad = natNativeScanIntExpr(args[1], plan, natNativeDeclLine(n), fns, 0)
+            if (bad != "") { return bad }
+            return ""
+        }
     }
     if (vt != NODE_INT_LIT()) {
         return natNativeRefuse("`let " + natNativeDeclName(n) +
@@ -5506,10 +5534,58 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
                     sidx = sidx + 1
                 } else {
-s = natEmitIntExpr(s, v, plan, fns, binTemp, extrasBase, frame, 0)
-s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
-}
-}
+                if (nodeType(v) == NODE_CALL() && callFunc(v) == "push") {
+                    // push: alloc a new array, copy old elements, append v.
+                    // Ported from pkg/native/program.go emitPush.
+                    let args = callArgs(v)
+                    let srcName = identName(args[0])
+                    let srcOrd = natNativeSlotIndex(plan, srcName)
+                    let srcOff = natNativeSlotOff(plan, srcOrd)
+                    let stage = strTemp
+                    // value
+                    s = natEmitIntExpr(s, args[1], plan, fns, binTemp, extrasBase, frame, 0)
+                    s = natStoreStack(s, natRegRAX(), stage)
+                    // old base / old len
+                    s = natLoadStack(s, natRegRAX(), srcOff)
+                    s = natStoreStack(s, natRegRAX(), stage + 8)
+                    s = natLoadStack(s, natRegRAX(), srcOff + 8)
+                    s = natStoreStack(s, natRegRAX(), stage + 16)
+                    // bytes = (old len + 1) * 8
+                    s = natLoadStack(s, natRegRDI(), stage + 16)
+                    s = natAddRegImm32(s, natRegRDI(), 1)
+                    s = natShlRegImm(s, natRegRDI(), 3)
+                    s = natCallAlloc(s)
+                    s = natStoreStack(s, natRegRAX(), stage + 24)
+                    // copy loop
+                    s = natLoadStack(s, natRegR8(), stage + 8)
+                    s = natLoadStack(s, natRegR9(), stage + 16)
+                    s = natLoadStack(s, natRegR10(), stage + 24)
+                    let loopLbl = "push$cp" + str(i)
+                    let doneLbl = "push$done" + str(i)
+                    s = natXorRegReg(s, natRegRDX())
+                    s = natMark(s, loopLbl)
+                    s = natCmpRegReg(s, natRegRDX(), natRegR9())
+                    s = natJae(s, doneLbl)
+                    s = natLoadScaled64(s, natRegRAX(), natRegR8(), natRegRDX(), 8, 0)
+                    s = natStoreScaled64(s, natRegRAX(), natRegR10(), natRegRDX(), 8, 0)
+                    s = natIncReg(s, natRegRDX())
+                    s = natJmp(s, loopLbl)
+                    s = natMark(s, doneLbl)
+                    // append v
+                    s = natLoadStack(s, natRegRAX(), stage)
+                    s = natStoreScaled64(s, natRegRAX(), natRegR10(), natRegR9(), 8, 0)
+                    // header: base = newbase, len = oldlen + 1
+                    s = natLoadStack(s, natRegRAX(), stage + 24)
+                    s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
+                    s = natLoadStack(s, natRegRAX(), stage + 16)
+                    s = natAddRegImm32(s, natRegRAX(), 1)
+                    s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx) + 8)
+                } else {
+                    s = natEmitIntExpr(s, v, plan, fns, binTemp, extrasBase, frame, 0)
+                    s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
+                }
+                }
+            }
 }
 }
         if (k == NODE_PRINT()) {
@@ -5730,6 +5806,7 @@ identName(callArgs(pv)[0]))
 func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin) {
     let usesStr = 0
     if (natNativeConcatSites(body, plan) > 0) { usesStr = 1 }
+    if (natNativePushCount(body) > 0) { usesStr = 1 }
     let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, 0, natNativeMaxExtras(body), isWin)
     let frame = lay[6]
     let label = natNativeFuncLabel(name)
@@ -5851,6 +5928,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // predicates must move per function too.
     let usesStr = 0
     if (natNativeConcatSites(body, plan) > 0) { usesStr = 1 }
+    if (natNativePushCount(body) > 0) { usesStr = 1 }
     // isWin is the BOOLEAN form of targetOS, for the two places that genuinely
     // only care about the Windows/Unix split: the frame's 16-byte alignment rule
     // and the stdout write SHAPE (Win64 kernel32 vs a raw syscall). Both treat
@@ -6468,6 +6546,42 @@ func natNativeConcatSites(stmts, plan) {
     return n
 }
 
+// natNativePushCount counts push() call sites in a statement list, recursively
+// into let-values and print-arguments. A push inside a loop is not possible here
+// because the driver refuses loops before reaching this scan, so the count is
+// a flat site count.
+func natNativePushCount(stmts) {
+    let n = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) {
+            n = n + natNativePushIn(printVal(st))
+        }
+        if (natNativeIsDecl(st)) {
+            n = n + natNativePushIn(natNativeDeclValue(st))
+        }
+        if (nodeType(st) == NODE_RETURN()) {
+            n = n + natNativePushIn(retVal(st))
+        }
+        i = i + 1
+    }
+    return n
+}
+
+func natNativePushIn(e) {
+    if (nodeType(e) == NODE_CALL()) {
+        if (callFunc(e) == "push") { return 1 }
+    }
+    if (nodeType(e) == NODE_BINARY()) {
+        return natNativePushIn(binaryLeft(e)) + natNativePushIn(binaryRight(e))
+    }
+    if (nodeType(e) == NODE_UNARY()) {
+        return natNativePushIn(unaryOperand(e))
+    }
+    return 0
+}
+
 func natNativeConcatIn(e, stmts, plan) {
     if (nodeType(e) != NODE_BINARY()) { return 0 }
     if (binaryOp(e) != "+") { return 0 }
@@ -6511,6 +6625,15 @@ func natNativeConcatIn(e, stmts, plan) {
 // floored arena 1024 bytes instead of 16 + 1024, so the header must be added
 // after the floor has already been applied to the data size.
 func natNativeArenaBytes(stmts, plan) {
+    let pushSites = natNativePushCount(stmts)
+    if (pushSites > 0) {
+        // Arena bound for pushes: site i sees at most (largest literal length + i)
+        // elements. Since the driver refuses loops, no site runs more than once.
+        // Simplified: pushSites * (pushSites + 1) * 8, floored at 1024.
+        let pushBytes = pushSites * (pushSites + 1) * 8
+        if (pushBytes < natArenaMinSize()) { pushBytes = natArenaMinSize() }
+        return pushBytes + natArenaHeaderLen()
+    }
     let sites = natNativeConcatSites(stmts, plan)
     if (sites == 0) { return 0 }
     let dataBytes = sites * natNativeStrTotalBytes(stmts)
