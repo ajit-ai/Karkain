@@ -73,7 +73,9 @@ result means the gate is local-only and the status is wrong.
 ## 4. The queue
 
 Ordered by version, then by dependency. Statuses derived 2026-10-15 at
-`develop` = `64c63c6`.
+`develop` = `64c63c6`; re-derived 2026-10-29 at `develop` = `fb7cbf6`
+(the D8 corrective change, which is the revision this table was last read
+against).
 
 ### 4.1 v1.2.0 "Sovereignty I"
 
@@ -91,6 +93,7 @@ Ordered by version, then by dependency. Statuses derived 2026-10-15 at
 | D2 / D3 / D4 | kcc/Go byte-identity: non-allocating, allocating, return_value + len_of_array | `completed` | D1 | `pkg/cli/phase151d_parity_test.go`; D2 CI step |
 | **D5** | `array_index` narrowing: runtime-error reporter + map-helper predicate | **`completed`** | D4 | `pkg/cli/phase151d5_arrbounds_test.go` 3/3 incl. Windows PE execution; CI step *Run Phase D5 kcc native array-bounds gate*; commit `cc44c95` |
 | **D6** | Remaining 8-byte frame delta (`array_index` kcc 1088 vs go 1096) | **`proposed`** | D5 | Measured: Go `sub rsp,0x290` vs kcc `sub rsp,0x288`; closing it moves `natFrameLayout`, which every Step 1-9d displacement is pinned against. **Not selected** - see section 5 |
+| **D8** | Array-bounds diagnostic **length immediate** (kcc-only divergence) | **`completed`** | D5 | `natArrayIndex` sent 25 as the length of a 24-byte message; the oracle derives it with `len(...)` (`pkg/native/program.go:6324`). Gate `pkg/cli/phase151d8_diaglen_test.go` (`TestPhaseD8_`), CI step *Run Phase D8 native bounds-diagnostic length gate*, commit `fb7cbf6`; mutation-verified by restoring the literal. D5 could not see it because it counts image bytes and never decodes the immediate |
 | 151A-9i+ | Native driver value-model kinds still open: `for-in`, `push`, maps, float statements/params/returns | `approved` (in the 151 baseline scope) | D5 | Refusal table is the current honest state; each refused shape is named in the driver's K145 diagnostics. **macOS entry/exit removed from this row 2026-10-15** - it is implemented (`natStartEntryOS(s, os)` with OS-parameterized `natSysWrite`/`natSysExit`), and no macOS refusal exists in the driver |
 | 152-A / B0 / B1 / B2 | Native safety + capability boundary, runtime-error reporter, no-C string codecs | `completed` | 150 | `pkg/native/phase152a_safety_test.go`, `pkg/cli/phase152_noc_test.go`; CI steps |
 | 152 (conditions 2-3) | `stdlib_v2` and `std.net` with **no C compiler** | `deferred` to **v1.3.0** | native function-call lowering | UNMET by owner-authorized amendment 2026-10-10; the native driver lowers no function call and `pkg/native` has no socket emitter. Recorded verbatim in `v1.2.0-CHECKLIST.md` section 2 |
@@ -102,8 +105,8 @@ Ordered by version, then by dependency. Statuses derived 2026-10-15 at
 
 | ID | Item | Status | Blocker | Evidence |
 |----|------|--------|---------|----------|
-| KIR-REMEASURE | Re-measure the whole-tree KIR pin on the development host | `blocked` | The intermittent kcc `0xC0000005` makes a multi-minute whole-tree run unreliable | Pin stands at **14050**, verified once cleanly (`text=14050 verify=14050`, 908.3 s). Low-RAM, 64 MiB-stack and corrupt-binary hypotheses are falsified with evidence; the incident is UNCLASSIFIED |
-| B2-SEED | Seed-closure burn on CI runners | `blocked` | Five consecutive runner deaths ~35 s into the stage-2 transpile | `bootstrap-closure` CI job is **discovery-only and not a required check**; the mechanism itself is proven on a dev host |
+| KIR-REMEASURE | Re-measure the whole-tree KIR pin | `completed` 2026-10-29 **(on CI, not on this host)** | - | Pin **14050** is now asserted on every push by the *kcc whole-tree self-check (Phase 122)* job, which passed at `fb7cbf6` (run `40815666047`); two dev-host measurements at `e83385f` agree. The dev host itself remains unreliable for the multi-minute run (REL-001, UNCLASSIFIED), so the CI job is the measurement path and `TestPhase151A5_KIRPinHolds` still asserts the pin exactly when the host allows |
+| B2-SEED | Seed-closure burn on CI runners | `blocked` | Six consecutive runner deaths (latest 2026-10-29, run `40815666047`) ~35 s into the stage-2 transpile, with no witness line, timer, OOM or crash fingerprint | `bootstrap-closure` CI job is **discovery-only and not a required check**; the mechanism itself is proven on a dev host (143) |
 
 ### 4.3 Later versions (planned, not baselined)
 
@@ -134,36 +137,61 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 
 ### 5.1 Current recommendation
 
-**Recommended next: a root-cause investigation slice for the intermittent kcc
-`0xC0000005` (`proposed` - requires owner authorisation).**
+**Recommended next: close the carried v1.2.0 debt - lower user function calls in
+the kcc native driver, then prove `stdlib_v2` and `std.net` with no C compiler
+(`proposed` - requires owner authorisation as the v1.3.0 opener).**
 
 Why this one, from evidence:
 
-1. It is the only blocker on a gate that is currently unmeasurable. The whole-tree
-   KIR pin cannot be re-measured reliably on the development host, so the pin is
-   carried as "measured once, at 14050" rather than re-verified.
-2. It has a named, cheap, decisive experiment that has never been run: an
-   `-fsanitize=address` build, or a `-Wl,--stack,` build. Three hypotheses are
-   already falsified with evidence, which is why a fourth guess is not being
-   made.
-3. It may be the same class as the largest unproven release-readiness item
-   (B2-SEED runner deaths). Two unexplained crashes of different shapes should
-   not be investigated as if they were unrelated.
-4. It is a prerequisite-shaped piece of work: it changes nothing user-visible,
-   so it carries no compatibility risk, and its result either closes a red gate or
-   redirects effort away from a red herring.
+1. It is the largest *measured* unmet obligation in the repository. v1.2.0
+   conditions 2 and 3 were carried to v1.3.0 by owner amendment on 2026-10-10,
+   not withdrawn, and the reason they were carried is one named missing
+   capability: the driver refuses every user call, by name, at
+   `src/compiler/native_value.kark:4238` (the message begins "call to" and ends
+   "is not lowered by the"). No amount of library work
+   substitutes for that - a `stdlib_v2` program is a program with calls in it.
+2. It converts a deferred condition into a measurable one. Today condition 2 is
+   an argument about what a missing lowering would allow; after the call path
+   exists it is a test: build `examples/stdlib_v2` through the C-free native
+   target and compare its output, then do the same for `std::net` on the
+   platforms the version claims.
+3. It is incremental on a pattern that is already gated end to end. Phases
+   151A-8d/8e/8f lowered the call ABI for int, float and string arguments
+   (spill staging, register budget, extras area, two-unit high-half rule) and
+   each was byte-verified against the real `pkg/native` emitter. What is missing
+   is the driver *reaching* that machinery for a program's own functions, plus
+   the kinds the driver still refuses (`for-in`, `push`, maps, float statements
+   and params).
+4. **REL-001 no longer has a cheap decisive experiment, so it is not the pick.**
+   ASan is unavailable on this toolchain (measured), the 64 MiB stack reserve is
+   falsified (measured), the low-RAM and corrupt-binary hypotheses are
+   falsified, and five consecutive isolated runs completed cleanly. A sixth
+   guess is not evidence, and REL-001 does not block this work: the pin is now
+   verified on CI (REL-005, closed below).
 
-**Runner-up, and why it is second: the next native-driver value-model kind
-(`151A-9i+`, `for-in` or `push`).** It is `approved` and unblocked, and it is
-the largest remaining gap inside increment 151. It is second only because it
-does not depend on the crash investigation, whereas the crash investigation
-blocks measurement work that every future slice will rely on.
+**Runner-up, and why it is second: the type-system foundation
+(`TYPE-DESIGN` -> `LANG-001/002/003`).** It is where the language programme
+actually starts - annotations are strings, there are no type values, `let`
+carries no mutability meaning - and it is the collector for most v1.3.0+
+correctness work. It is second rather than first for two reasons: it is a
+*design* milestone with D-1..D-6 still open and awaiting owner sign-off, and
+Rule 4 means a design is not implementation; and its largest decision (the
+`let` immutability flip) is explicitly a major-version boundary, so starting it
+now would stall behind a decision rather than produce a gate.
 
-**Explicitly not recommended: D6.** The evidence says its 8-byte frame delta is
-cosmetic relative to the open value-model kinds, and closing it requires moving
-`natFrameLayout`, which every Step 1-9d displacement is pinned against. Doing it
-now would reopen frozen gates for a cosmetic gain; doing it once after the value
-model settles is cheaper.
+**Explicitly not recommended, with reasons:**
+
+* **D6.** Its 8-byte frame delta is cosmetic, and closing it moves
+  `natFrameLayout`, which every Step 1-9d displacement is pinned against. Do it
+  once, after the value model settles, not now.
+* **GOV-001 / increment 154.** Baselined and gated, but blocked by this host:
+  measured 427 MB free physical against the Phase 127 `error[K127]` threshold of
+  1536 MiB, so the gate refuses before doing work. It is a memory problem on the
+  dev host and a runner-stability problem on CI (REL-002), not a work-ordering
+  problem.
+* **153 (DAP).** Not authorised, and no DAP server exists in the repository.
+* **152-A/A1/B1/B2 and D5/D8 follow-ups.** Already delivered; finishing their
+  slice list is not a next-slice recommendation.
 
 ## 6. Staleness and contradiction detection
 
@@ -222,6 +250,8 @@ owner-authorized amendment. An agent may propose one; it may not record one.
 |------|--------|
 | 2026-10-15 | Control system established. Queue, status vocabulary, evidence conventions, selection policy, staleness rules and deferral process added. Derived statuses from commits, gate files and `ci.yml` patterns at `develop` = `64c63c6` |
 | 2026-10-15 | Cross-workstream consistency review: `TYPE-DESIGN` corrected from `approved` to `proposed`. The design document and the version plan both state the design is awaiting owner sign-off, so `approved` was a contradiction introduced by this control system and is corrected here under Rule 3 |
+| 2026-10-29 | Queue re-derived at `develop` = `fb7cbf6` (the D8 corrective change). Added the **D8** row. Closed **REL-005** on a third, independent measurement from a different host and OS (CI job *kcc whole-tree self-check (Phase 122)*, run `40815666047`, pin exactly **14050**), which also turns **KIR-REMEASURE** from `blocked` into `completed` with CI as the measurement path. Re-recorded **GOV-001** as `blocked` by capacity (427 MB free physical against the 1536 MiB K127 threshold, measured this date) rather than by ordering. Recommendation rewritten: **STD-001** - the carried v1.2.0 conditions 2-3, entered through native user-call lowering - replaces REL-001, whose remaining hypotheses have no cheap decisive experiment left; the **type-system foundation** becomes the runner-up |
+
 ## 9. Issue register
 
 Extended 2026-10-15. The queue in section 4 answers "what is next"; this
@@ -254,7 +284,7 @@ library and runtime, `SEC-` security and supply chain, `PERF-` performance,
 | REL-002 | Seed-closure stage-2 transpile kills CI runners ~35 s in; mechanism proven on a dev host | S1 | `blocked` | Five consecutive runner deaths; the `bootstrap-closure` job is discovery-only, not a required check | `go test ./pkg/bootstrap -run TestBootstrap_SeedClosure -count=1` on a CI runner | v1.2.0 |
 | REL-003 | No fuzz targets anywhere in the repository | S3 | `approved` | `func Fuzz` count = 0 | `Select-String -Path pkg/**/*_test.go -Pattern 'func Fuzz'` | v1.3.0 |
 | REL-004 | No binary-size or artifact budget exists | S3 | `proposed` | Scorecard CE8 scored 2 for this reason | policy exists; numbers do not | v1.3.0 |
-| REL-005 | Whole-tree KIR pin re-verification on the dev host | S2 | **reproduced twice, 2026-10-15** | Pin re-measured twice at commit `e83385f`: 908.3 s via `TestPhase151A5_KIRPinHolds` and 996 s via the CLI directly, both reporting `text=14050 verify=14050`. Two independent measurements agreeing is materially stronger than the single one previously on record | as REL-001 | closed pending a 3rd run |
+| REL-005 | Whole-tree KIR pin re-verification on the dev host | S2 | **`closed` 2026-10-29** | Third, independent measurement on a **different host and OS**: CI run `40815666047`, job *kcc whole-tree self-check (Phase 122)*, commit `fb7cbf6` - PASS, `TestPhase122_PipelineOwnership` asserting the pin at exactly **14050**. That joins the two 2026-10-15 dev-host runs at `e83385f` (908.3 s via `TestPhase151A5_KIRPinHolds`, 996 s via the CLI; both `text=14050 verify=14050`). The two `src/compiler` commits since that measurement were checked for KIR neutrality by probe rather than assumed: `f(25)` and `f(len("array index out of range"))` both render as one `(= s (call f ...))` line, so D5 and D8 could not have moved the count. The pin is now asserted on every push by a runner that is not this host | as REL-001, plus the CI job | `closed` |
 | NAT-001 | `array_index` residual: kcc 1088 vs oracle 1096 bytes | S3 | `deferred` (not selected) | `sub rsp,0x288` vs `sub rsp,0x290` | `go test ./pkg/cli -run TestPhaseD2_KnownNonParityIsStillNonParity -count=1` | after the value model settles |
 | NAT-002 | macOS Mach-O execution unverified | S2 | `blocked` | No macOS runner anywhere; every Mach-O claim since increment 149 is structural | none possible without a runner | v1.3.0+ |
 | NAT-003 | kcc native driver covers a subset; `for-in`, `push`, maps and float statements are refused by name | S2 | `approved` (unblocked) | The refusal table is the honest current state. **Corrected 2026-10-15: macOS entry/exit is NOT part of this gap** - `kccNativeOwnedTargets` includes `NativeMacOSTarget`, the driver emits `natStartEntryOS(s, os)` with OS-parameterized `natSysWrite`/`natSysExit`, and no macOS refusal exists in `native_value.kark`. Phase B and D1 delivered it | `go test ./pkg/cli -run 'TestPhaseD5_|TestPhase151A9' -count=1` | v1.2.0 |
@@ -269,7 +299,7 @@ library and runtime, `SEC-` security and supply chain, `PERF-` performance,
 | LANG-001 | `let` carries no mutability meaning; only `const` is immutable | S2 | `proposed` (design decision) | `parseVarDecl` handles all three keywords; Phase 112 leaves let/var reassignment untouched | `UNIFIED-TYPE-DECLARATION-DESIGN.md`, D-1..D-6 | owner decision |
 | LANG-002 | The `let` immutability flip is breaking and breaks a frozen gated corpus | S2 | `blocked` on LANG-001 | The 151A Step 2b reference reassigns a `let` | as LANG-001 | major-version boundary |
 | LANG-003 | Type annotations are strings; no type values, no inference | S2 | `proposed` | `VarDeclStmt.Type string`; AR5 scored 3 | `TYPE_SYSTEM_AUDIT.md`, AR5 | separate programme |
-| GOV-001 | Increment 154 is baselined and gated but NOT implemented | S1 (v1.2.0) | `approved`, **blocked by host environment 2026-10-15** | `PHASE-154-BASELINE.md`; the `forceGoEngine` pin still exists at `pkg/bootstrap/bootstrap.go:152`. The gate needs `stage2 == stage3` with Go absent, which **cannot run on the dev host today**: 874 MB free against the Phase-127 K127 guard's 1536 MB threshold, so stage-2 refuses with `error[K127]` before doing any work. Not started rather than started-unverifiable | needs >=1.5 GiB free RAM, or the CI runner (which REL-002 shows is currently unsafe for the minutes-long stage-2 burn) | v1.2.0 |
+| GOV-001 | Increment 154 is baselined and gated but NOT implemented | S1 (v1.2.0) | `approved`, **`blocked` by host memory (re-measured 2026-10-29: 427 MB free physical against the 1536 MiB K127 threshold)** | `PHASE-154-BASELINE.md`; the `forceGoEngine` pin still exists at `pkg/bootstrap/bootstrap.go:152`. The gate needs `stage2 == stage3` with Go absent, which **cannot run on the dev host**: stage 2 refuses with `error[K127]` before doing any work (874 MB free on 2026-10-15, 427 MB on 2026-10-29). Not started rather than started-unverifiable. Blocked on capacity, not on design or ordering | needs >=1.5 GiB free RAM, or a CI runner that survives the minutes-long stage-2 burn (REL-002) | v1.2.0 (carry-over to v1.3.0 if capacity does not arrive) |
 | GOV-002 | Increment 165 (Docker/GHCR) not started | S3 | `proposed` | Free-floating; no baseline | none | v1.5.0 |
 | GOV-003 | No rollback runbook | S3 | `proposed` | OM4 scored 2 for want of one | none | v1.3.0 |
 | DOC-001 | Several `docs/audit/*` documents contradict current code | S3 | `completed` | Three carry evidence-backed historical banners; scorecard section 7 lists them | `Select-String -Path docs/audit/NEXT_PHASE_RECOMMENDATION.md -Pattern HISTORICAL` | closed 2026-10-15 |
@@ -280,33 +310,62 @@ Ranked by correctness and safety impact first, then blocking dependencies,
 then scope and regression risk, then release impact - **not** by file count,
 apparent complexity, or preference for new features.
 
-1. **REL-001** (S1, unclassified crash). It is the only blocker on REL-005,
-   the highest-severity open item with no root cause, and its decisive
-   experiment is cheap. An unknown-cause crash can hide anything behind it.
-2. **GOV-001** (S1, 154 not implemented). A v1.2.0 closure condition that is
-   already baselined, so no planning stands between it and a slice. Second only
-   because it is large and interacts with REL-002.
-3. **NAT-003** (S2, driver subset). The largest remaining gap inside increment
-   151, unblocked, and mechanically incremental - the value-model kinds follow
-   an established pattern.
-4. **NAT-001 / D6** (S3). Cosmetic relative to the open kinds, and closing it
+1. **STD-001** (S1, carried v1.2.0 closure). The largest measured unmet
+   obligation, and it is blocked by exactly one named capability: the native
+   driver refuses every user call (`native_value.kark:4238`), so neither
+   `stdlib_v2` nor `std.net` can build without a C compiler. Picking it up also
+   consumes NAT-003's remaining kinds, because a library program needs
+   `for-in`, `push` and float statements before it can be proved end to end.
+2. **TYPE-DESIGN / LANG-003** (S2, type-system foundation). Where the language
+   programme actually starts, and the collector for most later correctness
+   work. Second because it is a design milestone awaiting owner sign-off
+   (D-1..D-6 open) and its biggest decision is a major-version boundary, so
+   starting now would stall behind a decision rather than produce a gate.
+3. **GOV-001** (S1, increment 154 not implemented). Still a real v1.2.0
+   condition, but **not schedulable on this host**: 427 MB free physical against
+   the 1536 MiB guard, so those ranks cannot be acted on here. Rank is not the
+   binding constraint; capacity is.
+4. **REL-001** (S1, unclassified crash). No remaining cheap decisive experiment:
+   ASan unavailable (measured), 64 MiB stack falsified (measured), low-RAM and
+   corrupt-binary falsified, five consecutive isolated runs clean. It no longer
+   blocks the pin (REL-005 closed on CI), so the honest action is to keep the
+   evidence and not spend a slice guessing.
+5. **NAT-001 / D6** (S3). Cosmetic relative to the open kinds, and closing it
    early reopens frozen frame pins. Deliberately last among the 151 work.
-5. **STD-001** (deferred to v1.3.0). Carried by an explicit owner amendment;
-   picking it up inside v1.2.0 would contradict that amendment.
+6. **REL-002 / B2-SEED** (S1 for release readiness, unowned by any agent). Six
+   consecutive runner deaths with no fingerprint. The discovery job exists and
+   reports; only a runner-side change or an owner decision moves it.
 
 ### 9.4 Single recommendation, runner-up, deferrals
 
-**Recommended next slice: REL-001**, a root-cause investigation slice for the
-kcc access violation. Status `proposed`; it requires owner authorisation because
-its decisive experiment changes the build (`-fsanitize=address`, or
-`-Wl,--stack,`).
+**Recommended next slice: STD-001**, the v1.3.0 opener - lower user function
+calls in the kcc native driver together with the kinds a library program needs,
+then prove `stdlib_v2` and `std.net` build and run **with no C compiler**.
+Status `proposed`; it requires owner authorisation because it opens a numbered
+increment rather than extending a completed slice, and it is the first time the
+native path is asked to carry a real library program.
 
-* **Runner-up: NAT-003**, the next native-driver value-model kind. Unblocked and
-  approvable today; second because it does not unblock measurement.
-* **Deferred, with reasons:** NAT-001 (premature), STD-001 (owner amendment),
-  NAT-002 (needs a runner, which is an owner decision), SEC-001 and PERF-001
-  (real but not release-blocking), LANG-001 (owner decision on language
-  semantics), GOV-003 (no incident has required it yet).
+The measured entry point is one refusal, not a programme of work:
+`src/compiler/native_value.kark:4238` refuses every user call by name. The
+machinery underneath it already exists and is byte-gated (151A-8d/8e/8f:
+argument staging, the six-register budget, the extras area, the two-unit
+high-half rule). What is missing is the driver walking a program's own
+functions, plus `for-in`, `push`, maps and float statements/params/returns,
+which is NAT-003's list - so this slice closes NAT-003 as a side effect rather
+than as a competing item.
+
+* **Runner-up: TYPE-DESIGN -> LANG-003**, the type-system foundation
+  (`LANG-001/002/003`). It is `proposed` and awaiting owner sign-off on D-1..D-6,
+  and its `let`-immutability decision is a major-version boundary. It is the
+  right *second* because it needs a decision before it needs a gate.
+* **Deferred, with reasons:** NAT-001 / D6 (premature - reopens frozen frame
+  pins for 8 bytes), NAT-002 (no macOS runner exists; every Mach-O claim stays
+  structural), GOV-001 (blocked by host memory: 427 MB free vs the 1536 MiB
+  guard - a capacity problem, not an ordering one), REL-002 / B2-SEED (runner
+  behaviour; discovery job only, needs an owner decision), REL-001 (evidence
+  kept, no cheap experiment left, and it no longer blocks the pin), SEC-001 and
+  PERF-001 (real but not release-blocking), LANG-001 / LANG-002 (owner decision,
+  major boundary), GOV-003 (no incident has required it yet).
 
 **This section is the register's authority for the recommendation.** If section
 5 and section 9.4 ever disagree, this one wins, because it is the newer record

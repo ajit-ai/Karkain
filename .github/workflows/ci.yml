@@ -367,6 +367,16 @@ jobs:
       - name: Run Increment 152-A native safety and capability gate
         run: go test ./pkg/native/ -run 'TestNativeStrConcat|TestNativeSocket|TestNativeOrdinaryUndefined|TestNativeNonSocket' -count=1
 
+      # Increment 152-B0, native runtime-error reporting. Named explicitly for
+      # the same reason as the 152-A/B1/B2 steps: it must be a separately
+      # reported conclusion, not an incidental pass inside the broad
+      # `go test ./pkg/native/ -count=1` step. `TestPhase152B0_` matches none of
+      # the existing patterns. The commit that delivered the helper (`da1dc86`)
+      # landed WITHOUT its own step, so until now the gate only ever ran
+      # incidentally -- this closes that gap rather than leaving it documented.
+      - name: Run Increment 152-B0 native runtime-error gate
+        run: go test ./pkg/native/ -run 'TestPhase152B0_' -count=1 -timeout 20m
+
       # Increment 152-B1, the native string-codec builtins (trim, hex_decode_bytes,
       # base64_encode_bytes, base64_decode_bytes). Named explicitly rather than
       # relying on the broad `go test ./pkg/native/ -count=1` step above, for the
