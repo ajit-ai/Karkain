@@ -3866,3 +3866,40 @@ gated but NOT implemented ... not started"*, which was wrong - increment 154
 shipped at `62a6323` - so GOV-001 is now `implemented, unverified` with the
 two-fold blockage (host capacity and the runner kill) and conditions 5-6 restated
 as open in section 9.5.
+
+**Owner decision - increment 154 is carried out of v1.2.0 (2026-10-29).** With
+the runner class measured twice over, the owner authorized carrying closure
+conditions **5** (`stage2 == stage3`) and **6** (no Go toolchain for that
+self-bootstrap closure) to **v1.3.0 as UNMET**. This is a carry, not a weakening:
+the condition text is untouched, the implementation stays in the tree, the fast
+pin-contract half stays in the required `Test` job, and the three-stage proof
+stays an opt-in gate that treats a skip as a failure. What it does is reduce the
+*effective* v1.2.0 gate to conditions **1, 4, 7 and 8**. `v1.2.0-CHECKLIST.md`
+§2.3 records the amendment (the dated §2.1 table is retained unedited and marked
+superseded-in-part, because editing a dated record so it appears to have decided
+something it did not would destroy the audit trail that makes the amendment
+trustworthy). `docs/release/v1.3.0-CHECKLIST.md` was **created** as the written
+home the carry requires - status **PREPARED, not open** - with ten closure
+conditions, an ordered queue (`NAT-CALL` -> `NAT-STDLIB` -> `NAT-NET` ->
+`TYPE-FOUNDATION` -> `154` -> `155` -> `156` -> `158`-`161`), an explicit
+numbering rationale (the type-system foundation uses a **working label**; 181-184
+stay reserved for post-2.0), and an explicit not-in-scope list. **No v1.3.0
+increment is authorized until v1.2.0 is tagged, and `VERSION` stays `1.1.0`.**
+`KARKAIN-IMPLEMENTATION-CONTROL.md` §4.1 row 154 was corrected from
+`approved (baselined, not implemented) / No implementation exists` to
+`implemented, unverified` - the same Rule 3 defect GOV-001 had, in a second
+location - and its §9.5 reconciliation gained a superseded-in-part banner rather
+than edited rows.
+
+**CI confirmation (2026-10-29) - the required job is green again, and the 24
+orphaned gates executed for the first time.** Runs `40818975162` (`main`,
+`7858c5e`) and `40818970725` (`develop`, `f694920`) both report the **required
+`Test` job success**. Step 55 *Run Increment 154 self-bootstrap gate* passes on
+the split's fast half, and steps 56-79 (the 151A/151B/151C/151D native family,
+the `kcc run` stdout parity gate, the P1 map-key gate, the Phase 141/139 unit
+gates and conformance) all ran and passed - these are the gates that had been
+**skipped since 2026-10-11** because CI died at an earlier step, so their prior
+history was empty, not green. The two discovery jobs (`Increment 154
+self-bootstrap`, `B2 seed closure`) report failure on the documented exit-143
+runner class; that is their purpose and they are deliberately not required
+checks, so they record the limitation instead of blocking the branch.
