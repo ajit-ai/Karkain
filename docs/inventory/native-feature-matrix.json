@@ -1,0 +1,84 @@
+{
+  "schema": "karkain-native-feature-matrix-v1",
+  "title": "Karkain native compilation path -- qualified feature matrix",
+  "verified": "2026-11-10",
+  "scope": "The Karkain-owned native path (kcc), i.e. `karkain build --target native-x86_64-<os>` with NO C compiler and NO Go toolchain in the program-compilation path. This is the v1.2.0 'Sovereignty I' qualification surface. It is NOT the C-backend path and NOT the WASM path.",
+  "statuses": {
+    "supported": "Lowered by the self-hosted driver, with a passing gate that executes or byte-compares it.",
+    "implemented_not_gated": "Lowered by the driver, but no gate exercises the kcc side of it yet. Not advertised as supported.",
+    "not_supported": "Refused BY NAME with a diagnostic and no image. Never silently mis-lowered.",
+    "blocked": "Blocked by a known architectural dependency outside this path."
+  },
+  "features": [
+    {"construct": "integer literal", "status": "supported", "gate": "TestPhase151A9C_", "gate_file": "pkg/cli/phase151a9c_driver_test.go"},
+    {"construct": "integer local binding (`let`)", "status": "supported", "gate": "TestPhase151A9C_", "gate_file": "pkg/cli/phase151a9c_driver_test.go"},
+    {"construct": "integer arithmetic (`+ - *`)", "status": "supported", "gate": "TestPhase151A2_", "gate_file": "pkg/cli/phase151a2_int_test.go"},
+    {"construct": "unary minus", "status": "supported", "gate": "TestPhaseNATCall_", "gate_file": "pkg/cli/phase151e_call_test.go"},
+    {"construct": "bare assignment to a local", "status": "supported", "gate": "TestPhase151A2_", "gate_file": "pkg/cli/phase151a2_int_test.go"},
+    {"construct": "call to a user function with arguments", "status": "supported", "gate": "TestPhaseNATCall_", "gate_file": "pkg/cli/phase151e_call_test.go"},
+    {"construct": "return value from a user function", "status": "supported", "gate": "TestPhaseNATCall_", "gate_file": "pkg/cli/phase151e_call_test.go"},
+    {"construct": "conditional branch (`if` / `else`)", "status": "supported", "gate": "TestPhaseNATIf_", "gate_file": "pkg/cli/phase151g_if_test.go"},
+    {"construct": "integer comparison in a condition", "status": "supported", "gate": "TestPhaseNATIf_", "gate_file": "pkg/cli/phase151g_if_test.go"},
+    {"construct": "nested branch and `else if`", "status": "supported", "gate": "TestPhaseNATIf_", "gate_file": "pkg/cli/phase151g_if_test.go"},
+    {"construct": "binding inside a branch", "status": "supported", "gate": "TestPhaseNATIf_", "gate_file": "pkg/cli/phase151g_if_test.go"},
+    {"construct": "array literal and element access", "status": "supported", "gate": "TestPhase151A9D_", "gate_file": "pkg/cli/phase151a9d_array_test.go"},
+    {"construct": "`len()` of an array", "status": "supported", "gate": "TestPhase151A9E_", "gate_file": "pkg/cli/phase151a9e_len_test.go"},
+    {"construct": "string literal and printing it", "status": "supported", "gate": "TestPhase151A9F_", "gate_file": "pkg/cli/phase151a9f_string_test.go"},
+    {"construct": "string concatenation", "status": "supported", "gate": "TestPhase151A9G_", "gate_file": "pkg/cli/phase151a9g_concat_test.go"},
+    {"construct": "record literal and field access", "status": "supported", "gate": "TestPhase151A9H_", "gate_file": "pkg/cli/phase151a9h_records_test.go"},
+    {"construct": "`push(array, value)`", "status": "supported", "gate": "TestPushMain_", "gate_file": "pkg/cli/phase_push_main_test.go"},
+    {"construct": "runtime error diagnostic (array bounds)", "status": "supported", "gate": "TestPhaseD5_", "gate_file": "pkg/cli/phase151d5_arrbounds_test.go"},
+    {"construct": "map literal, lookup and insertion", "status": "implemented_not_gated", "gate": "", "gate_file": "", "note": "The driver lowers maps (natMapFind/natMapSet/natMapGet) and the Go oracle gates them in pkg/native/phase150b3c_test.go, but no gate exercises the kcc side of the map path yet."},
+    {"construct": "float statement (binding, arithmetic, print)", "status": "not_supported", "gate": "TestPhaseNATIf_", "gate_file": "pkg/cli/phase151g_if_test.go"},
+    {"construct": "string comparison in a condition", "status": "not_supported", "gate": "TestPhaseNATIf_", "gate_file": "pkg/cli/phase151g_if_test.go"},
+    {"construct": "integer division", "status": "not_supported", "gate": "TestPhase151D_", "gate_file": "pkg/cli/phase151d_elfnative_test.go"},
+    {"construct": "integer modulo", "status": "not_supported", "gate": "TestPhaseNATCall_", "gate_file": "pkg/cli/phase151e_call_test.go"},
+    {"construct": "comparison used as a value", "status": "not_supported", "gate": "TestPhaseNATIf_", "gate_file": "pkg/cli/phase151g_if_test.go"},
+    {"construct": "`while` loop", "status": "not_supported", "gate": "TestPhaseNATCall_", "gate_file": "pkg/cli/phase151e_call_test.go"},
+    {"construct": "C-style `for` loop", "status": "not_supported", "gate": "TestPhaseNATCall_", "gate_file": "pkg/cli/phase151e_call_test.go"},
+    {"construct": "`for ... in` iteration", "status": "not_supported", "gate": "TestPhase151D_", "gate_file": "pkg/cli/phase151d_elfnative_test.go"},
+    {"construct": "`break` / `continue`", "status": "not_supported", "gate": "TestPhaseNATCall_", "gate_file": "pkg/cli/phase151e_call_test.go"},
+    {"construct": "recursion", "status": "not_supported", "gate": "", "gate_file": "", "note": "The subset has no `if`, so a recursive function cannot terminate: both engines stack-overflow identically. Parity, not support."},
+    {"construct": "standard-library import", "status": "not_supported", "gate": "", "gate_file": "", "note": "The native path has no stdlib runtime: `import std.*` is refused by the driver. This is closure condition 2 of v1.2.0, carried to v1.3.0 as UNMET."},
+    {"construct": "networking (`std.net`)", "status": "not_supported", "gate": "TestNativeSocketBuiltinsRefused", "gate_file": "pkg/native/phase152a_safety_test.go", "note": "Closure condition 3 of v1.2.0, carried to v1.3.0 as UNMET."},
+    {"construct": "concurrency (spawn/actor/channel)", "status": "not_supported", "gate": "", "gate_file": "", "note": "The native path has no concurrency runtime."}
+  ],
+  "platforms": [
+    {
+      "target": "native-x86_64-windows",
+      "owner": "kcc",
+      "container": "PE32+",
+      "emission": "proven",
+      "execution": "proven on windows/amd64 -- the produced images are executed by the gates in this matrix and their stdout is compared as exact bytes",
+      "structural_validator": "pkg/native ParsePE (the Go oracle's own PE validator)"
+    },
+    {
+      "target": "native-x86_64-linux",
+      "owner": "kcc",
+      "container": "ELF64, non-PIE",
+      "emission": "proven",
+      "execution": "NOT proven on this host (windows/amd64, no WSL, no Docker). Byte identity against the Go oracle is proven; execution comes from the Linux CI leg.",
+      "structural_validator": "pkg/native Parse (the Go oracle's own ELF validator)"
+    },
+    {
+      "target": "native-x86_64-macos",
+      "owner": "kcc",
+      "container": "Mach-O 64-bit PIE with a rebase opcode stream",
+      "emission": "proven",
+      "execution": "NOT proven anywhere: this repository has no macOS runner (every CI job is ubuntu or windows) and no Intel-Mac host. Every Mach-O claim since increment 149 has been structural.",
+      "structural_validator": "pkg/native ParseMachO (the Go oracle's own Mach-O validator, including the rebase-stream decoder)"
+    }
+  ],
+  "independence_evidence": {
+    "claim": "The qualified native path does not invoke a C compiler, a C source generator, the Go compiler or the Go runtime.",
+    "how": "pkg/cli/phase151h_qualification_test.go installs PATH shims for `gcc` and `go` that log every invocation, warms the self-hosted compiler OUTSIDE the trace, and then builds a program natively with the shims on PATH. An empty log is the evidence.",
+    "gate": "TestPhaseNATQual_"
+  },
+  "known_limitations": [
+    "The self-hosted driver has no register allocator, so a function with five or more simultaneously-live int locals AND control flow is encoded differently from the Go oracle (which has the Phase-150C allocator). The difference is an encoding strategy, not a wrong answer; the boundary is pinned by TestPhaseNATIf_TheRegisterAllocatorBoundaryIsPinned.",
+    "The rodata cursor is threaded per statement list in the driver, so a STRING literal inside a branch is refused. An integer binding inside a branch is supported.",
+    "`while`, `for`, `for-in`, `break` and `continue` are not lowered.",
+    "A comparison is a CONDITION, not a value: `let c = (a < b)` is refused.",
+    "KIR is verified by the compiler on the default check path but is NOT the backend's input. The native driver consumes the AST directly. Wiring KIR into the backend is not done."
+  ]
+}

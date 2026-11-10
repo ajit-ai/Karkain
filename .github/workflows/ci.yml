@@ -370,6 +370,18 @@ jobs:
       - name: Run NAT-IF kcc native conditional-branch gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATIf_' -count=1 -timeout 30m -v
 
+      # NAT-QUAL, the v1.2.0 native-independence QUALIFICATION. It adds no
+      # language construct; it answers what the qualified native path supports
+      # and proves the claim of independence.
+      #
+      # The interesting layer is the third: PATH shims for `gcc` and `go` log
+      # every invocation, and a native build with those shims first on PATH
+      # must produce an EMPTY log -- while the LEGACY build path, run with the
+      # same shims, must produce a NON-empty one. The control is what makes the
+      # empty log evidence rather than a shim that silently never fired.
+      - name: Run NAT-QUAL native independence qualification gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATQual_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

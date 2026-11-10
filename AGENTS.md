@@ -2479,7 +2479,6 @@ go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1
 All tests must pass before committing.
 
 
-
 Also completed: **151B — the machine-code encoder in kcc** (increment 151,
 slice B; verdict **COMPLETE**). The "subtle slice" the 151 baseline calls out:
 the Go emitter's eager label resolution is what makes byte-identical images
@@ -3694,6 +3693,113 @@ execution rather than by assertion. KIR pin 13743 -> **13753**, measured twice,
 never predicted. Gates green: the whole 151/151A/151B/151C/151D/151P0/152/150/
 148 family (1067s); `KIRPinHolds` (827s); Phase 99 self-hosted parse +
 typecheck (993s); `pkg/native`; `go build ./...` and `go vet ./pkg/... ./cmd/...`.
+
+
+Also completed: **NAT-IF - a conditional branch in the kcc native driver**
+(increment 151, slice "NAT-IF", branch `feature/v1.2.0-native-independence`;
+verdict **COMPLETE** for the slice; record
+`docs/audit/NAT-IF-BASELINE.md`). The native driver could lower no BRANCH at
+all: `if` was refused by name (`error[K145]: native target: `if` statement is
+not lowered by the native driver`). This is the first construct whose emitted
+bytes depend on a **label** rather than only on a frame slot, so it needed a
+byte-identity evidence of its own. **What shipped** (`src/compiler/native_value.kark`):
+`natEmitIntCond` + `natNativeCondOp` (the oracle's six-operator jump mapping --
+the condition FALLS THROUGH when the comparison holds, so each operator jumps
+to the false label on the inverse test), `natNativeScanCond` /
+`natNativeScanIf` / `natNativeScanBranch`, a branch-descending
+`natNativePlanDecls`, and a recursive `natNativeLower` that descends into a
+branch body with a statement PATH so two branches cannot collide on a label
+name. **Scope, deliberately narrow:** `if`/`else`/`else if`/nested `if` over
+INTEGER comparisons; `while`, `for`, `for-in`, `break`, `continue`, string and
+float comparisons, and a comparison used as a VALUE are all still refused BY
+NAME. **Evidence:** 19 programs compiled through the driver, WRITTEN AND
+EXECUTED on this Windows host as kcc-produced PEs with **exact** stdout bytes
+(never trimmed -- the Step 9b defect was a missing byte), a Linux ELF
+**byte-identity differential** against the Go oracle (the expected bytes come
+from calling the oracle at test time; a golden would have frozen the
+divergence), a 6-row refusal table asserting the exit code AND that no image
+was written, determinism, non-vacuity, and the CI-wiring check. Gate
+`pkg/cli/phase151g_if_test.go` (`TestPhaseNATIf_`), CI step *Run NAT-IF kcc
+native conditional-branch gate*. **TWO THINGS I GOT WRONG, both caught by the
+byte-identity layer and NOT by the execution layer** (a refusal produces no
+output, so the execution layer was perfectly happy): (1) the first draft
+REFUSED a `let` inside a branch, believing the layout pass gave branch-scoped
+bindings no frame slot. It DOES: the oracle's `scanLets` descends into a
+branch (`pkg/native/program.go:4674-4676`) and allocates the slot at the point
+the `if` is reached, so the branch's binding is the MIDDLE slot of three. A
+corrective change to the ORACLE was written first, on the same wrong belief,
+and **reverted** -- the oracle was right all along. (2) three frozen refusal
+rows pinned "an `if` is not lowered"; they were **replaced** (by `for-in`), not
+deleted, because a refusal table that quietly shrinks stops being evidence for
+the property it exists to prove. **THE REGISTER-ALLOCATOR BOUNDARY, measured
+not derived:** the oracle's Phase-150C allocator engages when a function has
+control flow AND more than `raMinLive` (= 5) simultaneously-live int locals;
+the self-hosted driver has no allocator (every local stays in its frame slot,
+the pre-150C path, always correct). Measured: 4 locals + a branch -> 454 bytes
+both sides, IDENTICAL; 5 locals -> 469 vs 471, DIFFER; 6 -> 484 vs 486,
+DIFFER. The boundary is asserted from BOTH sides and the five-local case is in
+the execution corpus, so "different bytes" is backed by "same behaviour".
+**Mutations: 4**, each restored byte-identically (SHA-256
+`145489AEB6AEDA59FFC4C8DCF583C6051A033AAE60248F8D65E1955190286F09`): the `<`
+jump changed (execution + byte-identity + boundary layers fail), the plan's
+descent removed (execution + byte-identity + the branch-binding agreement
+fail), the comparison's operands swapped (execution fails on 13 cases -- a
+comparison that COMPILES and computes the WRONG answer, the worst outcome for a
+native backend), and the jump that crosses the `else` removed (execution fails
+on 4, byte-identity on 6). **KIR pin 14385 -> 14477 -> 14597**: the middle
+value is the `push()` slice, which moved the pin and did NOT re-pin it, which
+left `main` and `develop` with a RED GATE; that is a fact about this
+repository's history and is recorded rather than tidied. 14597 was measured
+with `karkain kir --verify src/compiler/kir.kark` in the gate's own invocation
+(`text=14597 verify=14597`, 1724 s) and never predicted. **Boundary, stated
+once:** no execution evidence exists for the Linux ELF or the Mach-O image of
+this slice -- this host is windows/amd64 with no WSL and no Docker, and the
+repository has no macOS runner. The Windows PE images are executed; the Linux
+and macOS images are validated structurally by the Go oracle's own parsers and
+compared byte for byte against the oracle.
+
+
+Also completed: **NAT-QUAL - the v1.2.0 native-independence qualification**
+(increment 151, slice "NAT-QUAL"; verdict **COMPLETE**; record
+`docs/audit/NAT-IF-QUALIFICATION.md`). Adds NO language construct; it answers
+what the qualified native path supports, how that is checked, and whether the
+claim of independence is real. (1) **A machine-verifiable feature matrix**
+(`docs/inventory/native-feature-matrix.json`): 32 feature rows with a status
+and the gate behind it, 3 platform rows, 5 known limitations. The gate reads
+it and asserts that every `supported` row names a gate FILE THAT EXISTS and a
+TEST PATTERN THAT FILE ACTUALLY CONTAINS -- a row naming a gate that does not
+exist would otherwise read exactly like a row naming a gate that does. It
+**found two defects in the matrix on its first run** (a status with no gate
+behind it, and a gate name no test carried); both were fixed in the MATRIX, not
+in the gate. (2) **A platform table that must match the code**, compared
+against `pkg/cli/kcc_native.go`'s own `kccNativeOwnedTargets`: Windows PE32+
+emission and **execution both proven** on this host; Linux ELF emission proven
+but **execution NOT proven here** (no WSL, no Docker -- the Linux CI leg is
+where it comes from); Mach-O emission proven and **execution not proven
+anywhere** (no macOS runner in this repository and no Intel-Mac host in its
+history -- every Mach-O claim since increment 149 has been structural).
+(3) **Process-level independence evidence**, which is the layer the previous
+state could not provide: the old claim rested on a provenance STRING the
+compiler prints about itself, which is the engine's own account of what it did
+rather than an observation of it. Now PATH shims for `gcc` and `go` log every
+invocation; the native build's log is **EMPTY**, and -- this is the part that
+makes the empty log evidence -- the **LEGACY** build path, run with the same
+shims, produces a **NON-EMPTY** log, because the legacy path is supposed to
+reach `gcc`. A shim that never fired would have satisfied the empty-log
+assertion too. The self-hosted compiler is warmed OUTSIDE the trace, because
+the claim is about compiling a USER PROGRAM, not about how the compiler was
+built. Gate `pkg/cli/phase151h_qualification_test.go` (`TestPhaseNATQual_`),
+CI step *Run NAT-QUAL native independence qualification gate*.
+**`docs/inventory/compiler-dependencies.json` REFRESHED** (phase 144,
+verified 2026-09-23 -> phase 151, verified 2026-11-10): it predated the entire
+native backend and had **no `native` component at all**, and its KIR statement
+("KIR text does not yet feed the backend") is now stated as the LIMITATION it
+is -- the native driver consumes the PARSED AST directly, so KIR is verified but
+is not the backend's input. **What this does NOT claim:** that the compiler is
+independent (the compiler's OWN build still uses `gcc`, and the bootstrap
+proof is still carried to v1.3.0 as UNMET), or that the native path is
+complete (the matrix lists what is refused, and the refusal table proves each
+is refused by name).
 
 
 Also completed: **B2 seed-closure discovery job + the v1.2.0 scope amendment**
