@@ -759,11 +759,25 @@ var natERefusals = []natERefusal{
 		want: "`for-in` statement is not lowered by the native driver in a called function",
 	},
 	{
-		name: "callee_while",
-		src: "func f(n int) int {\n    while n < 2 { n = n + 1 }\n    return n\n}\n" +
+		// A CORRECTIVE CHANGE against the frozen NAT-CALL baseline, recorded
+		// in docs/audit/NAT-LOOP-BASELINE.md section 8. This row used to pin
+		// "a `while` in a called function is refused", and NAT-LOOP taught the
+		// driver to lower loops, so the row stopped being a refusal and the
+		// gate failed with "kcc ACCEPTED a program it cannot lower (exit 0)".
+		// It was REPLACED rather than deleted, because this table's property
+		// is "a construct the driver cannot lower is refused BY NAME and
+		// writes no image", and a table that quietly shrinks stops being
+		// evidence for it.
+		//
+		// The replacement is the CALLEE subset's int-only rule: a callee may
+		// not bind a string, because the rodata cursor is threaded per
+		// statement list in this driver and a callee's literals are never
+		// interned.
+		name: "callee_string_binding",
+		src: "func f(n int) int {\n    let s = \"hi\"\n    return n\n}\n" +
 			"func main() { print(f(1)) }\n",
 		code: "error[K145]",
-		want: "`while` statement is not lowered by the native driver in a called function",
+		want: "is not an integer expression",
 	},
 	{
 		// main keeps its pre-NAT-CALL wording byte for byte, which is why the

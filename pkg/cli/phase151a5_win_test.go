@@ -880,6 +880,20 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// Measured with `karkain kir --verify src/compiler/kir.kark` in the gate's
 	// own invocation -- text=14597 verify=14597 -- and never predicted.
 	//
+	// 14792 (NAT-LOOP, the loop control flow): the driver gained `while`,
+	// the C-style `for`, `break` and `continue`, and with them the loop-context
+	// STACK -- the oracle's `b.loops`, which lives in kcc's single state
+	// array as emitter slot 17, a flat pair of label names per loop. It also
+	// gained the branch-aware slot allocation (the plan descends into a loop
+	// body and into a `for`'s init, in the oracle's ORDER), a plain-local
+	// assignment (the loop counter's form), and the arena refusal for the
+	// three run-time-allocating constructs inside a loop.
+	//
+	// The chain to here is measured, not predicted: 14597 (NAT-IF) -> 14792
+	// (this slice, +195). Measured with `karkain kir --verify
+	// src/compiler/kir.kark` in the gate's own invocation -- text=14792
+	// verify=14792 -- and never predicted.
+	//
 	// NOTE ON A STALE STRING this comment previously carried: the failure
 	// message said "want 13743" while the assertion beside it said 13755, because
 	// D4 updated the assertion and not the message. A message that names a
@@ -919,8 +933,8 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 // 13637 was measured twice on f08276b with kcc.exe DELETED between runs, so
 	// each count came from a fresh compile of the committed source rather than
 	// from a cached binary: text=13637 verify=13637.
-	if text != 14597 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 14597; see the comment above for the measured chain. output follows: %s", text, out)
+	if text != 14792 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 14792; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

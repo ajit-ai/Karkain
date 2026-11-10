@@ -382,6 +382,21 @@ jobs:
       - name: Run NAT-QUAL native independence qualification gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATQual_' -count=1 -timeout 30m -v
 
+      # NAT-LOOP, the loop control flow in the kcc native driver: `while`, the
+      # C-style `for`, `break` and `continue`, and their nesting.
+      #
+      # A loop is the first construct whose CORRECTNESS depends on a control
+      # structure rather than on a frame layout, so the evidence compares the
+      # native execution against the C BACKEND's execution of the same source
+      # -- byte for byte -- rather than only against a golden. The C backend is
+      # the reference implementation of these semantics and is not modified.
+      #
+      # It also carries the memory argument: the arena-using constructs are
+      # refused inside a loop, because the arena is sized at compile time on the
+      # assumption that each allocation site runs at most once.
+      - name: Run NAT-LOOP kcc native loop-control-flow gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATLoop_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

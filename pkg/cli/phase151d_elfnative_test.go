@@ -333,7 +333,16 @@ func TestPhase151D_LinuxRefusesUnsupportedPrograms(t *testing.T) {
 		src  string
 	}{
 		{"no_main", "func helper() {\n    print(1)\n}\n"},
-		{"unsupported_loop", "func main() {\n    let i = 0\n    while i < 3 {\n        print(i)\n        i = i + 1\n    }\n}\n"},
+		{"unsupported_loop", "func main() {\n    let i = 0\n    for (let i = 0; i; i = i + 1) {\n        print(i)\n    }\n}\n"},
+		// A FOURTH corrective change against this frozen table, recorded in
+		// docs/audit/NAT-LOOP-BASELINE.md section 8: the row that pinned
+		// "a `while` is not lowered" stopped being a refusal when NAT-LOOP
+		// taught the driver to lower loops, and it was replaced by a loop
+		// that is STILL refused -- a C-style `for` whose condition is not a
+		// comparison, which the oracle's emitCond refuses too. The table's
+		// property is "a program the driver cannot lower is refused BY NAME
+		// and writes no image", and a table that quietly shrinks stops
+		// being evidence.
 		// A THIRD corrective change against this frozen table, recorded in
 		// docs/audit/NAT-IF-BASELINE.md section 8: a row that pinned "an `if`
 		// is not lowered" stopped being a refusal when NAT-IF taught the

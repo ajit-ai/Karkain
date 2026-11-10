@@ -98,12 +98,23 @@ var nat9cCases = []nat9cCase{
 		wantOut: []byte{}, wantExit: 3,
 	},
 	{
-		// A kcc-SIDE NARROWING, recorded as one rather than presented as a language
-		// limit: the Go oracle DOES lower `while` with a comparison condition and
-		// emits an image for this program. kcc refuses it, so this case pins kcc's
-		// own current boundary. Closing it is NAT-CTRL work, not this slice's.
-		name:     "refuse_while",
-		src:      "func main() {\n    while 1 < 2 {\n        print(9)\n    }\n}\n",
+		// A CORRECTIVE CHANGE against the frozen Step 9c baseline, recorded
+		// in docs/audit/NAT-LOOP-BASELINE.md section 8.
+		//
+		// This row used to be a kcc-SIDE NARROWING: the Go oracle lowered
+		// `while` with a comparison condition and emitted an image for this
+		// program, while kcc refused it. NAT-LOOP closed that narrowing --
+		// the driver now lowers loops -- so the row stopped being a refusal
+		// and the gate failed with "expected a error[K145] refusal for this
+		// program". It was REPLACED rather than deleted, because the table's
+		// property is "a construct the driver cannot lower is refused", and
+		// a table that quietly shrinks stops being evidence for it.
+		//
+		// The replacement is `for ... in`, which is still outside the
+		// subset: it has its own iterator lowering, which no increment has
+		// ported.
+		name:     "refuse_for_in",
+		src:      "func main() {\n    for x in [1, 2] {\n        print(x)\n    }\n}\n",
 		wantExit: 0, refuse: "error[K145]",
 	},
 	{
@@ -396,7 +407,12 @@ func TestPhase151A9C_NoGoFallback(t *testing.T) {
 
 	// The refusal text is asserted above in the corpus test; this asserts the
 	// claim in a place that cannot be skipped by a filtered subtest.
-	out := nat9cBuild(t, "func main() {\n    while 1 < 2 {\n        print(9)\n    }\n}\n")
+	//
+	// The program is a `for ... in` loop: it used to be a `while` loop, and
+	// NAT-LOOP taught the driver to lower loops, so the program stopped being
+	// refused. The replacement is still refused, which is what this assertion
+	// is about. Recorded in docs/audit/NAT-LOOP-BASELINE.md section 8.
+	out := nat9cBuild(t, "func main() {\n    for x in [1, 2] {\n        print(x)\n    }\n}\n")
 	if !strings.Contains(out, "not handed to the Go engine") {
 		t.Errorf("the driver's refusal does not state that the construct is refused "+
 			"rather than handed to the Go engine: %.300s", out)

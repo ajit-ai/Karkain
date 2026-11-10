@@ -3802,6 +3802,96 @@ complete (the matrix lists what is refused, and the refusal table proves each
 is refused by name).
 
 
+Also completed: **NAT-LOOP - loops in the kcc native driver**
+(increment 151, slice "NAT-LOOP", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-LOOP-BASELINE.md`). The driver could lower no loop at
+all: `while` was refused by name. A loop is the first construct whose
+**correctness** depends on a control-flow structure rather than on a frame
+layout, and the first whose **memory behaviour** depends on an argument about
+how many times a site runs, so it has more to prove than NAT-IF did. **The
+semantics are the Go oracle's, not invented** (`pkg/native/program.go`): the
+condition is evaluated before every iteration; the C-style `for`'s init runs
+ONCE, before the loop; its post runs after every iteration **including after a
+`continue`**; and `break`/`continue` act on the **nearest** enclosing loop.
+The one asymmetry that matters is that a `continue` in a `while` jumps to the
+loop HEAD (so the condition is evaluated again) while a `continue` in a `for`
+jumps to the POST label (so the update clause runs first) -- the oracle's
+choice (`program.go:5266`), and the difference a differential test exists to
+catch. **What shipped** (`src/compiler/native_value.kark` +
+`src/compiler/native_emit.kark`): the loop-context STACK (the oracle's
+`b.loops`, kept on the builder; kcc has one object where the oracle has two,
+so the stack is emitter slot 17, a flat pair of label names per loop), the
+`while` and C-style `for` lowerings in the oracle's exact emission order, the
+`break`/`continue` arms that read their target from the stack, a plain-local
+assignment (`x = <int expr>`, the loop counter's form), the branch-descending
+plan (`natNativePlanDecls` now descends into a loop body and into a `for`'s
+init, in the oracle's ORDER, because a slot allocated in a different order
+moves every frame displacement after it), and a generalised statement scanner
+with a loop-depth and an in-body flag. **THE MEMORY ARGUMENT, and it is the
+reason a loop can be lowered at all:** the heap arena is sized at compile time
+on the assumption that each allocation site runs at most once, and a loop
+breaks that assumption, so the three arena-using constructs -- a string
+concatenation, a `push()`, a map insertion -- are refused INSIDE a loop with
+the ORACLE'S OWN THREE MESSAGES (`program.go:6629`, `:5487`, `:4136`), and
+the detection walks nested branches and nested loops because a concatenation
+inside an `if` inside a loop is still one. **What is NOT done, deliberately:**
+no iteration-scoped arena checkpoint (it would need a proof that no live
+reference escapes an iteration, and in this value model an array's element
+area is reachable through the array's header, so the honest answer is to
+refuse the construct), no fixed iteration limit (that would turn an unbounded
+allocation into a wrong answer instead of a diagnostic), and no larger arena
+(nothing inside a loop allocates). Every value a loop touches is a static
+frame slot or a static section, so the compile-time arena bound keeps its
+meaning. **The register-allocation boundary is NOT concealed:** the oracle's
+Phase-150C allocator engages under control flow and pressure, so four locals
+and a loop stay byte-identical and five do not; the self-hosted driver has no
+allocator (every local is a frame slot, the pre-150C path, always correct),
+and the five-local case is in the execution corpus so "different bytes" is
+backed by "same behaviour". **Evidence** (`pkg/cli/phase151i_loop_test.go`,
+`TestPhaseNATLoop_`, 7 layers): 21 programs compiled by the self-hosted
+engine, WRITTEN AND EXECUTED on this host as kcc-produced PEs with exact
+stdout bytes; a **DIFFERENTIAL AGAINST THE C BACKEND** -- the same source
+compiled the old way and run, compared byte for byte -- which is the layer
+that proves the SEMANTICS rather than the bytes; a Linux ELF byte-identity
+differential against the Go oracle; an 8-row refusal table (exit code, the
+construct named, NO image); the allocator boundary from both sides;
+determinism, non-vacuity, the CI-wiring check, and the same PATH-shim
+independence evidence as NAT-QUAL with the legacy path as the positive
+control. **FOUR THINGS THE GATE FOUND, none of them by inspection:**
+(1) the first corpus case was a `while` whose body never advanced its counter,
+so it was an INFINITE LOOP and it HUNG the gate -- the shared `nat9dRun`
+helper has no timeout, so the loop gate now runs its programs under a
+20-second timeout of its own, because a hang is a worse failure than a red
+test; (2) two of my HAND-COMPUTED goldens were wrong and the COMPILER was
+right (`break_from_inner_loop` and `continue_in_inner_loop` expect
+`0,1,0,0,1,1` and `0,2,0,0,2,1` -- the outer counter is 1 on its second
+iteration and the inner loop skips 1 because of the `continue`); (3) **a call
+expression in a C-style `for`'s post is mis-parsed by BOTH engines** -- the Go
+parser reports "unexpected token ')'" and the self-hosted parser silently
+produces a Block node, which the driver refuses loudly with "statement kind 10
+is not lowered"; that is a PARSER defect in both engines, it predates this
+slice, and it belongs to a parser increment; (4) **the two engines disagree
+about a `for` init's SCOPE** -- the Go borrow checker scopes it to the loop
+("use of value 'i' after its scope has ended") while the self-hosted checker
+scopes it to the function, so a program that reads the counter after the loop
+is REFUSED by the C path and ACCEPTED by the native path. The differential
+also normalises the C path's CRLF (its stdout is in Windows text mode) while
+layer 1 still pins the native path's EXACT bytes against a golden with no
+normalisation at all. **Still refused, by name:** a non-comparison condition, a string or
+float comparison, a string binding inside a loop body, an ARRAY INDEX inside a
+loop body or condition (the index path carries the runtime-error reporter's
+rodata offsets and the shared expression walker does not -- the most-felt
+limitation of the qualified subset), a `for` post that is not an assignment,
+and the three arena constructs. **KIR pin 14597 -> 14792** (+195), measured
+with `karkain kir --verify src/compiler/kir.kark` in the gate's own
+invocation (`text=14792 verify=14792`) and never predicted. The language
+checker's K108 gets to `break`
+and `continue` outside a loop first, so the driver's own refusal of those is
+the second line of defence and is unreachable through this pipeline -- recorded
+rather than pretended otherwise.
+
+
 Also completed: **B2 seed-closure discovery job + the v1.2.0 scope amendment**
 (verdict **COMPLETE** as a change; **B2 itself remains OPEN and unproven** --
 the job is DISCOVERY, not a release gate). Two things landed. (1) A new

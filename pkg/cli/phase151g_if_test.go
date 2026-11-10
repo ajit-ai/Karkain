@@ -242,11 +242,20 @@ var natIfRefusals = []struct {
 		want: "is not an integer expression",
 	},
 	{
-		// A loop is still out of scope. It is listed so the table states the
-		// boundary rather than leaving it to be discovered.
-		name: "while_still_refused",
-		src:  "func main() {\n    let x = 5\n    while x < 30 {\n        x = x + 1\n    }\n}\n",
-		want: "is not lowered by the native driver",
+		// A CORRECTIVE CHANGE against the frozen NAT-IF baseline, recorded
+		// in docs/audit/NAT-LOOP-BASELINE.md section 8. This row used to pin
+		// "a `while` is not lowered", and NAT-LOOP taught the driver to lower
+		// loops, so the row stopped being a refusal and the gate failed with
+		// "kcc ACCEPTED a program it cannot lower (exit 0)". It was REPLACED
+		// rather than deleted: this table's property is "a construct the
+		// driver cannot lower is refused BY NAME and writes no image", and a
+		// table that quietly shrinks stops being evidence for it.
+		//
+		// The replacement is the loop condition's own rule: a condition must
+		// be a COMPARISON, which the oracle's emitCond requires.
+		name: "loop_non_comparison_condition",
+		src:  "func main() {\n    let x = 5\n    while x {\n        x = x + 1\n    }\n}\n",
+		want: "condition must be a comparison",
 	},
 	{
 		// Division is still out of scope, and it is refused in the CONDITION
