@@ -232,17 +232,21 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// This pin is shared with TestPhase151A5_KIRPinHolds, which carries the
 		// fuller accounting.
 		//
-		// RE-PINNED FOR NAT-CALL: 14050 -> 14385 (+335). The driver gained
-		// per-function analysis and lowering (natNativeSubset/natNativeScanFor/
-		// natNativeScanIntExpr/natNativeScanCall/natNativeMaxExtras), a fourth
-		// plan slot carrying the binding name, and the emission split
-		// (natEmitIntExpr/natEmitIntCall/natNativeHomeParams/natNativeEmitFunc/
-		// natNativeLower) that lets a real user function be called from `main`.
+		// RE-PINNED FOR NAT-IF: 14385 -> 14597 (+212 across two slices). The
+		// intermediate 14477 is the push() slice, which moved the pin and did
+		// NOT re-pin it, leaving the tree with a red gate; the fact is
+		// recorded rather than tidied. NAT-IF added the condition lowering
+		// (natEmitIntCond/natNativeCondOp), the branch scan
+		// (natNativeScanCond/natNativeScanIf/natNativeScanBranch), the
+		// branch-aware slot allocation (natNativePlanDecls descends into a
+		// branch, as the oracle's scanLets does), and the recursive lowering
+		// (natNativeLower descends into a branch body with a statement PATH).
+		//
 		// Measured with `karkain kir --verify src/compiler/kir.kark` in this
-		// gate's own invocation -- text=14385 verify=14385 -- and never
+		// gate's own invocation -- text=14597 verify=14597 -- and never
 		// predicted.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 14385 {
-			t.Errorf("whole-tree kir text = %d lines, want 14385:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 14597 {
+			t.Errorf("whole-tree kir text = %d lines, want 14597:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

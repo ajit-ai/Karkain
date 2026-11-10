@@ -861,6 +861,25 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// `karkain kir --verify src/compiler/kir.kark` in the gate's own
 	// invocation -- text=14385 verify=14385 -- and never predicted.
 	//
+	// 14597 (NAT-IF, the conditional branch): the native driver gained a
+	// BRANCH, which is the first construct whose emitted bytes depend on a
+	// label rather than only on a frame slot. The driver gained the
+	// condition lowering (natEmitIntCond and natNativeCondOp), the branch
+	// scan (natNativeScanCond/natNativeScanIf/natNativeScanBranch), the
+	// branch-aware slot allocation (natNativePlanDecls descends into a
+	// branch, as the oracle's scanLets does), and the recursive lowering
+	// (natNativeLower descends into a branch body with a statement PATH so
+	// two branches cannot collide on a label name).
+	//
+	// The chain to here is measured, not predicted: 14385 (NAT-CALL) -> 14477
+	// (the push() slice, +92) -> 14597 (this slice, +120). The intermediate
+	// 14477 is recorded because the push() slice moved the pin and DID NOT
+	// re-pin it, which left the tree with a red gate; that is a fact about
+	// this repository's history and not something to tidy away.
+	//
+	// Measured with `karkain kir --verify src/compiler/kir.kark` in the gate's
+	// own invocation -- text=14597 verify=14597 -- and never predicted.
+	//
 	// NOTE ON A STALE STRING this comment previously carried: the failure
 	// message said "want 13743" while the assertion beside it said 13755, because
 	// D4 updated the assertion and not the message. A message that names a
@@ -900,8 +919,8 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 // 13637 was measured twice on f08276b with kcc.exe DELETED between runs, so
 	// each count came from a fresh compile of the committed source rather than
 	// from a cached binary: text=13637 verify=13637.
-	if text != 14385 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 14385; see the comment above for the measured chain. output follows: %s", text, out)
+	if text != 14597 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 14597; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

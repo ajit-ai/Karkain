@@ -354,6 +354,22 @@ jobs:
       - name: Run NAT-CALL kcc native user-call gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATCall_' -count=1 -timeout 30m -v
 
+      # NAT-IF, the conditional branch in the kcc native driver: `if cond { }`
+      # and `if cond { } else { }` over INTEGER comparisons.
+      #
+      # It is the first BRANCH in the native path, so it is the first construct
+      # whose emitted bytes depend on a label rather than only on a frame slot.
+      # The evidence is therefore the same shape as NAT-CALL's: EXECUTED PE
+      # goldens on this Windows runner (exact stdout bytes, never trimmed), a
+      # Linux ELF byte-identity DIFFERENTIAL against the Go oracle, and a
+      # refusal table that names every construct the slice declines.
+      #
+      # Its own pattern again: 'TestPhaseNATIf_' is matched by no other step, so
+      # a branch regression cannot hide behind a green neighbour, and the gate
+      # asserts THIS step exists.
+      - name: Run NAT-IF kcc native conditional-branch gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATIf_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

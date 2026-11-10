@@ -3890,6 +3890,28 @@ func natNativePlanFor(params, stmts, tbl) {
   // reserved ZERO bytes: measured, `Point{x,y}` + `let n = 5` printed 5/4/5
   // (n aliased p.x) and every record frame was 624 regardless of field area.
   // The table must be the one natNativeProgram built from the program statements.
+  let r = natNativePlanDecls(plan, stmts, tbl, next)
+  return r[0]
+  }
+
+  // natNativePlanDecls allocates a slot for every binding a statement list
+  // declares, and returns the plan and the next free offset.
+  //
+  // NAT-IF: it DESCENDS into an `if`'s branches, because the oracle's layout
+  // pass does (program.go:4674-4676: `case *parser.IfStmt: scanLets(n.Consequence);
+  // scanLets(n.Alternative)`). The order matters as much as the fact: the
+  // oracle's walk allocates the branch's slot at the point the `if` is reached,
+  // so a program with `let a` before the `if` and `let c` after it gives the
+  // branch's binding the MIDDLE slot. A plan that did not descend would give
+  // the branch's binding the LAST slot, and every frame displacement after it
+  // would move.
+  //
+  // An earlier draft of this slice REFUSED a binding inside a branch, on the
+  // belief that the layout pass walked only the top level. That belief was
+  // wrong, and the gate that caught it was the byte-identity differential: the
+  // oracle produced an image for such a program and the self-hosted driver
+  // refused it. The refusal is withdrawn and the driver matches the oracle.
+  func natNativePlanDecls(plan, stmts, tbl, next) {
   let i = 0
   while (i < len(stmts)) {
   let n = stmts[i]
@@ -3925,9 +3947,17 @@ func natNativePlanFor(params, stmts, tbl) {
   if (k == natKindArray()) { next = next + 8 * ne }
   if (k == natKindStruct()) { next = next + 8 * ne }
   }
+  if (nodeType(n) == NODE_IF()) {
+  let rc = natNativePlanDecls(plan, ifCons(n), tbl, next)
+  plan = rc[0]
+  next = rc[1]
+  let ra = natNativePlanDecls(plan, ifAlt(n), tbl, next)
+  plan = ra[0]
+  next = ra[1]
+  }
   i = i + 1
   }
-  return plan
+  return [plan, next]
   }
 
 func natNativePlanCount(plan) { return len(plan) / 4 }
@@ -4126,6 +4156,12 @@ if (k == NODE_PRINT()) {
   }
   }
   } else {
+  if (k == NODE_IF()) {
+  // NAT-IF: a conditional branch. The condition is an integer comparison; the
+  // branch bodies are int-only. natNativeScanIf says why.
+  let bad = natNativeScanIf(n, plan, tbl, fns, isMain, stmts)
+  if (bad != "") { return [bad, plan, hasReturn] }
+  } else {
   if (natNativeIsAssignExpr(n)) {
   // 9h-2a: a BARE `=` BinaryExpr statement is the shape a `for` post arrives in --
   // program.go:5280 wraps it into an ExprStmt only when walking. Refused by name, so
@@ -4137,6 +4173,7 @@ if (k == NODE_PRINT()) {
   return [natNativeRefuseNoLine(natNativeStmtKindName(k) +
   " is not lowered by the native driver" + natNativeWhere(isMain)),
   plan, hasReturn]
+  }
   }
   }
             }
@@ -4373,6 +4410,139 @@ func natNativeArgKindName(e, plan) {
             let k = natNativeSlotKind(plan, ord)
             if (k != natKindInt()) { return natKindName(k) }
         }
+    }
+    return ""
+}
+
+// natNativeCondOp maps a comparison operator to the oracle's condition opcode.
+//
+// The mapping is the oracle's emitCond switch (program.go:5121-5134) read as the
+// JUMP it emits: the condition FALLS THROUGH when the comparison HOLDS, so each
+// operator jumps to the false label on the INVERSE test.
+//
+//	==  jumps on Jnz (not equal)   !=  jumps on Jz  (equal)
+//	<   jumps on Jge               <=  jumps on Jg
+//	>   jumps on Jle               >=  jumps on Jl
+//
+// The same six codes appear in the Step 3 reference corpus (natIntCond), which
+// is where this mapping was first pinned against the oracle's bytes.
+func natNativeCondOp(op) {
+    if (op == "==") { return 0 }
+    if (op == "!=") { return 1 }
+    if (op == "<") { return 2 }
+    if (op == "<=") { return 3 }
+    if (op == ">") { return 4 }
+    if (op == ">=") { return 5 }
+    return -1
+}
+
+// natNativeScanCond validates the CONDITION of an `if`.
+//
+// The condition must be an integer comparison. The wording is the ORACLE's own
+// (program.go:5074/5079), because the two engines must say the same thing about
+// the same program: the C path and the native path already share that sentence,
+// and a third wording would make the native refusal look like a different rule.
+//
+// A comparison is a CONDITION, not a value: the oracle's emitExpr refuses any
+// operator other than + - *, so `let c = (a < b)` is not an expression in this
+// language on this target, and the condition scan is the only place a comparison
+// is accepted.
+func natNativeScanCond(cond, plan, line, fns) {
+    if (nodeType(cond) != NODE_BINARY()) {
+        return natNativeRefuse("condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats", line)
+    }
+    if (natNativeCondOp(binaryOp(cond)) < 0) {
+        return natNativeRefuse("condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats, found '" +
+            binaryOp(cond) + "'", line)
+    }
+    // The oracle evaluates the operands at depth 1 (program.go:5135/5140), so a
+    // nested binary operand stages at the same offsets.
+    let bad = natNativeScanIntExpr(binaryLeft(cond), plan, line, fns, 1)
+    if (bad != "") { return bad }
+    return natNativeScanIntExpr(binaryRight(cond), plan, line, fns, 1)
+}
+
+// natNativeScanIf validates one `if` statement: its condition and both branch
+// bodies.
+//
+// `fnStmts` is the FUNCTION's statement list, not the branch's. The branch's
+// own list is what is being validated; the function's list is what the
+// record-type lookup needs, because a record bound at the top level is still
+// that record when a field inside a branch is assigned.
+func natNativeScanIf(n, plan, tbl, fns, isMain, fnStmts) {
+    let bad = natNativeScanCond(ifCond(n), plan, ifLine(n), fns)
+    if (bad != "") { return bad }
+    bad = natNativeScanBranch(ifCons(n), plan, tbl, fns, isMain, fnStmts)
+    if (bad != "") { return bad }
+    return natNativeScanBranch(ifAlt(n), plan, tbl, fns, isMain, fnStmts)
+}
+
+// natNativeScanBranch validates the body of an `if` branch.
+//
+// The branch body is INT-ONLY. One restriction, and it is a property of this
+// driver rather than of the language:
+//
+//   A string literal in a branch would need the rodata cursor, which this
+//   driver threads per STATEMENT LIST rather than per program. The program's
+//   literal collector does see it, so allowing it would intern a literal that
+//   nothing references and shift every later rodata offset. A branch may
+//   therefore bind an INTEGER (which is what the oracle's slot allocation
+//   gives it) but not a string.
+//
+// A binding inside a branch IS allowed, and it gets a real frame slot: the
+// oracle's layout pass descends into a branch (program.go:4674-4676) and
+// allocates the slot at the point the `if` is reached, so natNativePlanDecls
+// does the same. An earlier draft of this slice refused such a binding on the
+// belief that no slot existed; the byte-identity differential proved the
+// belief wrong, and the refusal was withdrawn.
+func natNativeScanBranch(stmts, plan, tbl, fns, isMain, fnStmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        let k = nodeType(n)
+        if (natNativeIsDecl(n)) {
+            // The binding's VALUE must be an integer: a string literal in a
+            // branch would need the rodata cursor (see the note above), and
+            // the driver refuses it by name rather than interning a literal
+            // whose offset it could not keep.
+            let bad = natNativeScanIntExpr(natNativeDeclValue(n), plan, natNativeDeclLine(n), fns, 0)
+            if (bad != "") { return bad }
+        } else {
+        if (k == NODE_PRINT()) {
+            let bad = natNativeScanIntExpr(printVal(n), plan, printLine(n), fns, 0)
+            if (bad != "") { return bad }
+        } else {
+        if (k == NODE_RETURN()) {
+            let bad = natNativeScanIntExpr(retVal(n), plan, retLine(n), fns, 0)
+            if (bad != "") { return bad }
+        } else {
+        if (k == NODE_EXPR_STMT()) {
+            let e = exprStmtExpr(n)
+            if (natNativeIsAssignExpr(e)) {
+                let bad = natNativeScanAssign(tbl, fnStmts, plan, exprStmtLine(n), binaryLeft(e), binaryRight(e))
+                if (bad != "") { return bad }
+            } else {
+            if (nodeType(e) == NODE_CALL()) {
+                let bad = natNativeScanCall(e, plan, exprStmtLine(n), fns)
+                if (bad != "") { return bad }
+            } else {
+            return natNativeRefuseNoLine("`" + getNodeType(e) + "` inside an `if` branch is not " +
+                "lowered by the native driver")
+            }
+            }
+        } else {
+        if (k == NODE_IF()) {
+            let bad = natNativeScanIf(n, plan, tbl, fns, isMain, fnStmts)
+            if (bad != "") { return bad }
+        } else {
+        return natNativeRefuseNoLine(natNativeStmtKindName(k) + " inside an `if` branch is not " +
+            "lowered by the native driver")
+        }
+        }
+        }
+        }
+        }
+        i = i + 1
     }
     return ""
 }
@@ -5360,6 +5530,43 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
     return natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth)
 }
 
+// natEmitIntCond lowers an integer comparison and jumps to falseLabel when the
+// comparison does NOT hold.
+//
+// It is the oracle's emitCond int path (program.go:5135-5146) instruction for
+// instruction:
+//
+//	evaluate the LEFT operand into RAX
+//	spill it to the scratch slot
+//	evaluate the RIGHT operand into RAX, move it to RCX
+//	reload the LEFT operand into RAX
+//	CmpRegReg(RAX, RCX)
+//	jump to falseLabel on the INVERSE of the comparison
+//
+// The scratch slot is the region's START (depth 0), not the depth-1 slot the
+// operands themselves use, which is why a condition and a depth-0 body
+// expression share one slot. The operands are evaluated at depth 1, exactly as
+// the oracle does, so a nested binary operand stages at the same offsets.
+//
+// The jump opcode per operator is natNativeCondOp's mapping, and it is the
+// oracle's: the condition FALLS THROUGH when the comparison holds.
+func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel) {
+    let op = natNativeCondOp(binaryOp(cond))
+    s = natEmitIntExpr(s, binaryLeft(cond), plan, fns, binTemp, extrasBase, frame, 1)
+    s = natStoreStack(s, natRegRAX(), binTemp)
+    s = natEmitIntExpr(s, binaryRight(cond), plan, fns, binTemp, extrasBase, frame, 1)
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natLoadStack(s, natRegRAX(), binTemp)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    if (op == 0) { return natJnz(s, falseLabel) }
+    if (op == 1) { return natJz(s, falseLabel) }
+    if (op == 2) { return natJge(s, falseLabel) }
+    if (op == 3) { return natJg(s, falseLabel) }
+    if (op == 4) { return natJle(s, falseLabel) }
+    if (op == 5) { return natJl(s, falseLabel) }
+    return s
+}
+
 // natEmitIntCall lowers a call to a USER function and leaves the result in RAX.
 //
 // The convention is Phase 148's, reproduced rather than simplified, because a
@@ -5466,7 +5673,7 @@ func natNativeHomeParams(s, params, plan) {
 //
 // The statement ORDINAL doubles as the label tag for `a[i]`, so no counter can fall
 // out of step with the statement list.
-func natNativeLower(s, stmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel) {
+func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, listPath) {
     // The scratch regions come from the CALLER's layout, because the caller is the
     // function being lowered. Reading them here instead of threading three more
     // arguments keeps ONE source of truth: natFrameLayout is the only place a frame
@@ -5670,7 +5877,7 @@ stmts, plan, roffs, tbl)
 } else {
 if (nodeType(pv) == NODE_DOT()) {
 let drec = identName(dotLeft(pv))
-let dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(stmts, drec), memberField(pv))
+let dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(fnStmts, drec), memberField(pv))
 if (dkn == natKindString()) {
 s = natEmitStrValue(s, pv, stmts, plan, roffs, tbl)
 s = natCallPrintStr(s)
@@ -5723,7 +5930,7 @@ identName(callArgs(pv)[0]))
         if (k == NODE_EXPR_STMT()) {
         let ae = exprStmtExpr(n)
         if (natNativeIsAssignExpr(ae)) {
-        let rr = natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx,
+        let rr = natNativeLowerAssign(s, fnStmts, plan, tbl, roffs, sidx,
         binaryLeft(ae), binaryRight(ae))
         s = rr[0]
         sidx = rr[1]
@@ -5779,6 +5986,41 @@ identName(callArgs(pv)[0]))
             // with no jump at all came out the other end.
             s = natJmp(s, retLabel)
         }
+        else {
+        if (k == NODE_IF()) {
+        // NAT-IF: the conditional branch, in the oracle's emitIf order
+        // (program.go:5215-5231): the condition jumps to the ELSE label, the
+        // consequence runs, an unconditional jump crosses to the END label, the
+        // alternative runs, and the END label closes both.
+        //
+        // The oracle allocates the ELSE label FIRST and the END label second
+        // (program.go:5216-5217), and an `if` with NO else still emits both --
+        // the alternative is an empty statement list, so the two labels can
+        // land on the same offset. That is reproduced rather than tidied.
+        //
+        // The label NAMES are kcc's own. The oracle's fresh() counter produces
+        // different names for the same construct, and names do not reach the
+        // bytes: a rel32 encodes a DISPLACEMENT, so only the ORDER and the
+        // NUMBER of the emitted instructions can differ. What has to match is
+        // the instruction sequence, and that is what this reproduces.
+        //
+        // The tag and the path make the names unique across the whole image.
+        // The tag is the FUNCTION's label, because two functions may each have
+        // an `if` at the same statement ordinal; the path is the statement's
+        // position in the enclosing list, so a nested `if` cannot collide with
+        // its parent. (The push() labels have the same hazard and are safe only
+        // because a push is a `let`, which a branch cannot contain.)
+        let sp = listPath + "." + str(i)
+        let elseLabel = "nat$ifelse$" + tag + "$" + sp
+        let endLabel = "nat$ifend$" + tag + "$" + sp
+        s = natEmitIntCond(s, ifCond(n), plan, fns, binTemp, extrasBase, frame, elseLabel)
+        s = natNativeLower(s, ifCons(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
+        s = natJmp(s, endLabel)
+        s = natMark(s, elseLabel)
+        s = natNativeLower(s, ifAlt(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp + "e")
+        s = natMark(s, endLabel)
+        }
+        }
         }
         i = i + 1
     }
@@ -5814,7 +6056,7 @@ func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, 
     s = natMark(s, label)
     if (frame > 0) { s = natSubRegImm32(s, natRegRSP(), frame) }
     s = natNativeHomeParams(s, params, plan)
-    s = natNativeLower(s, body, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel)
+    s = natNativeLower(s, body, body, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, label, "")
     if (hasReturn == 0) { s = natXorRegReg(s, natRegRAX()) }
     s = natMark(s, retLabel)
     if (frame > 0) { s = natAddRegImm32(s, natRegRSP(), frame) }
