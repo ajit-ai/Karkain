@@ -3892,6 +3892,83 @@ the second line of defence and is unreachable through this pipeline -- recorded
 rather than pretended otherwise.
 
 
+Also completed: **NAT-IDX - array indexing inside the kcc native driver**
+(increment 151, slice "NAT-IDX", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-IDX-BASELINE.md`). NAT-LOOP recorded the limitation in
+one sentence -- "the index path carries the runtime-error reporter's rodata
+offsets, and the shared integer expression walker does not carry them" -- and
+tracing the implementation showed that sentence covered THREE defects, not one.
+**(1) THE INDEX WAS A LITERAL-ONLY SPECIAL CASE.** `natArrayIndex` took the
+index node and did `int(intLitVal(idx))`, materialising a literal straight
+into RCX; the SCANNER refused a variable or arithmetic index first. The
+ORACLE has never required a literal: it evaluates the index as an EXPRESSION
+through the shared walker and moves the result into RCX
+(`pkg/native/program.go:6320-6324`). So the kcc index path was a literal-only
+reimplementation of a sequence the oracle computes generically, and that is the
+whole of the limitation. **(2) THE REPORTER'S CONTEXT REACHED TWO POSITIONS AND
+NO OTHERS** -- the print and return paths, the only two places an index could be
+lowered. It now travels through the walker as ONE bundled argument (`rctx`),
+explicitly (two functions in one image have different basenames, so a global
+would have to be saved and restored around every call) and without duplicating
+the walker. **(3) THE REPORTER'S PREDICATE COULD NOT SEE AN INDEX IN A
+CONDITION** -- and the consequence was not a missing diagnostic but a CRASH IN
+THE PE LINKER: the bounds check's failure block CALLS
+`karkain_runtime_error`, so with no reporter emitted the image held a call into
+a label that was never marked, and the linker applied a patch against a text
+laid out without it ("runtime error: array index out of range at
+main.kark:11397 ... natPEStore64"). The stack names the LINKER, with nothing
+connecting it to an index, which is why the predicate -- not the index path --
+was the third defect. The predicate is now a real walk: branches, loops,
+conditions, initialisers, post clauses, declarations, and nested expressions.
+**The two index validators were also consolidated** onto the shared one, which
+had drifted: the old one said "is indexed but is not an array" while the
+oracle says "index target must be an array (got %s '%s')". **Evidence**
+(`pkg/cli/phase151j_array_index_test.go`, `TestPhaseNATIdx_`, 8 layers): 16
+programs compiled by the self-hosted engine, WRITTEN AND EXECUTED on this host
+as kcc-produced PEs with exact stdout bytes -- the first element, the last, a
+VARIABLE index, an ARITHMETIC index, iteration in a `while`, iteration in a
+C-style `for`, an element in an arithmetic expression, an element in a
+COMPARISON, an index in a branch inside a loop, two arrays in one loop, an
+index with a `continue`, an index with a `break`, an element passed to a
+function, a NESTED index, and `len()`; a BEHAVIOURAL differential against the
+C backend (byte for byte); 5 BOUNDS cases -- index == length, index > length,
+out of range inside a loop (the three valid elements print, then the error), a
+NEGATIVE index, and an EMPTY array -- each a runtime error with a non-zero
+exit and NO value printed; 3 refusals by name with no image; the image SIZES
+agreeing with the oracle's; determinism; non-vacuity; and the PATH-shim
+independence evidence with the legacy path as the positive control. **The
+FRAME DELTA is the one thing left between the array path and byte identity
+with the oracle** -- the images are now the same SIZE and differ only in the
+frame's size immediate, because the driver rounds the locals region up to the
+next 16 and the oracle up to the next 16 STRICTLY greater. That is the
+measured parity delta Phase 151A Step 9d recorded, it is not an indexing
+question, and it is asserted rather than concealed: array programs are
+compared BEHAVIOURALLY against the C backend, and the gate asserts the sizes
+agree so a size difference would mean something else moved. **An ENVIRONMENTAL
+FLAKE was found and named**: the C backend's gcc is intermittently KILLED on
+this host (empty stderr, status 1) while the pagefile still thrashes after
+the self-hosted compiler's own rebuild -- it presented as a semantic
+difference in the differential layer and its own diagnostic could not explain
+it. The layer now retries a C COMPILATION failure (not a program failure,
+which is deterministic) and captures the child's stderr instead of discarding
+it. **Mutations: 3**, each restored byte-identically (SHA-256
+`C66E8FA5C0DE7F337A2D41B455DE110ABA6B302B1DB51062E3069FEB3626C2BA`): the
+index's move into RCX removed (the execution layer fails), the reporter's
+predicate no longer looking at an `if` condition (the LINKER CRASH returns with
+the identical signature and the gate fails), and the bounds check's `Jge`
+flipped to `Jle` (the bounds layer fails). A fourth mutation, making the index
+literal-only again, was caught by the gate's per-program TIMEOUT rather than by
+an assertion -- recorded as the weaker result it is. **Still refused, by
+name:** an index of a non-array, an index that is not an integer expression, an
+element of a non-int type, `for ... in`, and the two NAT-LOOP parser defects
+(a call expression in a `for` post is mis-parsed by both engines, and the two
+engines disagree about a `for` init's scope), neither of which blocks array
+indexing. **KIR pin 14792 -> 14834** (+42), measured with `karkain kir --verify
+src/compiler/kir.kark` in the gate's own invocation (text=14834 verify=14834) and never
+predicted.
+
+
 Also completed: **B2 seed-closure discovery job + the v1.2.0 scope amendment**
 (verdict **COMPLETE** as a change; **B2 itself remains OPEN and unproven** --
 the job is DISCOVERY, not a release gate). Two things landed. (1) A new

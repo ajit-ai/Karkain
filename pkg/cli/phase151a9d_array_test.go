@@ -163,10 +163,21 @@ var nat9dRefusals = []struct {
 		code: "error[K145]",
 	},
 	{
-		// A variable index, not a literal.
-		name: "variable_index",
-		src:  "func main() {\n    let a = [7, 35]\n    let i = 1\n    print(a[i])\n}\n",
-		want: "array index is not an integer literal",
+		// A CORRECTIVE CHANGE against the frozen Step 9d baseline, recorded
+		// in docs/audit/NAT-IDX-BASELINE.md section 8.
+		//
+		// This row used to pin "a variable index is refused", which was the
+		// literal-only limitation NAT-IDX removes: the index is now evaluated
+		// as an EXPRESSION, so `a[i]` works. The row was REPLACED rather than
+		// deleted, because the table's property is "a construct the driver
+		// cannot lower is refused BY NAME and writes no image", and a table
+		// that quietly shrinks stops being evidence for it.
+		//
+		// The replacement is a STRING index, which is still refused: the index
+		// must be an integer expression.
+		name: "string_index",
+		src:  "func main() {\n    let a = [3, 5, 7]\n    print(a[\"x\"])\n}\n",
+		want: "is not an integer expression",
 		code: "error[K145]",
 	},
 	{
@@ -174,9 +185,14 @@ var nat9dRefusals = []struct {
 		// accepted it, lowering read the scalar's slot as a (base, len) header, and
 		// the result was a VALID PE printing a meaningless number. No diagnostic,
 		// no trap.
+		//
+		// The wording is now the ORACLE's (pkg/native/program.go:6297), because
+		// NAT-IDX consolidated the index validation onto the shared walker
+		// validator, which uses the oracle's sentences. The old wording was
+		// kcc's own, so the two engines did not agree about the same program.
 		name: "index_of_scalar",
 		src:  "func main() {\n    let a = 7\n    print(a[0])\n}\n",
-		want: "is indexed but is not an array",
+		want: "index target must be an array",
 		code: "error[K145]",
 	},
 	{

@@ -232,19 +232,20 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// This pin is shared with TestPhase151A5_KIRPinHolds, which carries the
 		// fuller accounting.
 		//
-		// RE-PINNED FOR NAT-LOOP: 14597 -> 14792 (+195). NAT-LOOP added the
-		// loop control flow to the native driver -- `while`, the C-style
-		// `for`, `break`, `continue` -- with them the loop-context STACK (the
-		// oracle's `b.loops`, kept in kcc's single state array as emitter slot
-		// 17), the branch-aware slot allocation (the plan descends into a
-		// loop body and into a `for`'s init, in the oracle's ORDER), and a
-		// plain-local assignment (the loop counter's form).
+		// RE-PINNED FOR NAT-IDX: 14792 -> 14834 (+42). NAT-IDX made the array
+		// index an EXPRESSION evaluated through the shared integer expression
+		// walker -- exactly as the Go oracle evaluates it -- instead of a
+		// literal-only special case; it bundled the runtime-error reporter's
+		// context into that walker as one argument; and it made the reporter's
+		// PREDICATE a real walk over branches, loops, conditions and nested
+		// expressions, because a predicate that cannot see an index produces a
+		// linker crash rather than a diagnostic.
 		//
 		// Measured with `karkain kir --verify src/compiler/kir.kark` in this
-		// gate's own invocation -- text=14792 verify=14792 -- and never
+		// gate's own invocation -- text=14834 verify=14834 -- and never
 		// predicted.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 14792 {
-			t.Errorf("whole-tree kir text = %d lines, want 14792:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 14834 {
+			t.Errorf("whole-tree kir text = %d lines, want 14834:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

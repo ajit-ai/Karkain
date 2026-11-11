@@ -121,10 +121,16 @@ func TestPhaseD2_KccAndGoEmitIdenticalImages(t *testing.T) {
 // is measurably still different, and it is now the largest gap in the increment
 // by a wide margin:
 //
-//	array_index  kcc 1088  vs go 1096   (was 496 at the D4 baseline)
-//	              ... and the residual 8 bytes are EXACTLY the frame delta:
-//	              Go main is `sub rsp,0x290` (656), kcc `sub rsp,0x288`
-//	              (648). See the "WHAT REMAINS" section below.
+//	array_index  kcc 1095  vs go 1095   (was 1088 vs 1096 before NAT-IDX)
+//	              The SIZES now agree: NAT-IDX made the index encoding
+//	              the oracle's, because the index is evaluated through the
+//	              shared expression walker exactly as the oracle evaluates
+//	              it, instead of being a literal-only special case. The
+//	              images still differ, and the residual difference is the
+//	              frame delta: the oracle rounds the locals region up to
+//	              the next 16 STRICTLY greater, the driver up to the next 16,
+//	              so the oracle's frame is larger whenever the region is
+//	              already aligned. See the "WHAT REMAINS" section below.
 //
 // Asserting it DIFFER is the point. It converts "we know this differs" from a
 // comment nobody re-reads into an assertion that has to be updated on purpose,

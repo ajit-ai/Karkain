@@ -509,10 +509,64 @@ func natIRunCBackend(t *testing.T, karkain, src string) ([]byte, int) {
 	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
 		t.Fatalf("writing the program: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+
+	// The C path is compiled and run through gcc, and on a memory-constrained
+	// host that gcc is sometimes KILLED -- empty stderr, status 1 -- while the
+	// pagefile is still thrashing after the self-hosted compiler's own (much
+	// larger) rebuild. That failure is ENVIRONMENTAL and transient: the same
+	// source compiles on the next attempt.
+	//
+	// So the comparison is retried, but ONLY for a C COMPILATION failure. A
+	// program that genuinely fails at run time is deterministic, so it fails
+	// every attempt and is reported with its message -- retrying a real failure
+	// would only delay it.
+	//
+	// The distinction is made on the CLI's own message, which says "C
+	// compilation failed" for the compile step and "Execution Error" for the
+	// run step.
+	const attempts = 3
+	for attempt := 1; attempt <= attempts; attempt++ {
+		out, code, errText, _ := natIRunCBackendOnce(t, karkain, file)
+		if code == 0 {
+			return out, code
+		}
+		if !strings.Contains(string(out), "C compilation failed") {
+			t.Fatalf("the C backend exited %d for a program the native path compiled.\n"+
+				"  stdout: % x\n  stderr: %s\n  source:\n%s",
+				code, out, errText, src)
+		}
+		if attempt == attempts {
+			t.Fatalf("the C backend could not COMPILE the reference program after "+
+				"%d attempts.\n  stdout: % x\n  stderr: %s\n"+
+				"  This is the host's memory class (gcc killed, empty stderr, "+
+				"status 1), not a difference in the program: the same source "+
+				"compiles on a host with room to spare.\n  source:\n%s",
+				attempts, out, errText, src)
+		}
+		t.Logf("the C backend's gcc was killed (attempt %d of %d); retrying",
+			attempt, attempts)
+	}
+	return nil, 0
+}
+
+// natIRunCBackendOnce runs the C path once and reports its stdout, exit status
+// and stderr.
+func natIRunCBackendOnce(t *testing.T, karkain, file string) ([]byte, int, string, error) {
+	t.Helper()
+	// The timeout is generous because the C path's gcc invocation can be
+	// slowed by minutes on a memory-constrained host that is still thrashing
+	// the pagefile. It is a bound on a HANG, not a performance target: a
+	// non-terminating program is a corpus bug, and it is caught by the
+	// per-program assertions rather than by this timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, karkain, "run", "--engine", "go", file)
 	cmd.Env = append(os.Environ(), "KARKAIN_ENGINE=go")
+	// The child's STDERR is captured, not discarded: the C path reports a
+	// runtime error on stderr, and a diagnostic that is thrown away turns a
+	// failing comparison into an unexplained one.
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
 	out, err := cmd.Output()
 	if ctx.Err() == context.DeadlineExceeded {
 		t.Fatalf("the C backend did not terminate within 60s.\n  A loop program that " +
@@ -526,7 +580,7 @@ func natIRunCBackend(t *testing.T, karkain, src string) ([]byte, int) {
 			t.Fatalf("running the C backend: %v", err)
 		}
 	}
-	return out, code
+	return out, code, errBuf.String(), err
 }
 
 // TestPhaseNATLoop_LinuxELFIsByteIdenticalToTheOracle is layer 3.

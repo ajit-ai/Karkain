@@ -397,6 +397,21 @@ jobs:
       - name: Run NAT-LOOP kcc native loop-control-flow gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATLoop_' -count=1 -timeout 30m -v
 
+      # NAT-IDX, array indexing inside the kcc native driver: the index is
+      # evaluated as an EXPRESSION through the shared walker, exactly as the Go
+      # oracle evaluates it, and the runtime-error reporter's context travels
+      # through that walker as one explicit argument.
+      #
+      # Its evidence is EXECUTED PE goldens with exact stdout bytes, a
+      # behavioural differential against the C backend (array programs are NOT
+      # byte-identical to the oracle because of the documented frame delta, so
+      # they are compared by BEHAVIOUR), the bounds cases -- out-of-range,
+      # negative and empty-array indexes must all be runtime errors with a
+      # non-zero exit and no value printed -- and the same PATH-shim
+      # independence evidence with the legacy path as the positive control.
+      - name: Run NAT-IDX kcc native array-indexing gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATIdx_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

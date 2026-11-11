@@ -894,6 +894,18 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// src/compiler/kir.kark` in the gate's own invocation -- text=14792
 	// verify=14792 -- and never predicted.
 	//
+	// 14834 (NAT-IDX, array indexing inside loops): the index became an
+	// EXPRESSION evaluated through the shared walker, exactly as the oracle
+	// evaluates it, instead of a literal-only special case; the runtime-error
+	// reporter's context now travels through that walker as one bundled
+	// argument; and the reporter's PREDICATE became a real walk over branches,
+	// loops, conditions and nested expressions.
+	//
+	// The chain to here is measured, not predicted: 14792 (NAT-LOOP) -> 14834
+	// (this slice, +42). Measured with `karkain kir --verify
+	// src/compiler/kir.kark` in the gate's own invocation -- text=14834
+	// verify=14834 -- and never predicted.
+	//
 	// NOTE ON A STALE STRING this comment previously carried: the failure
 	// message said "want 13743" while the assertion beside it said 13755, because
 	// D4 updated the assertion and not the message. A message that names a
@@ -933,8 +945,8 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 // 13637 was measured twice on f08276b with kcc.exe DELETED between runs, so
 	// each count came from a fresh compile of the committed source rather than
 	// from a cached binary: text=13637 verify=13637.
-	if text != 14792 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 14792; see the comment above for the measured chain. output follows: %s", text, out)
+	if text != 14834 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 14834; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

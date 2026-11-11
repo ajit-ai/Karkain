@@ -4821,6 +4821,39 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
         }
         return natNativeScanIntExpr(unaryOperand(e), plan, line, fns, depth)
     }
+    if (t == NODE_INDEX()) {
+        // NAT-IDX: an array element read. The target must be an ARRAY local,
+        // and the index must itself be an integer expression -- which is what
+        // makes `a[i]` ordinary array iteration rather than a literal-only
+        // special case.
+        //
+        // The KIND CHECK IS LOAD-BEARING, not decoration. Without it,
+        // `let a = 7; print(a[0])` scans clean: the target is an identifier, it
+        // resolves to a local, and the index is an integer expression.
+        // Lowering then treats that local's 8-byte scalar slot as a two-unit
+        // (base, len) array header, loads a "length" out of the neighbouring
+        // slot, and reads an element from whatever address that base happens
+        // to be. It produced a VALID PE, which is the worst outcome: no
+        // diagnostic, no trap, a wrong number.
+        //
+        // The diagnostics are the oracle's own (program.go:6290-6297): an index
+        // target must be a variable, it must exist, and it must be an array.
+        if (nodeType(indexLeft(e)) != NODE_IDENT()) {
+            return natNativeRefuse("array index target must be a variable", line)
+        }
+        let ord = natNativeSlotIndex(plan, identName(indexLeft(e)))
+        if (ord < 0) {
+            return natNativeRefuse("undefined identifier '" + identName(indexLeft(e)) + "'", line)
+        }
+        let k = natNativeSlotKind(plan, ord)
+        if (k != natKindArray()) {
+            return natNativeRefuse("index target must be an array (got " + natKindName(k) +
+                " '" + identName(indexLeft(e)) + "')", line)
+        }
+        // The index is evaluated at depth+1, which is the oracle's depth for the
+        // index expression (program.go:6320).
+        return natNativeScanIntExpr(indexExpr(e), plan, line, fns, depth + 1)
+    }
     if (t == NODE_BINARY()) {
         let op = binaryOp(e)
         if (op != "+" && op != "-" && op != "*") {
@@ -4990,14 +5023,40 @@ func natArrayValue(s, off, elems) {
 // `roffsKind` indexes the WHOLE rodata offset array (print_int's own two
 // entries come first), and `srcOff`/`srcLen` are the interned source basename.
 // `line` is the diagnostic's line.
-func natArrayIndex(s, off, idx, tag, roffsKind, srcOff, srcLen, line) {
+// natArrayIndex lowers the bounds check and the element load for `a[i]`.
+//
+// The INDEX EXPRESSION IS NOT EVALUATED HERE. The caller evaluates it into RAX
+// and moves it to RCX first, which is the ORACLE's order
+// (pkg/native/program.go:6320-6324):
+//
+//	emitExpr(x.Index, depth+1)   // the index, as an expression
+//	MovRegReg(RCX, RAX)
+//	LoadStack(RBX, off)           // the array's base
+//	LoadStack(RAX, off + 8)       // the array's length
+//	... the bounds check ...
+//	LoadScaled64(RAX, RBX, RCX, 8, 0)
+//
+// This function used to take the index LITERAL and materialise it straight
+// into RCX, which is why an index that was not a literal was refused. That was
+// a literal-only special case, and it was the whole of the limitation: the
+// oracle has never required a literal index, and a literal-only index is
+// exactly what makes ordinary array iteration impossible.
+//
+// `roffsKind`, `srcOff` and `srcLen` are the runtime-error REPORTER's context:
+// the rodata offset of the reporter's "kind" argument, and the source
+// basename's offset and length. They reach this function through the shared
+// expression walker's context, which is why an index can be lowered inside ANY
+// integer expression and not only directly under a `print`.
+//
+// `line` is the index expression's own line, so the diagnostic points at the
+// index and not at the statement that contains it.
+func natArrayIndex(s, off, roffsKind, srcOff, srcLen, line) {
     let fa = natFresh(s, "idxbad")
     s = fa[0]
     let badLbl = fa[1]
     let fb = natFresh(s, "idxok")
     s = fb[0]
     let doneLbl = fb[1]
-    s = natMovRegImm32(s, natRegRCX(), int(intLitVal(idx)))
     s = natLoadStack(s, natRegRBX(), off)
     s = natLoadStack(s, natRegRAX(), off + 8)
     // Bounds: 0 <= i < len, else the Phase-100 runtime error. Both arms jump to
@@ -5050,33 +5109,6 @@ func natNativeScanElems(elems, line) {
                 " is not an integer literal", line)
         }
         i = i + 1
-    }
-    return ""
-}
-
-// natNativeScanIndex validates an `a[i]` expression and returns "" or a refusal.
-//
-// The KIND CHECK IS LOAD-BEARING, not decoration. Without it, `let a = 7; print(a[0])`
-// scans clean: the target is an identifier, it resolves to a local, and the index is
-// an integer literal. Lowering then treats that local's 8-byte scalar slot as a
-// two-unit (base, len) array header, loads a "length" out of the neighbouring slot,
-// and reads an element from whatever address that base happens to be. It produced a
-// VALID PE, which is the worst outcome: no diagnostic, no trap, a wrong number.
-func natNativeScanIndex(idx, stmts, plan, line) {
-    let target = indexLeft(idx)
-    if (nodeType(target) != NODE_IDENT()) {
-        return natNativeRefuse("index target must be a local variable", line)
-    }
-    let ord = natNativeSlotIndex(plan, identName(target))
-    if (ord < 0) {
-        return natNativeRefuse("index of undeclared local `" + identName(target) + "`", line)
-    }
-    if (natNativeSlotKind(plan, ord) != natKindArray()) {
-        return natNativeRefuse("`" + identName(target) + "` is indexed but is not an " +
-            "array", line)
-    }
-    if (nodeType(indexExpr(idx)) != NODE_INT_LIT()) {
-        return natNativeRefuse("array index is not an integer literal", line)
     }
     return ""
 }
@@ -5239,6 +5271,25 @@ func natPrintStrBody(s, winWrite, offNewline) {
 // program that cannot fault from carrying ~615 bytes of reporter it never calls.
 // Those bytes are not free: the reporter's rodata strings sit in the section and
 // move every address after them.
+// natNativeUsesRuntimeError reports whether the program needs the Phase-100
+// runtime-error REPORTER.
+//
+// NAT-IDX: this predicate must see an array index wherever it can occur, and
+// that is now EVERYWHERE an integer expression can occur -- inside a loop
+// body, inside a branch, or nested inside another expression.
+//
+// The previous version looked only at a `print`'s argument and a `return`'s
+// value, at the TOP level of the function. That was correct while the driver
+// lowered an index only in those two positions, and it would have been WRONG
+// the moment an index could appear anywhere else: the reporter would not be
+// emitted, and the index's diagnostic would reference rodata that does not
+// exist.
+//
+// The reporter's absence is not a crash and not a wrong answer -- the bounds
+// check still jumps to its failure block -- but that block CALLS the reporter,
+// so a missing reporter is a call into a label that was never emitted. This is
+// the "the gate and the lowering cannot disagree" rule the original comment
+// stated, applied to the shapes that now exist.
 func natNativeUsesRuntimeError(stmts) {
     let i = 0
     while (i < len(stmts)) {
@@ -5250,36 +5301,78 @@ func natNativeUsesRuntimeError(stmts) {
 
 // natStmtHasIndex reports whether a statement CONTAINS an array index.
 //
-// It inspects both places the driver can lower an index -- a print argument and
-// a return value -- because those are the only two it reaches today. Both are
-// checked so that the gate and the lowering cannot disagree: a shape the gate
-// fails to see is emitted without the reporter, and a shape it sees but the
-// lowering refuses is dead weight. Neither is loud.
+// It inspects every position the driver can lower an index in, and it RECURSES
+// into nested bodies: a branch inside a loop, a loop inside a branch, and a
+// loop inside a loop all carry their statements' indexes.
 func natStmtHasIndex(n) {
     let k = nodeType(n)
     if (k == NODE_INDEX()) { return 1 }
-    if (k == NODE_PRINT()) {
-        if (natExprHasIndex(printVal(n)) == 1) { return 1 }
-        return 0
-    }
+    if (k == NODE_PRINT()) { return natExprHasIndex(printVal(n)) }
     if (k == NODE_RETURN()) { return natExprHasIndex(retVal(n)) }
+    if (natNativeIsDecl(n)) { return natExprHasIndex(natNativeDeclValue(n)) }
+    if (k == NODE_EXPR_STMT()) { return natExprHasIndex(exprStmtExpr(n)) }
+    if (k == NODE_IF()) {
+        // The CONDITION carries indexes too, and it is the position that is
+        // easiest to forget: an `if a[0] < a[1] { ... }` has its indexes in the
+        // condition, not in the branch body.
+        //
+        // Missing one is not a crash and not a wrong answer -- the bounds
+        // check still jumps to its failure block -- but that block CALLS the
+        // reporter, so a missing reporter is a call into a label that was
+        // never emitted. That is what the linker-time crash was.
+        if (natExprHasIndex(ifCond(n)) == 1) { return 1 }
+        if (natStmtHasIndexIn(ifCons(n)) == 1) { return 1 }
+        return natStmtHasIndexIn(ifAlt(n))
+    }
+    if (k == NODE_WHILE()) {
+        if (natExprHasIndex(whileCond(n)) == 1) { return 1 }
+        return natStmtHasIndexIn(whileBody(n))
+    }
+    if (k == NODE_FOR()) {
+        if (natExprHasIndex(forCond(n)) == 1) { return 1 }
+        if (len(forInit(n)) > 0 && natExprHasIndex(forInit(n)) == 1) { return 1 }
+        if (len(forPost(n)) > 0 && natExprHasIndex(forPost(n)) == 1) { return 1 }
+        return natStmtHasIndexIn(forBody(n))
+    }
+    return 0
+}
+
+// natStmtHasIndexIn is the statement-list form of natStmtHasIndex.
+func natStmtHasIndexIn(stmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        if (natStmtHasIndex(stmts[i]) == 1) { return 1 }
+        i = i + 1
+    }
     return 0
 }
 
 // natExprHasIndex looks through an expression for an index node.
 //
-// The driver lowers an index directly under a print or a return, so one level is
-// enough. It is a named function rather than an inline test because the SAME
-// question is asked in two places, and one copy that is later extended without
-// the other is how the two drift apart.
+// It is a full walk rather than a one-level test, because an index can now be
+// nested inside an arithmetic expression (`a[i] + 1`), inside a comparison
+// (`a[i] == 3`), or inside a call's arguments (`f(a[i])`).
+//
+// It is a named function rather than an inline test because the SAME question
+// is asked in several places, and one copy that is later extended without the
+// other is how the two drift apart.
 func natExprHasIndex(e) {
-    return natNodeIsIndex(e)
-}
-
-// natNodeIsIndex is the single node-kind test, so `natExprHasIndex` has exactly
-// one definition of what an index IS.
-func natNodeIsIndex(e) {
-    if (nodeType(e) == NODE_INDEX()) { return 1 }
+    let t = nodeType(e)
+    if (t == NODE_INDEX()) { return 1 }
+    if (t == NODE_BINARY()) {
+        if (natExprHasIndex(binaryLeft(e)) == 1) { return 1 }
+        return natExprHasIndex(binaryRight(e))
+    }
+    if (t == NODE_UNARY()) { return natExprHasIndex(unaryOperand(e)) }
+    if (t == NODE_CALL()) {
+        let i = 0
+        while (i < len(callArgs(e))) {
+            if (natExprHasIndex(callArgs(e)[i]) == 1) { return 1 }
+            i = i + 1
+        }
+        return 0
+    }
+    if (t == NODE_INDEX()) { return 1 }
     return 0
 }
 
@@ -5641,7 +5734,11 @@ if (t == NODE_BINARY()) {
     return natNativeScanIntExpr(expr, plan, line, fns, 0)
 }
   if (t == NODE_UNARY()) { return natNativeScanIntExpr(expr, plan, line, fns, 0) }
-  if (t == NODE_INDEX()) { return natNativeScanIndex(expr, stmts, plan, line) }
+  // NAT-IDX: an index is an ordinary integer expression, validated by the
+  // SHARED walker validator. It used to have its own validator here, which
+  // required a LITERAL index -- the very limitation this increment removes --
+  // and two validators for one construct is how they drift apart.
+  if (t == NODE_INDEX()) { return natNativeScanIntExpr(expr, plan, line, fns, 0) }
   if (t == NODE_CALL()) {
       if (callFunc(expr) == "len") { return natNativeScanLen(expr, stmts, plan, line) }
       return natNativeScanCall(expr, plan, line, fns)
@@ -5745,7 +5842,7 @@ if (nodeType(expr) == NODE_IDENT()) {
 // reference rodata, a record or a string, and passing them would invite an arm that
 // does. Anything else falls through to the CALL arm, which is the only other integer
 // producer in this slice.
-func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
+func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
     let t = nodeType(e)
     if (t == NODE_INT_LIT()) {
         return natMovRegImm64(s, natRegRAX(), int(intLitVal(e)))
@@ -5754,14 +5851,28 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
         let ord = natNativeSlotIndex(plan, identName(e))
         return natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
     }
+    if (t == NODE_INDEX()) {
+        // NAT-IDX: an array element read. The order is the oracle's
+        // (program.go:6320-6324): the INDEX EXPRESSION is evaluated first, at
+        // depth+1, then moved into RCX, and only then are the array's base and
+        // length loaded.
+        //
+        // The index is evaluated BEFORE the base is loaded, which matters: the
+        // index expression may itself read a local, and the base and the
+        // length are loaded into RBX and RAX afterwards.
+        let ord = natNativeSlotIndex(plan, identName(indexLeft(e)))
+        s = natEmitIntExpr(s, indexExpr(e), plan, fns, binTemp, extrasBase, frame, depth + 1, rctx)
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        return natArrayIndex(s, natNativeSlotOff(plan, ord), rctx[0], rctx[1], rctx[2], indexLine(e))
+    }
     if (t == NODE_UNARY()) {
-        s = natEmitIntExpr(s, unaryOperand(e), plan, fns, binTemp, extrasBase, frame, depth)
+        s = natEmitIntExpr(s, unaryOperand(e), plan, fns, binTemp, extrasBase, frame, depth, rctx)
         return natNegReg(s, natRegRAX())
     }
     if (t == NODE_BINARY()) {
-        s = natEmitIntExpr(s, binaryLeft(e), plan, fns, binTemp, extrasBase, frame, depth + 1)
+        s = natEmitIntExpr(s, binaryLeft(e), plan, fns, binTemp, extrasBase, frame, depth + 1, rctx)
         s = natStoreStack(s, natRegRAX(), binTemp + depth * 8)
-        s = natEmitIntExpr(s, binaryRight(e), plan, fns, binTemp, extrasBase, frame, depth + 1)
+        s = natEmitIntExpr(s, binaryRight(e), plan, fns, binTemp, extrasBase, frame, depth + 1, rctx)
         s = natMovRegReg(s, natRegRCX(), natRegRAX())
         s = natLoadStack(s, natRegRAX(), binTemp + depth * 8)
         let op = binaryOp(e)
@@ -5769,7 +5880,7 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
         if (op == "-") { return natSubRegReg(s, natRegRAX(), natRegRCX()) }
         return natMulRegReg(s, natRegRAX(), natRegRCX())
     }
-    return natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth)
+    return natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx)
 }
 
 // natEmitIntCond lowers an integer comparison and jumps to falseLabel when the
@@ -5792,11 +5903,11 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
 //
 // The jump opcode per operator is natNativeCondOp's mapping, and it is the
 // oracle's: the condition FALLS THROUGH when the comparison holds.
-func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel) {
+func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, rctx) {
     let op = natNativeCondOp(binaryOp(cond))
-    s = natEmitIntExpr(s, binaryLeft(cond), plan, fns, binTemp, extrasBase, frame, 1)
+    s = natEmitIntExpr(s, binaryLeft(cond), plan, fns, binTemp, extrasBase, frame, 1, rctx)
     s = natStoreStack(s, natRegRAX(), binTemp)
-    s = natEmitIntExpr(s, binaryRight(cond), plan, fns, binTemp, extrasBase, frame, 1)
+    s = natEmitIntExpr(s, binaryRight(cond), plan, fns, binTemp, extrasBase, frame, 1, rctx)
     s = natMovRegReg(s, natRegRCX(), natRegRAX())
     s = natLoadStack(s, natRegRAX(), binTemp)
     s = natCmpRegReg(s, natRegRAX(), natRegRCX())
@@ -5836,14 +5947,14 @@ func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel) 
 // not emit it, so Linux and macOS emit nothing and stay byte-identical; Windows
 // already differs from the oracle's bytes (its whole entry and stdout path do), so
 // correctness there costs nothing that parity was measuring.
-func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
+func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
     let fname = callFunc(e)
     let args = callArgs(e)
     let isWin = 0
     if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
     let i = 0
     while (i < len(args)) {
-        s = natEmitIntExpr(s, args[i], plan, fns, binTemp, extrasBase, frame, depth)
+        s = natEmitIntExpr(s, args[i], plan, fns, binTemp, extrasBase, frame, depth, rctx)
         if (i < 6) {
             s = natStoreStack(s, natRegRAX(), natArgTemp(i, frame))
         } else {
@@ -5926,6 +6037,18 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
     let strTemp = lay[2]
     let extrasBase = lay[4]
     let frame = lay[6]
+    // NAT-IDX: the runtime-error REPORTER's context, bundled so it can travel
+    // through the shared expression walker as ONE argument.
+    //
+    // The three values are the rodata offset of the reporter's "kind" argument
+    // and the source basename's offset and length. They are a property of the
+    // FUNCTION, not of a statement, so bundling them here -- once, where the
+    // function's own parameters arrive -- keeps them out of every call site.
+    //
+    // It is an explicit parameter and not global state: two functions in one
+    // image have different basenames, and a global would have to be saved and
+    // restored around every call.
+    let rctx = [rtKindSlot, srcOff, srcLen]
     // sidx walks the rodata INPUT list in lockstep with the literals the program binds,
     // starting at 2 because entries 0 and 1 are print_int's own "-" and "\n". Lockstep
     // is what makes a literal's recorded offset agree with the list the linker interns;
@@ -5992,7 +6115,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     let srcOff = natNativeSlotOff(plan, srcOrd)
                     let stage = strTemp
                     // value
-                    s = natEmitIntExpr(s, args[1], plan, fns, binTemp, extrasBase, frame, 0)
+                    s = natEmitIntExpr(s, args[1], plan, fns, binTemp, extrasBase, frame, 0, rctx)
                     s = natStoreStack(s, natRegRAX(), stage)
                     // old base / old len
                     s = natLoadStack(s, natRegRAX(), srcOff)
@@ -6030,7 +6153,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     s = natAddRegImm32(s, natRegRAX(), 1)
                     s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx) + 8)
                 } else {
-                    s = natEmitIntExpr(s, v, plan, fns, binTemp, extrasBase, frame, 0)
+                    s = natEmitIntExpr(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                     s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
                 }
                 }
@@ -6084,7 +6207,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
             }
             if (nodeType(pv) == NODE_UNARY()) { isIntExpr = 1 }
             if (isIntExpr == 1) {
-                s = natEmitIntExpr(s, pv, plan, fns, binTemp, extrasBase, frame, 0)
+                s = natEmitIntExpr(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                 s = natMovRegReg(s, natRegRDI(), natRegRAX())
                 s = natCallPrintInt(s)
             } else {
@@ -6112,8 +6235,10 @@ stmts, plan, roffs, tbl)
                     sidx = sidx + 1
                 } else {
                     if (nodeType(pv) == NODE_INDEX()) {
-                        let ord = natNativeSlotIndex(plan, identName(indexLeft(pv)))
-                        s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i, rtKindSlot, srcOff, srcLen, printLine(n))
+                        // NAT-IDX: the index is lowered by the SHARED integer
+                        // expression walker, so it is an ordinary integer
+                        // expression and not a literal-only special case.
+                        s = natEmitIntExpr(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                         s = natMovRegReg(s, natRegRDI(), natRegRAX())
                         s = natCallPrintInt(s)
 } else {
@@ -6137,7 +6262,7 @@ let ordl = natNativeSlotIndex(plan,
 identName(callArgs(pv)[0]))
                             s = natArrayLen(s, natNativeSlotOff(plan, ordl))
                         } else {
-                        s = natEmitIntCall(s, pv, plan, fns, binTemp, extrasBase, frame, 0)
+                        s = natEmitIntCall(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                         }
                             s = natMovRegReg(s, natRegRDI(), natRegRAX())
                             s = natCallPrintInt(s)
@@ -6175,7 +6300,7 @@ identName(callArgs(pv)[0]))
         if (nodeType(binaryLeft(ae)) == NODE_IDENT()) {
         // NAT-LOOP: a plain-local assignment -- `i = i + 1`. The
         // record-field form is the other arm.
-        s = natEmitAssignLocal(s, plan, binaryLeft(ae), binaryRight(ae), fns, binTemp, extrasBase, frame)
+        s = natEmitAssignLocal(s, plan, binaryLeft(ae), binaryRight(ae), fns, binTemp, extrasBase, frame, rctx)
         } else {
         let rr = natNativeLowerAssign(s, fnStmts, plan, tbl, roffs, sidx,
         binaryLeft(ae), binaryRight(ae))
@@ -6187,7 +6312,7 @@ identName(callArgs(pv)[0]))
         // discarded, which is exactly what a void callee's caller does; a callee that
         // DOES return a value here is not an error, just an unused one, matching the
         // oracle's expression-statement handling.
-        s = natEmitIntCall(s, ae, plan, fns, binTemp, extrasBase, frame, 0)
+        s = natEmitIntCall(s, ae, plan, fns, binTemp, extrasBase, frame, 0, rctx)
         }
         } else {
         if (k == NODE_RETURN()) {
@@ -6199,8 +6324,9 @@ identName(callArgs(pv)[0]))
             // to emit inline (MovRegImm64 into RAX; LoadStack into RAX), which is why
             // the frozen return_value golden does not move.
             if (nodeType(rv) == NODE_INDEX()) {
-                let ord = natNativeSlotIndex(plan, identName(indexLeft(rv)))
-                s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(rv), i, rtKindSlot, srcOff, srcLen, retLine(n))
+                // NAT-IDX: as in the print path, the index is lowered by the
+                // shared integer expression walker.
+                s = natEmitIntExpr(s, rv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
             } else {
                 let handledLen = 0
                 if (nodeType(rv) == NODE_CALL()) {
@@ -6214,7 +6340,7 @@ identName(callArgs(pv)[0]))
                     }
                 }
                 if (handledLen == 0) {
-                    s = natEmitIntExpr(s, rv, plan, fns, binTemp, extrasBase, frame, 0)
+                    s = natEmitIntExpr(s, rv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                 }
             }
             // Route the return through the single teardown the label marks, the
@@ -6261,7 +6387,7 @@ identName(callArgs(pv)[0]))
         let sp = listPath + "." + str(i)
         let elseLabel = "nat$ifelse$" + tag + "$" + sp
         let endLabel = "nat$ifend$" + tag + "$" + sp
-        s = natEmitIntCond(s, ifCond(n), plan, fns, binTemp, extrasBase, frame, elseLabel)
+        s = natEmitIntCond(s, ifCond(n), plan, fns, binTemp, extrasBase, frame, elseLabel, rctx)
         s = natNativeLower(s, ifCons(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
         s = natJmp(s, endLabel)
         s = natMark(s, elseLabel)
@@ -6289,7 +6415,7 @@ identName(callArgs(pv)[0]))
         let endLabel = "nat$whileend$" + tag + "$" + sp
         s = natMark(s, loopLabel)
         s = natLoopPush(s, endLabel, loopLabel)
-        s = natEmitIntCond(s, whileCond(n), plan, fns, binTemp, extrasBase, frame, endLabel)
+        s = natEmitIntCond(s, whileCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx)
         s = natNativeLower(s, whileBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
         s = natLoopPop(s)
         s = natJmp(s, loopLabel)
@@ -6324,19 +6450,19 @@ identName(callArgs(pv)[0]))
         if (len(forInit(n)) > 0) {
         if (natNativeIsDecl(forInit(n))) {
         let idx = natNativeSlotIndex(plan, natNativeDeclName(forInit(n)))
-        s = natEmitIntExpr(s, natNativeDeclValue(forInit(n)), plan, fns, binTemp, extrasBase, frame, 0)
+        s = natEmitIntExpr(s, natNativeDeclValue(forInit(n)), plan, fns, binTemp, extrasBase, frame, 0, rctx)
         s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
         } else {
-        s = natEmitAssignLocal(s, plan, binaryLeft(forInit(n)), binaryRight(forInit(n)), fns, binTemp, extrasBase, frame)
+        s = natEmitAssignLocal(s, plan, binaryLeft(forInit(n)), binaryRight(forInit(n)), fns, binTemp, extrasBase, frame, rctx)
         }
         }
         s = natMark(s, loopLabel)
         s = natLoopPush(s, endLabel, postLabel)
-        s = natEmitIntCond(s, forCond(n), plan, fns, binTemp, extrasBase, frame, endLabel)
+        s = natEmitIntCond(s, forCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx)
         s = natNativeLower(s, forBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
         s = natMark(s, postLabel)
         if (len(forPost(n)) > 0) {
-        s = natEmitAssignLocal(s, plan, binaryLeft(forPost(n)), binaryRight(forPost(n)), fns, binTemp, extrasBase, frame)
+        s = natEmitAssignLocal(s, plan, binaryLeft(forPost(n)), binaryRight(forPost(n)), fns, binTemp, extrasBase, frame, rctx)
         }
         s = natLoopPop(s)
         s = natJmp(s, loopLabel)
@@ -6363,7 +6489,7 @@ identName(callArgs(pv)[0]))
         // NAT-LOOP: a bare `=` statement -- the shape a C-style `for`'s init
         // and post arrive in. It used to be refused by name (9h-2a) because
         // the loop was not lowered; now it is a supported statement.
-        s = natEmitAssignLocal(s, plan, binaryLeft(n), binaryRight(n), fns, binTemp, extrasBase, frame)
+        s = natEmitAssignLocal(s, plan, binaryLeft(n), binaryRight(n), fns, binTemp, extrasBase, frame, rctx)
         }
         }
         }
@@ -6387,9 +6513,9 @@ identName(callArgs(pv)[0]))
 // The oracle's order is: evaluate the right-hand side into RAX, then store it
 // to the slot. The right-hand side is evaluated at depth 0, which is what
 // makes the operands stage in the same scratch slots the oracle's do.
-func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame) {
+func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame, rctx) {
     let ord = natNativeSlotIndex(plan, identName(lhs))
-    s = natEmitIntExpr(s, rhs, plan, fns, binTemp, extrasBase, frame, 0)
+    s = natEmitIntExpr(s, rhs, plan, fns, binTemp, extrasBase, frame, 0, rctx)
     s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
     return s
 }
