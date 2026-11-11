@@ -1375,15 +1375,27 @@ func natStoreScaled8(s, src, base, index, scale, disp) {
     return natSibTail(s, src, base, index, scale, disp)
 }
 
-// natIncReg emits inc r64 (REX.W, plus R for r8-r15).
+// natIncReg emits inc r64 (REX.W, plus the extension bit of the register).
 //
 // This is the 64-bit INC, which CLEARS the upper 32 bits. Every index it is applied
 // to here is a small byte-loop counter, so that is not observable -- but a caller
 // counting past 2^32 would be surprised, and the oracle's IncReg behaves identically.
+//
+// NAT-FRAME: this function used to build the REX byte BY HAND and set the wrong
+// bit. It ORed in natMask(15) -- the REX.R bit (0x04) -- for an extended
+// register, when the register number lives in the ModRM's rm field and is
+// therefore carried by REX.B (natMask(16), 0x01). The consequence was not
+// cosmetic: `inc r8` decoded as `inc rax`, so the map helper's entry counter
+// was incremented in the WRONG REGISTER and the count it then stored was the
+// UN-incremented value. A map's entry count was silently wrong.
+//
+// The fix is to use the CENTRALIZED constructor, natRex, exactly as natDecReg
+// already does -- natRex(s, 1, 0, r) puts W from the first argument, no R
+// (the reg field of /0 is the opcode extension, not a register) and B from the
+// register's extension. The oracle's IncReg is rex(true, 0, r), which is the
+// same thing.
 func natIncReg(s, r) {
-    let rex = natMask(13) | natMask(14)
-    if (natRegExt(r) == 1) { rex = rex | natMask(15) }
-    s = natByte(s, rex)
+    s = natRex(s, 1, 0, r)
     s = natByte(s, natMask(44))                          // 0xFF group-5
     return natModrm(s, 3, 0, r)                          // /0 = inc
 }

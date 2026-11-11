@@ -3169,6 +3169,32 @@ func natNativeUsesMap(stmts) {
     return 0
 }
 
+// natNativeProgramUsesMap is the PROGRAM-WIDE map-usage flag.
+//
+// NAT-FRAME: this exists because the oracle's `b.usesMap` is a property of the
+// WHOLE PROGRAM (program.go:1571: `mapUses, mapLoop, mapCap, mapHeap :=
+// scanMapUsage(prog)`), and the oracle's per-function layout reserves the
+// map-stage slot in EVERY function when it is set (program.go:4461).
+//
+// The driver reserved that slot in NO function, because the two layout call
+// sites passed a literal 0 for the flag. The consequence was an 8-byte frame
+// difference in every program that indexes an array -- and an array access IS a
+// map use to the oracle, because its `isMapIndex` predicate is "an index
+// expression whose target is a VARIABLE" (program.go:730-737), which an array
+// access satisfies.
+//
+// So the flag is computed once, over the whole program, and threaded to every
+// function's layout -- which is what the oracle does.
+func natNativeProgramUsesMap(body, fns) {
+    if (natNativeUsesMap(body) == 1) { return 1 }
+    let i = 0
+    while (i < natNativeFuncCount(fns)) {
+        if (natNativeUsesMap(natNativeFuncBodyAt(fns, i)) == 1) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
 func natStdOutHandle() { return 4294967285 }
 
 // natStdErrHandle is STD_ERROR_HANDLE (0xFFFFFFF6), the counterpart of
@@ -6538,11 +6564,16 @@ func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame, rctx
 // in source order, so a function that CALLS another must be declared later than it
 // (the Phase-133 "wrapper use-before-def" class). Every other definition here follows
 // the same rule.
-func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin) {
+func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg) {
     let usesStr = 0
     if (natNativeConcatSites(body, plan) > 0) { usesStr = 1 }
     if (natNativePushCount(body) > 0) { usesStr = 1 }
-    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, 0, natNativeMaxExtras(body), isWin)
+    // NAT-FRAME: the map-stage slot is reserved when the PROGRAM uses a map,
+    // not when this function does. The oracle's `b.usesMap` is program-wide
+    // and its layout reserves the slot in every function, so a per-function
+    // flag would make a callee's frame 8 bytes short whenever main indexed
+    // something.
+    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, usesMapProg, natNativeMaxExtras(body), isWin)
     let frame = lay[6]
     let label = natNativeFuncLabel(name)
     let retLabel = label + "$ret"
@@ -6763,6 +6794,12 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // final byte layout is affected.
     let s = natNewEmitter(0)
     s = natSetTargetOS(s, targetOS)
+    // NAT-FRAME: the map-stage flag is a property of the WHOLE PROGRAM, as it
+    // is in the oracle (`b.usesMap` comes from scanMapUsage over the program,
+    // program.go:1571), and the oracle's per-function layout reserves the slot
+    // in EVERY function when it is set. Computing it here, once, and threading
+    // it into every function's layout is what reproduces that.
+    let usesMapProg = natNativeProgramUsesMap(body, fns)
     // helpers first: print_int, then print_str when the program can produce a
     // string, then the arena allocator when it allocates.
     s = natPrintIntBody(s, isWin, 0, 1)
@@ -6786,7 +6823,13 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // Order matters: emitHelpers runs print_int, print_str, [print_float],
     // [alloc], map, runtime_error (program.go:2497-2520), and the map helpers
     // call alloc, so they must come after it.
-    if (natNativeUsesMap(body) == 1) {
+    //
+    // The flag is the SAME `usesMapProg` the layout uses, read from the variable
+    // rather than recomputed: two call sites of one computation are exactly the
+    // shape that let Step 9g's two literal collectors disagree, and the map
+    // helpers must be emitted under PRECISELY the condition that reserves the
+    // map-stage slot.
+    if (usesMapProg == 1) {
         s = natMapFind(s)
         s = natMapSet(s)
         s = natMapGet(s)
@@ -6833,7 +6876,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
             fhasReturn = fscan[2]
         }
         s = natNativeEmitFunc(s, fname, fparams, fbody, fplan, fhasReturn, fns,
-            ro[1], tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin)
+            ro[1], tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg)
         fi = fi + 1
     }
     // and `_start` LAST, calling into `karkain_main`.

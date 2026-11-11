@@ -3938,14 +3938,16 @@ NEGATIVE index, and an EMPTY array -- each a runtime error with a non-zero
 exit and NO value printed; 3 refusals by name with no image; the image SIZES
 agreeing with the oracle's; determinism; non-vacuity; and the PATH-shim
 independence evidence with the legacy path as the positive control. **The
-FRAME DELTA is the one thing left between the array path and byte identity
-with the oracle** -- the images are now the same SIZE and differ only in the
-frame's size immediate, because the driver rounds the locals region up to the
-next 16 and the oracle up to the next 16 STRICTLY greater. That is the
-measured parity delta Phase 151A Step 9d recorded, it is not an indexing
-question, and it is asserted rather than concealed: array programs are
-compared BEHAVIOURALLY against the C backend, and the gate asserts the sizes
-agree so a size difference would mean something else moved. **An ENVIRONMENTAL
+FRAME DELTA IS CLOSED by NAT-FRAME, and the description of it here was WRONG:
+the two engines' rounding rules were always IDENTICAL (both round the frame up
+to the next multiple of 16, and only on Windows), and the 8-byte difference
+was an UNRESERVED map-stage slot plus an `inc r8` that decoded as `inc rax`.
+NAT-FRAME measured this rather than inheriting it; the measurement is in
+docs/audit/NAT-FRAME-BASELINE.md. What remains for an array program is TWO
+bytes: the reporter's absolute rodata addresses, whose interning ORDER differs
+between the engines. Array programs are compared BEHAVIOURALLY against the C
+backend, and the gate asserts the sizes agree so a size difference would mean
+something else moved. **An ENVIRONMENTAL
 FLAKE was found and named**: the C backend's gcc is intermittently KILLED on
 this host (empty stderr, status 1) while the pagefile still thrashes after
 the self-hosted compiler's own rebuild -- it presented as a semantic
@@ -3967,6 +3969,69 @@ engines disagree about a `for` init's scope), neither of which blocks array
 indexing. **KIR pin 14792 -> 14834** (+42), measured with `karkain kir --verify
 src/compiler/kir.kark` in the gate's own invocation (text=14834 verify=14834) and never
 predicted.
+
+
+Also completed: **NAT-FRAME - the native frame layout against the Go oracle's**
+(increment 151, slice "NAT-FRAME", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-FRAME-BASELINE.md`). **THE BRIEF'S PREMISE WAS WRONG,
+and the first thing this increment did was MEASURE it.** The recorded
+discrepancy was a frame-layout ROUNDING difference -- "the driver rounds the
+locals region up to the next 16, the oracle up to the next 16 STRICTLY
+greater". There is no "strictly greater" rule anywhere in the oracle: both
+sides do `if next % 16 != 0 { next += 8 }`, and only on Windows. The first
+measurement was also misleading in a second way -- it compared the WINDOWS PE,
+where the 8-byte rounding QUANTISES an 8-byte difference away, so the PE could
+not see the delta at all. Measured on LINUX, the delta is exactly 8 bytes and
+ONLY for programs that index something (0 for no locals, 1-5 locals, and a
+call). **TWO REAL DEFECTS produced it, neither of them a rounding rule.**
+**(1) `inc r8` DECODED AS `inc rax`.** `natIncReg` built its REX byte BY HAND
+and ORed in `natMask(15)` -- the REX.**R** bit (0x04) -- where a register's
+extension lives in REX.**B** (`natMask(16)`, 0x01); REX.R extends the ModRM
+REG field, which for `FF /0` is the opcode extension and not a register. The
+map SET helper increments its entry counter and stores it as the map's COUNT,
+so **a map's entry count was silently wrong** -- a data-corruption bug with no
+gate at all (the matrix records map support as `implemented_not_gated`). The fix
+uses the CENTRALIZED constructor `natRex(s, 1, 0, r)` -- the same call
+`natDecReg` already made and the same shape as the oracle's `rex(true, 0, r)` --
+so there is still exactly one REX constructor. **(2) The MAP-STAGE slot was
+never reserved.** The oracle's map-usage flag is PROGRAM-WIDE
+(`scanMapUsage(prog)`) and its `isMapIndex` predicate is "an index expression
+whose target is a VARIABLE" -- which an ARRAY access satisfies -- so the oracle
+reserves the 8-byte map-stage slot in EVERY frame of a program that indexes
+anything, while the driver's two layout call sites passed a literal 0 and
+reserved it in none. The flag is now computed once, program-wide, and threaded
+into every function's layout. **RESULT:** the frames now match the oracle
+EXACTLY for every boundary case on both targets (10 cases x 2 targets), and the
+image difference for an array program fell from 5 bytes to 2. **What remains is
+ISOLATED, not hidden:** TWO bytes, both absolute rodata addresses inside the
+runtime-error REPORTER, because the two engines intern the reporter's strings
+in a different ORDER -- the oracle emits the reporter helper before the user
+function so its strings are interned first, and the driver appends them after
+the program's own literals (its own comment already claims the oracle's order,
+which makes this a defect and not a design choice). It is NOT fixed here
+because the fix moves the reporter's offsets in every image that can raise a
+diagnostic, and the D5 gate pins that interning today. **Evidence**
+(`pkg/cli/phase151k_frame_test.go`, `TestPhaseNATFrame_`, 6 layers): the
+frame-size immediate of every boundary case read out of each IMAGE and compared
+with the ORACLE's, for BOTH targets (the Linux one matters, because the Windows
+rounding hides an 8-byte difference); the map-stage slot reserved for an
+indexing program and not for a non-indexing one; the `inc r8` ENCODING at the
+byte level (REX.W|REX.B = 0x49, not 0x4c); the residual asserted as exactly
+two differing bytes with equal frames and equal sizes; and the behavioural half
+-- local reads and writes, a call, a nested call, a variable index, a nested
+index, and the bounds-error path (a non-zero exit and NO value printed).
+**Mutations: 2**, each restored byte-identically (SHA-256
+`0511FAC87400934760C719C1CFC5B652999465B8466EB208228D7783938D1210` for the
+driver, `ADB060FFB588E5A037F3338733388FF35E697F6FBFF50CE598F535DDFEDD091D`
+for the emitter): reverting the map-stage reservation fails the
+frame-immediate layer on four cases with the exact byte difference AND the
+map-stage layer ("want a difference of 8"), and reverting the REX bit fails
+the encoding layer and turns the residual from two bytes into three. Both are
+caught by MEANINGFUL ASSERTIONS, not by a timeout. **A THIRD DIVERGENCE of the SAME CLASS was found while measuring the whole gated corpus (every program in the 9D/9E/9F/9H corpora, both engines, the frame immediate read out of each image): the STRING STAGE.** The oracle reserves it PROGRAM-WIDE over FIVE operations (usesConcat || usesStrEq || usesStrSlice || usesPush || usesStrField, pkg/native/program.go:4454) and the driver reserves it PER FUNCTION over TWO (concat sites and push counts). So a program that assigns a string to a field gets NO string stage at all, and a program whose string work happens in one function gets a different frame in another. **Measured (windows PE): the driver's frame is 640 and the oracle's is 3200 -- a difference of exactly 2560 bytes, which IS the string stage (8*5*maxBinDepth = 8*5*64).** It is NOT fixed here -- it is a string-stage POLICY, not a frame LAYOUT, and reconciling it means changing what the driver supports (string equality and slicing are not lowered at all) and re-deciding per-function-versus-program-wide for that region, which is a different increment with a different blast radius. It is PINNED rather than ignored: TestPhaseNATFrame_TheStringStageIsStillDivergent asserts the frames still differ AND that they differ by exactly 2560, so the gap cannot be forgotten and it fails loudly when it closes. **The FROZEN 9D GATE'S OWN RULE WAS WRONG and had to be corrected:** it rounded the LOCALS REGION and then added the fixed regions, while the oracle rounds the TOTAL and adds the argument spill AFTER; and it had no map-stage term at all. The two formulations agree while the only fixed region is 512 (a multiple of 16), which is why the rule was not wrong until the map-stage unit arrived -- they part company by 8 bytes afterwards. The same correction was applied to the 9E/9F/9H frame gates, and each corpus program now states whether it indexes anything. **The 9D gate's second check was VACUOUS** (it back-computed the locals region as want-512-96, which under the old rule was round16(localBytes), so the assertion held BY CONSTRUCTION) and is now a real LOWER BOUND on the frame, which an element-blind driver fails. **KIR pin 14834 -> 14841** (+7), measured with `karkain kir --verify src/compiler/kir.kark` in the gate's own invocation (text=14841 verify=14841) and never predicted. **Still refused, by name:**
+register allocation (that is `NAT-REG`), `for ... in`, map or string element
+support, non-integer element types, the two NAT-LOOP parser defects, and the
+stderr/GetStdHandle limitation -- all explicitly out of scope.
 
 
 Also completed: **B2 seed-closure discovery job + the v1.2.0 scope amendment**

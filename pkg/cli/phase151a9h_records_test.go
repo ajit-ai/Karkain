@@ -58,6 +58,12 @@ type nat9hCase struct {
 	wantOut    []byte
 	wantExit   int
 	localBytes int
+	// usesMapStage says whether the program indexes anything. No record case
+	// does: a record field is reached with `.`, not with an index, and the
+	// oracle's map-usage predicate is specifically about INDEX expressions
+	// (pkg/native/program.go:730-737). Stated explicitly so the rule is
+	// visible rather than implied.
+	usesMapStage bool
 }
 
 var nat9hCases = []nat9hCase{
@@ -280,7 +286,7 @@ func TestPhase151A9H_FrameFollowsTheValueModelRule(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := nat9dImage(t, c.src)
 			got := nat9dFrameSubRsp(t, img)
-			want := nat9dExpectFrame(c.localBytes)
+			want := nat9dExpectFrame(c.localBytes, c.usesMapStage)
 			if !nat9dContainsInt32(got, want) {
 				t.Errorf("no `sub rsp, %d` in the image; got %v.\n  want %d for "+
 					"localBytes %d.\n  A record is 8 bytes for its value slot plus "+

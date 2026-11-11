@@ -412,6 +412,21 @@ jobs:
       - name: Run NAT-IDX kcc native array-indexing gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATIdx_' -count=1 -timeout 30m -v
 
+      # NAT-FRAME, the native frame layout against the Go oracle's.
+      #
+      # The recorded discrepancy was a frame-size difference in array programs.
+      # The diagnosis was two defects, NEITHER of them the rounding rule: an
+      # `inc r8` that set the REX.R bit instead of REX.B (so it decoded as
+      # `inc rax` and a map's entry count was silently wrong), and the
+      # oracle's program-wide map-stage slot that the driver never reserved.
+      #
+      # This gate pins the frame immediates against the ORACLE's, for both
+      # targets -- the Linux one matters because the Windows rounding
+      # quantises an 8-byte difference away -- and it isolates the residual
+      # two-byte rodata-order difference rather than hiding it.
+      - name: Run NAT-FRAME native frame-layout gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATFrame_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

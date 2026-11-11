@@ -88,7 +88,7 @@ var nat9fCases = []nat9dCase{
 		// the string, or vice versa, and one of the two prints goes wrong.
 		name:    "string_and_array",
 		src:     "func main() {\n    let s = \"items:\"\n    let a = [7, 35]\n    print(s)\n    print(a[1])\n}\n",
-		wantOut: []byte("items:\n35\n"), wantExit: 0, localBytes: 48,
+		wantOut: []byte("items:\n35\n"), wantExit: 0, localBytes: 48, usesMapStage: true,
 	},
 	{
 		// len of a string, and the string itself, in one program.
@@ -181,7 +181,7 @@ func TestPhase151A9F_FrameFollowsTheValueModelRule(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := nat9dImage(t, c.src)
 			got := nat9dFrameSubRsp(t, img)
-			want := nat9dExpectFrame(c.localBytes)
+			want := nat9dExpectFrame(c.localBytes, c.usesMapStage)
 			if !nat9dContainsInt32(got, want) {
 				t.Errorf("no `sub rsp, %d` in the image; got %v.\n  want %d for localBytes "+
 					"%d.\n  A string is TWO units (ptr, len); sizing it as one would let "+

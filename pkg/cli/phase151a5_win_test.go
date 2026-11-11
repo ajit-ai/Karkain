@@ -906,6 +906,18 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// src/compiler/kir.kark` in the gate's own invocation -- text=14834
 	// verify=14834 -- and never predicted.
 	//
+	// 14841 (NAT-FRAME, the native frame layout against the oracle's): the driver's
+	// frame now matches the oracle's exactly. The 8-byte difference was NOT a
+	// rounding rule -- the two rules were always identical -- but an UNRESERVED
+	// map-stage slot (the oracle's map-usage flag is program-wide and accepts
+	// any variable-target index, an array access included) and an `inc r8` that
+	// set the REX.R bit instead of REX.B, so it decoded as `inc rax`.
+	//
+	// The chain to here is measured, not predicted: 14834 (NAT-IDX) -> 14841
+	// (this slice, +7). Measured with `karkain kir --verify
+	// src/compiler/kir.kark` in the gate's own invocation -- text=14841
+	// verify=14841 -- and never predicted.
+	//
 	// NOTE ON A STALE STRING this comment previously carried: the failure
 	// message said "want 13743" while the assertion beside it said 13755, because
 	// D4 updated the assertion and not the message. A message that names a
@@ -945,8 +957,8 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 // 13637 was measured twice on f08276b with kcc.exe DELETED between runs, so
 	// each count came from a fresh compile of the committed source rather than
 	// from a cached binary: text=13637 verify=13637.
-	if text != 14834 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 14834; see the comment above for the measured chain. output follows: %s", text, out)
+	if text != 14841 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 14841; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

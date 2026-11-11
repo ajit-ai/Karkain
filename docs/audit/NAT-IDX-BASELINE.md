@@ -147,17 +147,31 @@ index ever exists.
 ## 4. The byte-identity boundary, stated
 
 The index ENCODING now matches the oracle's — the images are the same SIZE.
-They are not the same BYTES, because of the **frame delta** the D2 gate
-documents: the kcc driver rounds the locals region up to the next 16
-(`round16`) while the oracle rounds it up to the next 16 **strictly greater**,
-so the oracle's frame is 8 bytes larger whenever the locals region is already
-aligned. A program with an array has an element area in its frame, so it
-reaches that case.
+The index ENCODING now matches the oracle's - the images are the same SIZE.
+They were not the same BYTES, and the cause was NOT a rounding rule.
 
-That is the Phase-151A Step 9d MEASURED PARITY DELTA, it is the last entry in
-the D2 known-non-parity list, and it is **not an indexing question**: closing it
-moves `natFrameLayout`, which every frame displacement in the backend is pinned
-against.
+**CORRECTED 2026-11-10 by NAT-FRAME.** This section originally claimed that the
+difference was a rounding rule: "the kcc driver rounds the locals region up to
+the next 16 (`round16`) while the oracle rounds it up to the next 16 **strictly
+greater**". That was wrong, and it was wrong in a way that pointed the fix at the
+wrong place. The two rounding rules are IDENTICAL - both round the frame up to
+the next multiple of 16, and only on Windows.
+
+The real cause was TWO defects, both measured by NAT-FRAME:
+
+1. **The map-stage slot was never reserved.** The oracle's map-usage flag is
+   PROGRAM-WIDE, and its `isMapIndex` predicate accepts any variable-target
+   index - an ARRAY access included - so the oracle reserves the 8-byte
+   map-stage slot in every frame of a program that indexes anything. The
+   driver's layout call sites passed a literal 0, so it reserved it in none.
+2. **`inc r8` decoded as `inc rax`**, because `natIncReg` set the REX.R bit
+   instead of REX.B. That is a silent data-corruption bug (a map's entry
+   count), not a cosmetic one.
+
+Both are fixed by NAT-FRAME, and the frames now match the oracle exactly. What
+remains for an array program is TWO bytes: the absolute rodata addresses of the
+runtime-error reporter's strings, whose interning ORDER differs between the two
+engines. See `docs/audit/NAT-FRAME-BASELINE.md` section 4.
 
 So array programs are compared **BEHAVIOURALLY** (against the C backend) and
 the byte difference is **asserted** (the sizes must agree) rather than hidden.
@@ -325,14 +339,18 @@ is asserted, not concealed.
 
 ### 8.5 Next
 
-**The frame delta.** It is now the ONLY thing standing between the array path
-and byte identity with the oracle: the images are the same size and differ
-only in the frame's size immediate. Closing it means reconciling the locals
-region's rounding — the kcc driver rounds up to the next 16, the oracle up to
-the next 16 *strictly greater* — and that moves `natFrameLayout`, which every
-frame displacement in the backend is pinned against. It is a small change in
-one function and a large one in its consequences, so it wants its own
-increment.
+**The rodata interning order.** NAT-FRAME closed the frame difference this
+section described - and the description was itself wrong (see section 4): the
+two engines' rounding rules were always identical, and the 8-byte delta was an
+UNRESERVED map-stage slot plus an `inc r8` that decoded as `inc rax`.
+
+What remains is TWO bytes: the absolute rodata addresses of the runtime-error
+reporter's strings, whose interning ORDER differs (the oracle emits the
+reporter helper before the user function, so its strings are interned first; the
+driver appends them after the program's own literals). The driver's own comment
+already describes the oracle order, so this is a defect and not a design
+choice. It wants its own increment, because the fix moves the reporter's
+offsets in every image that can raise a diagnostic.
 
 **`NAT-REG` — the register allocator** — remains the largest genuine gap in
 the native value model, and it is unchanged by this increment.

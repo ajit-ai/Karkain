@@ -241,11 +241,15 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// expressions, because a predicate that cannot see an index produces a
 		// linker crash rather than a diagnostic.
 		//
+		// RE-PINNED FOR NAT-FRAME: 14834 -> 14841 (+7). The driver's frame now
+		// matches the oracle's exactly; the delta was an unreserved map-stage
+		// slot and an `inc r8` that decoded as `inc rax`, not a rounding rule.
+		//
 		// Measured with `karkain kir --verify src/compiler/kir.kark` in this
 		// gate's own invocation -- text=14834 verify=14834 -- and never
 		// predicted.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 14834 {
-			t.Errorf("whole-tree kir text = %d lines, want 14834:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 14841 {
+			t.Errorf("whole-tree kir text = %d lines, want 14841:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
