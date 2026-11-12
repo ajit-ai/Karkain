@@ -966,12 +966,16 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	//
 	// 14938 -> 14946 (NAT-RODATA, 2026-11-12): the reporter's read-only data is
 	// now interned in the oracle's order and its offsets are read back out of
-	// the interning table. The delta is small because most of the slice's
-	// source growth is COMMENTS, which the KIR text does not render. Measured
-	// with `karkain kir --verify src/compiler/kir.kark` -- text=14946
-	// verify=14946 -- and never predicted.
-	if text != 14946 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 14946; see the comment above for the measured chain. output follows: %s", text, out)
+	// the interning table. Measured with `karkain kir --verify
+	// src/compiler/kir.kark` -- text=14946 verify=14946 -- and never predicted.
+	//
+	// 14946 -> 15243 (NAT-REG, 2026-11-12): the register allocator and its
+	// liveness walk are new FUNCTIONS, and the KIR text renders the AST
+	// rather than the file, so a slice that adds functions moves the pin by
+	// more than its line count. Measured with `karkain kir --verify
+	// src/compiler/kir.kark` -- text=15243 verify=15243 -- and never predicted.
+	if text != 15243 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 15243; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

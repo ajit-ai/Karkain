@@ -480,6 +480,20 @@ jobs:
       - name: Run NAT-RODATA native reporter rodata gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATRodata_' -count=1 -timeout 30m -v
 
+      # NAT-REG, native register allocation in the self-hosted driver.
+      #
+      # The register-allocated path is NEW code in a self-hosted compiler, so
+      # the evidence is BEHAVIOURAL: every case is built with the stack-based
+      # path, with the register-allocated path and with the Go oracle, and the
+      # two native paths must produce the SAME observable result. The frame
+      # must be unchanged (the allocator does not shrink it), and the two paths
+      # must be byte-different for the high-pressure cases -- otherwise the
+      # agreement would be vacuous.
+      #
+      # The switch is KARKAIN_NATIVE_REGALLOC=1 and the DEFAULT is the
+      # stack-based path, which is the qualified implementation.
+      - name: Run NAT-REG native register-allocation gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATReg_' -count=1 -timeout 30m -v
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

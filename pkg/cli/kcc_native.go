@@ -511,12 +511,28 @@ func kccNativeConsult(targetFile, targetName string, isRun bool) CommandResult {
 // kccNativeInvoke runs `kcc build|run <staged> --target <target>` and returns the
 // combined output. The kcc engine has no exit primitive of its own, so the exit
 // status is deliberately NOT used to classify the outcome — only the output is.
+// natRegAllocArgs returns the "--regalloc" argument when the environment asks
+// for the register-allocated native path.
+//
+// NAT-REG: the switch is an ENVIRONMENT VARIABLE on the CLI side and an
+// ARGUMENT on the self-hosted side, because the self-hosted compiler has no
+// environment accessor. The DEFAULT is the stack-based path, which is the
+// qualified implementation this repository ships.
+//
+// The variable is KARKAIN_NATIVE_REGALLOC. Any non-empty value enables it.
+func natRegAllocArgs() []string {
+	if os.Getenv("KARKAIN_NATIVE_REGALLOC") == "" {
+		return nil
+	}
+	return []string{"--regalloc"}
+}
+
 func kccNativeInvoke(bin, staged, target string, isRun bool) (string, error) {
 	verb := "build"
 	if isRun {
 		verb = "run"
 	}
-	cmd := exec.Command(bin, verb, staged, "--target", target)
+	cmd := exec.Command(bin, append([]string{verb, staged, "--target", target}, natRegAllocArgs()...)...)
 	// Force the staged sandbox as the working directory so a kcc that writes a
 	// file cannot touch the user's tree.
 	if dir := filepath.Dir(staged); dir != "" {

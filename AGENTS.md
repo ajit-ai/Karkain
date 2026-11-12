@@ -4220,6 +4220,63 @@ source growth is COMMENTS, which the KIR text does not render; re-pinned in
 `pkg/cli/phase151a5_win_test.go`.
 
 
+Also completed: **NAT-REG - native register allocation in the self-hosted driver**
+(increment 151, slice "NAT-REG", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE for the slice**;
+design `docs/audit/NAT-REG-DESIGN.md`, record `docs/audit/NAT-REG-BASELINE.md`).
+**THE ORACLE ALREADY HAD AN ALLOCATOR and the driver did not**, and that is the
+whole shape of the gap: `pkg/native/regalloc.go` is the Phase-150C allocator,
+it promotes INT locals into R12-R15 (callee-saved under BOTH the System V and
+the Win64 ABI, and untouched by the rest of the backend, which works in
+RAX/RCX/RDX/RSI/RDI/R8-R11 and clobbers RBX), and it engages only under
+pressure: the function must contain CONTROL FLOW and the peak number of
+simultaneously-live int locals must be at least five (`raMinLive =
+allocRegCount + 1`). The driver's locals were all frame-resident, so a
+five-local function was encoded differently from the oracle's. **THE
+CORRECTION IS A PORT, NOT A NEW DESIGN**, and it is small because the
+architecture was already there: the allocation lives in the PLAN, as a fifth
+field per slot (the plan is per function and already threaded everywhere, so
+this needs no new parameter and no global state), the liveness is a
+point-ordered walk over the driver's own AST with the loop widening the
+oracle's rule requires, and the allocation is the same linear scan: a register
+is available when the local holding it is dead before this range starts, and a
+candidate that cannot get one keeps its frame slot, which is the pre-existing
+path and needs no new code. **The frame does NOT shrink** -- a spilled local
+keeps its slot -- so every slot displacement is unchanged and what the
+allocator saves is memory TRAFFIC, not frame size. **The switch is
+`KARKAIN_NATIVE_REGALLOC=1` and the DEFAULT is the stack-based path**, which
+is the qualified implementation this repository ships: the register path is
+new code in a self-hosted compiler, and the brief's own rule is that it does
+not become the default until it has passed the complete qualification suite.
+Evidence (`pkg/cli/phase151n_regalloc_test.go`, `TestPhaseNATReg_`): the
+register-allocated path and the stack-based path are built over the SAME
+programs and must produce the SAME observable result -- stdout and exit
+status, byte for byte -- with the Go oracle as a third opinion; the frame must
+be IDENTICAL between the two paths; and the two paths must be BYTE-DIFFERENT
+for the high-pressure cases, because otherwise the agreement would be
+vacuous. The corpus covers the brief's twenty-two areas: simple arithmetic,
+deeply nested expressions, several simultaneously live values, register
+exhaustion, spill and reload, repeated reads, local updates, comparisons and
+branches, nested branches, loops with changing variables, `break` and
+`continue`, arguments, nested calls, a value live ACROSS a call, return
+values, array indexing, bounds behaviour, float (refused by name in both
+paths), several functions, determinism, low pressure and deliberate high
+pressure. **Mutations: 4**, each restored byte-identically (SHA-256
+`8DFCCC6005547F76D9883C10B3626E68CF3E19306D7BD7F438FC08813A3FEA2A`):
+omitting the epilogue's POP, storing a spilled value to the wrong slot, reusing
+a register whose holder is still live, and dropping the loop widening -- the
+last two are the ones that would CLOBBER a value and the first two are the
+ones that would corrupt a callee's register. **A FIFTH mutation was NOT
+caught and is recorded rather than hidden:** dropping the scan's liveness
+check makes the allocator MORE conservative -- it never reuses a register --
+which is a missed optimisation, not a wrong answer, and the gate cannot see
+it. That is why the mutation that matters is the one that reuses a register
+WHOSE HOLDER IS STILL LIVE. **Not claimed:** a performance improvement. The
+allocator trades memory traffic for a push/pop pair per claimed register, and
+for a program this small the wall-clock time is dominated by the process
+startup, so the measured sizes are RECORDED and the comparison is not claimed.
+
+
 Also completed: **B2 seed-closure discovery job + the v1.2.0 scope amendment**
 (verdict **COMPLETE** as a change; **B2 itself remains OPEN and unproven** --
 the job is DISCOVERY, not a release gate). Two things landed. (1) A new

@@ -380,6 +380,19 @@ func natRegR8()  { return 8 }
 func natRegR9()  { return 9 }
 func natRegR10() { return 10 }
 func natRegR11() { return 11 }
+// NAT-REG: the allocatable set. R12-R15 are callee-saved under BOTH ABIs in
+// play (System V and Win64), so a value parked there survives a call to a user
+// function, a helper or a kernel32 export without a spill; and they are
+// untouched by the rest of the backend, which works in
+// RAX/RCX/RDX/RSI/RDI/R8-R11 and clobbers RBX. RBX and RBP are deliberately
+// NOT allocatable: both are live scratch inside emitted helpers.
+//
+// This is the ORACLE's allocatable set (pkg/native/regalloc.go: allocRegs),
+// chosen for the same reasons.
+func natRegR12() { return 12 }
+func natRegR13() { return 13 }
+func natRegR14() { return 14 }
+func natRegR15() { return 15 }
 
 // ============================================================
 // Phase 151A Step 7 -- int `print`.
@@ -3905,6 +3918,7 @@ func natNativePlanFor(params, stmts, tbl) {
   plan = appendArray(plan, natKindInt())
   plan = appendArray(plan, 0)
   plan = appendArray(plan, params[pi])
+  plan = appendArray(plan, -1)
   next = next + 8
   pi = pi + 1
   }
@@ -3968,6 +3982,7 @@ func natNativePlanFor(params, stmts, tbl) {
   plan = appendArray(plan, k)
   plan = appendArray(plan, ne)
   plan = appendArray(plan, natNativeDeclName(n))
+  plan = appendArray(plan, -1)
   next = next + 8
   if (natKindUnits(k) == 2) { next = next + 8 }
   if (k == natKindArray()) { next = next + 8 * ne }
@@ -4009,12 +4024,18 @@ func natNativePlanFor(params, stmts, tbl) {
   return [plan, next]
   }
 
-func natNativePlanCount(plan) { return len(plan) / 4 }
+func natNativePlanCount(plan) { return len(plan) / 5 }
 
-func natNativeSlotOff(plan, idx) { return plan[idx * 4] }
-func natNativeSlotKind(plan, idx) { return plan[idx * 4 + 1] }
-func natNativeSlotElems(plan, idx) { return plan[idx * 4 + 2] }
-func natNativeSlotName(plan, idx) { return plan[idx * 4 + 3] }
+func natNativeSlotOff(plan, idx) { return plan[idx * 5] }
+func natNativeSlotKind(plan, idx) { return plan[idx * 5 + 1] }
+func natNativeSlotElems(plan, idx) { return plan[idx * 5 + 2] }
+func natNativeSlotName(plan, idx) { return plan[idx * 5 + 3] }
+// natNativeSlotReg is the register a slot was allocated, or -1 for "keep the
+// frame slot". NAT-REG: the allocation lives in the PLAN, so it is per function
+// and needs no global state and no extra parameter anywhere.
+func natNativeSlotReg(plan, idx) { return plan[idx * 5 + 4] }
+// natNativeSlotCount is the number of slots in a plan.
+func natNativeSlotCount(plan) { return len(plan) / 5 }
 
 // natNativePlanBytes is the total locals-region size, which is the first argument
 // natFrameLayout takes.
@@ -4146,8 +4167,12 @@ func natNativeStmtKindName(k) {
     return "statement kind " + str(k)
 }
 
-func natNativeScanFor(params, stmts, tbl, fns, isMain) {
+func natNativeScanFor(params, stmts, tbl, fns, isMain, useRegAlloc) {
     let plan = natNativePlanFor(params, stmts, tbl)
+    // NAT-REG: the allocation is per function and lives in the plan, so it is
+    // computed here -- once, where the plan is complete -- and every access
+    // site reads it back out of the plan.
+    if (useRegAlloc == 1) { plan = natNativeRegAlloc(stmts, plan) }
     let r = natNativeScanStmts(stmts, plan, tbl, fns, isMain, stmts, 0, 0)
     return [r[0], plan, r[1]]
 }
@@ -5875,7 +5900,9 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
     }
     if (t == NODE_IDENT()) {
         let ord = natNativeSlotIndex(plan, identName(e))
-        return natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
+        // NAT-REG: an allocated local lives in a callee-saved register; the
+        // frame slot is the fallback for everything else.
+        return natNativeLoadLocal(s, plan, ord, natRegRAX())
     }
     if (t == NODE_INDEX()) {
         // NAT-IDX: an array element read. The order is the oracle's
@@ -6027,7 +6054,15 @@ func natNativeHomeParams(s, params, plan) {
         let k = 0
         while (k < units) {
             if (unit < 6) {
-                s = natStoreStack(s, natArgReg(unit), natNativeSlotOff(plan, ord) + k * 8)
+                // NAT-REG: an allocated parameter is homed straight into its
+                // register. Only an INT parameter is ever allocated, so it is
+                // one unit and the "+ k * 8" offset does not apply.
+                let preg = natNativeSlotReg(plan, ord)
+                if (preg >= 0) {
+                    s = natMovRegReg(s, preg, natArgReg(unit))
+                } else {
+                    s = natStoreStack(s, natArgReg(unit), natNativeSlotOff(plan, ord) + k * 8)
+                }
             } else {
                 s = natLoadBaseOff(s, natRegRAX(), natRegR10(), (unit - 6) * 8)
                 s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, ord) + k * 8)
@@ -6186,7 +6221,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx) + 8)
                 } else {
                     s = natEmitIntExpr(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx)
-                    s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
+                    s = natNativeStoreLocal(s, plan, idx, natRegRAX())
                 }
                 }
             }
@@ -6483,7 +6518,7 @@ identName(callArgs(pv)[0]))
         if (natNativeIsDecl(forInit(n))) {
         let idx = natNativeSlotIndex(plan, natNativeDeclName(forInit(n)))
         s = natEmitIntExpr(s, natNativeDeclValue(forInit(n)), plan, fns, binTemp, extrasBase, frame, 0, rctx)
-        s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
+        s = natNativeStoreLocal(s, plan, idx, natRegRAX())
         } else {
         s = natEmitAssignLocal(s, plan, binaryLeft(forInit(n)), binaryRight(forInit(n)), fns, binTemp, extrasBase, frame, rctx)
         }
@@ -6548,7 +6583,9 @@ identName(callArgs(pv)[0]))
 func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame, rctx) {
     let ord = natNativeSlotIndex(plan, identName(lhs))
     s = natEmitIntExpr(s, rhs, plan, fns, binTemp, extrasBase, frame, 0, rctx)
-    s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
+    // NAT-REG: an allocated local is reassigned in its register; everything
+    // else is stored to the frame slot, which is the pre-existing path.
+    s = natNativeStoreLocal(s, plan, ord, natRegRAX())
     return s
 }
 
@@ -6596,12 +6633,17 @@ func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, 
     let label = natNativeFuncLabel(name)
     let retLabel = label + "$ret"
     s = natMark(s, label)
+    // NAT-REG: save the claimed callee-saved registers BEFORE the frame is
+    // taken, so the frame's rsp-relative displacements stay unchanged, and
+    // restore them after the frame is released.
+    s = natNativeRegPush(s, plan)
     if (frame > 0) { s = natSubRegImm32(s, natRegRSP(), frame) }
     s = natNativeHomeParams(s, params, plan)
     s = natNativeLower(s, body, body, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, label, "")
     if (hasReturn == 0) { s = natXorRegReg(s, natRegRAX()) }
     s = natMark(s, retLabel)
     if (frame > 0) { s = natAddRegImm32(s, natRegRSP(), frame) }
+    s = natNativeRegPop(s, plan)
     return natRet(s)
 }
 
@@ -6629,8 +6671,8 @@ func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, 
 // both behind natNativeProgramOS, which shares this whole body;
 // `natNativeProgram` is a one-line wrapper naming the Windows target rather
 // than a second copy of the driver.
-func natNativeProgram(ast) {
-    return natNativeProgramOS(ast, natOSWindows(), "")
+func natNativeProgram(ast, useRegAlloc) {
+    return natNativeProgramOS(ast, natOSWindows(), "", useRegAlloc)
 }
 
 // natNativeProgramOS compiles a PARSED PROGRAM to a native image for one OS.
@@ -6659,7 +6701,7 @@ func natNativeProgram(ast) {
 // Calling natPELink for Linux (or vice versa) would not fail loudly; it would
 // produce a PE under a Linux target NAME. That is a miscompile, so the container
 // choice is made once, here, by the same targetOS that chose the stub.
-func natNativeProgramOS(ast, targetOS, sourceBase) {
+func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     let stmts = ast[1]
     let mainFn = natNativeFindMain(stmts)
     if (mainFn == 0) {
@@ -6691,7 +6733,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
         return [natNativeRefuseNoLine("`main` must take no parameters on the native " +
             "target: the entry stub calls it with none"), []]
     }
-    let scan = natNativeScanFor(mainParams, body, tbl, fns, 1)
+    let scan = natNativeScanFor(mainParams, body, tbl, fns, 1, useRegAlloc)
     if (scan[0] != "") { return [scan[0], []] }
     let plan = scan[1]
     let mainHasReturn = scan[2]
@@ -6951,7 +6993,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
             // A callee's own plan and return flag. A refusal here aborts the WHOLE
             // program: a half-emitted image is not a build with a warning, it is an
             // image whose missing function is a link-time surprise.
-            let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0)
+            let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0, useRegAlloc)
             if (fscan[0] != "") { return [fscan[0], []] }
             fplan = fscan[1]
             fhasReturn = fscan[2]
@@ -7524,6 +7566,409 @@ func natNativeStrTotalBytes(stmts) {
         j = j + 1
     }
     return total
+}
+// ============================================================
+// NAT-REG: the register allocator.
+//
+// The design is in docs/audit/NAT-REG-DESIGN.md. The short version: this
+// mirrors the ORACLE's Phase-150C allocator (pkg/native/regalloc.go) -- the
+// same allocatable set, the same engagement gate, the same linear scan over
+// live ranges and the same no-split rule -- over the DRIVER's own AST.
+//
+// A local that does not get a register keeps its frame slot, which is the
+// pre-existing path and needs no new code. The frame does NOT shrink: a
+// spilled local's slot is still reserved, so every slot displacement is
+// unchanged and what the allocator saves is memory TRAFFIC, not frame size.
+
+// natNativeHasControlFlow reports whether the statements contain a branch or
+// a loop. It is one half of the engagement gate: below the pressure
+// threshold there is nothing to relieve, and in a straight-line body a
+// push/pop pair would cost more than the load it removes.
+func natNativeHasControlFlow(stmts) {
+    let found = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let k = nodeType(stmts[i])
+        if (k == NODE_IF() || k == NODE_WHILE() || k == NODE_FOR() || k == NODE_FOR_IN()) { found = 1 }
+        i = i + 1
+    }
+    return found
+}
+
+// natNativeRegAlloc promotes int locals into callee-saved registers.
+//
+// The gate is the ORACLE's (pkg/native/program.go's planRegs): the function
+// must have control flow AND the peak number of simultaneously-live int
+// locals must be at least five (raMinLive = allocRegCount + 1).
+func natNativeRegAlloc(stmts, plan) {
+    if (natNativeHasControlFlow(stmts) == 0) { return plan }
+    let n = natNativeSlotCount(plan)
+    if (n < 5) { return plan }
+    // The live ranges: two entries per slot, the first and the last position
+    // at which the slot is touched, or -1 when it never is.
+    let ranges = []
+    let i = 0
+    while (i < n) {
+        ranges = appendArray(ranges, -1)
+        ranges = appendArray(ranges, -1)
+        i = i + 1
+    }
+    let w = natNativeLiveWalk(stmts, plan, ranges, [], 0)
+    ranges = natNativeRegWiden(w[0], n, w[1])
+    if (natNativeRegPeak(ranges, n) < 5) { return plan }
+    return natNativeRegScan(plan, n, ranges)
+}
+
+// natNativeRegWiden widens the ranges that INTERSECT a loop.
+//
+// A local mentioned inside a loop is live for the WHOLE loop: the body may run
+// many times, and a value defined before the loop must survive every
+// iteration. Widening is conservative in the safe direction -- it can only
+// cause an extra spill, never a wrong answer.
+func natNativeRegWiden(ranges, n, loops) {
+    let li = 0
+    while (li < len(loops)) {
+        let s = loops[li]
+        let e = loops[li + 1]
+        let i = 0
+        while (i < n) {
+            let f = ranges[i * 2]
+            let l = ranges[i * 2 + 1]
+            if (f >= 0 && f <= e && l >= s) {
+                if (s < f) { ranges[i * 2] = s }
+                if (e > l) { ranges[i * 2 + 1] = e }
+            }
+            i = i + 1
+        }
+        li = li + 2
+    }
+    return ranges
+}
+
+// natNativeRegPeak is the largest number of ranges covering one point.
+//
+// The coverage only changes at a range's endpoints, so evaluating it at
+// every range's start is enough.
+func natNativeRegPeak(ranges, n) {
+    let peak = 0
+    let i = 0
+    while (i < n) {
+        let f = ranges[i * 2]
+        if (f >= 0) {
+            let c = 0
+            let j = 0
+            while (j < n) {
+                let f2 = ranges[j * 2]
+                let l2 = ranges[j * 2 + 1]
+                if (f2 >= 0 && f2 <= f && l2 >= f) { c = c + 1 }
+                j = j + 1
+            }
+            if (c > peak) { peak = c }
+        }
+        i = i + 1
+    }
+    return peak
+}
+
+// natNativeRegScan is the linear scan.
+//
+// A register is available when the local holding it is dead before this
+// range starts; otherwise the candidate spills to its frame slot, which is
+// the pre-existing behaviour and needs no new code path.
+//
+// The scan walks the slots in PLAN order, which is the declaration order and
+// therefore the order of first definition, so the allocation is a pure
+// function of the program.
+func natNativeRegScan(plan, n, ranges) {
+    // held[r] is the last position of the range holding register r, or -1.
+    let held = [-1, -1, -1, -1]
+    let i = 0
+    while (i < n) {
+        let f = ranges[i * 2]
+        let l = ranges[i * 2 + 1]
+        if (f >= 0) {
+            let r = -1
+            let k = 0
+            while (k < 4) {
+                if (held[k] < 0 || held[k] < f) {
+                    r = k
+                    k = 4
+                }
+                k = k + 1
+            }
+            if (r >= 0) {
+                plan[i * 5 + 4] = 12 + r
+                held[r] = l
+            }
+        }
+        i = i + 1
+    }
+    return plan
+}
+
+// natNativeLiveWalk computes the live ranges.
+//
+// It returns [ranges, loops, pos]:
+//   ranges  two entries per slot: the first and the last position at which
+//           the slot is touched, or -1 when it never is
+//   loops   two entries per loop: the position it starts at and the position
+//           it ends at
+//   pos     the final position counter
+//
+// The walk is POINT ORDERED: every statement and every expression advances
+// the counter, so a local's range runs from its first touch to its last.
+func natNativeLiveWalk(stmts, plan, ranges, loops, pos) {
+    let i = 0
+    while (i < len(stmts)) {
+        let w = natNativeLiveStmt(stmts[i], plan, ranges, loops, pos)
+        ranges = w[0]
+        loops = w[1]
+        pos = w[2]
+        i = i + 1
+    }
+    return [ranges, loops, pos]
+}
+
+// natNativeLiveStmt handles ONE statement.
+//
+// The FOR arm's init and post are single STATEMENT nodes and not lists --
+// that is the AST's shape (ast.kark: makeFor stores the init, the condition,
+// the post and the body as four separate fields) -- which is why they are
+// handled here and not by natNativeLiveWalk.
+func natNativeLiveStmt(n, plan, ranges, loops, pos) {
+    let k = nodeType(n)
+    if (natNativeIsDecl(n)) {
+        pos = pos + 1
+        let r = natNativeLiveTouch(ranges, plan, natNativeDeclName(n), pos, 1)
+        ranges = r[0]
+        let w = natNativeLiveExpr(natNativeDeclValue(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+    }
+    if (k == NODE_PRINT()) {
+        let w = natNativeLiveExpr(printVal(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+    }
+    if (k == NODE_RETURN()) {
+        let w = natNativeLiveExpr(retVal(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+    }
+    if (k == NODE_EXPR_STMT()) {
+        let e = exprStmtExpr(n)
+        let isAssign = 0
+        if (natNativeIsAssignExpr(e)) { isAssign = 1 }
+        if (isAssign == 1) {
+            let lhs = binaryLeft(e)
+            if (nodeType(lhs) == NODE_IDENT()) {
+                // `x = v` defines x and uses v.
+                pos = pos + 1
+                let r = natNativeLiveTouch(ranges, plan, identName(lhs), pos, 1)
+                ranges = r[0]
+                let w = natNativeLiveExpr(binaryRight(e), plan, ranges, pos + 1)
+                ranges = w[0]
+                pos = w[1]
+            } else {
+                let w = natNativeLiveExpr(e, plan, ranges, pos + 1)
+                ranges = w[0]
+                pos = w[1]
+            }
+        } else {
+            let w = natNativeLiveExpr(e, plan, ranges, pos + 1)
+            ranges = w[0]
+            pos = w[1]
+        }
+    }
+    if (k == NODE_IF()) {
+        let w = natNativeLiveExpr(ifCond(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+        let c = natNativeLiveWalk(ifCons(n), plan, ranges, loops, pos + 1)
+        ranges = c[0]
+        loops = c[1]
+        pos = c[2]
+        let a = natNativeLiveWalk(ifAlt(n), plan, ranges, loops, pos + 1)
+        ranges = a[0]
+        loops = a[1]
+        pos = a[2]
+    }
+    if (k == NODE_WHILE()) {
+        let lstart = pos
+        let w = natNativeLiveExpr(whileCond(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+        let b = natNativeLiveWalk(whileBody(n), plan, ranges, loops, pos + 1)
+        ranges = b[0]
+        loops = b[1]
+        pos = b[2]
+        loops = appendArray(loops, lstart)
+        loops = appendArray(loops, pos)
+    }
+    if (k == NODE_FOR()) {
+        let lstart = pos
+        let fi = forInit(n)
+        if (len(fi) > 0) {
+            let w = natNativeLiveStmt(fi, plan, ranges, loops, pos + 1)
+            ranges = w[0]
+            loops = w[1]
+            pos = w[2]
+        }
+        let w = natNativeLiveExpr(forCond(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+        let b = natNativeLiveWalk(forBody(n), plan, ranges, loops, pos + 1)
+        ranges = b[0]
+        loops = b[1]
+        pos = b[2]
+        let fp = forPost(n)
+        if (len(fp) > 0) {
+            let w = natNativeLiveStmt(fp, plan, ranges, loops, pos + 1)
+            ranges = w[0]
+            loops = w[1]
+            pos = w[2]
+        }
+        loops = appendArray(loops, lstart)
+        loops = appendArray(loops, pos)
+    }
+    return [ranges, loops, pos]
+}
+// natNativeLiveTouch records a use (or a def) of a local at a position.
+//
+// Only INT locals are candidates: a string or an array is two units and is
+// never promoted.
+func natNativeLiveTouch(ranges, plan, name, pos, isDef) {
+    let ord = natNativeSlotIndex(plan, name)
+    if (ord < 0) { return [ranges, 0] }
+    if (natNativeSlotKind(plan, ord) != natKindInt()) { return [ranges, 0] }
+    let f = ranges[ord * 2]
+    let l = ranges[ord * 2 + 1]
+    if (f < 0) { f = pos }
+    if (isDef == 1 && pos < f) { f = pos }
+    if (pos > l) { l = pos }
+    ranges[ord * 2] = f
+    ranges[ord * 2 + 1] = l
+    return [ranges, 0]
+}
+
+// natNativeLiveExpr walks an expression for the identifiers it touches.
+func natNativeLiveExpr(e, plan, ranges, pos) {
+    let k = nodeType(e)
+    if (k == NODE_IDENT()) {
+        let r = natNativeLiveTouch(ranges, plan, identName(e), pos, 0)
+        return [r[0], pos + 1]
+    }
+    if (k == NODE_BINARY()) {
+        let l = natNativeLiveExpr(binaryLeft(e), plan, ranges, pos + 1)
+        let r = natNativeLiveExpr(binaryRight(e), plan, l[0], l[1])
+        return [r[0], r[1]]
+    }
+    if (k == NODE_UNARY()) {
+        let r = natNativeLiveExpr(unaryOperand(e), plan, ranges, pos + 1)
+        return [r[0], r[1]]
+    }
+    if (k == NODE_INDEX()) {
+        let l = natNativeLiveExpr(indexLeft(e), plan, ranges, pos + 1)
+        let r = natNativeLiveExpr(e[2], plan, l[0], l[1])
+        return [r[0], r[1]]
+    }
+    if (k == NODE_CALL()) {
+        let args = callArgs(e)
+        let rr = [ranges, pos + 1]
+        let i = 0
+        while (i < len(args)) {
+            let w = natNativeLiveExpr(args[i], plan, rr[0], rr[1])
+            rr = [w[0], w[1]]
+            i = i + 1
+        }
+        return [rr[0], rr[1]]
+    }
+    if (k == NODE_ARRAY_LIT()) {
+        let elems = arrayLitElems(e)
+        let rr = [ranges, pos + 1]
+        let i = 0
+        while (i < len(elems)) {
+            let w = natNativeLiveExpr(elems[i], plan, rr[0], rr[1])
+            rr = [w[0], w[1]]
+            i = i + 1
+        }
+        return [rr[0], rr[1]]
+    }
+    if (k == NODE_STRUCT_LIT()) {
+        let sf = structLitFields(e)
+        let rr = [ranges, pos + 1]
+        let i = 0
+        while (i < len(sf)) {
+            let w = natNativeLiveExpr(binaryRight(sf[i]), plan, rr[0], rr[1])
+            rr = [w[0], w[1]]
+            i = i + 1
+        }
+        return [rr[0], rr[1]]
+    }
+    return [ranges, pos + 1]
+}
+
+// natNativeRegList returns the registers the plan claims, in R12..R15 order.
+//
+// The order is the ALLOCATABLE SET's order and not the plan's, so the push/pop
+// sequence is a pure function of the allocation and never of the order the
+// slots happen to be declared in.
+func natNativeRegList(plan) {
+    let out = []
+    let r = 12
+    while (r < 16) {
+        let i = 0
+        let n = natNativeSlotCount(plan)
+        let found = 0
+        while (i < n) {
+            if (natNativeSlotReg(plan, i) == r) { found = 1 }
+            i = i + 1
+        }
+        if (found == 1) { out = appendArray(out, r) }
+        r = r + 1
+    }
+    return out
+}
+
+// natNativeRegPush saves the claimed callee-saved registers.
+//
+// They are pushed BEFORE the frame is taken, so the frame's rsp-relative
+// displacements below stay unchanged.
+func natNativeRegPush(s, plan) {
+    let regs = natNativeRegList(plan)
+    let i = 0
+    while (i < len(regs)) {
+        s = natPushReg(s, regs[i])
+        i = i + 1
+    }
+    return s
+}
+
+// natNativeRegPop restores them, in exact reverse order.
+func natNativeRegPop(s, plan) {
+    let regs = natNativeRegList(plan)
+    let i = len(regs) - 1
+    while (i >= 0) {
+        s = natPopReg(s, regs[i])
+        i = i - 1
+    }
+    return s
+}
+
+// natNativeStoreLocal stores an int local's value: in its allocated register
+// when it has one, and in its frame slot otherwise.
+func natNativeStoreLocal(s, plan, ord, valueReg) {
+    let reg = natNativeSlotReg(plan, ord)
+    if (reg >= 0) { return natMovRegReg(s, reg, valueReg) }
+    return natStoreStack(s, valueReg, natNativeSlotOff(plan, ord))
+}
+
+// natNativeLoadLocal reads an int local into a register: from its allocated
+// register when it has one, and from its frame slot otherwise.
+func natNativeLoadLocal(s, plan, ord, dstReg) {
+    let reg = natNativeSlotReg(plan, ord)
+    if (reg >= 0) { return natMovRegReg(s, dstReg, reg) }
+    return natLoadStack(s, dstReg, natNativeSlotOff(plan, ord))
 }
 
 // The arena is all zeros because the header SELF-INITIALISES: the cursor is zero in the
