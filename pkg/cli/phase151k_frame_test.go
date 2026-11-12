@@ -101,6 +101,37 @@ var natFrameCases = []struct {
 		name: "variable_and_nested_index",
 		src:  "func main() {\n    let a = [3, 5, 7]\n    let i = 1\n    print(a[i])\n    print(a[a[0] - 3])\n}\n",
 	},
+	{
+		// A string FIELD ASSIGNMENT -- the oracle's FIFTH string operation.
+		//
+		// NAT-FRAME recorded this case as a 2560-byte divergence: the oracle
+		// reserves the string staging area for it and the driver reserved
+		// nothing. NAT-STR-STAGE closed that, so the case belongs HERE, covered
+		// by the parity assertion rather than by a note.
+		name: "string_field_assignment",
+		src:  "type S struct { label string; n int }\nfunc main() {\n    let s = S { label: \"a\", n: 1 }\n    s.label = \"changed\"\n    print(s.label)\n}\n",
+	},
+}
+
+// natFrameAllFrames returns EVERY frame-size immediate in an image, in the
+// order the functions appear in .text (source order).
+//
+// The helpers are emitted first and use the SHORT form (`48 83 EC`, a signed
+// byte), so every long form (`48 81 EC`) belongs to a user function. That is
+// what makes this a list of PER-FUNCTION frames rather than a single number,
+// and the list's LENGTH is therefore the function count.
+//
+// natFrameImmediate returns only the FIRST frame, which is main's -- correct
+// for a one-function program and insufficient for a program with a callee.
+func natFrameAllFrames(t *testing.T, img []byte) []int32 {
+	t.Helper()
+	var out []int32
+	for i := 0; i+7 <= len(img); i++ {
+		if img[i] == 0x48 && img[i+1] == 0x81 && img[i+2] == 0xEC {
+			out = append(out, int32(binary.LittleEndian.Uint32(img[i+3:])))
+		}
+	}
+	return out
 }
 
 // natFrameImmediate returns the frame size a PE or ELF reserves in main's
@@ -311,67 +342,77 @@ func TestPhaseNATFrame_TheImagesAgreeOnEverythingButTheReporterStrings(t *testin
 	}
 }
 
-// TestPhaseNATFrame_TheStringStageIsStillDivergent pins the THIRD divergence
-// of the same class, and this gate is where it is recorded.
+// TestPhaseNATFrame_TheStringStageIsReservedProgramWide pins the THIRD
+// divergence of the same class -- the STRING stage -- which NAT-STR-STAGE
+// closed.
 //
-// NAT-FRAME found TWO of them and fixed both: the map-stage slot was reserved
-// per-function instead of program-wide, and `inc r8` decoded as `inc rax`. A
-// third remains, and it is the STRING stage:
+// The oracle's string staging area is reserved from FIVE program-wide flags
+// (usesConcat || usesStrEq || usesStrSlice || usesPush || usesStrField,
+// pkg/native/program.go:4454) and its layout reserves the area in EVERY
+// function. The driver reserved it per-function, and for only two of the five
+// operations, so:
 //
-//   - The oracle's string-stage flag is PROGRAM-WIDE and covers FIVE
-//     operations (usesConcat || usesStrEq || usesStrSlice || usesPush ||
-//     usesStrField), computed by scanValueUsage over the whole program.
-//   - The driver's flag is PER FUNCTION and covers only concat sites and push
-//     counts.
+//   - a callee in a program whose main concatenated had a frame 2560 bytes
+//     short (measured on the Linux ELF target: [608, 3168] against the
+//     oracle's [3168, 3168]); and
+//   - a program that assigned a string to a field reserved nothing at all
+//     (measured: 640 bytes against the oracle's 3200).
 //
-// So a program whose string work happens in one function gets a DIFFERENT
-// frame in another function, and a program that assigns a string to a field
-// gets no string stage at all.
+// This test asserts the CLOSED state on both axes: the area is reserved in
+// every function of a program that performs a string operation, and it is NOT
+// reserved at all in a program that performs none.
 //
-// MEASURED (windows PE): `s.label = "changed"` gives the driver a 640-byte
-// frame and the oracle a 3200-byte one -- a difference of exactly 2560 bytes,
-// which is the string stage (8 * 5 * maxBinDepth = 8 * 5 * 64).
-//
-// This is asserted as a DIFFERENCE, deliberately, for the same reason the
-// two-byte reporter residual is: a known gap that is measured and stated
-// cannot be forgotten, and a gate that silently ignored it could not be
-// noticed when it closed.
-//
-// It is NOT a NAT-FRAME defect. NAT-FRAME is the frame LAYOUT; this is a
-// string-stage POLICY, and it wants its own increment.
-func TestPhaseNATFrame_TheStringStageIsStillDivergent(t *testing.T) {
+// The field-assignment case is in natFrameCases above, so the parity
+// assertion covers it directly.
+func TestPhaseNATFrame_TheStringStageIsReservedProgramWide(t *testing.T) {
 	karkain := phase130Karkain(t)
 
-	// A string assigned to a field. The oracle's scanStructUsage sets
-	// usesStrField, which reserves the string stage.
-	src := "type S struct { label string; n int }\nfunc main() {\n" +
-		"    let s = S { label: \"a\", n: 1 }\n" +
-		"    s.label = \"changed\"\n" +
-		"    print(s.label)\n}\n"
-
-	kccImg, goImg := natFrameBuild(t, karkain, src, NativeWindowsTarget)
-	kccFrame := natFrameImmediate(t, kccImg)
-	goFrame := natFrameImmediate(t, goImg)
-
-	if kccFrame == goFrame {
-		t.Errorf("the string-stage frames now agree (0x%x). That is progress: move this "+
-			"case into TestPhaseNATFrame_TheFrameImmediateMatchesTheOracle so it is "+
-			"covered by the parity assertion rather than merely noted here.",
-			uint32(kccFrame))
-		return
-	}
-	// The difference is EXACTLY the string stage, which is what makes this a
-	// string-stage difference and not something else that happens to be wrong.
+	// The size of the staging area: 8 * 5 * maxBinDepth.
 	const strStage = 8 * 5 * 64
-	if goFrame-kccFrame != strStage {
-		t.Errorf("the frame difference is %d bytes, want %d (the string stage).\n"+
-			"  A DIFFERENT difference means something else moved, and this pin is no "+
-			"  longer describing the real state.",
-			goFrame-kccFrame, strStage)
+
+	// A program with a string OPERATION in main and a helper that does none,
+	// and the same program without the operation.
+	withOp := "func helper() int {\n    return 7\n}\nfunc main() {\n" +
+		"    let a = \"x\"\n    print(a + \"y\")\n    print(helper())\n}\n"
+	withoutOp := "func helper() int {\n    return 7\n}\nfunc main() {\n" +
+		"    let a = \"x\"\n    print(a)\n    print(helper())\n}\n"
+
+	withImg, withOracle := natFrameBuild(t, karkain, withOp, NativeLinuxTarget)
+	withoutImg, _ := natFrameBuild(t, karkain, withoutOp, NativeLinuxTarget)
+
+	withFrames := natFrameAllFrames(t, withImg)
+	withoutFrames := natFrameAllFrames(t, withoutImg)
+	if len(withFrames) != 2 || len(withoutFrames) != 2 {
+		t.Fatalf("expected two frames per image (helper, main), got %d and %d",
+			len(withFrames), len(withoutFrames))
 	}
-	t.Logf("known divergence: the string stage is reserved program-wide by the oracle "+
-		"and per-function by the driver: native 0x%x, oracle 0x%x, difference %d bytes",
-		uint32(kccFrame), uint32(goFrame), goFrame-kccFrame)
+	// Both engines must agree, frame for frame.
+	for i := range withFrames {
+		oracleFrames := natFrameAllFrames(t, withOracle)
+		if i < len(oracleFrames) && withFrames[i] != oracleFrames[i] {
+			t.Errorf("frame %d differs from the oracle's: native 0x%x, oracle 0x%x",
+				i, uint32(withFrames[i]), uint32(oracleFrames[i]))
+		}
+	}
+	// And the area is reserved in EVERY function, not only in the one that
+	// does the string work: the helper's frame grows by exactly the area.
+	for i := range withFrames {
+		if diff := withFrames[i] - withoutFrames[i]; diff != strStage {
+			t.Errorf("frame %d grew by %d bytes when main gained a concatenation, want %d.\n"+
+				"  The oracle's string flags are program-wide, so the staging area is "+
+				"  reserved in every function of the program -- including the helper, "+
+				"  which never touches a string.",
+				i, diff, strStage)
+		}
+	}
+	// And a program with NO string operation reserves nothing.
+	for i := range withoutFrames {
+		if withoutFrames[i] >= strStage+608 {
+			t.Errorf("frame %d is %d bytes, which is at least a staging area larger than "+
+				"the %d-byte baseline; a program with no string operation must reserve "+
+				"nothing.", i, withoutFrames[i], 608)
+		}
+	}
 }
 
 // TestPhaseNATFrame_BoundsAndCallsStillWork is the behavioural half.

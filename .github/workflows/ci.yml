@@ -427,6 +427,33 @@ jobs:
       - name: Run NAT-FRAME native frame-layout gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATFrame_' -count=1 -timeout 30m -v
 
+      # NAT-STR-STAGE, the native string staging area: its SCOPE and its
+      # COVERAGE.
+      #
+      # The oracle reserves the 2560-byte staging area from FIVE PROGRAM-WIDE
+      # flags (usesConcat, usesStrEq, usesStrSlice, usesPush, usesStrField --
+      # pkg/native/program.go:4454) and its layout reserves the area in EVERY
+      # function. The driver reserved it per-function and for only two of the
+      # five, so a callee in a program whose main concatenated had a frame
+      # 2560 bytes short, and a program that assigned a string to a field
+      # reserved nothing at all.
+      #
+      # Its evidence is a DIFFERENTIAL against the Go oracle -- the frame-size
+      # immediates of EVERY function, read out of each image, compared element
+      # for element on the LINUX target, because the Windows frame rounding
+      # quantises an 8-byte difference away and cannot see a 2560-byte one --
+      # plus EXECUTED PE goldens with exact stdout bytes, the five-operation
+      # coverage measured on BOTH engines, a refusal table for the constructs
+      # the driver declines, determinism, and the one remaining divergence
+      # (the oracle's program-wide NAME table, which ignores shadowing) stated
+      # rather than hidden.
+      #
+      # Its own pattern again: 'TestPhaseNATStrStage_' is matched by no other
+      # step, so a string-stage regression cannot hide behind a green
+      # neighbour, and the gate asserts THIS step exists.
+      - name: Run NAT-STR-STAGE native string-staging-area gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATStrStage_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

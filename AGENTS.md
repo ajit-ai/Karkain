@@ -4028,10 +4028,93 @@ for the emitter): reverting the map-stage reservation fails the
 frame-immediate layer on four cases with the exact byte difference AND the
 map-stage layer ("want a difference of 8"), and reverting the REX bit fails
 the encoding layer and turns the residual from two bytes into three. Both are
-caught by MEANINGFUL ASSERTIONS, not by a timeout. **A THIRD DIVERGENCE of the SAME CLASS was found while measuring the whole gated corpus (every program in the 9D/9E/9F/9H corpora, both engines, the frame immediate read out of each image): the STRING STAGE.** The oracle reserves it PROGRAM-WIDE over FIVE operations (usesConcat || usesStrEq || usesStrSlice || usesPush || usesStrField, pkg/native/program.go:4454) and the driver reserves it PER FUNCTION over TWO (concat sites and push counts). So a program that assigns a string to a field gets NO string stage at all, and a program whose string work happens in one function gets a different frame in another. **Measured (windows PE): the driver's frame is 640 and the oracle's is 3200 -- a difference of exactly 2560 bytes, which IS the string stage (8*5*maxBinDepth = 8*5*64).** It is NOT fixed here -- it is a string-stage POLICY, not a frame LAYOUT, and reconciling it means changing what the driver supports (string equality and slicing are not lowered at all) and re-deciding per-function-versus-program-wide for that region, which is a different increment with a different blast radius. It is PINNED rather than ignored: TestPhaseNATFrame_TheStringStageIsStillDivergent asserts the frames still differ AND that they differ by exactly 2560, so the gap cannot be forgotten and it fails loudly when it closes. **The FROZEN 9D GATE'S OWN RULE WAS WRONG and had to be corrected:** it rounded the LOCALS REGION and then added the fixed regions, while the oracle rounds the TOTAL and adds the argument spill AFTER; and it had no map-stage term at all. The two formulations agree while the only fixed region is 512 (a multiple of 16), which is why the rule was not wrong until the map-stage unit arrived -- they part company by 8 bytes afterwards. The same correction was applied to the 9E/9F/9H frame gates, and each corpus program now states whether it indexes anything. **The 9D gate's second check was VACUOUS** (it back-computed the locals region as want-512-96, which under the old rule was round16(localBytes), so the assertion held BY CONSTRUCTION) and is now a real LOWER BOUND on the frame, which an element-blind driver fails. **KIR pin 14834 -> 14841** (+7), measured with `karkain kir --verify src/compiler/kir.kark` in the gate's own invocation (text=14841 verify=14841) and never predicted. **Still refused, by name:**
+caught by MEANINGFUL ASSERTIONS, not by a timeout. **A THIRD DIVERGENCE of the SAME CLASS was found while measuring the whole gated corpus (every program in the 9D/9E/9F/9H corpora, both engines, the frame immediate read out of each image): the STRING STAGE.** The oracle reserves it PROGRAM-WIDE over FIVE operations (usesConcat || usesStrEq || usesStrSlice || usesPush || usesStrField, pkg/native/program.go:4454) and the driver reserves it PER FUNCTION over TWO (concat sites and push counts). So a program that assigns a string to a field gets NO string stage at all, and a program whose string work happens in one function gets a different frame in another. **Measured (windows PE): the driver's frame is 640 and the oracle's is 3200 -- a difference of exactly 2560 bytes, which IS the string stage (8*5*maxBinDepth = 8*5*64).** It is NOT fixed here -- it is a string-stage POLICY, not a frame LAYOUT, and reconciling it means changing what the driver supports (string equality and slicing are not lowered at all) and re-deciding per-function-versus-program-wide for that region, which is a different increment with a different blast radius. It is PINNED rather than ignored: TestPhaseNATFrame_TheStringStageIsStillDivergent asserts the frames still differ AND that they differ by exactly 2560, so the gap cannot be forgotten and it fails loudly when it closes. **CORRECTION (2026-11-11, NAT-STR-STAGE): that gap CLOSED, and the paragraph above describes the state at the END OF NAT-FRAME, not the state now.** The string stage is reserved program-wide over the oracle's five operations and the frames match the oracle's exactly; the divergence test was INVERTED into an agreement test (`TestPhaseNATFrame_TheStringStageIsReservedProgramWide`) and the field-assignment case joined `natFrameCases`. **The FROZEN 9D GATE'S OWN RULE WAS WRONG and had to be corrected:** it rounded the LOCALS REGION and then added the fixed regions, while the oracle rounds the TOTAL and adds the argument spill AFTER; and it had no map-stage term at all. The two formulations agree while the only fixed region is 512 (a multiple of 16), which is why the rule was not wrong until the map-stage unit arrived -- they part company by 8 bytes afterwards. The same correction was applied to the 9E/9F/9H frame gates, and each corpus program now states whether it indexes anything. **The 9D gate's second check was VACUOUS** (it back-computed the locals region as want-512-96, which under the old rule was round16(localBytes), so the assertion held BY CONSTRUCTION) and is now a real LOWER BOUND on the frame, which an element-blind driver fails. **KIR pin 14834 -> 14841** (+7), measured with `karkain kir --verify src/compiler/kir.kark` in the gate's own invocation (text=14841 verify=14841) and never predicted. **Still refused, by name:**
 register allocation (that is `NAT-REG`), `for ... in`, map or string element
 support, non-integer element types, the two NAT-LOOP parser defects, and the
 stderr/GetStdHandle limitation -- all explicitly out of scope.
+
+Also completed: **NAT-STR-STAGE - the native string staging area: scope and coverage**
+(increment 151, slice "NAT-STR-STAGE", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-STR-STAGE-BASELINE.md`). NAT-FRAME found a THIRD
+divergence of the same class while sweeping the whole gated corpus and PINNED it
+rather than fixing it: the string stage is PROGRAM-WIDE in the oracle over FIVE
+operations (usesConcat || usesStrEq || usesStrSlice || usesPush || usesStrField,
+pkg/native/program.go:4454) and PER FUNCTION over TWO in the driver. **THE
+CORRECTION IS THE ALLOCATION, AND ONLY THE ALLOCATION.** The flag is now
+computed ONCE, over the whole program, by `natNativeProgramUsesStr(fns, tbl)`
+-- the same shape as `natNativeProgramUsesMap`, whose map-stage slot has the
+same program-wide scope in the oracle -- and threaded into every function's
+layout in place of the per-function computation, which is deleted along with a
+DEAD program-level copy of it that nothing read. The five-operation predicate
+`natNativeStrOpIn` REUSES the arena bound's existing detectors for the concat
+and push arms, so there is ONE notion of where a concat site is rather than two
+collectors that could disagree (the Step 9g defect class); the equality, slice
+and string-field-assignment arms are new detectors, and each is UNREACHABLE
+from the driver's accepted subset today (all three are refused by name), which
+is stated rather than hidden -- they exist because the reservation is a LAYOUT
+CONTRACT with the oracle, and when one of them is lowered the area has to be
+reserved already or the frame would move at that point and every image with it.
+**WHAT WAS NOT DONE, and is the interesting part:** the driver does NOT
+duplicate the oracle's staging implementation. The oracle's string-field write
+stages the (pointer, length) pair through the area (program.go:6236-6250) and
+the driver's writes the pair directly into the field area, so the FRAME matches
+exactly while the CODE does not -- the field-assignment image is 25 bytes
+SHORTER on the driver (measured 443 against 468) and its rodata starts 25 bytes
+earlier. **MEASURED (Linux ELF; the Windows 16-byte frame rounding quantises
+an 8-byte difference away and cannot see a 2560-byte one): before the
+correction `helper + concat in main` gave the driver [608, 3168] against the
+oracle's [3168, 3168], `helper + push in main` [608, 3208] against [3168, 3208],
+and a string field assignment [640] against [3200] -- every difference the same
+2560 bytes (8 * 5 * maxBinDepth). AFTER: all eleven corpus cases agree frame
+for frame.** Evidence (`pkg/cli/phase151l_strstage_test.go`,
+`TestPhaseNATStrStage_`): the frame-size immediates of EVERY function read out
+of each image and compared element for element with the ORACLE's, on the LINUX
+target; the SCOPE asserted as a DIFFERENCE (the same helper in two programs
+differing only by main's concatenation grows by exactly 2560 in EVERY frame);
+the five operations measured on BOTH engines, with the driver's two refusals
+required to name the construct and produce no image; EXECUTED PE goldens with
+EXACT stdout bytes (never trimmed -- the Step 9b defect was a missing byte);
+determinism; a refusal table for the constructs the driver declines (a string
+in a branch, a string in a loop, a string in a callee, a string equality, a
+string slice); and the differential RECORDING the total allocation, the
+allocation's scope, the string offsets, the function count, the image size, the
+section boundaries, the frame immediates and the byte-identity result.
+**Mutations: 2**, each restored byte-identically: restoring the per-function
+allocation fails the scope layer (the helper's frame stops growing) and the
+corpus's multi-function cases, and corrupting the program-wide aggregation so
+it keeps only the LAST function's answer fails ONLY the case whose string work
+is in a function that is not the last one -- the case added for it.
+**THE ONE DIFFERENCE THAT REMAINS is the ORACLE's over-approximation, not the
+driver's:** the oracle's string inference is NAME-based and program-wide
+(`scanConcatSites` builds a name table and repeats its walk until it is stable,
+program.go:1180-1182), so a name bound to a string ANYWHERE is a string
+EVERYWHERE -- shadowing included. The oracle therefore classifies a helper's
+`a + a` (an int parameter shadowed by a string in main) as a string
+CONCATENATION SITE, reserves the staging area in both functions and allocates
+an arena -- while its own EMISSION lowers it as an integer addition: the same
+program builds, runs and prints an integer sum. The driver follows the
+EMISSION rather than copying the over-approximation, because copying it would
+mean allocating an arena for a program that allocates nothing and classifying
+an integer addition as a string concatenation. Measured: the oracle reserves
+2560 bytes in both frames of that program, the driver none; pinned by
+`TestPhaseNATStrStage_TheOracleNameQuirkIsNotReproduced`. **Two existing gates
+moved with the correction:** the string-assignment case joined NAT-FRAME's
+`natFrameCases` (so the parity assertion covers it), and
+`TestPhaseNATFrame_TheStringStageIsStillDivergent` became
+`TestPhaseNATFrame_TheStringStageIsReservedProgramWide` -- it asserts the
+CLOSED state on both axes rather than recording a divergence that no longer
+exists. The shared frame rule `nat9dExpectFrame` gained a string-stage term
+in the oracle's layout POSITION (between the bin temporary area and the
+map-stage unit -- a rule that put it last would be wrong by 2560 rather than
+by 8), and the 9H record gate's `string_field_assign` case now expects it.
+**Still NOT claimed:** byte-identity (the reporter's rodata interning order
+still differs, and the field write's staging code differs), and the string
+EQUALITY and SLICE lowerings, which are still refused by name. **KIR pin
+14841 -> 14938** (+97), measured with `karkain kir --verify
+src/compiler/kir.kark` (`text=14938 verify=14938`, about 25 minutes on this
+host) and never predicted; re-pinned in `pkg/cli/phase122_pipeline_ownership_test.go`
+and `pkg/cli/phase151a5_win_test.go`.
 
 
 Also completed: **B2 seed-closure discovery job + the v1.2.0 scope amendment**

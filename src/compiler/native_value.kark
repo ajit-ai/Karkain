@@ -6556,18 +6556,25 @@ func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame, rctx
 // everything, and reusing main's layout for a callee would stage operands over the
 // callee's own locals.
 //
-// `usesStr` is 0 for a callee in this slice because the scan refuses every string
-// construct inside a non-main body, and computing it per function anyway is what
-// keeps that statement true if the subset ever widens.
+// `usesStrProg` is the PROGRAM-WIDE string flag, threaded in for the same reason
+// `usesMapProg` is. The oracle's string staging area is reserved from
+// program-wide flags and lands in EVERY function's layout (program.go:4454),
+// so a per-function flag left a callee's frame 2560 bytes short whenever main
+// did any string work at all -- measured on the Linux ELF target, where the
+// Windows frame rounding cannot hide the difference.
 //
 // It is defined AFTER natNativeLower on purpose: this file is assembled and compiled
 // in source order, so a function that CALLS another must be declared later than it
 // (the Phase-133 "wrapper use-before-def" class). Every other definition here follows
 // the same rule.
-func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg) {
-    let usesStr = 0
-    if (natNativeConcatSites(body, plan) > 0) { usesStr = 1 }
-    if (natNativePushCount(body) > 0) { usesStr = 1 }
+func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg, usesStrProg) {
+    // NAT-STR-STAGE: the string staging area is reserved when the PROGRAM
+    // performs a string operation, not when this function does. The oracle's
+    // `b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush ||
+    // b.usesStrField` is a set of program-wide flags (program.go:4454) and its
+    // layout reserves the area in every function, so a per-function flag made
+    // every callee's frame short by natStrTempBytes().
+    let usesStr = usesStrProg
     // NAT-FRAME: the map-stage slot is reserved when the PROGRAM uses a map,
     // not when this function does. The oracle's `b.usesMap` is program-wide
     // and its layout reserves the slot in every function, so a per-function
@@ -6688,13 +6695,16 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // different binTemp and extrasBase, and reusing main's would stage a callee's
     // operands over its own locals. What stays here is the part that is genuinely a
     // property of the PROGRAM rather than of a function -- whether a string path, an
-    // arena or the runtime-error reporter exists at all. That is sound only because
-    // the scan refuses every one of those constructs inside a non-main body, so a
-    // callee can never be the first to need them; if that ever changes, those
-    // predicates must move per function too.
-    let usesStr = 0
-    if (natNativeConcatSites(body, plan) > 0) { usesStr = 1 }
-    if (natNativePushCount(body) > 0) { usesStr = 1 }
+    // arena or the runtime-error reporter exists at all.
+    //
+    // NAT-STR-STAGE: the string flag is one of those program-level properties, and
+    // it is COMPUTED HERE, ONCE, and threaded into every function's layout -- the
+    // same way the map flag is. The dead per-function copy that stood here (a
+    // concat-site count and a push-site count over main's body) was computed twice,
+    // read by nothing, and was the wrong scope anyway: the oracle's staging area
+    // is reserved from PROGRAM-wide flags (program.go:4454) and lands in every
+    // function's layout, so a callee's frame was 2560 bytes short whenever main
+    // did any string work.
     // isWin is the BOOLEAN form of targetOS, for the two places that genuinely
     // only care about the Windows/Unix split: the frame's 16-byte alignment rule
     // and the stdout write SHAPE (Win64 kernel32 vs a raw syscall). Both treat
@@ -6800,6 +6810,13 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // in EVERY function when it is set. Computing it here, once, and threading
     // it into every function's layout is what reproduces that.
     let usesMapProg = natNativeProgramUsesMap(body, fns)
+    // NAT-STR-STAGE: the string flag is a program-wide property for the same
+    // reason the map flag is. The oracle's five string flags (program.go:4454)
+    // are all properties of the WHOLE program, and its layout reserves the
+    // staging area in every function when any of them is set. So the flag is
+    // computed once, over every function, and threaded into every function's
+    // layout -- exactly as the map flag is.
+    let usesStrProg = natNativeProgramUsesStr(fns, tbl)
     // helpers first: print_int, then print_str when the program can produce a
     // string, then the arena allocator when it allocates.
     s = natPrintIntBody(s, isWin, 0, 1)
@@ -6876,7 +6893,8 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
             fhasReturn = fscan[2]
         }
         s = natNativeEmitFunc(s, fname, fparams, fbody, fplan, fhasReturn, fns,
-            ro[1], tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg)
+            ro[1], tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg,
+            usesStrProg)
         fi = fi + 1
     }
     // and `_start` LAST, calling into `karkain_main`.
@@ -7450,4 +7468,236 @@ func natNativeArenaBytes0(n) {
         i = i + 1
     }
     return out
+}
+
+// ============================================================
+// NAT-STR-STAGE: the program-wide string-usage flag.
+//
+// The oracle reserves the string staging area from a set of FIVE program-wide
+// flags, and the reservation lands in EVERY function's layout:
+//
+//   pkg/native/program.go:4454
+//     if b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush || b.usesStrField {
+//         b.strTemp = next
+//         next += 8*5*maxBinDepth
+//     }
+//
+// All five flags are properties of the PROGRAM -- scanValueUsage (program.go:873)
+// and scanStructUsage (program.go:615) walk the whole program -- and the
+// oracle's layout() is called once PER FUNCTION, so a program with ONE string
+// operation reserves the staging area in EVERY function, including the callees
+// that never touch it.
+//
+// The driver reserved it PER FUNCTION, and only for two of the five
+// operations. Measured on the Linux ELF target, because the Windows 16-byte
+// frame rounding quantises an 8-byte difference away and cannot see a
+// 2560-byte one:
+//
+//   program                     driver frames   oracle frames
+//   helper + concat in main     [608, 3168]     [3168, 3168]
+//   helper + push in main       [608, 3208]     [3168, 3208]
+//   string field assignment     [640]           [3200]
+//
+// Every difference is the same 2560 bytes -- natStrTempBytes() -- and every one
+// of them is the driver's own SCOPE and COVERAGE, not the oracle's.
+//
+// This has the same shape as natNativeProgramUsesMap, whose map-stage slot has
+// the same program-wide scope in the oracle (program.go:4461): the precedent is
+// established rather than invented.
+//
+// The plan is RECOMPUTED here rather than threaded in, because
+// natNativePlanFor is a PURE function of (params, body, tbl) and the emitter
+// will compute the same slots from the same inputs. The alternative -- turning
+// the one-pass scan/emit loop into a scan pass and an emit pass -- would give
+// up the property that loop was built for: a refusal aborts the program
+// before anything is emitted.
+func natNativeProgramUsesStr(fns, tbl) {
+    let fi = 0
+    while (fi < natNativeFuncCount(fns)) {
+        let fparams = natNativeFuncParamsAt(fns, fi)
+        let fbody = natNativeFuncBodyAt(fns, fi)
+        let fplan = natNativePlanFor(fparams, fbody, tbl)
+        if (natNativeStrOpIn(fbody, fplan) == 1) { return 1 }
+        fi = fi + 1
+    }
+    return 0
+}
+
+// natNativeStrOpIn reports whether a statement list performs any of the FIVE
+// string operations the oracle's staging area exists for.
+//
+//   1. a string CONCATENATION    -- usesConcat
+//   2. a string EQUALITY         -- usesStrEq
+//   3. a string SLICE            -- usesStrSlice
+//   4. a push()                  -- usesPush
+//   5. a string FIELD ASSIGNMENT -- usesStrField
+//
+// Arms 1 and 4 REUSE the detectors the arena bound already uses
+// (natNativeConcatSites and natNativePushCount), so there is ONE notion of
+// where a concat site is rather than two collectors that could disagree -- the
+// Step 9g defect class.
+//
+// Arms 2, 3 and 5 have no detector yet, and each is UNREACHABLE from the
+// driver's accepted subset today: a string equality, a string slice, and a
+// string field assignment from anything but a literal are all refused by name
+// (the `==` arm of natNativeScanValue, the kind-46 refusal, and
+// natNativeScanAssign's string-field arm). They are implemented anyway,
+// because the reservation is a LAYOUT CONTRACT with the oracle: when one of
+// them is lowered, the staging area has to be reserved already, or the frame
+// would move at that point and every image with it.
+//
+// The statement positions scanned are the ones the driver lowers: a print
+// value, a binding's initialiser, a returned value and an expression
+// statement. A string operation inside a branch or a loop body is refused
+// before any image is produced, so its absence from this walk cannot change
+// an emitted frame.
+func natNativeStrOpIn(stmts, plan) {
+    if (natNativeConcatSites(stmts, plan) > 0) { return 1 }
+    if (natNativePushCount(stmts) > 0) { return 1 }
+    if (natNativeStrEqSites(stmts, plan) > 0) { return 1 }
+    if (natNativeStrSliceSites(stmts, plan) > 0) { return 1 }
+    if (natNativeStrFieldSites(stmts) > 0) { return 1 }
+    return 0
+}
+
+// natNativeStrEqSites counts string EQUALITY sites: a `==` or `!=` whose two
+// operands are both strings.
+//
+// The oracle's predicate is name-based and program-wide (scanStringViewOps,
+// program.go:1410: `x.Operator == "==" || x.Operator == "!="` with
+// `strKind(x.Left) && strKind(x.Right)`); this one is kind-based and
+// per-function, because the driver's kind inference is the plan's slot kinds
+// and the plan is per function. On the driver's accepted subset the two
+// agree, because a string equality is refused by name there.
+//
+// A string FIELD read is not classified as a string by this test, because the
+// driver's kind inference resolves slots, not field accesses. The oracle's
+// name-based test does classify it. Neither shape reaches an emitted frame
+// today -- a string equality is refused by name -- so this is a difference in
+// an unreachable arm, and it is recorded rather than papered over.
+func natNativeStrEqSites(stmts, plan) {
+    let n = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeStrEqIn(printVal(st), plan) }
+        if (natNativeIsDecl(st)) { n = n + natNativeStrEqIn(natNativeDeclValue(st), plan) }
+        if (nodeType(st) == NODE_RETURN()) { n = n + natNativeStrEqIn(retVal(st), plan) }
+        i = i + 1
+    }
+    return n
+}
+
+// natNativeStrEqIn walks an expression for a string equality.
+//
+// It descends into a comparison's operands as well as into the surrounding
+// expression, because the equality may sit anywhere in the tree.
+func natNativeStrEqIn(e, plan) {
+    if (nodeType(e) == NODE_BINARY()) {
+        let op = binaryOp(e)
+        if (op == "==" || op == "!=") {
+            if (natNativeStrKind(binaryLeft(e), 0, plan) == 1) {
+                if (natNativeStrKind(binaryRight(e), 0, plan) == 1) { return 1 }
+            }
+        }
+        return natNativeStrEqIn(binaryLeft(e), plan) + natNativeStrEqIn(binaryRight(e), plan)
+    }
+    if (nodeType(e) == NODE_UNARY()) { return natNativeStrEqIn(unaryOperand(e), plan) }
+    if (nodeType(e) == NODE_CALL()) {
+        let n = 0
+        let i = 0
+        while (i < len(callArgs(e))) {
+            n = n + natNativeStrEqIn(callArgs(e)[i], plan)
+            i = i + 1
+        }
+        return n
+    }
+    return 0
+}
+
+// natNativeStrSliceSites counts string SLICE sites: a `s[a:b]` whose target is
+// a string.
+//
+// The oracle's predicate is scanStringViewOps's `slice` arm (program.go:1405-1408:
+// a SliceExpr whose target is a string). This one is kind-based and
+// per-function, for the same reason the equality arm is.
+func natNativeStrSliceSites(stmts, plan) {
+    let n = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeStrSliceIn(printVal(st), plan) }
+        if (natNativeIsDecl(st)) { n = n + natNativeStrSliceIn(natNativeDeclValue(st), plan) }
+        if (nodeType(st) == NODE_RETURN()) { n = n + natNativeStrSliceIn(retVal(st), plan) }
+        i = i + 1
+    }
+    return n
+}
+
+// natNativeStrSliceIn walks an expression for a string slice.
+func natNativeStrSliceIn(e, plan) {
+    if (nodeType(e) == NODE_SLICE()) {
+        if (natNativeStrKind(sliceLeft(e), 0, plan) == 1) { return 1 }
+        return natNativeStrSliceIn(sliceStart(e), plan) + natNativeStrSliceIn(sliceEnd(e), plan)
+    }
+    if (nodeType(e) == NODE_BINARY()) {
+        return natNativeStrSliceIn(binaryLeft(e), plan) + natNativeStrSliceIn(binaryRight(e), plan)
+    }
+    if (nodeType(e) == NODE_UNARY()) { return natNativeStrSliceIn(unaryOperand(e), plan) }
+    if (nodeType(e) == NODE_CALL()) {
+        let n = 0
+        let i = 0
+        while (i < len(callArgs(e))) {
+            n = n + natNativeStrSliceIn(callArgs(e)[i], plan)
+            i = i + 1
+        }
+        return n
+    }
+    return 0
+}
+
+// natNativeStrFieldSites counts STRING FIELD ASSIGNMENTS: a `record.field = ...`
+// whose right-hand side carries a string literal.
+//
+// This is the oracle's scanStructUsage predicate (program.go:615-705), and it
+// is SYNTACTIC there too: an expression statement whose expression is `=`,
+// whose left side is a field access, and whose right side carries a string
+// literal -- recursing through `+`, because `f.label = "a" + "b"` carries one.
+// The oracle does not check the field's type here; the layout decides it
+// later. The driver keeps the same predicate, so the reservation matches.
+//
+// The driver's own field write does NOT stage through the area: it stores the
+// (pointer, length) pair directly into the field area (natNativeLowerAssign).
+// That is why the FRAME can match the oracle's without the CODE matching --
+// the driver does not duplicate the oracle's staging implementation, it only
+// reserves the region the oracle reserves.
+func natNativeStrFieldSites(stmts) {
+    let n = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        if (nodeType(st) == NODE_EXPR_STMT()) {
+            let e = exprStmtExpr(st)
+            if (natNativeIsAssignExpr(e)) {
+                if (nodeType(binaryLeft(e)) == NODE_DOT()) {
+                    if (natNativeStrLitIn(binaryRight(e)) == 1) { n = n + 1 }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// natNativeStrLitIn reports whether an expression carries a string literal,
+// recursing through `+` -- the oracle's hasStrLiteral (program.go:617-630).
+func natNativeStrLitIn(e) {
+    if (nodeType(e) == NODE_STRING_LIT()) { return 1 }
+    if (nodeType(e) == NODE_BINARY()) {
+        if (binaryOp(e) == "+") {
+            if (natNativeStrLitIn(binaryLeft(e)) == 1) { return 1 }
+            return natNativeStrLitIn(binaryRight(e))
+        }
+    }
+    return 0
 }

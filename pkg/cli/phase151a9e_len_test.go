@@ -171,7 +171,7 @@ func TestPhase151A9E_FrameFollowsTheValueModelRule(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := nat9dImage(t, c.src)
 			got := nat9dFrameSubRsp(t, img)
-			want := nat9dExpectFrame(c.localBytes, c.usesMapStage)
+			want := nat9dExpectFrame(c.localBytes, c.usesMapStage, c.usesStrStage)
 			if !nat9dContainsInt32(got, want) {
 				t.Errorf("no `sub rsp, %d` in the image; got %v.\n  want %d for localBytes "+
 					"%d.\n  source: %s", want, got, want, c.localBytes, c.src)

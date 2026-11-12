@@ -957,8 +957,14 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 // 13637 was measured twice on f08276b with kcc.exe DELETED between runs, so
 	// each count came from a fresh compile of the committed source rather than
 	// from a cached binary: text=13637 verify=13637.
-	if text != 14841 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 14841; see the comment above for the measured chain. output follows: %s", text, out)
+	//
+	// 14841 -> 14938 (NAT-STR-STAGE, 2026-11-11): the string staging area is
+	// now reserved program-wide over the oracle's five operations, which added
+	// the program-wide flag, the five-operation predicate and its detectors to
+	// the driver. Measured with `karkain kir --verify src/compiler/kir.kark` --
+	// text=14938 verify=14938 -- and never predicted.
+	if text != 14938 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 14938; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

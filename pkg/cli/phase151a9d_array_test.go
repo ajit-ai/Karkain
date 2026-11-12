@@ -81,6 +81,19 @@ type nat9dCase struct {
 	// implementation -- a derived flag would make the assertion compare the
 	// implementation with itself.
 	usesMapStage bool
+	// usesStrStage says whether the program performs a string OPERATION --
+	// a concatenation, a push(), a string equality, a string slice or a string
+	// field assignment -- which is what reserves the oracle's 2560-byte
+	// STRING-STAGE area.
+	//
+	// The oracle's five flags are program-wide (pkg/native/program.go:4454),
+	// so the area is reserved in EVERY function of such a program, not only in
+	// the one that does the string work. NAT-STR-STAGE closed the scope
+	// difference; this flag is what the frame rule below has to account for.
+	//
+	// A program that merely BINDS a string and prints it performs no string
+	// operation, and reserves nothing.
+	usesStrStage bool
 }
 
 // The corpus. Every entry is a different program.
@@ -265,11 +278,13 @@ func nat9dFrameSubRsp(t *testing.T, img []byte) []int32 {
 //
 //	locals region                       (the program's own bindings)
 //	+ 512  bin temporary area            (maxBinDepth 64 * 8)
+//	+2560  string staging area           (only when the program performs a
+//	                                      string operation; 8 * 5 * maxBinDepth)
 //	+   8  map-stage unit                (only when the program indexes)
 //	then the Win64 stack-discipline rounding
 //	+  96  argument spill area           (argSpillBytes, 6 args * 16)
 //
-// TWO ORDERING FACTS, both measured, and both corrected by NAT-FRAME:
+// THREE ORDERING FACTS, all measured, and the first two corrected by NAT-FRAME:
 //
 //  1. The rounding is applied to the TOTAL, not to the locals region. The oracle
 //     adds the argument spill AFTER the rounding (pkg/native/program.go:4482-4485),
@@ -285,11 +300,21 @@ func nat9dFrameSubRsp(t *testing.T, img []byte) []int32 {
 //     access included (pkg/native/program.go:730-737) -- and the oracle's flag is
 //     program-wide, so the unit is reserved in every frame of such a program.
 //
-// NAT-FRAME measured both of these against the oracle's own images rather than
+//  3. The string staging area comes BETWEEN the bin temporary area and the
+//     map-stage unit, because that is the oracle's layout order
+//     (pkg/native/program.go:4443-4487). It is 2560 bytes, a multiple of 16, so
+//     it does not move the rounding residue -- but its POSITION does move the
+//     map-stage unit's offset, and a rule that put it last would be wrong by
+//     2560 rather than by 8.
+//
+// NAT-FRAME measured the first two against the oracle's own images rather than
 // inheriting them: the frames now agree exactly, on both targets, for every case
-// in this gate's corpus.
-func nat9dExpectFrame(localBytes int, usesMapStage bool) int32 {
+// in this gate's corpus. NAT-STR-STAGE added the third.
+func nat9dExpectFrame(localBytes int, usesMapStage bool, usesStrStage bool) int32 {
 	next := localBytes + 512
+	if usesStrStage {
+		next += 8 * 5 * 64
+	}
 	if usesMapStage {
 		next += 8
 	}
@@ -441,7 +466,7 @@ func TestPhase151A9D_FrameFollowsTheValueModelRule(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := nat9dImage(t, c.src)
 			got := nat9dFrameSubRsp(t, img)
-			want := nat9dExpectFrame(c.localBytes, c.usesMapStage)
+			want := nat9dExpectFrame(c.localBytes, c.usesMapStage, c.usesStrStage)
 			if !nat9dContainsInt32(got, want) {
 				t.Errorf("no `sub rsp, %d` in the image; got %v.\n  want frame %d for "+
 					"localBytes %d, map stage %v.\n"+
@@ -489,7 +514,7 @@ func TestPhase151A9D_ElementsNeedRoomInTheFrame(t *testing.T) {
 			got := nat9dFrameSubRsp(t, img)
 			// These programs index (print(a[0])), so the map-stage unit is
 			// reserved.
-			want := nat9dExpectFrame(16+8*n, true)
+			want := nat9dExpectFrame(16+8*n, true, false)
 			if !nat9dContainsInt32(got, want) {
 				t.Fatalf("%d-element array: no `sub rsp, %d` in the image; got %v",
 					n, want, got)

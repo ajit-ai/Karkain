@@ -245,11 +245,16 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// matches the oracle's exactly; the delta was an unreserved map-stage
 		// slot and an `inc r8` that decoded as `inc rax`, not a rounding rule.
 		//
+		// RE-PINNED FOR NAT-STR-STAGE: 14841 -> 14938 (+97). The string staging
+		// area is now reserved program-wide over the oracle's five operations,
+		// which added the program-wide flag, the five-operation predicate and
+		// its detectors to the driver.
+		//
 		// Measured with `karkain kir --verify src/compiler/kir.kark` in this
 		// gate's own invocation -- text=14834 verify=14834 -- and never
 		// predicted.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 14841 {
-			t.Errorf("whole-tree kir text = %d lines, want 14841:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 14938 {
+			t.Errorf("whole-tree kir text = %d lines, want 14938:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

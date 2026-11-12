@@ -64,6 +64,15 @@ type nat9hCase struct {
 	// (pkg/native/program.go:730-737). Stated explicitly so the rule is
 	// visible rather than implied.
 	usesMapStage bool
+	// usesStrStage says whether the program performs a string OPERATION, which
+	// reserves the oracle's 2560-byte string staging area program-wide
+	// (pkg/native/program.go:4454). Only the string FIELD ASSIGNMENT does --
+	// the oracle's fifth string operation, usesStrField.
+	//
+	// NAT-STR-STAGE added that coverage: before it, this gate's
+	// `string_field_assign` case expected a 640-byte frame against the
+	// oracle's 3200.
+	usesStrStage bool
 }
 
 var nat9hCases = []nat9hCase{
@@ -103,9 +112,14 @@ var nat9hCases = []nat9hCase{
 	},
 	{
 		// A string field reassigned to a new literal. localBytes = 8 + (16 + 8) = 32.
+		//
+		// usesStrStage: the assignment is the oracle's FIFTH string operation
+		// (usesStrField, pkg/native/program.go:615-705), so the 2560-byte
+		// string staging area is reserved. NAT-STR-STAGE added that coverage:
+		// before it, this case's frame was 640 bytes against the oracle's 3200.
 		name:    "string_field_assign",
 		src:     "type S struct { label string; n int }\nfunc main() {\n    let s = S { label: \"a\", n: 1 }\n    s.label = \"changed\"\n    print(s.label)\n    print(s.n)\n}\n",
-		wantOut: []byte("changed\n1\n"), wantExit: 0, localBytes: 32,
+		wantOut: []byte("changed\n1\n"), wantExit: 0, localBytes: 32, usesStrStage: true,
 	},
 	{
 		// THE WIP-FIX CASE. A record and a scalar in one program. Pre-fix the field
@@ -286,7 +300,7 @@ func TestPhase151A9H_FrameFollowsTheValueModelRule(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := nat9dImage(t, c.src)
 			got := nat9dFrameSubRsp(t, img)
-			want := nat9dExpectFrame(c.localBytes, c.usesMapStage)
+			want := nat9dExpectFrame(c.localBytes, c.usesMapStage, c.usesStrStage)
 			if !nat9dContainsInt32(got, want) {
 				t.Errorf("no `sub rsp, %d` in the image; got %v.\n  want %d for "+
 					"localBytes %d.\n  A record is 8 bytes for its value slot plus "+

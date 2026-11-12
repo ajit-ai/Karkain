@@ -208,6 +208,17 @@ asserts that the frames still differ AND that they differ by exactly 2560
 bytes, so the gap cannot be forgotten and cannot silently change shape. When
 it closes, the gate fails and says to move the case into the parity list.
 
+> **CLOSED by NAT-STR-STAGE (2026-11-11).** The section above describes the
+> state at the end of NAT-FRAME and is kept as the record of it. The gap
+> closed: the string staging area is now reserved **program-wide** over the
+> oracle's **five** operations, the frames match the oracle's exactly, the
+> string-assignment case joined `natFrameCases`, and
+> `TestPhaseNATFrame_TheStringStageIsStillDivergent` was **inverted** into
+> `TestPhaseNATFrame_TheStringStageIsReservedProgramWide`, which asserts the
+> closed state on both axes. The reconciliation NAT-FRAME declined to do
+> blind was done as its own increment, with its own baseline and gate:
+> `docs/audit/NAT-STR-STAGE-BASELINE.md`.
+
 ### 4.3 A note on the driver's index predicate
 
 The driver's map-usage predicate fires on **any** index expression, while the
