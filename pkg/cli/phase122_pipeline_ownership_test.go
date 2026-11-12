@@ -250,11 +250,17 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// which added the program-wide flag, the five-operation predicate and
 		// its detectors to the driver.
 		//
+		// RE-PINNED FOR NAT-RODATA: 14938 -> 14946 (+8). The reporter's
+		// read-only data is now interned in the oracle's order and its offsets
+		// are read back out of the interning table. The delta is small because
+		// most of the slice's source growth is COMMENTS, which the KIR text
+		// does not render.
+		//
 		// Measured with `karkain kir --verify src/compiler/kir.kark` in this
 		// gate's own invocation -- text=14834 verify=14834 -- and never
 		// predicted.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 14938 {
-			t.Errorf("whole-tree kir text = %d lines, want 14938:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 14946 {
+			t.Errorf("whole-tree kir text = %d lines, want 14946:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

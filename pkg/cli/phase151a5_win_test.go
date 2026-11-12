@@ -963,8 +963,15 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// the program-wide flag, the five-operation predicate and its detectors to
 	// the driver. Measured with `karkain kir --verify src/compiler/kir.kark` --
 	// text=14938 verify=14938 -- and never predicted.
-	if text != 14938 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 14938; see the comment above for the measured chain. output follows: %s", text, out)
+	//
+	// 14938 -> 14946 (NAT-RODATA, 2026-11-12): the reporter's read-only data is
+	// now interned in the oracle's order and its offsets are read back out of
+	// the interning table. The delta is small because most of the slice's
+	// source growth is COMMENTS, which the KIR text does not render. Measured
+	// with `karkain kir --verify src/compiler/kir.kark` -- text=14946
+	// verify=14946 -- and never predicted.
+	if text != 14946 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 14946; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

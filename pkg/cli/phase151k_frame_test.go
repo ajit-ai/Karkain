@@ -293,23 +293,21 @@ func hexByte(x byte) string {
 	return string([]byte{digits[x>>4], digits[x&0x0f]})
 }
 
-// TestPhaseNATFrame_TheImagesAgreeOnEverythingButTheReporterStrings isolates
-// what REMAINS.
+// TestPhaseNATFrame_TheImagesAgreeEntirely is what NAT-FRAME's residual test
+// became once NAT-RODATA closed the residual.
 //
-// After the frame and the REX fixes, an indexing program's images differ in
-// exactly TWO bytes, and both are absolute rodata addresses inside the
-// runtime-error reporter.
+// NAT-FRAME left TWO bytes: the array-bounds call site baked the LIST
+// POSITION of its two rodata strings where the interned OFFSET belongs, so the
+// two absolute addresses in the image differed from the oracle's by 16 and 39
+// bytes. The NAT-FRAME record read that as an ORDER difference -- the reporter
+// helper's strings being interned after the program's own literals -- and that
+// reading was WRONG: for the measured program the rodata layout was
+// byte-identical, and the addresses pointed at different BYTES (the middle of
+// "runtime error: " instead of "array index out of range" and the file name).
 //
-// The cause is the ORDER in which the reporter's strings are interned: the
-// oracle emits the reporter HELPER before the user function, so its strings are
-// interned first; the driver appends them to the rodata list AFTER the
-// program's own literals. The offsets therefore differ, and the two absolute
-// addresses that carry them differ.
-//
-// This gate asserts the residual DIFFERENCE rather than hiding it: the frame
-// immediates are equal, the image sizes are equal, and exactly two bytes
-// differ -- all three are stated, so the next increment has a measured target.
-func TestPhaseNATFrame_TheImagesAgreeOnEverythingButTheReporterStrings(t *testing.T) {
+// The correction is NAT-RODATA's, and the images now agree in EVERY byte: the
+// frame, the code, the sizes, and the rodata addresses.
+func TestPhaseNATFrame_TheImagesAgreeEntirely(t *testing.T) {
 	karkain := phase130Karkain(t)
 	src := "func main() {\n    let a = [3, 5, 7]\n    print(a[0])\n}\n"
 	kccImg, goImg := natFrameBuild(t, karkain, src, NativeLinuxTarget)
@@ -331,14 +329,14 @@ func TestPhaseNATFrame_TheImagesAgreeOnEverythingButTheReporterStrings(t *testin
 			diff++
 		}
 	}
-	if diff != 2 {
-		t.Errorf("the images differ in %d bytes, want 2.\n"+
-			"  The two are the runtime-error reporter's absolute rodata addresses: the "+
-			"driver and the oracle intern the reporter's strings in a different ORDER "+
-			"(the oracle emits the reporter helper before the user function, so its "+
-			"strings are interned first; the driver appends them after the program's "+
-			"own literals). Everything else -- the frame, the code, the sizes -- agrees.",
-			diff)
+	if diff != 0 {
+		t.Errorf("the images differ in %d bytes, want 0.\n"+
+			"  The last residual was the array-bounds call site's two rodata "+
+			"addresses: the driver baked the LIST POSITION of its two strings "+
+			"where the interned OFFSET belongs, so it pointed at the middle of "+
+			"\"runtime error: \" instead of at \"array index out of range\" and the "+
+			"file name. NAT-RODATA reads both back out of the interning offset "+
+			"array.", diff)
 	}
 }
 

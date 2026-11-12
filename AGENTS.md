@@ -4011,7 +4011,14 @@ function so its strings are interned first, and the driver appends them after
 the program's own literals (its own comment already claims the oracle's order,
 which makes this a defect and not a design choice). It is NOT fixed here
 because the fix moves the reporter's offsets in every image that can raise a
-diagnostic, and the D5 gate pins that interning today. **Evidence**
+diagnostic, and the D5 gate pins that interning today. **CORRECTION
+(2026-11-12, NAT-RODATA): that residual CLOSED and the diagnosis above is
+WRONG** -- the paragraph describes the state at the END OF NAT-FRAME, not the
+state now. The two engines' read-only sections were byte-identical, so the
+ORDER was never the cause; the driver baked the LIST POSITION of the
+array-bounds call site's two strings where the interned OFFSET belongs, so the
+diagnostic pointed at the wrong bytes. The array-index shape is now
+byte-identical to the oracle's. **Evidence**
 (`pkg/cli/phase151k_frame_test.go`, `TestPhaseNATFrame_`, 6 layers): the
 frame-size immediate of every boundary case read out of each IMAGE and compared
 with the ORACLE's, for BOTH targets (the Linux one matters, because the Windows
@@ -4114,7 +4121,103 @@ EQUALITY and SLICE lowerings, which are still refused by name. **KIR pin
 14841 -> 14938** (+97), measured with `karkain kir --verify
 src/compiler/kir.kark` (`text=14938 verify=14938`, about 25 minutes on this
 host) and never predicted; re-pinned in `pkg/cli/phase122_pipeline_ownership_test.go`
-and `pkg/cli/phase151a5_win_test.go`.
+and `pkg/cli/phase151a5_win_test.go`. **CORRECTION (2026-11-12, NAT-RODATA):
+the reporter's rodata difference CLOSED**, and the paragraph above describes
+the state at the END OF NAT-STR-STAGE, not the state now. The array-index
+shape is byte-identical to the oracle's, and the diagnosis NAT-FRAME recorded
+was wrong: the two engines' read-only sections were byte-identical, and the
+driver baked the LIST POSITION of the array-bounds call site's two strings
+where the interned OFFSET belongs -- so the diagnostic pointed at the wrong
+bytes. The remaining differences are the field write's staging code and the
+oracle's "intern at the first index site" position, neither of which changes
+what a program prints.
+
+Also completed: **NAT-RODATA - the reporter's read-only data: the interning order and the interned offsets**
+(increment 151, slice "NAT-RODATA", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-RODATA-BASELINE.md`). **THE RECORDED DIAGNOSIS WAS
+WRONG, and measurement corrected it.** NAT-FRAME left a residual of TWO bytes
+in an indexing program's image and attributed it to the ORDER in which the
+reporter's strings are interned -- "the oracle emits the reporter helper
+before the user function, so its strings are interned first; the driver
+appends them after the program's own literals". **MEASURED, the order was not
+the cause: the two engines' read-only sections were BYTE-IDENTICAL** ("runtime
+error: " at the same offset, " at " at the same offset, "array index out of
+range" at the same offset). **The real defect was a REFERENCE-RESOLUTION
+one:** the driver computed the array-bounds call site's two rodata references
+as LIST POSITIONS (`2 + len(literals) + 4` and `+ 5`) and used them as RODATA
+OFFSETS. A position counts ENTRIES and an offset counts BYTES, and the two
+differ as soon as any earlier string is longer than one byte -- which every
+one of them is. The driver's two absolute addresses therefore pointed at
+offsets 6 and 7 of the section, which are the middle of "runtime error: ",
+instead of at the message and the file name. **So the out-of-range diagnostic
+pointed at the WRONG TEXT, and the address difference the record measured (16
+and 39 bytes) was the difference between two wrong numbers and two right
+ones.** The D5 baseline had already stated the intended design and the driver
+violated both halves of it (PHASE-D5-BASELINE.md section 8.3): "The reporter's
+strings must be appended in the order the oracle emits them (helpers first,
+then the call site), and their offsets read back OUT of natRodataSection's
+offset array." **What changed** (`src/compiler/native_value.kark`): the
+interning list is built in the ORACLE'S ORDER (print_int's two, the reporter
+HELPER's four, the program's literals, the call site's two); EVERY
+reporter-related offset -- the helper's four and now the call site's two -- is
+read back out of `natRodataSection`'s offset array, one mechanism and no
+arithmetic; and the EMITTER receives the LITERALS' offsets and nothing else,
+so its cursor starts at 0 and no longer depends on how many non-literal
+entries precede the literals. The linker owns the section's interning order;
+the emitter wants "the k-th literal's offset"; the two are separate facts
+now. **Measured (Linux ELF, driver against oracle): the array-index shape is
+now BYTE-IDENTICAL, and so is every fixture with a reporter and with its
+literals bound before the index site** -- before the correction the same
+fixtures differed by 2, 4, 31, 34 and 62 bytes. **Evidence**
+(`pkg/cli/phase151m_rodata_test.go`, `TestPhaseNATRodata_`): the section's
+ENTRIES read out of each image, in order, with their OFFSETS and its SIZE;
+the deduplication count; the byte-identity result per fixture; a DIRECT check
+that the image references the address of the message and of the file name
+(the claim that matters, because the defect was a wrong diagnostic rather than
+a wrong layout); determinism; a PE regression (the PE is a valid PE, its
+strings are interned once each, and the program RUNS); and a refusal table
+(a string in a CALLEE is refused by name). **TWO EXISTING GATES MOVED BY
+FAILING FIRST**, which is the signal each was built to give:
+`TestPhaseD2_KnownNonParityIsStillNonParity` failed because `array_index` had
+become byte-identical, so the shape moved into the parity list and the
+known-non-parity list is now EMPTY -- that gate was REMOVED rather than left
+with nothing to compare, and `TestPhaseD2_TheKnownNonParityListIsEmpty`
+records that every shape which was ever known to differ is still asserted
+identical; and NAT-FRAME's `TestPhaseNATFrame_TheImagesAgreeOnEverythingButTheReporterStrings`
+failed because the images stopped differing in two bytes, so it is now
+`TestPhaseNATFrame_TheImagesAgreeEntirely` and asserts EVERY byte. **Mutations:
+2**, each restored byte-identically (SHA-256
+`728539293D548A3917D5FF483261EE36C25826D847585B95065C0EDAE66D7C38`): putting
+the list position back as the call site's offset fails the correctness check
+("the image does NOT reference the address of 'array index out of range'") and
+the byte-identity check, and putting the reporter's four strings back after the
+program's literals fails the interning-order check and the byte-identity check.
+**ONE DIFFERENCE REMAINS, and it is a LAYOUT difference with no correctness
+consequence:** the oracle interns the call site's two strings AT THE FIRST
+INDEX SITE, so a program that binds a literal AFTER an index site puts them
+earlier, while the driver groups them after the literals (measured: 39 bytes;
+the diagnostic's text is identical in both engines). Closing it would mean
+re-deriving the interning order from the emitter's walk, or interning at
+emission time as the oracle does -- a larger blast radius than this slice's
+area, and the oracle's implementation is not duplicated for the sake of byte
+identity. **The PE is NOT a byte-identity target**, and the reason is measured:
+the Windows entry stub and the loader-independent PEB bootstrap are SEPARATE
+IMPLEMENTATIONS in the two engines (the driver's `natWinStub` against the
+oracle's `emitWinBootstrap`), so the PE's .text virtual size is 0xa9c against
+0xa94 and about a thousand bytes of the bootstrap differ -- which is why the
+byte-identity differential compares the LINUX ELF. **Still NOT claimed:** the
+field-assignment staging difference, the oracle's name-table over-reservation,
+the string equality and slicing refusals, the register allocator, the
+arena-bound limitations and the parser limitations -- all unchanged, and none
+of them affects the reporter rodata except the field write's 25 bytes of
+extra code, which moves the section's start in that one image. **KIR pin
+14938 -> 14946** (+8), measured with `karkain kir --verify
+src/compiler/kir.kark` (`text=14946 verify=14946`, about 23 minutes on this
+host) and never predicted -- the delta is small because most of the slice's
+source growth is COMMENTS, which the KIR text does not render; re-pinned in
+`pkg/cli/phase122_pipeline_ownership_test.go` and
+`pkg/cli/phase151a5_win_test.go`.
 
 
 Also completed: **B2 seed-closure discovery job + the v1.2.0 scope amendment**

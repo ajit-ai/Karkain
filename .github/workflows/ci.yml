@@ -454,6 +454,32 @@ jobs:
       - name: Run NAT-STR-STAGE native string-staging-area gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATStrStage_' -count=1 -timeout 30m -v
 
+      # NAT-RODATA, the reporter's read-only data: what is interned, in what
+      # order, at what offset.
+      #
+      # The recorded residual was TWO bytes in an indexing program's image,
+      # attributed to the ORDER in which the reporter's strings are interned.
+      # Measurement says the order was not the cause: the rodata layout was
+      # byte-identical between the two engines, and the driver baked the LIST
+      # POSITION of the array-bounds call site's two strings where the interned
+      # OFFSET belongs -- so the diagnostic pointed at the middle of
+      # "runtime error: " instead of at the message and the file name.
+      #
+      # Its evidence is a DIFFERENTIAL against the Go oracle on the LINUX ELF
+      # (the PE cannot be compared byte for byte: the Windows entry stub and
+      # the PEB bootstrap are separate implementations in the two engines),
+      # the section's entries read out of each image with their offsets and
+      # their insertion order, the deduplication count, and a DIRECT check
+      # that the image references the address of the message and of the file
+      # name -- the claim that matters, because the defect was a wrong
+      # diagnostic rather than a wrong layout.
+      #
+      # Its own pattern again: 'TestPhaseNATRodata_' is matched by no other
+      # step, so a rodata regression cannot hide behind a green neighbour, and
+      # the gate asserts THIS step exists.
+      - name: Run NAT-RODATA native reporter rodata gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATRodata_' -count=1 -timeout 30m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

@@ -203,6 +203,26 @@ per-function-versus-program-wide question for the string region — which is a
 different increment with a different blast radius, and it wants its own
 baseline and gate.
 
+> **CLOSED by NAT-RODATA (2026-11-12), and the DIAGNOSIS ABOVE IS WRONG.**
+> The section above describes the state at the end of NAT-FRAME and is kept as
+> the record of it. Measurement shows the two engines' read-only sections were
+> **byte-identical** for the measured program — "runtime error: " at the same
+> offset, " at " at the same offset, "array index out of range" at the same
+> offset — so the ORDER was never the cause. The cause was a
+> **reference-resolution** defect: the driver baked the LIST POSITION of the
+> array-bounds call site's two strings (`2 + len(literals) + 4` and `+ 5`)
+> where the interned **OFFSET** belongs, so its two absolute addresses pointed
+> at offsets 6 and 7 of the section — the middle of "runtime error: " —
+> instead of at the message and the file name. The 16 and 39 byte differences
+> measured above are the difference between two wrong numbers and two right
+> ones.
+>
+> NAT-RODATA corrected both the interning ORDER and the OFFSETS, and the
+> array-index shape is now byte-identical to the oracle's.
+> `TestPhaseNATFrame_TheImagesAgreeOnEverythingButTheReporterStrings` was
+> inverted into `TestPhaseNATFrame_TheImagesAgreeEntirely`. Record:
+> `docs/audit/NAT-RODATA-BASELINE.md`.
+
 It is **PINNED** rather than ignored: `TestPhaseNATFrame_TheStringStageIsStillDivergent`
 asserts that the frames still differ AND that they differ by exactly 2560
 bytes, so the gap cannot be forgotten and cannot silently change shape. When

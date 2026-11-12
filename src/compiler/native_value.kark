@@ -5046,8 +5046,8 @@ func natArrayValue(s, off, elems) {
 // wrong, which is precisely what Step 3's label layer was added to catch. So the
 // two names come from natFresh in the oracle's order and nothing is hand-written.
 //
-// `roffsKind` indexes the WHOLE rodata offset array (print_int's own two
-// entries come first), and `srcOff`/`srcLen` are the interned source basename.
+// `roffsKind` is the rodata OFFSET of the reporter's "kind" argument, and
+// `srcOff`/`srcLen` are the interned source basename's offset and length.
 // `line` is the diagnostic's line.
 // natArrayIndex lowers the bounds check and the element load for `a[i]`.
 //
@@ -6075,12 +6075,18 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
     // image have different basenames, and a global would have to be saved and
     // restored around every call.
     let rctx = [rtKindSlot, srcOff, srcLen]
-    // sidx walks the rodata INPUT list in lockstep with the literals the program binds,
-    // starting at 2 because entries 0 and 1 are print_int's own "-" and "\n". Lockstep
-    // is what makes a literal's recorded offset agree with the list the linker interns;
-    // recomputing an offset from the literal's VALUE instead would break the moment two
-    // bindings shared one string, which natRodataSection interns only once.
-    let sidx = 2
+    // sidx walks the LITERALS' offset list in lockstep with the literals the
+    // program binds. Lockstep is what makes a literal's recorded offset agree
+    // with the list the linker interns; recomputing an offset from the
+    // literal's VALUE instead would break the moment two bindings shared one
+    // string, which natRodataSection interns only once.
+    //
+    // The list holds the LITERALS' offsets and nothing else, so the cursor
+    // starts at 0. It used to hold the WHOLE rodata offset array and start at
+    // 2, which tied the cursor's start to how many non-literal entries came
+    // before the literals -- so the interning order and the cursor were the
+    // same fact, and moving the reporter's strings moved the cursor too.
+    let sidx = 0
     // Concat-site counter; used only to make the byte-copy labels unique.
     let site = 0
     let i = 0
@@ -6567,6 +6573,11 @@ func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame, rctx
 // in source order, so a function that CALLS another must be declared later than it
 // (the Phase-133 "wrapper use-before-def" class). Every other definition here follows
 // the same rule.
+//
+// `roffs` is the LITERALS' rodata offsets -- one entry per string literal the program
+// binds or prints, in the collector's order (NAT-RODATA). It is not the whole rodata
+// offset array: the linker owns the section's interning order, and the emitter only
+// ever wants "the offset of the k-th literal".
 func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg, usesStrProg) {
     // NAT-STR-STAGE: the string staging area is reserved when the PROGRAM
     // performs a string operation, not when this function does. The oracle's
@@ -6726,51 +6737,104 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // simply had no effect, and it is the "a gate that can pass without checking
     // anything" failure the evidence discipline warns about.
     //
-    // The reporter's strings are appended to the rodata INPUT list AFTER the
-    // program's own literals, and the source basename LAST, because that is the
-    // order the oracle interns them in: helpers are emitted BEFORE the user
-    // function, so the reporter's "runtime error: " / " at " / ":" / "\n" are
-    // interned first, and the call site's "array index out of range" plus the
-    // file name come later. Interning is by FIRST USE, so a different order
-    // produces different offsets and every baked address after it moves.
+    // NAT-RODATA: the rodata INPUT list is built in the ORACLE'S INTERNING
+    // ORDER, which is its EMISSION order, because the oracle interns by FIRST
+    // USE as it emits (pkg/native/program.go:2136-2144: a map from the
+    // string's CONTENT to the offset it was interned at, and the offset is
+    // assigned at the moment of the first use). The order is:
+    //
+    //   1. print_int's own two strings ("-", "\n") -- print_int is the first
+    //      helper in both engines (program.go:2475-2481).
+    //   2. the runtime-error REPORTER HELPER's four strings -- the helper is
+    //      emitted BEFORE the user function in both engines (program.go:2519
+    //      against the driver's own helper order), so the oracle interns them
+    //      before any of the program's own literals.
+    //   3. the PROGRAM's own literals, in source order.
+    //   4. the CALL SITE's two strings -- "array index out of range" and the
+    //      source basename -- which the oracle interns at the first index
+    //      site, inside the user function.
+    //
+    // The list used to put (2) and (4) AFTER (3), which is NOT the oracle's
+    // order: the driver's own comment claimed the oracle's order and the code
+    // did not do it, which is why it was a defect and not a design choice.
+    // Measured: a program with a reporter AND a string literal had 31
+    // differing bytes and a different rodata layout.
+    //
+    // The offsets are read back OUT of natRodataSection's offset array, which
+    // is the D5 baseline's stated rule (PHASE-D5-BASELINE.md section 8.3) and
+    // the only thing that can be correct when a duplicate is interned: a LIST
+    // POSITION is not an OFFSET.
     let usesRtErr = 0
     if (natNativeUsesRuntimeError(body) == 1) { usesRtErr = 1 }
     let lits = natNativeStrLiterals(body)
     let strs = ["-", "\n"]
-    let li = 0
-    while (li < len(lits)) {
-        strs = appendArray(strs, lits[li])
-        li = li + 1
-    }
-    let rtKindSlot = 0
-    let srcOff = 0
-    let srcLen = 0
-    let rtErr = []
+    // litBase is the list position of the first literal.
+    let litBase = 2
     if (usesRtErr == 1) {
         strs = appendArray(strs, "runtime error: ")
         strs = appendArray(strs, " at ")
         strs = appendArray(strs, ":")
         strs = appendArray(strs, "\n")
+        litBase = 6
+    }
+    let li = 0
+    while (li < len(lits)) {
+        strs = appendArray(strs, lits[li])
+        li = li + 1
+    }
+    // callBase is the list position of the call site's first string.
+    let callBase = litBase + len(lits)
+    let rtKindSlot = 0
+    let srcOff = 0
+    let srcLen = 0
+    let rtErr = []
+    if (usesRtErr == 1) {
         strs = appendArray(strs, "array index out of range")
         // The source basename goes through the SAME interning list rather than
         // being special-cased, so `file:line` is genuine and the offset comes
         // from the same mechanism as every other string.
         strs = appendArray(strs, sourceBase)
-        rtKindSlot = 2 + len(lits) + 4
-        srcOff = 2 + len(lits) + 5
         srcLen = len(sourceBase)
     }
     let ro = natRodataSection(strs)
-    // The reporter's own four strings, read back OUT of the section's offset
-    // array rather than assumed -- the D5 baseline's §8.3 risk. rtErr[k] is the
-    // offset of the k-th reporter string in the interned section.
+    // The reporter's OWN four strings, read back OUT of the section's offset
+    // array rather than assumed -- the D5 baseline's section 8.3 risk. rtErr[k]
+    // is the offset of the k-th reporter string in the interned section.
+    //
+    // The CALL SITE's two are read back the same way, and they used to be the
+    // LIST POSITIONS 2 + len(lits) + 4 and + 5. A position counts ENTRIES and
+    // an offset counts BYTES, and the two differ as soon as any earlier string
+    // is longer than one byte -- which every one of them is. The symptom was
+    // the out-of-range diagnostic pointing at the WRONG BYTES: at offsets 6
+    // and 7 of the section, which are the middle of "runtime error: ", instead
+    // of at "array index out of range" and the file name. The two absolute
+    // addresses in the image therefore differed from the oracle's by 16 and 39
+    // bytes, and the NAT-FRAME record read that as an ORDER difference.
     if (usesRtErr == 1) {
         let rk = 0
-        let rbase = 2 + len(lits)
         while (rk < 4) {
-            rtErr = appendArray(rtErr, ro[1][rbase + rk])
+            rtErr = appendArray(rtErr, ro[1][2 + rk])
             rk = rk + 1
         }
+        rtKindSlot = ro[1][callBase]
+        srcOff = ro[1][callBase + 1]
+    }
+    // The EMITTER gets the LITERALS' offsets and nothing else.
+    //
+    // It used to get the whole offset array and start its cursor at 2, which
+    // coupled the emitter's cursor to the INTERNING ORDER: the cursor's start
+    // depended on how many non-literal entries preceded the literals, so
+    // moving the reporter's strings moved every literal's offset and with it
+    // the cursor. Two lists, two jobs: the linker wants the whole section in
+    // the oracle's interning order, and the emitter wants the k-th literal's
+    // offset. Handing the emitter exactly that decouples them, so the interning
+    // order can follow the oracle's without the lowering knowing anything
+    // about it.
+    let roffs = []
+    let ok = 0
+    while (ok < len(lits)) {
+        roffs = appendArray(roffs, ro[1][litBase + ok])
+        ok = ok + 1
     }
     // The entry stub is OS-specific and nothing else is: all three Mark
     // `_start` first and Mark `karkain_main` last, so every label displacement
@@ -6893,7 +6957,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
             fhasReturn = fscan[2]
         }
         s = natNativeEmitFunc(s, fname, fparams, fbody, fplan, fhasReturn, fns,
-            ro[1], tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg,
+            roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg,
             usesStrProg)
         fi = fi + 1
     }
@@ -7204,11 +7268,17 @@ func natCallAlloc(s) {
 // natRodataSection returns one offset per INPUT entry with first-use interning, so the
 // k-th literal in the program is entry 2+k (0 and 1 are print_int's "-" and "\n").
 // The FIRST match is used, so a repeated literal resolves to the one copy interned.
+//
+// NAT-RODATA: `roffs` is now the LITERALS' offset list -- one entry per literal, in
+// the collector's order -- so the k-th literal is entry k and the "+2" is gone. The
+// list used to be the WHOLE offset array, which coupled this lookup to the
+// interning order: the literals' positions depended on how many non-literal
+// entries came before them.
 func natRodataOffsetFor(val, stmts, roffs) {
     let lits = natNativeStrLiterals(stmts)
     let i = 0
     while (i < len(lits)) {
-        if (lits[i] == val) { return roffs[2 + i] }
+        if (lits[i] == val) { return roffs[i] }
         i = i + 1
     }
     return 0

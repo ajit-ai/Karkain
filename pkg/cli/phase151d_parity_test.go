@@ -23,65 +23,88 @@ import (
 // WHAT IS COVERED AND WHAT IS NOT, stated here so the gap is not inferred from
 // a passing run:
 //
-//   - COVERED: SEVEN of the EIGHT program shapes below are byte-identical --
-//     literals, locals, multiple locals, string literals, the ALLOCATING case
-//     (string concatenation, whose arena is floored the way the oracle floors
-//     it), a returned value, and `len()` of an array. D3 closed the allocating
-//     case; D4 closed the two smallest of the three remaining gaps.
-//   - NOT COVERED: ONE shape, `array_index`, which needs the Go backend's
-//     bounds-checked array HELPER routines and the Phase-152-B0 runtime-error
-//     reporter (neither of which exists on the kcc target). It is asserted to
-//     DIFFER by TestPhaseD2_KnownNonParityIsStillNonParity below, which records
-//     the measured numbers and why it needs its own baselined increment.
+//   - COVERED: ALL EIGHT program shapes below are byte-identical -- literals,
+//     locals, multiple locals, string literals, the ALLOCATING case (string
+//     concatenation, whose arena is floored the way the oracle floors it), a
+//     returned value, `len()` of an array, and an ARRAY INDEX.
+//   - NOT COVERED: nothing. The known-non-parity list is EMPTY, and
+//     TestPhaseD2_TheKnownNonParityListIsEmpty below asserts that every shape
+//     which was ever known to differ is still asserted identical here.
 //
 // Note the shape count moved as work landed. This header was written at D2 when
 // four shapes passed and one was expected to differ; D3 added two cases (one to
 // each list) and D4 added two more (both moved into this list when the
-// non-parity gate failed). A passing run therefore says "these seven agree" and
-// NOT "the subset is complete" -- the second list is where the remainder lives.
+// non-parity gate failed); NAT-RODATA added the last one (the array index,
+// whose two rodata addresses were the list positions of its strings rather
+// than their interned offsets). A passing run therefore says "these eight
+// agree" and NOT "the subset is complete" -- the shapes this gate does NOT
+// list are where the remainder would live, and
+// TestPhaseD2_TheKnownNonParityListIsEmpty below keeps the remainder
+// honest.
 //
 // EXECUTION: only the Windows PE can execute on this host, and it is checked
 // separately by TestPhaseB_OtherTargetsAreUnchanged. The ELF bytes compared here
 // are never run on the dev host (no WSL, no Docker); the Linux CI leg is where
 // an ELF produced by these exact bytes executes.
+// natD2Cases are the program shapes the parity gate asserts byte-identical.
+//
+// It is package-level DATA rather than a local literal because two gates read
+// it: the parity gate itself, and the closure gate that checks every shape
+// which was ever known to differ is still asserted identical. One list, two
+// readers -- a second copy of the shapes would be a second thing to keep in
+// step.
+var natD2Cases = []struct {
+	name string
+	src  string
+}{
+	{"print_literal", "func main() {\n    print(42)\n}\n"},
+	{"local", "func main() {\n    let x = 123\n    print(x)\n}\n"},
+	{"two_locals", "func main() {\n    let a = 7\n    let b = 35\n    print(a)\n    print(b)\n}\n"},
+	{"string_literal", "func main() {\n    print(\"hi\")\n}\n"},
+	// Phase D3 added the allocating shape: the arena bound is floored the
+	// way the oracle floors it, and the arena image is part of the image,
+	// so getting it wrong moved every baked arena address. It was asserted
+	// to DIFFER by TestPhaseD2_KnownNonParityIsStillNonParity, which failed
+	// when it became identical -- which is the signal that this row belongs
+	// HERE.
+	{"concat", "func main() {\n    print(\"ab\" + \"cd\")\n}\n"},
+	// Phase D4 added the two shapes that were the SMALLEST remaining gaps.
+	//
+	// return_value was a missing 5-byte `jmp rel32`: the oracle routes every
+	// return through one `$ret` label so the frame teardown is emitted once
+	// per function, and kcc inlined the epilogue with no jump at all.
+	//
+	// len_of_array was a missing REX.B: the array element index went into RCX
+	// with `natMovRegImm32`, which emits a bare `B9+rd` with no REX prefix --
+	// correct for rax..rdi, but for RCX that IS `mov ecx, imm32`, so the
+	// index landed in the low half of the register the scaled store indexes
+	// with.
+	//
+	// Both were asserted to DIFFER by TestPhaseD2_KnownNonParityIsStillNonParity
+	// below, and both moved out of it when that gate failed -- which is the
+	// signal that the row belongs HERE.
+	{"return_value", "func main() {\n    let z = 7\n    return z\n}\n"},
+	{"len_of_array", "func main() {\n    let a = [3, 5, 7]\n    print(len(a))\n}\n"},
+	// NAT-RODATA added the array-index shape. The array-bounds call site
+	// baked the LIST POSITION of its two rodata strings where the interned
+	// OFFSET belongs, so the diagnostic pointed at the wrong bytes and the
+	// image differed from the oracle's in two absolute addresses. The
+	// shape was asserted to DIFFER by TestPhaseD2_KnownNonParityIsStillNonParity
+	// below, and it moved out of it when that gate failed -- which is the
+	// signal that the row belongs HERE.
+	//
+	// The known-non-parity list is now EMPTY: every shape that was ever
+	// known to differ (concat, return_value, len_of_array, array_index) is
+	// asserted byte-identical here. The list gate was removed rather than
+	// left with nothing to compare, because a gate that can pass without
+	// comparing anything is not evidence.
+	{"array_index", "func main() {\n    let a = [3, 5, 7]\n    print(a[1])\n}\n"},
+}
+
 func TestPhaseD2_KccAndGoEmitIdenticalImages(t *testing.T) {
 	karkain := phase130Karkain(t)
 
-	cases := []struct {
-		name string
-		src  string
-	}{
-		{"print_literal", "func main() {\n    print(42)\n}\n"},
-		{"local", "func main() {\n    let x = 123\n    print(x)\n}\n"},
-		{"two_locals", "func main() {\n    let a = 7\n    let b = 35\n    print(a)\n    print(b)\n}\n"},
-		{"string_literal", "func main() {\n    print(\"hi\")\n}\n"},
-		// Phase D3 added the allocating shape: the arena bound is floored the
-		// way the oracle floors it, and the arena image is part of the image,
-		// so getting it wrong moved every baked arena address. It was asserted
-		// to DIFFER by TestPhaseD2_KnownNonParityIsStillNonParity, which failed
-		// when it became identical -- which is the signal that this row belongs
-		// HERE.
-		{"concat", "func main() {\n    print(\"ab\" + \"cd\")\n}\n"},
-		// Phase D4 added the two shapes that were the SMALLEST remaining gaps.
-		//
-		// return_value was a missing 5-byte `jmp rel32`: the oracle routes every
-		// return through one `$ret` label so the frame teardown is emitted once
-		// per function, and kcc inlined the epilogue with no jump at all.
-		//
-		// len_of_array was a missing REX.B: the array element index went into RCX
-		// with `natMovRegImm32`, which emits a bare `B9+rd` with no REX prefix --
-		// correct for rax..rdi, but for RCX that IS `mov ecx, imm32`, so the
-		// index landed in the low half of the register the scaled store indexes
-		// with.
-		//
-		// Both were asserted to DIFFER by TestPhaseD2_KnownNonParityIsStillNonParity
-		// below, and both moved out of it when that gate failed -- which is the
-		// signal that the row belongs HERE.
-		{"return_value", "func main() {\n    let z = 7\n    return z\n}\n"},
-		{"len_of_array", "func main() {\n    let a = [3, 5, 7]\n    print(len(a))\n}\n"},
-	}
-
-	for _, c := range cases {
+	for _, c := range natD2Cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
 			// The Go engine is pinned through the environment rather than a
@@ -179,35 +202,42 @@ func TestPhaseD2_KccAndGoEmitIdenticalImages(t *testing.T) {
 // PHASE-152-BASELINE.md, so the exit code is the observable, not the message.
 // (An earlier port attempt crashed 0xC0000005 on exactly this path; that was a
 // defect in the attempt, not the route, and it is fixed.)
-func TestPhaseD2_KnownNonParityIsStillNonParity(t *testing.T) {
-	karkain := phase130Karkain(t)
-
-	cases := []struct {
-		name string
-		src  string
-	}{
-		{"array_index", "func main() {\n    let a = [3, 5, 7]\n    print(a[1])\n}\n"},
+// TestPhaseD2_TheKnownNonParityListIsEmpty records that the list of shapes
+// KNOWN to differ is empty.
+//
+// It started with four shapes and every one of them has moved:
+//
+//	concat        closed by Phase D3 (the arena bound is floored the way the
+//	              oracle floors it)
+//	return_value  closed by Phase D4 (the missing 5-byte `jmp rel32`)
+//	len_of_array  closed by Phase D4 (the missing REX.B on the scaled index)
+//	array_index   closed by NAT-RODATA (the array-bounds call site baked the
+//	              LIST POSITION of its two rodata strings where the interned
+//	              OFFSET belongs)
+//
+// The list gate is GONE rather than left with nothing to compare: a gate that
+// can pass without comparing anything is not evidence, and every shape it used
+// to hold is asserted byte-identical by TestPhaseD2_KccAndGoEmitIdenticalImages
+// above.
+func TestPhaseD2_TheKnownNonParityListIsEmpty(t *testing.T) {
+	// The shapes that were ever known to differ, and where each of them moved.
+	closed := map[string]string{
+		"concat":       "TestPhaseD2_KccAndGoEmitIdenticalImages/concat",
+		"return_value": "TestPhaseD2_KccAndGoEmitIdenticalImages/return_value",
+		"len_of_array": "TestPhaseD2_KccAndGoEmitIdenticalImages/len_of_array",
+		"array_index":  "TestPhaseD2_KccAndGoEmitIdenticalImages/array_index",
 	}
-
-	for _, c := range cases {
-		c := c
-		t.Run(c.name, func(t *testing.T) {
-			kccRes := nativeBuildWithEngine(t, karkain, c.src, NativeLinuxTarget, "kcc", c.name+"-kcc.elf")
-			if kccRes.ExitCode != 0 || len(kccRes.Image) == 0 {
-				t.Fatalf("kcc build produced no image (exit %d):\n%s", kccRes.ExitCode, kccRes.Output)
+	for shape, where := range closed {
+		found := false
+		for _, c := range natD2Cases {
+			if c.name == shape {
+				found = true
 			}
-			goRes := nativeBuildWithEngine(t, karkain, c.src, NativeLinuxTarget, "go", c.name+"-go.elf")
-			if goRes.ExitCode != 0 || len(goRes.Image) == 0 {
-				t.Fatalf("go build produced no image (exit %d):\n%s", goRes.ExitCode, goRes.Output)
-			}
-			kh := sha256.Sum256(kccRes.Image)
-			gh := sha256.Sum256(goRes.Image)
-			if kh == gh {
-				t.Errorf("this shape is now byte-identical (sha %x). That is progress: "+
-					"move it into TestPhaseD2_KccAndGoEmitIdenticalImages so it is covered "+
-					"by the parity assertion rather than merely noted here.", kh)
-			}
-			t.Logf("known non-parity: kcc=%d go=%d", len(kccRes.Image), len(goRes.Image))
-		})
+		}
+		if !found {
+			t.Errorf("the shape %q was known to differ and is now asserted identical at %s, "+
+				"but it is not in the parity gate's case list; a gap that was closed must "+
+				"stay covered", shape, where)
+		}
 	}
 }
