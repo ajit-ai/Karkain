@@ -31,9 +31,11 @@ v1.2.0 - Native Independence (current)
    * - What shipped
      - The native VALUE MODEL in the self-hosted engine: arrays, the heap
        arena, string operations (concat, push, records, maps) and float64.
-     - The self-hosted engine's own machine-code ENCODER, the ELF, PE and
+
+       The self-hosted engine's own machine-code ENCODER, the ELF, PE and
        Mach-O container writers, and the whole-program driver.
-     - The native milestones, each with its own gate: NAT-CALL (user
+
+       The native milestones, each with its own gate: NAT-CALL (user
        functions), NAT-IF (branches), NAT-QUAL (the qualification), NAT-LOOP
        (loops, break/continue), NAT-IDX (array indexing and the bounds
        diagnostic), NAT-FRAME (the frame layout against the Go oracle's),
@@ -52,7 +54,6 @@ v1.2.0 - Native Independence (current)
 
 v1.1.0 - Stable Build (historical)
 ==================================
-================================
 
 .. list-table::
    :widths: 30 70

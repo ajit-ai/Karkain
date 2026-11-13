@@ -277,6 +277,45 @@ The arithmetic, for the record: 11412 (HEAD) + 344 (Steps 5/6) + 103 (Step 7)
 + 69 (Step 8f) + 82 (Step 9a) + 344 (Steps 9b/9c/9d/9e/9f/9g/9h) + 297
 (NAT-REG) = 15243.
 
+### 11.4 The first CI run of the release, and the two blockers it found
+
+The first CI run of the release found **two release blockers**, and both were
+of the same kind: a claim that was true on the machine where it was written
+and false on the machine that ran it. Both were fixed before the tag.
+
+**The docs build was red.** The new v1.2.0 section of `release-notes.rst`
+carried a DUPLICATED section underline (the head was prepended and the
+original underline came with it) and a list-table row with FOUR items where
+every other row had two - and an RST list-table requires a uniform two-level
+bullet list, so Sphinx refused the directive. Reproduced locally with Sphinx
+9.1.1 and `python -m sphinx -b html docs/source <out> -W --keep-going`: the
+build now **succeeds with 0 warnings**, and the linkcheck succeeds too. The
+CI's `Documentation` job had failed on exactly this.
+
+**The NAT-QUAL gate was WINDOWS-ONLY in its mechanism.** Its PATH shims for
+`gcc` and `go` were `.cmd` files, which Go's `exec.LookPath` resolves on
+Windows through PATHEXT - and on POSIX `LookPath("gcc")` does NOT find
+`gcc.cmd` at all, because the file is not named `gcc` and carries no exec
+bit. So on the Linux CI leg the shim could never fire, the traced log was
+empty for the WRONG reason, and the **positive control** failed with "the
+positive control did not fire". The control is exactly what caught it: a
+mechanism that cannot be shown to work cannot prove that it stayed silent.
+The shim is now written the way the host resolves it - a `.cmd` on Windows,
+an executable `#!/bin/sh` script named exactly like the tool on POSIX - and
+the trace follows the HOST's own native target rather than a cross-build.
+**This gate had never executed on the remote CI before this release** - the
+whole NAT-* series lived on the feature branch - so this was its first
+execution anywhere but Windows, and the first execution was the one that
+found the defect.
+
+**The CI aborts a job at its FIRST failing step, so one red gate hides every
+gate behind it.** The first run failed at the NAT-QUAL step and the 39 steps
+behind it - NAT-LOOP, NAT-IDX, NAT-FRAME, NAT-STR-STAGE, NAT-RODATA,
+NAT-REG, the 151A family, the 152 family, the conformance corpus and the P1
+gate - were reported **skipped**, not passed. The 49 steps in front of it,
+including the Phase 151 native-parity gates, A1, Phase B, D2, D5 and D8,
+were green.
+
 ## 12. The QA battery and the release decision
 
 The v1.2.0 closure conditions, with their status:

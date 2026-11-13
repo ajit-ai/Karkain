@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -253,21 +254,61 @@ func natQualRunBuild(t *testing.T, karkain, src, target, shimDir string) nativeB
 // succeeding. The point of the shim is to make an invocation VISIBLE, and a
 // visible invocation must also be a loud one.
 //
+// THE SHIM MUST BE REACHABLE BY THE HOST'S OWN LOOKUP, or the whole layer is
+// vacuous. This gate was written on Windows and its shim was a .cmd file,
+// which Go's exec.LookPath resolves through PATHEXT. On POSIX, LookPath
+// ("gcc") does NOT find "gcc.cmd" at all -- the file is not named "gcc" and
+// carries no exec bit -- so the shim could never fire: the traced log was
+// empty for the WRONG reason, and the POSITIVE CONTROL failed with "the
+// positive control did not fire". The control is exactly what caught it: a
+// mechanism that cannot be shown to work cannot prove that it stayed silent.
+//
 // The log path is returned so the caller can assert on it.
 func natQualShimDir(t *testing.T) (dir, logPath string) {
 	t.Helper()
 	dir = t.TempDir()
 	logPath = filepath.Join(dir, "invocations.log")
 
-	// A .cmd shim: Go's exec.LookPath on Windows resolves .cmd through
-	// PATHEXT, so this is found wherever gcc.exe would be found.
-	shim := "@echo off\r\necho invoked %* >> \"" + logPath + "\"\r\nexit /b 1\r\n"
-	for _, name := range []string{"gcc.cmd", "go.cmd"} {
+	if runtime.GOOS == "windows" {
+		// A .cmd shim: Go's exec.LookPath on Windows resolves .cmd through
+		// PATHEXT, so this is found wherever gcc.exe would be found.
+		shim := "@echo off\r\necho invoked %* >> \"" + logPath + "\"\r\nexit /b 1\r\n"
+		for _, name := range []string{"gcc.cmd", "go.cmd"} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(shim), 0o755); err != nil {
+				t.Fatalf("writing the %s shim: %v", name, err)
+			}
+		}
+		return dir, logPath
+	}
+
+	// A POSIX shim: a plain executable named exactly like the tool it
+	// shadows, so LookPath finds it first.
+	shim := "#!/bin/sh\necho \"invoked $*\" >> \"" + logPath + "\"\nexit 1\n"
+	for _, name := range []string{"gcc", "go"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(shim), 0o755); err != nil {
 			t.Fatalf("writing the %s shim: %v", name, err)
 		}
 	}
 	return dir, logPath
+}
+
+// natQualHostTarget is the native target for the host the gate runs on.
+//
+// The claim under test is about the path a USER takes on THIS machine, so the
+// trace follows the host's own target rather than a cross-build: the Windows
+// PE on Windows (the one with execution evidence on the dev host), the Linux
+// ELF on Linux (the one the Linux CI leg exercises), and the macOS Mach-O on
+// macOS (structural everywhere, because this repository has no macOS
+// runner).
+func natQualHostTarget() string {
+	switch runtime.GOOS {
+	case "windows":
+		return NativeWindowsTarget
+	case "darwin":
+		return NativeMacOSTarget
+	default:
+		return NativeLinuxTarget
+	}
 }
 
 // natQualLogBytes returns the shim log's contents, or "" when nothing was
@@ -302,16 +343,17 @@ func natQualLogBytes(t *testing.T, logPath string) string {
 func TestPhaseNATQual_TheNativePathInvokesNeitherCNorGo(t *testing.T) {
 	karkain := phase130Karkain(t)
 	const src = "func main() {\n    print(42)\n}\n"
+	target := natQualHostTarget()
 
 	// (1) Warm the self-hosted compiler OUTSIDE the trace.
-	warm := natQualRunBuild(t, karkain, src, NativeWindowsTarget, "")
+	warm := natQualRunBuild(t, karkain, src, target, "")
 	if warm.ExitCode != 0 || !warm.WroteImage {
 		t.Fatalf("the warm-up native build failed (exit %d):\n%s", warm.ExitCode, warm.Output)
 	}
 
 	// (2) The traced native build.
 	shimDir, logPath := natQualShimDir(t)
-	traced := natQualRunBuild(t, karkain, src, NativeWindowsTarget, shimDir)
+	traced := natQualRunBuild(t, karkain, src, target, shimDir)
 	if traced.ExitCode != 0 || !traced.WroteImage {
 		t.Fatalf("the traced native build failed (exit %d):\n%s", traced.ExitCode, traced.Output)
 	}

@@ -4603,6 +4603,42 @@ The journey stage failed the same way twice on this host (`karkain test` and
 `karkain prof`, both "C compilation failed: exit status 1") and passed 11/11 on
 the re-run. All of it is recorded as a **flake**, not as a success.
 
+**TWO RELEASE BLOCKERS FOUND BY THE FIRST CI RUN OF THE RELEASE, both fixed
+before the tag, and both of the same kind: a claim that was true on the
+machine where it was written and false on the machine that ran it.** (1) **THE
+DOCS BUILD WAS RED.** The new v1.2.0 section of `release-notes.rst` carried a
+DUPLICATED section underline (the release-notes head was prepended and the
+original underline came with it) and a list-table row with FOUR items where
+every other row had two - and an RST list-table requires a uniform two-level
+bullet list, so Sphinx refused the directive. Reproduced locally with
+Sphinx 9.1.1 and `python -m sphinx -b html docs/source <out> -W --keep-going`:
+the build now SUCCEEDS with 0 warnings, and the linkcheck succeeds too. The
+CI's Documentation job had failed on exactly this. (2) **THE NAT-QUAL GATE WAS
+WINDOWS-ONLY IN ITS MECHANISM.** Its PATH shims for `gcc` and `go` were
+`.cmd` files, which Go's `exec.LookPath` resolves on Windows through PATHEXT
+- and on POSIX `LookPath("gcc")` does NOT find `gcc.cmd` at all, because the
+file is not named `gcc` and carries no exec bit. So on the Linux CI leg the
+shim could never fire, the traced log was empty for the WRONG reason, and
+the POSITIVE CONTROL failed with "the positive control did not fire". **The
+control is exactly what caught it**: a mechanism that cannot be shown to
+work cannot prove that it stayed silent. The shim is now written the way the
+host resolves it (a `.cmd` on Windows, an executable `#!/bin/sh` script
+named exactly like the tool on POSIX), and the trace follows the HOST's own
+native target rather than a cross-build. **This gate had never executed on
+the remote CI before this release** - the whole NAT-* series lived on the
+feature branch - so this was its first execution anywhere but Windows, and
+the first execution was the one that found the defect.
+
+**THE CI ABORTS A JOB AT ITS FIRST FAILING STEP, so one red gate hides every
+gate behind it.** The first CI run of this release failed at the NAT-QUAL
+step and the 39 steps behind it - NAT-LOOP, NAT-IDX, NAT-FRAME, NAT-STR-
+STAGE, NAT-RODATA, NAT-REG, the 151A family, the 152 family, the conformance
+corpus and the P1 gate - were reported as **skipped**, not as passed. That
+is the same trap the increment-154 record describes, and it is why a single
+gate's first execution on a new platform matters more than its own result.
+The 49 steps in front of it - including the Phase 151 native-parity gates,
+A1, Phase B, D2, D5 and D8 - were green.
+
 **THE NAT-REG SLICE** is in the same release: the register allocator is a
 PORT of the oracle's Phase-150C allocator rather than a new design, and it is
 **OPT-IN** (`KARKAIN_NATIVE_REGALLOC=1`) with the qualified stack-based path
