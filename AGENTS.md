@@ -4636,6 +4636,25 @@ the remote CI before this release** - the whole NAT-* series lived on the
 feature branch - so this was its first execution anywhere but Windows, and
 the first execution was the one that found the defect.
 
+**THE RELEASE'S ARTIFACT UPLOAD WAS BLOCKED BY THE ACCOUNT'S ARTIFACT STORAGE
+QUOTA, and the fix was to DELETE 1832 STALE CI ARTIFACTS - not to change the
+compiler.** The build matrix's `Build (linux/ppc64le)` job built and packaged
+its archive successfully and then failed at `actions/upload-artifact@v4` with
+`Failed to CreateArtifact: Artifact storage quota has been hit. Unable to
+upload any new artifacts. Usage is recalculated every 6-12 hours.` The
+fail-fast matrix then CANCELLED the other twelve build jobs, and the release
+job - which downloads those artifacts - cannot run without them. The quota
+was exhausted by **1832 run artifacts** accumulated over about two weeks of
+CI runs, each about 3.5 MB. **These are CI build outputs, NOT release
+assets**: the published archives live in the Releases API and the v1.1.0
+release's 14 assets were verified INTACT across the cleanup. The bulk
+`DELETE /repos/{owner}/{repo}/actions/artifacts` endpoint is NOT available on
+this repository's plan (it answers 404), so the artifacts were deleted one
+at a time through the per-artifact endpoint. **This is worth recording
+because the symptom looks like a build failure and is not one**: the
+`Build` and `Package` steps were green, and only the upload - the one step
+that talks to the storage service - was red.
+
 **THE CI ABORTS A JOB AT ITS FIRST FAILING STEP, so one red gate hides every
 gate behind it.** The first CI run of this release failed at the NAT-QUAL
 step and the 39 steps behind it - NAT-LOOP, NAT-IDX, NAT-FRAME, NAT-STR-
