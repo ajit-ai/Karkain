@@ -103,14 +103,18 @@ hint (exit 6).
        line, and the CLI refuses to write bytes that lack it.
    * - ``native-x86_64-linux``
      - ELF64 (``.elf``)
-     - **Go backend only.** kcc refuses with ``error[K116]``. It has no
-       ELF emitter for a user program: ``native_elf.kark`` lowers the
-       fixed reference corpora that Phase 151C compares against the Go
-       oracle, and does not take a program.
+     - **Self-hosted (kcc)** and Go. Phase A1 wired the same whole-program
+       driver to the Linux container, so the ELF is emitted by kcc through
+       the same scan/plan/lower sequence as the other two targets.
    * - ``native-x86_64-macos``
      - Mach-O PIE (``.macho``)
-     - **Go backend only.** kcc refuses with ``error[K116]``, for the
-       same reason as ELF.
+     - **Self-hosted (kcc)** and Go. Phase B wired the same driver to the
+       Mach-O container. The image is a real position-independent
+       executable (``MH_PIE``) with a writable ``__DATA`` arena and a
+       decodable rebase stream.
+
+All three targets are kcc-owned: ``kccNativeOwnedTargets`` has no member
+left to refuse, and nothing refuses with ``error[K116]`` any more.
 
 Engine selection vs. target ownership
 -------------------------------------
@@ -126,20 +130,27 @@ facts, and both are worth stating precisely:
   backend — the earlier behaviour, measured in
   ``docs/audit/PHASE-151-BASELINE.md`` §1.1, produced a Go image with no
   signal that the engine had changed.
-- To build all three native targets, use the Go engine
-  (``--engine go``). That is a supported, documented path, not a
-  workaround.
+- The Go engine remains a supported, documented path for all three
+  targets. It is the **reference** implementation the native differential
+  compares against, not a required fallback.
 
 Verified status of this claim
 -----------------------------
 
 ``native-x86_64-windows`` is marked self-hosted because kcc-built
 images have been **executed** and produced correct output
-(``pkg/cli/phase151_kcc_native_test.go``). The Linux and macOS rows are
-marked Go-backend-only because kcc refuses them by name in its own
-source (``src/compiler/main.kark``, ``buildNativeFile``); no
-Mach-O-execution claim is made anywhere, since no Intel Mac runner
-exists in CI.
+(``pkg/cli/phase151_kcc_native_test.go``). The Linux ELF is emitted by
+kcc through the same driver and is compared byte for byte against the Go
+oracle; its **execution** evidence comes from the Linux CI leg, because
+this development host is windows/amd64 with no WSL and no Docker.
+
+The macOS row is marked self-hosted on **structural** evidence only:
+``parseMachO`` validates ``MH_PIE``, the segment set and protections,
+page-aligned placement, the entry, and decodes the rebase stream, but no
+Mach-O image has been **executed**, because this repository has no macOS
+runner and no Intel-Mac host in its history. Every Mach-O claim since
+increment 149 has been structural, and the v1.2.0 release does not change
+that.
 
 .. seealso::
 
