@@ -4484,3 +4484,138 @@ history was empty, not green. The two discovery jobs (`Increment 154
 self-bootstrap`, `B2 seed closure`) report failure on the documented exit-143
 runner class; that is their purpose and they are deliberately not required
 checks, so they record the limitation instead of blocking the branch.
+
+
+Also completed: **v1.2.0 - "Native Independence" (the GA release)** (verdict
+**COMPLETE for the effective gate**; the authoritative qualification report is
+`docs/audit/KARKAIN-V1.2.0-GA-QUALIFICATION.md`, the release notes are
+`docs/release/KARKAIN-1.2-RELEASE-NOTES.md`, and the scope freeze and the
+closure conditions are `docs/release/v1.2.0-CHECKLIST.md`). **THE EFFECTIVE
+GATE IS CONDITIONS 1, 4, 7 AND 8**: conditions **2** (`stdlib_v2` no-C) and
+**3** (`std.net` no-C) were carried to v1.3.0 as UNMET by an owner-authorized
+amendment (2026-10-10), and conditions **5** (`stage2 == stage3`) and **6**
+(no Go toolchain for that closure) were carried to v1.3.0 as UNMET by another
+(owner-authorized 2026-10-29). The condition TEXT is untouched; only the
+STATUS moved, and the status lives in one place per condition.
+
+**THE RELEASE IS THE SELF-HOSTED NATIVE BACK END.** All three C-free targets
+are kcc-owned - `native-x86_64-windows` (Phase 151D), `native-x86_64-linux`
+(Phase A1) and `native-x86_64-macos` (Phase B) - through the SAME
+whole-program driver, so the three containers cannot disagree about a
+program's frame, its rodata interning or its refusals. Nothing refuses with
+`error[K116]` any more: `kccNativeOwnedTargets` has no member left to refuse.
+**The evidence is honest about what is proven by EXECUTION and what is
+proven STRUCTURALLY:** the Windows PE images are executed on the dev host and
+byte-checked; the Linux ELF is byte-identical to the Go oracle and executes on
+the Linux CI leg (this dev host is windows/amd64 with no WSL and no Docker);
+the macOS Mach-O is a real PIE with `MH_PIE`, a writable `__DATA` arena and a
+decodable rebase stream, and it is **structurally validated only**, because
+this repository has no macOS runner and no Intel-Mac host in its history.
+
+**THE VERSION IDENTITY FLIP** moved `VERSION`, both Go banners, three kcc
+banners, six generated headers, the LSP server version and the five
+version-pinning test files to **1.2.0**, and the documentation flip moved the
+roadmap, the compatibility policy, the release notes (a new v1.2.0 section),
+the installation guide, the supported-target page and the README. The
+v1.1.0 and v1.0.0 HISTORICAL statements were restored rather than blanket-
+replaced, because a version flip that rewrites history is how a release stops
+being auditable. **The KIR pin did NOT move: 15243 before and after** (measured
+twice on the release state with `karkain kir --verify src/compiler/kir.kark`,
+`text=15243 verify=15243`), because the flip changes a string literal's
+CONTENT and not the AST's shape - the delta was **measured, not predicted**.
+
+**FOUR REAL DOCUMENTATION DEFECTS FOUND AND FIXED IN THE FLIP**, each of which
+contradicted the implementation and would have shipped a false claim: (1) the
+installation guide and the supported-target page still said kcc REFUSES the
+Linux and macOS targets with `error[K116]` - false since Phase A1 and Phase
+B; (2) the archive table still named the **v1.0.0** archives the CI has not
+produced since the 1.1.0 release; (3) the "Release cut pending" marker was
+still in place for a release that is being cut; (4) the README's status prose
+still said the **native backend** was `Planned`/`Not Yet Implemented` - which
+contradicts the release's entire purpose - and its release-binaries row still
+said "Pending release cut". The compatibility policy's "the label applies
+from Phase 142" was mangled by the flip (Phase 142 is the 1.1.0 label) and was
+corrected.
+
+**THREE RELEASE-SCRIPT DEFECT CLASSES FOUND AND FIXED, all MEASURED rather
+than inferred, and all three had been silently RED for a whole version.**
+(1) **STALE VERSION EXPECTATIONS.** `verify-install.ps1` expected
+``Karkain Compiler v1.0.0`` - stale since the 1.1.0 release, so the install
+stage had been RED for a whole version; and `verify-rc-journey.ps1` expected
+`v1.1.0`. Both now expect the release's own version. (2) **A CLEANUP FAILURE
+FAILED THE WHOLE INSTALL.** The root cause was measured, not guessed:
+**`Remove-Item -Recurse -Force` cannot delete a DIRECTORY under `%TEMP%` on
+this host** (`%TEMP%` = `C:\Windows\Temp`), while the FILES inside delete
+fine, while `[IO.Directory]::Delete` succeeds and while `cmd /c rmdir` succeeds
+- verified against an EMPTY directory, and against a directory that never held
+anything at all, and against the same call under the repository root, where it
+works. The three scripts now use a best-effort `Remove-ScratchDir` helper
+(`[IO.Directory]::Delete` with a retry and an `rmdir` fallback) and a cleanup
+failure can no longer fail an install whose work already succeeded. The QA
+battery's own temp cleanups had the same defect and were fixed the same way.
+(3) **A DELIBERATE SKIP KILLED THE BATTERY.** PS 5.1 escalates a NATIVE
+command's stderr into a **terminating** error when `$ErrorActionPreference` is
+`Stop`, and the `2>$null` redirect does **NOT** prevent that. The QA
+battery's `docs` stage probed `python -m sphinx --version` with `2>$null`,
+so on a host that HAS python but NOT sphinx the probe killed the whole
+battery instead of skipping the stage - and `beta-fresh-checkout.ps1` had the
+identical defect on its `python -c "import sphinx"` probe, so the
+fresh-checkout gate died instead of printing `SKIP sphinx (not installed)`.
+Both now relax the preference around the probe and take the exit code as the
+authority, which is the same discipline the fresh-checkout script's own
+comment already described for its other native commands. **A SECOND, SEPARATE
+DEFECT WAS IN THE STAGE RUNNER ITSELF:** `Run-Stage` reads `$LASTEXITCODE`,
+and the docs stage's own probe left it at the probe's non-zero code, so a
+DELIBERATE SKIP was reported as a stage FAILURE even after the probe stopped
+crashing. The skip path now resets it. **The QA script's cligates stage also
+needed a longer `-timeout`**: it bundles EIGHT gate families and the
+Phase-114 corpus runs in BOTH engines, so it exceeded Go's 10-minute default
+and then a 40-minute one on this ~4 GB host; it is now 90 minutes with the
+reason recorded in the script's header. Both were HARNESS artifacts rather
+than regressions.
+
+**THE MEASURED QA BATTERY, reported honestly.** `build` PASS (61.6 s), `vet`
+PASS (40.1 s), `cligates` PASS (1556.4 s), `conformance` PASS (161.0 s),
+`probes` PASS (44.0 s), `examples` PASS (60 passed, 0 failed, 2 skipped),
+`fresh` PASS (387.6 s - "BETA FRESH-CHECKOUT: PASS", with the sphinx leg
+correctly SKIPPING now), `install` PASS (exit 0), `verify-install` PASS (exit
+0), `journey` PASS (11 passed, 0 failed), `docs` **SKIP** (no Sphinx on this
+host; the CI Pages job covers it). The `units` stage fails **only** on
+`pkg/bootstrap`'s two
+heavyweight tests - `TestBootstrap_Stage2SelfHosting` and
+`TestBootstrap_BitwiseIdentity` - which the `error[K127]` memory guard
+refuses on this ~4 GB host (measured: 166-791 MiB free against the guard's
+1536 MiB requirement). With the guard's own documented override
+(`KARKAIN_BOOTSTRAP_MIN_MEM=0`) the burn still dies in the stage-2 transpile
+("karkain transpile failed: exit status 1"), so the failure is the host's
+capacity and not the override. **Every other package in the `units` stage
+passes** (lexer, parser, sema, ir, codegen, backend, npu, pm, module,
+runtime, wasm, compiler, source, diagnostics, target, lsp). The conformance
+corpus is **64/64** and the probes corpus is green; the conformance stage
+FAILED twice on this host with a **different** test each time
+(`test_array_of_strings` and `test_array_push_and_len`, then
+`test_primality`), each with "C compilation failed: exit status 1" and no
+compiler diagnostic - the documented class in which the C backend's gcc is
+KILLED while the pagefile thrashes, which is why the NAT-IDX gate captures
+the child's stderr instead of discarding it. A third run passed 64/64, and the
+battery's own `conformance` and `cligates` stages then passed 64/64 as well.
+The journey stage failed the same way twice on this host (`karkain test` and
+`karkain prof`, both "C compilation failed: exit status 1") and passed 11/11 on
+the re-run. All of it is recorded as a **flake**, not as a success.
+
+**THE NAT-REG SLICE** is in the same release: the register allocator is a
+PORT of the oracle's Phase-150C allocator rather than a new design, and it is
+**OPT-IN** (`KARKAIN_NATIVE_REGALLOC=1`) with the qualified stack-based path
+as the default, because new code in a self-hosted compiler does not become
+the default until it has passed the complete qualification suite. The gate is
+BEHAVIOURAL - the two paths and the Go oracle must produce the same stdout
+and exit status over the same programs - and it is NON-VACUOUS because the
+two paths must be byte-different where the allocator engages. Four mutations
+are caught (omitting the epilogue's POP, storing a spilled value to the wrong
+slot, reusing a register whose holder is still live, and dropping the loop
+widening); a FIFTH is NOT caught and is recorded rather than hidden - dropping
+the scan's liveness check makes the allocator MORE conservative, which is a
+missed optimisation and not a wrong answer. **No performance improvement is
+claimed**: the allocator trades memory traffic for a push/pop pair per
+claimed register, and the measured sizes are mixed (sometimes smaller,
+sometimes a byte or two larger).

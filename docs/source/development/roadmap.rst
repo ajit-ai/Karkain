@@ -114,15 +114,15 @@ Key cross-cutting milestones
 Current status
 --------------
 
-The project is **Karkain 1.1.0** (identity adopted at Phase 142; all 1.1.0 code
-in-tree with only the owner tag/archive ceremony outstanding). The versioned
+The project is **Karkain 1.2.0** (identity adopted at the v1.2.0 release;
+all 1.2.0 code in-tree). The versioned
 language specification lives in ``SPEC.md``; the authoritative status matrix
 for the released scope is :doc:`/status/scope`, and the compatibility
 guarantees are documented at :doc:`/status/compatibility`. Release notes are
 tracked at :doc:`/release-notes`. Forward planning is tracked version-wise in
 ``docs/audit/KARKAIN-VERSION-PLAN.md``.
 
-What ships in 1.1.0 today
+What ships in 1.2.0 today
 -------------------------
 
 * Importable standard library modules (``std.string``, ``std.collections``,
@@ -158,7 +158,7 @@ Future: Version-Wise Roadmap
 Forward development is organized by **version** with per-increment execution
 (see ``docs/audit/KARKAIN-VERSION-PLAN.md`` for exit criteria and NFR targets):
 
-* **1.2.0 "Sovereignty I" (open — next):** Native Value model (boxed Values,
+* **1.2.0 "Sovereignty I" (current):** Native Value model (boxed Values,
   arrays, ``for-in``, floats, structs) + ``native-x86_64-windows``/``macos`` CLI
   targets (Increment 150), ``kcc`` native parity (151), native stdlib and no-C
   closure (152), ``kcc`` builds ``kcc`` self-bootstrap (154), and multi-arch
@@ -181,8 +181,8 @@ Forward development is organized by **version** with per-increment execution
   idiom v2 (180).
 
 The versioned phase descriptions remain in ``AGENTS.md`` at the repository
-root. Current status is **Karkain 1.1.0 (in-tree complete)** with the public
-release ceremony pending.
+root. Current status is **Karkain 1.2.0 (Stable)**, released as the Native
+Independence release.
 
 .. seealso::
 

@@ -46,6 +46,24 @@ function AssertTrue([object]$Cond, [string]$Msg) {
     }
 }
 
+# Best-effort scratch-directory cleanup. See scripts\install.ps1 for why this
+# is not `Remove-Item`: on some hosts Remove-Item cannot delete a DIRECTORY
+# under %TEMP% (measured here: %TEMP% = C:\Windows\Temp, "Access is denied" on
+# an empty directory), and a cleanup failure must not fail a verified journey.
+function Remove-ScratchDir([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            [System.IO.Directory]::Delete($Path, $true)
+            return
+        } catch {
+            Start-Sleep -Milliseconds 400
+        }
+    }
+    try { cmd /c rmdir /s /q "$Path" 2>&1 | Out-Null } catch { }
+}
+
 $scratch = Join-Path $env:TEMP ("karkain-journey-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 $bin = Join-Path $scratch "karkain.exe"
@@ -65,10 +83,10 @@ try {
     }
 
     # 2. version identity
-    Step "--version identifies 1.1.0 Stable" {
+    Step "--version identifies 1.2.0 Stable" {
         $out = & $bin --version 2>&1
         AssertTrue ($LASTEXITCODE -eq 0) "--version failed: $out"
-        AssertTrue ($out -match "Karkain Compiler v1\.1\.0" -and $out -match "Stable Build") "unexpected --version: $out"
+        AssertTrue ($out -match "Karkain Compiler v1\.2\.0" -and $out -match "Stable Build") "unexpected --version: $out"
     }
 
     # 3. help coverage
@@ -191,9 +209,9 @@ Write-Host "Journey result: $pass passed, $fail failed" -ForegroundColor Cyan
 if ($fail -gt 0) {
     Write-Host "Failed steps:" -ForegroundColor Red
     $failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
-    Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-ScratchDir $scratch
     exit 1
 }
 Write-Host "External developer journey: PASS" -ForegroundColor Green
-Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue
+Remove-ScratchDir $scratch
 exit 0

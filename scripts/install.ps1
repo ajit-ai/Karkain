@@ -23,6 +23,32 @@ function Fail([int]$Code, [string]$Msg) {
     exit $Code
 }
 
+# Best-effort scratch-directory cleanup.
+#
+# A cleanup failure must NEVER fail the install: the install's contract is
+# "install + verify", which the smoke test below has already established.
+#
+# [IO.Directory]::Delete is used rather than Remove-Item because on some hosts
+# Remove-Item cannot delete a DIRECTORY under %TEMP% -- measured on this
+# Windows host, where %TEMP% = C:\Windows\Temp: `Remove-Item -Recurse -Force`
+# fails with "Access is denied" on an EMPTY directory while
+# [IO.Directory]::Delete and `cmd /c rmdir` both succeed, and the same call
+# inside the install used to fail the whole script after a successful install.
+# The retry covers a handle briefly held on a freshly-built artifact.
+function Remove-ScratchDir([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            [System.IO.Directory]::Delete($Path, $true)
+            return
+        } catch {
+            Start-Sleep -Milliseconds 400
+        }
+    }
+    try { cmd /c rmdir /s /q "$Path" 2>&1 | Out-Null } catch { }
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 
@@ -83,7 +109,7 @@ Write-Host "Built: $Exe" -ForegroundColor Green
 
 # ---- write version fingerprint ----
 $repoVersion = Get-Content (Join-Path $ProjectRoot "VERSION") -ErrorAction SilentlyContinue
-if (-not $repoVersion) { $repoVersion = "1.1.0" }
+if (-not $repoVersion) { $repoVersion = "1.2.0" }
 $fp = "Karkain Compiler $repoVersion`r`nBuild: from source (Go `$(go version))`r`nInstall date: $(Get-Date -Format 'yyyy-MM-dd')"
 Set-Content -Path (Join-Path $Prefix "VERSION") -Value $fp -Encoding ASCII
 
@@ -93,7 +119,7 @@ if ($LASTEXITCODE -ne 0) {
     Fail 3 "installed binary failed --version:`n$verOut"
 }
 if ($verOut -notmatch "Stable Build") {
-    Fail 3 "installed binary does not identify a 1.1.0 Stable build: $verOut"
+    Fail 3 "installed binary does not identify a 1.2.0 Stable build: $verOut"
 }
 Write-Host "Version: $verOut" -ForegroundColor Green
 
@@ -119,7 +145,7 @@ if (-not $SkipSmoke) {
             Fail 3 "smoke: unexpected output from hello.kark: $runOut"
         }
         Write-Host "Smoke test: check + run hello.kark PASS" -ForegroundColor Green
-        Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-ScratchDir $scratch
     }
     finally {
         $env:KARKAIN_ENGINE = $oldEngine

@@ -2,7 +2,7 @@
 Compatibility Policy
 ====================
 
-Karkain 1.1.0 defines what external developers may rely on between
+Karkain 1.2.0 defines what external developers may rely on between
 releases. This policy is governed by the formal SemVer policy
 (:doc:`/development/semver-policy`) and the version-wise development plan
 (``docs/audit/KARKAIN-VERSION-PLAN.md``).
@@ -37,16 +37,17 @@ Guarantee levels
        release-blocking corrections (bugs, security, compatibility breaks,
        deterministic-correctness fixes) are made.
 
-Karkain 1.1.0 versioning
+Karkain 1.2.0 versioning
 =========================
 
-The ``v1.1.0`` ``Stable Build`` label applies from Phase 142 (1.0.x
-continues as the LTS line). Before that, 1.0.0 (``v1.0.0``, Phase 119),
-Beta 1 (``v0.117.x``) and Developer Preview (``v0.115.x``) carried the
-earlier lines. The versioning convention is:
+The ``v1.2.0`` ``Stable Build`` label applies from the v1.2.0 release
+(Sovereignty I). The ``v1.1.0`` label applied from Phase 142; before that,
+1.0.0 (``v1.0.0``, Phase 119), Beta 1 (``v0.117.x``) and Developer Preview
+(``v0.115.x``) carried the earlier lines. 1.0.x continues as the LTS line.
+The versioning convention is:
 
-* ``Karkain Compiler v1.1.0 (... Stable Build)`` — the current Stable line.
-* ``VERSION`` at the repository root: ``1.1.0``.
+* ``Karkain Compiler v1.2.0 (... Stable Build)`` — the current Stable line.
+* ``VERSION`` at the repository root: ``1.2.0``.
 * Patch releases within the 1.0 line stay ``1.0.x`` (LTS).
 
 Versioning

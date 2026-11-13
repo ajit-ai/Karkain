@@ -9,7 +9,7 @@
 #   - 7z or PowerShell built-in Compress-Archive
 
 param(
-    [string]$Version = "v1.1.0"
+    [string]$Version = "v1.2.0"
 )
 
 $ErrorActionPreference = "Stop"
