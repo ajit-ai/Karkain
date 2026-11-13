@@ -6,14 +6,14 @@ Karkain is distributed as pre-compiled binaries and built from source.
 
 .. note::
 
-   Karkain is **1.1.0 (Stable)** software. The stable core is regression-gated;
+   Karkain is **1.2.0 (Stable)** software. The stable core is regression-gated;
    experimental surfaces may change between releases.
 
 Pre-compiled binaries
 =====================
 
-:implemented:`Available` — pre-built binaries for **v1.1.0** have been
-built and validated as a **13-archive set**. The v1.1.0 GitHub Release
+:implemented:`Available` — pre-built binaries for **v1.2.0** have been
+built and validated as a **13-archive set**. The v1.2.0 GitHub Release
 (tag-triggered CI pipeline) publishes them to `GitHub Releases
 <https://github.com/ajit-ai/Karkain/releases>`_ with a ``checksums.txt``
 (SHA-256) listing; :ref:`release-status` below records whether the release is
@@ -29,12 +29,13 @@ Release status
 
 .. note::
 
-   :planned:`Release cut pending` — once the owner publishes the v1.1.0
-   release (owner-only action on the existing CI pipeline), the archive
-   links below become live and this note should be removed. Until then the
-   archives are not yet downloadable and the
-   :ref:`build-from-source <installation-source-build>` path below is the
-   way to get the toolchain.
+   :implemented:`Available` - the v1.2.0 archives are published to
+   `GitHub Releases <https://github.com/ajit-ai/Karkain/releases>`_ by the
+   tag-triggered CI pipeline, together with a ``checksums.txt`` (SHA-256)
+   listing. **Verify every archive against that file before running it**;
+   the exact commands are in :ref:`installation-source-build` below. The
+   :ref:`build-from-source <installation-source-build>` path remains the way
+   to get the toolchain for an unlisted platform.
 
   .. note::
 
@@ -48,14 +49,15 @@ Release status
   .. note::
 
      **Go is reference-only for the C-free native targets, not globally.**
-     The three ``native-x86_64-*`` targets build with no C compiler at all.
-     Of those, ``native-x86_64-windows`` is also emitted by the self-hosted
-     engine (kcc) since Phase 151D, while ``native-x86_64-linux`` and
-     ``native-x86_64-macos`` are built by the Go backend alone — kcc refuses
-     them with ``error[K116]``. Building all three therefore still needs the
-     Go engine, so the Go toolchain is still a prerequisite for building the
-     compiler itself. See :doc:`/targets/host-targets` for the ownership
-     table.
+     The three ``native-x86_64-*`` targets build with no C compiler at all,
+     and all three are emitted by the **self-hosted** engine (kcc):
+     ``native-x86_64-windows`` since Phase 151D, ``native-x86_64-linux``
+     since Phase A1, and ``native-x86_64-macos`` since Phase B. The Go
+     toolchain is still a prerequisite for *building the compiler itself*,
+     and the Go backend remains the reference implementation the native
+     differential compares against. See :doc:`/targets/host-targets` for the
+     ownership table and for what is proven by execution and what is proven
+     structurally.
 
 Archive naming convention:
 
@@ -65,59 +67,59 @@ Archive naming convention:
 
    * - Platform
      - Architecture
-     - Archive (v1.0.0)
+     - Archive (v1.2.0)
      - Status
    * - Windows
      - amd64
-     - ``karkain-v1.0.0-windows-amd64.zip``
+     - ``karkain-v1.2.0-windows-amd64.zip``
      - :implemented:`Available`
    * - Windows
      - arm64
-     - ``karkain-v1.0.0-windows-arm64.zip``
+     - ``karkain-v1.2.0-windows-arm64.zip``
      - :implemented:`Available`
    * - Linux
      - amd64
-     - ``karkain-v1.0.0-linux-amd64.tar.gz``
+     - ``karkain-v1.2.0-linux-amd64.tar.gz``
      - :implemented:`Available`
    * - Linux
      - arm64
-     - ``karkain-v1.0.0-linux-arm64.tar.gz``
+     - ``karkain-v1.2.0-linux-arm64.tar.gz``
      - :implemented:`Available`
    * - Linux
      - arm (ARMv7)
-     - ``karkain-v1.0.0-linux-arm.tar.gz``
+     - ``karkain-v1.2.0-linux-arm.tar.gz``
      - :implemented:`Available`
    * - Linux
      - 386
-     - ``karkain-v1.0.0-linux-386.tar.gz``
+     - ``karkain-v1.2.0-linux-386.tar.gz``
      - :implemented:`Available`
    * - Linux
      - ppc64le
-     - ``karkain-v1.0.0-linux-ppc64le.tar.gz``
+     - ``karkain-v1.2.0-linux-ppc64le.tar.gz``
      - :implemented:`Available`
    * - Linux
      - s390x
-     - ``karkain-v1.0.0-linux-s390x.tar.gz``
+     - ``karkain-v1.2.0-linux-s390x.tar.gz``
      - :implemented:`Available`
    * - macOS
      - amd64
-     - ``karkain-v1.0.0-darwin-amd64.tar.gz``
+     - ``karkain-v1.2.0-darwin-amd64.tar.gz``
      - :implemented:`Available`
    * - macOS
      - arm64
-     - ``karkain-v1.0.0-darwin-arm64.tar.gz``
+     - ``karkain-v1.2.0-darwin-arm64.tar.gz``
      - :implemented:`Available`
    * - FreeBSD
      - amd64
-     - ``karkain-v1.0.0-freebsd-amd64.tar.gz``
+     - ``karkain-v1.2.0-freebsd-amd64.tar.gz``
      - :implemented:`Available`
    * - NetBSD
      - amd64
-     - ``karkain-v1.0.0-netbsd-amd64.tar.gz``
+     - ``karkain-v1.2.0-netbsd-amd64.tar.gz``
      - :implemented:`Available`
    * - OpenBSD
      - amd64
-     - ``karkain-v1.0.0-openbsd-amd64.tar.gz``
+     - ``karkain-v1.2.0-openbsd-amd64.tar.gz``
      - :implemented:`Available`
    * - Docker
      - (multi-arch)
@@ -130,10 +132,10 @@ Windows
 .. code-block:: powershell
 
    # Once the v1.0.0 GitHub Release is published, download the archive and:
-   Expand-Archive -Path .\karkain-v1.0.0-windows-amd64.zip -DestinationPath $env:LOCALAPPDATA\Karkain
+   Expand-Archive -Path .\karkain-v1.2.0-windows-amd64.zip -DestinationPath $env:LOCALAPPDATA\Karkain
 
    # Add to PATH (PowerShell)
-   $env:PATH += ";$env:LOCALAPPDATA\Karkain\karkain-v1.0.0-windows-amd64"
+   $env:PATH += ";$env:LOCALAPPDATA\Karkain\karkain-v1.2.0-windows-amd64"
 
    # Verify
    karkain --version
@@ -143,8 +145,8 @@ Linux
 
 .. code-block:: bash
 
-   tar xzf karkain-v1.0.0-linux-amd64.tar.gz
-   sudo mv karkain-v1.0.0-linux-amd64/karkain /usr/local/bin/
+   tar xzf karkain-v1.2.0-linux-amd64.tar.gz
+   sudo mv karkain-v1.2.0-linux-amd64/karkain /usr/local/bin/
    karkain --version
 
 macOS
@@ -152,8 +154,8 @@ macOS
 
 .. code-block:: bash
 
-   tar xzf karkain-v1.0.0-darwin-amd64.tar.gz
-   sudo mv karkain-v1.0.0-darwin-amd64/karkain /usr/local/bin/
+   tar xzf karkain-v1.2.0-darwin-amd64.tar.gz
+   sudo mv karkain-v1.2.0-darwin-amd64/karkain /usr/local/bin/
    karkain --version
 
 Verifying the download
@@ -168,14 +170,14 @@ Always verify a downloaded archive against it before running:
    sha256sum -c checksums.txt --ignore-missing   # (checks every listed file)
 
    # Or check one archive directly:
-   grep "karkain-v1.0.0-linux-amd64.tar.gz" checksums.txt
-   echo "<published-sha256>  karkain-v1.0.0-linux-amd64.tar.gz" | sha256sum -c -
+   grep "karkain-v1.2.0-linux-amd64.tar.gz" checksums.txt
+   echo "<published-sha256>  karkain-v1.2.0-linux-amd64.tar.gz" | sha256sum -c -
 
 Windows (PowerShell):
 
 .. code-block:: powershell
 
-   Get-FileHash .\karkain-v1.0.0-windows-amd64.zip -Algorithm SHA256
+   Get-FileHash .\karkain-v1.2.0-windows-amd64.zip -Algorithm SHA256
 
    # Compare the output hash with the published value in checksums.txt; a
    # matching SHA-256 means the archive is intact and authentic.

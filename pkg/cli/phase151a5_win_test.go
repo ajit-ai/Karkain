@@ -861,6 +861,63 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// `karkain kir --verify src/compiler/kir.kark` in the gate's own
 	// invocation -- text=14385 verify=14385 -- and never predicted.
 	//
+	// 14597 (NAT-IF, the conditional branch): the native driver gained a
+	// BRANCH, which is the first construct whose emitted bytes depend on a
+	// label rather than only on a frame slot. The driver gained the
+	// condition lowering (natEmitIntCond and natNativeCondOp), the branch
+	// scan (natNativeScanCond/natNativeScanIf/natNativeScanBranch), the
+	// branch-aware slot allocation (natNativePlanDecls descends into a
+	// branch, as the oracle's scanLets does), and the recursive lowering
+	// (natNativeLower descends into a branch body with a statement PATH so
+	// two branches cannot collide on a label name).
+	//
+	// The chain to here is measured, not predicted: 14385 (NAT-CALL) -> 14477
+	// (the push() slice, +92) -> 14597 (this slice, +120). The intermediate
+	// 14477 is recorded because the push() slice moved the pin and DID NOT
+	// re-pin it, which left the tree with a red gate; that is a fact about
+	// this repository's history and not something to tidy away.
+	//
+	// Measured with `karkain kir --verify src/compiler/kir.kark` in the gate's
+	// own invocation -- text=14597 verify=14597 -- and never predicted.
+	//
+	// 14792 (NAT-LOOP, the loop control flow): the driver gained `while`,
+	// the C-style `for`, `break` and `continue`, and with them the loop-context
+	// STACK -- the oracle's `b.loops`, which lives in kcc's single state
+	// array as emitter slot 17, a flat pair of label names per loop. It also
+	// gained the branch-aware slot allocation (the plan descends into a loop
+	// body and into a `for`'s init, in the oracle's ORDER), a plain-local
+	// assignment (the loop counter's form), and the arena refusal for the
+	// three run-time-allocating constructs inside a loop.
+	//
+	// The chain to here is measured, not predicted: 14597 (NAT-IF) -> 14792
+	// (this slice, +195). Measured with `karkain kir --verify
+	// src/compiler/kir.kark` in the gate's own invocation -- text=14792
+	// verify=14792 -- and never predicted.
+	//
+	// 14834 (NAT-IDX, array indexing inside loops): the index became an
+	// EXPRESSION evaluated through the shared walker, exactly as the oracle
+	// evaluates it, instead of a literal-only special case; the runtime-error
+	// reporter's context now travels through that walker as one bundled
+	// argument; and the reporter's PREDICATE became a real walk over branches,
+	// loops, conditions and nested expressions.
+	//
+	// The chain to here is measured, not predicted: 14792 (NAT-LOOP) -> 14834
+	// (this slice, +42). Measured with `karkain kir --verify
+	// src/compiler/kir.kark` in the gate's own invocation -- text=14834
+	// verify=14834 -- and never predicted.
+	//
+	// 14841 (NAT-FRAME, the native frame layout against the oracle's): the driver's
+	// frame now matches the oracle's exactly. The 8-byte difference was NOT a
+	// rounding rule -- the two rules were always identical -- but an UNRESERVED
+	// map-stage slot (the oracle's map-usage flag is program-wide and accepts
+	// any variable-target index, an array access included) and an `inc r8` that
+	// set the REX.R bit instead of REX.B, so it decoded as `inc rax`.
+	//
+	// The chain to here is measured, not predicted: 14834 (NAT-IDX) -> 14841
+	// (this slice, +7). Measured with `karkain kir --verify
+	// src/compiler/kir.kark` in the gate's own invocation -- text=14841
+	// verify=14841 -- and never predicted.
+	//
 	// NOTE ON A STALE STRING this comment previously carried: the failure
 	// message said "want 13743" while the assertion beside it said 13755, because
 	// D4 updated the assertion and not the message. A message that names a
@@ -900,8 +957,25 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 // 13637 was measured twice on f08276b with kcc.exe DELETED between runs, so
 	// each count came from a fresh compile of the committed source rather than
 	// from a cached binary: text=13637 verify=13637.
-	if text != 14385 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 14385; see the comment above for the measured chain. output follows: %s", text, out)
+	//
+	// 14841 -> 14938 (NAT-STR-STAGE, 2026-11-11): the string staging area is
+	// now reserved program-wide over the oracle's five operations, which added
+	// the program-wide flag, the five-operation predicate and its detectors to
+	// the driver. Measured with `karkain kir --verify src/compiler/kir.kark` --
+	// text=14938 verify=14938 -- and never predicted.
+	//
+	// 14938 -> 14946 (NAT-RODATA, 2026-11-12): the reporter's read-only data is
+	// now interned in the oracle's order and its offsets are read back out of
+	// the interning table. Measured with `karkain kir --verify
+	// src/compiler/kir.kark` -- text=14946 verify=14946 -- and never predicted.
+	//
+	// 14946 -> 15243 (NAT-REG, 2026-11-12): the register allocator and its
+	// liveness walk are new FUNCTIONS, and the KIR text renders the AST
+	// rather than the file, so a slice that adds functions moves the pin by
+	// more than its line count. Measured with `karkain kir --verify
+	// src/compiler/kir.kark` -- text=15243 verify=15243 -- and never predicted.
+	if text != 15243 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 15243; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

@@ -1,6 +1,6 @@
 # Karkain
 
-> **Karkain 1.1.0 (Stable)** — Karkain is a working compiler and language, not an
+> **Karkain 1.2.0 (Stable)** — Karkain is a working compiler and language, not an
 > empty roadmap. Everything labeled Implemented below is verified by automated
 > gates through the real CLI. Everything else is honestly labeled
 > `Planned` / `Not Yet Implemented`.
@@ -26,7 +26,7 @@ Karkain builds from source with Go 1.21+ and any C compiler.
 git clone https://github.com/ajit-ai/Karkain.git
 cd Karkain
 go build -o karkain ./cmd/karkain        # Windows: go build -o karkain.exe ./cmd/karkain
-./karkain --version                      # Karkain Compiler v1.1.0 (..., Stable Build)
+./karkain --version                      # Karkain Compiler v1.2.0 (..., Stable Build)
 ```
 
 Write your first program:
@@ -67,13 +67,24 @@ self-hosted `kcc` engine):
 - **Language core** — `let`/`var`/`const`, `func`, `while`, `if/else`,
   `for-in` and C-style `for`, structs (records), enums, `match` on literals
   and `Option`, arrays, strings, maps (with `std.collections` helpers)
+- **C-free native targets** (v1.2.0, Sovereignty I) — `karkain build --target
+  native-x86_64-<windows|linux|macos>` emits a linked executable with **no C
+  compiler and no Go toolchain** on `PATH`. The images are produced by the
+  **self-hosted** engine: its own value model, machine-code encoder and ELF /
+  PE / Mach-O container writers. The qualified subset covers integer
+  expressions, user functions, branches, loops, array indexing and the bounds
+  diagnostic; everything outside it is refused **by name**, with no image.
+  Windows PE images are executed and byte-checked; the Linux ELF is
+  byte-identical to the Go oracle and executes on the Linux CI leg; the macOS
+  Mach-O is **structurally** validated (this repository has no macOS runner).
 - **Standard library** — 6 importable modules with NIST/RFC-verified digest
   and codec behavior
 - **CLI** — `check`, `build`, `run`, `test` (+ `--filter`), `transpile`,
   `fmt`, `lint`, `debug`, `prof`, `target`, `pkg`, `workspace`, `clean`,
   `explain`, `bench`, `lsp`, `new`
-- **Self-hosting** — `kcc` is the default engine for `check/build/run/test`;
-  stage-2 == stage-3 bootstrap identity is proven bitwise identical
+- **Self-hosting** — `kcc` is the default engine for `check/build/run/test`,
+  it owns the native back end and the machine-code encoders, and the
+  stage-2 == stage-3 bootstrap identity was proven bitwise identical
 - **Cross-compilation** — `karkain build --target <triple>` with honest
   "no cross-linker" diagnostics, never a silent host fallback
 - **Runtime error model** — checked div/mod/indexing report
@@ -109,7 +120,7 @@ Neuro/heterogeneous work:
 | Quantum language surface | Not Yet Implemented (infrastructure only) |
 | GPU/NPU kernel language surface | Implemented (`@target(gpu)`/`@target(npu)`, Phases 98/138; compile-only guarantee) |
 | Advanced package registry | Not Yet Implemented (local resolution + lockfiles only) |
-| Pre-built release binaries | Pending release cut — 13 `v1.1.0` archives (see the [Installation guide](docs/source/getting-started/installation.rst)) |
+| Pre-built release binaries | Available - 13 `v1.2.0` archives with a `checksums.txt` (see the [Installation guide](docs/source/getting-started/installation.rst)) |
 
 ## Experimental surface
 
@@ -287,19 +298,19 @@ Karkain/
 
 ## Roadmap
 
-See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50–141
-delivered, plus the GA-3 track to 1.1.0). The project label is now
-**Karkain 1.1.0 (Stable)**, released from the Phase 142 milestone
-(1.0.x continues as the LTS line).
+See [`ROADMAP.md`](ROADMAP.md) for the full development plan (phases 50-149
+delivered, plus the Sovereignty I track to 1.2.0). The project label is now
+**Karkain 1.2.0 (Stable)**, the Native Independence release (1.0.x continues
+as the LTS line).
 
 High-level status today: the compiler is self-hosted, byte-identical on two
 engines, and the standard library (incl. networking, database and web
 modules), toolchain and example corpus are real and regression-gated —
-while the package registry, JIT tier and native backend remain
+while the package registry and the JIT tier remain
 `Planned`/`Not Yet Implemented`. The 1.0.0 release verdict and evidence are
 documented in the Phase 119 QA report
-(`docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md`); the 1.1.0 story is in
-`docs/release/KARKAIN-1.1-RELEASE-NOTES.md`.
+(`docs/audit/PHASE-119-LANGUAGE-QA-FINAL-REPORT.md`); the 1.2.0 story is in
+`docs/audit/KARKAIN-V1.2.0-GA-QUALIFICATION.md`.
 
 ## Contributing
 

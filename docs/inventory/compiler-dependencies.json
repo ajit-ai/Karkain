@@ -1,7 +1,13 @@
 {
-  "phase": 144,
+  "phase": 151,
   "title": "Compiler Dependency Inventory \u2014 Karkain 1.1.0 (Stable)",
-  "verified": "2026-09-23",
+  "verified": "2026-11-10",
+  "revision_notes": {
+    "previous_verified": "2026-09-23",
+    "previous_phase": 144,
+    "what_changed": "The `native` component did not exist in the phase-144 revision: the C-free native backend (increment 150) and its self-hosted ownership (increment 151) were both later. The KIR statement was corrected: the revision said 'KIR text does not yet feed the backend' and that the ownership target was 'KIR-consumption and kcc-native test-driver assembly (Phase 145+)'. The first half is still true and is now stated as a LIMITATION; the second half is obsolete because the kcc-native path ships.",
+    "what_did_not_change": "The frontend, the semantic analysis, the assembly ownership and the bootstrap contract are unchanged since phase 144. The bootstrap is still Go-primary plus gcc, and the self-hosting proof (increment 154) is still carried out of v1.2.0 to v1.3.0 as UNMET."
+  },
   "scope": "The single source of truth for what the Karkain compiler holds today, what it owns on the path to self-hosting, and which Go/C components are bootstrap infrastructure versus compiler responsibility. Phases 121 (Compiler Independence Foundation) and 122 (Compiler Pipeline Ownership) treat this inventory as their baseline.",
   "compiler_components": {
     "lexer": {
@@ -36,7 +42,7 @@
       "implementation": "Karkain (owned)",
       "go": "NONE (Go only routes: pkg/cli/kir.go KCCKirCommand + KCCKirVerifyCommand)",
       "karkain": "src/compiler/kir.kark (kirEmit + kirVerify) \u00e2\u20ac\u201d Phases 120 + 121",
-      "active_path": "kcc kir / karkain kir emit deterministic KIR v1 text via src/compiler/kir.kark. Phase 121 makes KIR an engine-internal invariant: kirVerify runs inside checkFile on the default kcc check path (silent on success, error[K121] + exit 3 on drift) and standalone via kcc verifykir / karkain kir --verify. KIR text does not yet feed the backend (documented post-121 boundary).",
+      "active_path": "kcc kir / karkain kir emit deterministic KIR v1 text via src/compiler/kir.kark. Phase 121 makes KIR an engine-internal invariant: kirVerify runs inside checkFile on the default kcc check path (silent on success, error[K121] + exit 3 on drift) and standalone via kcc verifykir / karkain kir --verify. KIR text does not yet feed ANY backend, and that is a LIMITATION rather than a leftover: the native driver (native_value.kark) consumes the PARSED AST directly, not the KIR text. KIR is verified on the default check path as an engine invariant, and it is emitted on demand; making it the backend input is not done.",
       "status": "ACTIVE (kcc), owned by Karkain"
     },
     "assembly": {
@@ -52,6 +58,13 @@
       "karkain": "src/compiler/codegen.kark (kcc C23 emitter)",
       "active_path": "kcc build/run use src/compiler/codegen.kark; bootstrap stage-1 uses pkg/codegen.",
       "status": "ACTIVE (both)"
+    },
+    "native": {
+      "implementation": "Karkain (owned) + Go REFERENCE",
+      "karkain": "src/compiler/native_emit.kark (the x86-64 encoder), native_value.kark (the whole-program driver), native_elf.kark / native_pe.kark / native_macho.kark (the three container writers)",
+      "go": "pkg/native is a REFERENCE IMPLEMENTATION only: program.go (the driver), emit.go (the encoder), elf.go / pe.go / macho.go (the containers)",
+      "active_path": "kcc owns ALL THREE C-free native targets (native-x86_64-windows, native-x86_64-linux, native-x86_64-macos). The seam is pkg/cli/kcc_native.go: kccNativeOwnedTargets names the targets, kccNativeValidateImage runs the ORACLE's container validator over kcc's bytes, and there is deliberately NO call into the Go writer -- an image that could not be attributed to kcc is the dishonesty this seam exists to remove.",
+      "status": "ACTIVE (kcc). pkg/native is a reference: it supplies the byte-identity differential, the container validators (Parse / ParsePE / ParseMachO) and the reference implementation the gates compare against. It is NOT on the compilation path for a native target."
     },
     "runtime": {
       "implementation": "C + Go + Karkain",

@@ -1,12 +1,12 @@
 package cli
 
-// Phase 142 — 1.1.0 Release gate.
+// Phase 142 — 1.2.0 Release gate.
 //
-// Guards the unified v1.1.0 / Stable Build identity (both engines, every
-// emitter, LSP, docs entry points), the 1.1.0 changelog presence, the 1.0.x
+// Guards the unified v1.2.0 / Stable Build identity (both engines, every
+// emitter, LSP, docs entry points), the 1.2.0 changelog presence, the 1.0.x
 // LTS branch, and a host-triple archive rehearsal (build → package →
 // SHA-256 → verify → --version from the extracted tree), mirroring the CI
-// release job. The v1.1.0 tag cut itself stays owner-only and is NOT part
+// release job. The v1.2.0 tag cut itself stays owner-only and is NOT part
 // of this gate.
 
 import (
@@ -23,14 +23,14 @@ import (
 	"testing"
 )
 
-// TestPhase142_VersionIdentity pins the unified 1.1.0 identity.
+// TestPhase142_VersionIdentity pins the unified 1.2.0 identity.
 func TestPhase142_VersionIdentity(t *testing.T) {
 	bin := buildPreviewBinary(t)
 	out, err := runBin(t, bin, t.TempDir(), "--version")
 	if err != nil {
 		t.Fatalf("karkain --version failed: %v\n%s", err, out)
 	}
-	for _, want := range []string{"Karkain Compiler v1.1.0", "Stable Build"} {
+	for _, want := range []string{"Karkain Compiler v1.2.0", "Stable Build"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("--version does not contain %q: %s", want, out)
 		}
@@ -44,8 +44,8 @@ func TestPhase142_VersionIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(string(ver)) != "1.1.0" {
-		t.Errorf("VERSION = %q, want 1.1.0", strings.TrimSpace(string(ver)))
+	if strings.TrimSpace(string(ver)) != "1.2.0" {
+		t.Errorf("VERSION = %q, want 1.2.0", strings.TrimSpace(string(ver)))
 	}
 
 	// kcc banner: the self-hosted binary reports the same identity.
@@ -54,12 +54,12 @@ func TestPhase142_VersionIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("kcc --version failed: %v\n%s", err, kout)
 	}
-	if !strings.Contains(string(kout), "v1.1.0") {
-		t.Errorf("kcc --version lacks v1.1.0: %s", kout)
+	if !strings.Contains(string(kout), "v1.2.0") {
+		t.Errorf("kcc --version lacks v1.2.0: %s", kout)
 	}
 }
 
-// TestPhase142_EmitterHeaders pins v1.1.0 in every generated-artifact
+// TestPhase142_EmitterHeaders pins v1.2.0 in every generated-artifact
 // header (Go emitters + self-hosted codegen) and forbids stale v1.0.0 in
 // those live paths (historical docs/tests keep their records — this gate
 // covers emitters and banners only).
@@ -92,26 +92,38 @@ func TestPhase142_EmitterHeaders(t *testing.T) {
 		"src/compiler/codegen.kark",
 	} {
 		raw, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
-		if !strings.Contains(string(raw), "v1.1.0") {
-			t.Errorf("%s lacks the v1.1.0 header", rel)
+		if !strings.Contains(string(raw), "v1.2.0") {
+			t.Errorf("%s lacks the v1.2.0 header", rel)
 		}
 	}
 }
 
-// TestPhase142_ChangelogPresence pins the 1.1.0 release notes.
+// TestPhase142_ChangelogPresence pins the 1.2.0 release notes.
+//
+// The v1.1.0 notes are checked too, and not only because they exist: a
+// release that rewrites its predecessor's history is not auditable, so the
+// 1.1.0 document must still be there AND must still say 1.1.0.
 func TestPhase142_ChangelogPresence(t *testing.T) {
 	root := repoRoot(t)
 	for _, rel := range []string{
-		"docs/release/KARKAIN-1.1-RELEASE-NOTES.md",
+		"docs/release/KARKAIN-1.2-RELEASE-NOTES.md",
 		"docs/source/release-notes.rst",
 	} {
 		raw, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
 			t.Fatalf("missing %s: %v", rel, err)
 		}
-		if !strings.Contains(string(raw), "1.1.0") {
-			t.Errorf("%s does not document 1.1.0", rel)
+		if !strings.Contains(string(raw), "1.2.0") {
+			t.Errorf("%s does not document 1.2.0", rel)
 		}
+	}
+	// The predecessor's notes are history and must not be rewritten.
+	prev, err := os.ReadFile(filepath.Join(root, "docs", "release", "KARKAIN-1.1-RELEASE-NOTES.md"))
+	if err != nil {
+		t.Fatalf("missing the v1.1.0 release notes: %v", err)
+	}
+	if !strings.Contains(string(prev), "1.1.0") {
+		t.Errorf("the v1.1.0 release notes no longer document 1.1.0")
 	}
 }
 
@@ -216,7 +228,7 @@ func TestPhase142_ArchiveRehearsal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("--version failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "v1.1.0") {
-		t.Errorf("rehearsed binary lacks v1.1.0: %s", out)
+	if !strings.Contains(string(out), "v1.2.0") {
+		t.Errorf("rehearsed binary lacks v1.2.0: %s", out)
 	}
 }

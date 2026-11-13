@@ -23,6 +23,24 @@ function Fail([int]$Code, [string]$Msg) {
     exit $Code
 }
 
+# Best-effort scratch-directory cleanup. See scripts\install.ps1 for why this
+# is not `Remove-Item`: on some hosts Remove-Item cannot delete a DIRECTORY
+# under %TEMP% (measured here: %TEMP% = C:\Windows\Temp, "Access is denied" on
+# an empty directory), and a cleanup failure must not fail a verified install.
+function Remove-ScratchDir([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            [System.IO.Directory]::Delete($Path, $true)
+            return
+        } catch {
+            Start-Sleep -Milliseconds 400
+        }
+    }
+    try { cmd /c rmdir /s /q "$Path" 2>&1 | Out-Null } catch { }
+}
+
 if ([string]::IsNullOrWhiteSpace($Prefix)) {
     $Prefix = Join-Path $env:LOCALAPPDATA "Karkain"
 }
@@ -39,7 +57,7 @@ $verOut = (& $Exe --version 2>&1) -join "`n"
 if ($LASTEXITCODE -ne 0) {
     Fail 1 "karkain --version failed (exit $LASTEXITCODE):`n$verOut"
 }
-if ($verOut -notmatch "Karkain Compiler v1\.0\.0" -or $verOut -notmatch "Stable Build") {
+if ($verOut -notmatch "Karkain Compiler v1\.2\.0" -or $verOut -notmatch "Stable Build") {
     Fail 1 "unexpected --version output: $verOut"
 }
 Write-Host "OK --version: $verOut" -ForegroundColor Green
@@ -81,7 +99,7 @@ try {
         Fail 2 "unexpected run output: $runOut"
     }
     Write-Host "OK check + build + run hello.kark" -ForegroundColor Green
-    Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-ScratchDir $scratch
 }
 finally {
     $env:KARKAIN_ENGINE = $oldEngine

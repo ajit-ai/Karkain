@@ -380,6 +380,19 @@ func natRegR8()  { return 8 }
 func natRegR9()  { return 9 }
 func natRegR10() { return 10 }
 func natRegR11() { return 11 }
+// NAT-REG: the allocatable set. R12-R15 are callee-saved under BOTH ABIs in
+// play (System V and Win64), so a value parked there survives a call to a user
+// function, a helper or a kernel32 export without a spill; and they are
+// untouched by the rest of the backend, which works in
+// RAX/RCX/RDX/RSI/RDI/R8-R11 and clobbers RBX. RBX and RBP are deliberately
+// NOT allocatable: both are live scratch inside emitted helpers.
+//
+// This is the ORACLE's allocatable set (pkg/native/regalloc.go: allocRegs),
+// chosen for the same reasons.
+func natRegR12() { return 12 }
+func natRegR13() { return 13 }
+func natRegR14() { return 14 }
+func natRegR15() { return 15 }
 
 // ============================================================
 // Phase 151A Step 7 -- int `print`.
@@ -3169,6 +3182,32 @@ func natNativeUsesMap(stmts) {
     return 0
 }
 
+// natNativeProgramUsesMap is the PROGRAM-WIDE map-usage flag.
+//
+// NAT-FRAME: this exists because the oracle's `b.usesMap` is a property of the
+// WHOLE PROGRAM (program.go:1571: `mapUses, mapLoop, mapCap, mapHeap :=
+// scanMapUsage(prog)`), and the oracle's per-function layout reserves the
+// map-stage slot in EVERY function when it is set (program.go:4461).
+//
+// The driver reserved that slot in NO function, because the two layout call
+// sites passed a literal 0 for the flag. The consequence was an 8-byte frame
+// difference in every program that indexes an array -- and an array access IS a
+// map use to the oracle, because its `isMapIndex` predicate is "an index
+// expression whose target is a VARIABLE" (program.go:730-737), which an array
+// access satisfies.
+//
+// So the flag is computed once, over the whole program, and threaded to every
+// function's layout -- which is what the oracle does.
+func natNativeProgramUsesMap(body, fns) {
+    if (natNativeUsesMap(body) == 1) { return 1 }
+    let i = 0
+    while (i < natNativeFuncCount(fns)) {
+        if (natNativeUsesMap(natNativeFuncBodyAt(fns, i)) == 1) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
 func natStdOutHandle() { return 4294967285 }
 
 // natStdErrHandle is STD_ERROR_HANDLE (0xFFFFFFF6), the counterpart of
@@ -3879,6 +3918,7 @@ func natNativePlanFor(params, stmts, tbl) {
   plan = appendArray(plan, natKindInt())
   plan = appendArray(plan, 0)
   plan = appendArray(plan, params[pi])
+  plan = appendArray(plan, -1)
   next = next + 8
   pi = pi + 1
   }
@@ -3890,6 +3930,28 @@ func natNativePlanFor(params, stmts, tbl) {
   // reserved ZERO bytes: measured, `Point{x,y}` + `let n = 5` printed 5/4/5
   // (n aliased p.x) and every record frame was 624 regardless of field area.
   // The table must be the one natNativeProgram built from the program statements.
+  let r = natNativePlanDecls(plan, stmts, tbl, next)
+  return r[0]
+  }
+
+  // natNativePlanDecls allocates a slot for every binding a statement list
+  // declares, and returns the plan and the next free offset.
+  //
+  // NAT-IF: it DESCENDS into an `if`'s branches, because the oracle's layout
+  // pass does (program.go:4674-4676: `case *parser.IfStmt: scanLets(n.Consequence);
+  // scanLets(n.Alternative)`). The order matters as much as the fact: the
+  // oracle's walk allocates the branch's slot at the point the `if` is reached,
+  // so a program with `let a` before the `if` and `let c` after it gives the
+  // branch's binding the MIDDLE slot. A plan that did not descend would give
+  // the branch's binding the LAST slot, and every frame displacement after it
+  // would move.
+  //
+  // An earlier draft of this slice REFUSED a binding inside a branch, on the
+  // belief that the layout pass walked only the top level. That belief was
+  // wrong, and the gate that caught it was the byte-identity differential: the
+  // oracle produced an image for such a program and the self-hosted driver
+  // refused it. The refusal is withdrawn and the driver matches the oracle.
+  func natNativePlanDecls(plan, stmts, tbl, next) {
   let i = 0
   while (i < len(stmts)) {
   let n = stmts[i]
@@ -3920,22 +3982,60 @@ func natNativePlanFor(params, stmts, tbl) {
   plan = appendArray(plan, k)
   plan = appendArray(plan, ne)
   plan = appendArray(plan, natNativeDeclName(n))
+  plan = appendArray(plan, -1)
   next = next + 8
   if (natKindUnits(k) == 2) { next = next + 8 }
   if (k == natKindArray()) { next = next + 8 * ne }
   if (k == natKindStruct()) { next = next + 8 * ne }
   }
+  if (nodeType(n) == NODE_IF()) {
+  let rc = natNativePlanDecls(plan, ifCons(n), tbl, next)
+  plan = rc[0]
+  next = rc[1]
+  let ra = natNativePlanDecls(plan, ifAlt(n), tbl, next)
+  plan = ra[0]
+  next = ra[1]
+  }
+  // NAT-LOOP: the oracle's layout pass descends into a loop body and into a
+  // C-style for's INIT (program.go:4677-4683), and the ORDER matters as much
+  // as the fact: the init's binding is allocated BEFORE the body's, and both
+  // are allocated at the point the loop is reached in the enclosing walk.
+  //
+  // Getting this wrong is not a cosmetic difference: a slot allocated in a
+  // different ORDER moves every frame displacement after it, so the whole
+  // image differs.
+  if (nodeType(n) == NODE_WHILE()) {
+  let rw = natNativePlanDecls(plan, whileBody(n), tbl, next)
+  plan = rw[0]
+  next = rw[1]
+  }
+  if (nodeType(n) == NODE_FOR()) {
+  if (len(forInit(n)) > 0) {
+  let ri = natNativePlanDecls(plan, appendArray([], forInit(n)), tbl, next)
+  plan = ri[0]
+  next = ri[1]
+  }
+  let rf = natNativePlanDecls(plan, forBody(n), tbl, next)
+  plan = rf[0]
+  next = rf[1]
+  }
   i = i + 1
   }
-  return plan
+  return [plan, next]
   }
 
-func natNativePlanCount(plan) { return len(plan) / 4 }
+func natNativePlanCount(plan) { return len(plan) / 5 }
 
-func natNativeSlotOff(plan, idx) { return plan[idx * 4] }
-func natNativeSlotKind(plan, idx) { return plan[idx * 4 + 1] }
-func natNativeSlotElems(plan, idx) { return plan[idx * 4 + 2] }
-func natNativeSlotName(plan, idx) { return plan[idx * 4 + 3] }
+func natNativeSlotOff(plan, idx) { return plan[idx * 5] }
+func natNativeSlotKind(plan, idx) { return plan[idx * 5 + 1] }
+func natNativeSlotElems(plan, idx) { return plan[idx * 5 + 2] }
+func natNativeSlotName(plan, idx) { return plan[idx * 5 + 3] }
+// natNativeSlotReg is the register a slot was allocated, or -1 for "keep the
+// frame slot". NAT-REG: the allocation lives in the PLAN, so it is per function
+// and needs no global state and no extra parameter anywhere.
+func natNativeSlotReg(plan, idx) { return plan[idx * 5 + 4] }
+// natNativeSlotCount is the number of slots in a plan.
+func natNativeSlotCount(plan) { return len(plan) / 5 }
 
 // natNativePlanBytes is the total locals-region size, which is the first argument
 // natFrameLayout takes.
@@ -4067,16 +4167,48 @@ func natNativeStmtKindName(k) {
     return "statement kind " + str(k)
 }
 
-func natNativeScanFor(params, stmts, tbl, fns, isMain) {
+func natNativeScanFor(params, stmts, tbl, fns, isMain, useRegAlloc) {
     let plan = natNativePlanFor(params, stmts, tbl)
+    // NAT-REG: the allocation is per function and lives in the plan, so it is
+    // computed here -- once, where the plan is complete -- and every access
+    // site reads it back out of the plan.
+    if (useRegAlloc == 1) { plan = natNativeRegAlloc(stmts, plan) }
+    let r = natNativeScanStmts(stmts, plan, tbl, fns, isMain, stmts, 0, 0)
+    return [r[0], plan, r[1]]
+}
+
+// natNativeScanStmts validates a STATEMENT LIST.
+//
+// `loopDepth` is the number of enclosing loops. It is what decides whether a
+// `break` or a `continue` has a loop to leave: the oracle refuses both at
+// emission time when its loop stack is empty (program.go:4913-4923), and the
+// scan refuses them here instead, with the same words.
+//
+// `fnStmts` is the FUNCTION's statement list, not the list being validated.
+// The record-type lookup needs it: a record bound at the top level is still
+// that record when a field inside a branch or a loop body is assigned.
+//
+// NAT-LOOP turned this from "the function's own statements" into "any
+// statement list", because a branch body, a loop body and a function body are
+// validated by the SAME rules -- except for the loop depth, which is the one
+// thing that differs between them.
+func natNativeScanStmts(stmts, plan, tbl, fns, isMain, fnStmts, loopDepth, inBody) {
     let hasReturn = 0
     let i = 0
     while (i < len(stmts)) {
         let n = stmts[i]
         let k = nodeType(n)
         if (natNativeIsDecl(n)) {
-            let bad = natNativeScanDecl(n, plan, tbl, fns, isMain)
-            if (bad != "") { return [bad, plan, hasReturn] }
+            let bad = ""
+            if (inBody == 1) {
+                // A binding in a NESTED body is INT-only: a string binding
+                // would need the rodata cursor, which this driver threads per
+                // STATEMENT LIST. See natNativeScanStmts' header.
+                bad = natNativeScanIntExpr(natNativeDeclValue(n), plan, natNativeDeclLine(n), fns, 0)
+            } else {
+                bad = natNativeScanDecl(n, plan, tbl, fns, isMain)
+            }
+            if (bad != "") { return [bad, hasReturn] }
         } else {
 if (k == NODE_PRINT()) {
                 // A CALLEE's `print` is INT-only, and the branch is not cosmetic.
@@ -4090,24 +4222,46 @@ if (k == NODE_PRINT()) {
                 // "runtime error: array index out of range". Measured, not inferred:
                 // the fixture is in the NAT-CALL gate's refusal table. Refusing it
                 // here keeps the callee subset int-only by name instead of by crash.
-                if (isMain == 0) {
-                    let bad = natNativeScanIntExpr(printVal(n), plan, printLine(n), fns, 0)
-                    if (bad != "") { return [bad, plan, hasReturn] }
+                let bad = ""
+                if (inBody == 1) {
+                    bad = natNativeScanIntExpr(printVal(n), plan, printLine(n), fns, 0)
                 } else {
-                    let bad = natNativeScanValue(printVal(n), stmts, plan, printLine(n), tbl, 1, fns)
-                    if (bad != "") { return [bad, plan, hasReturn] }
+                    if (isMain == 0) {
+                        bad = natNativeScanIntExpr(printVal(n), plan, printLine(n), fns, 0)
+                    } else {
+                        bad = natNativeScanValue(printVal(n), stmts, plan, printLine(n), tbl, 1, fns)
+                    }
                 }
+                if (bad != "") { return [bad, hasReturn] }
             } else {
                 if (k == NODE_RETURN()) {
-                    hasReturn = 1
-                    let bad = natNativeScanReturn(retVal(n), stmts, plan, retLine(n), tbl, fns)
-                    if (bad != "") { return [bad, plan, hasReturn] }
+                    let bad = ""
+                    if (inBody == 1) {
+                        // A return in a NESTED body is INT-only, and it does
+                        // NOT set the function's `returned` flag: the oracle's
+                        // emitStmts ignores the done flag its statement walker
+                        // returns, so only a TOP-LEVEL return sets it
+                        // (program.go:4850-4859).
+                        bad = natNativeScanIntExpr(retVal(n), plan, retLine(n), fns, 0)
+                    } else {
+                        hasReturn = 1
+                        bad = natNativeScanReturn(retVal(n), stmts, plan, retLine(n), tbl, fns)
+                    }
+                    if (bad != "") { return [bad, hasReturn] }
 } else {
   if (k == NODE_EXPR_STMT()) {
   let e = exprStmtExpr(n)
   if (natNativeIsAssignExpr(e)) {
-  let bad = natNativeScanAssign(tbl, stmts, plan, exprStmtLine(n), binaryLeft(e), binaryRight(e))
-  if (bad != "") { return [bad, plan, hasReturn] }
+  let bad = ""
+  if (nodeType(binaryLeft(e)) == NODE_IDENT()) {
+  // NAT-LOOP: a plain-local assignment -- `i = i + 1`, the loop counter's
+  // form. It arrives as an ExprStmt (the parser wraps the expression), so the
+  // EXPR_STMT arm is where it is seen, not the bare-`=` statement arm.
+  bad = natNativeScanAssignLocal(plan, fns, exprStmtLine(n), binaryLeft(e), binaryRight(e))
+  } else {
+  bad = natNativeScanAssign(tbl, stmts, plan, exprStmtLine(n), binaryLeft(e), binaryRight(e))
+  }
+  if (bad != "") { return [bad, hasReturn] }
   } else {
   // NAT-CALL: a bare call statement -- `show(7)` for a void callee -- is the only
   // way to reach a function that PRINTS. Without this arm a non-main function that
@@ -4118,25 +4272,77 @@ if (k == NODE_PRINT()) {
   // simply never read.
   if (nodeType(e) == NODE_CALL()) {
   let bad = natNativeScanCall(e, plan, exprStmtLine(n), fns)
-  if (bad != "") { return [bad, plan, hasReturn] }
+  if (bad != "") { return [bad, hasReturn] }
   } else {
   return [natNativeRefuseNoLine("expression statement `" + getNodeType(e) +
   "` is not lowered by the native driver"),
-  plan, hasReturn]
+  hasReturn]
   }
+  }
+  } else {
+  if (k == NODE_IF()) {
+  // NAT-IF: a conditional branch. The condition is an integer comparison; the
+  // branch bodies are int-only. natNativeScanIf says why.
+  let bad = natNativeScanIf(n, plan, tbl, fns, isMain, fnStmts, loopDepth)
+  if (bad != "") { return [bad, hasReturn] }
+  } else {
+  if (k == NODE_WHILE()) {
+  // NAT-LOOP: a `while` loop. The arena-using constructs are refused BEFORE
+  // anything else is looked at, because a loop is where the compile-time arena
+  // bound stops being provable.
+  let bad = natNativeScanLoopArena(whileBody(n), plan)
+  if (bad != "") { return [bad, hasReturn] }
+  let bad2 = natNativeScanCond(whileCond(n), plan, whileLine(n), fns)
+  if (bad2 != "") { return [bad2, hasReturn] }
+  let bad3 = natNativeScanStmts(whileBody(n), plan, tbl, fns, isMain, fnStmts, loopDepth + 1, 1)
+  if (bad3[0] != "") { return [bad3[0], hasReturn] }
+  } else {
+  if (k == NODE_FOR()) {
+  // NAT-LOOP: a C-style `for`. The INIT is a statement (a `let` or an
+  // assignment), the CONDITION is an integer comparison, and the POST is an
+  // assignment -- the oracle wraps a bare `=` post in an ExprStmt before
+  // lowering it (program.go:5282-5285), which is what the driver does too.
+  let bad = natNativeScanLoopArena(forBody(n), plan)
+  if (bad != "") { return [bad, hasReturn] }
+  let bad2 = natNativeScanForInit(forInit(n), plan, tbl, fns, isMain)
+  if (bad2 != "") { return [bad2, hasReturn] }
+  let bad3 = natNativeScanCond(forCond(n), plan, forLine(n), fns)
+  if (bad3 != "") { return [bad3, hasReturn] }
+  let bad4 = natNativeScanForPost(forPost(n), plan, tbl, fns, isMain)
+  if (bad4 != "") { return [bad4, hasReturn] }
+  let bad5 = natNativeScanStmts(forBody(n), plan, tbl, fns, isMain, fnStmts, loopDepth + 1, 1)
+  if (bad5[0] != "") { return [bad5[0], hasReturn] }
+  } else {
+  if (k == NODE_BREAK()) {
+  // NAT-LOOP: `break` leaves the NEAREST enclosing loop. The oracle refuses it
+  // when its loop stack is empty (program.go:4913-4916) and says exactly this.
+  if (loopDepth < 1) {
+  return [natNativeRefuse("break outside of a loop", breakLine(n)),
+  hasReturn]
+  }
+  } else {
+  if (k == NODE_CONTINUE()) {
+  if (loopDepth < 1) {
+  return [natNativeRefuse("continue outside of a loop", continueLine(n)),
+  hasReturn]
   }
   } else {
   if (natNativeIsAssignExpr(n)) {
-  // 9h-2a: a BARE `=` BinaryExpr statement is the shape a `for` post arrives in --
-  // program.go:5280 wraps it into an ExprStmt only when walking. Refused by name, so
-  // loop-post assignment cannot be mistaken for supported statement assignment.
-  return [natNativeRefuseNoLine("loop-post assignment (a bare `=` expression) is refused " +
-  "in 151A Step 9h-2a; only `record.field = value` as a statement is lowered"),
-  plan, hasReturn]
+  // NAT-LOOP: a BARE `=` BinaryExpr statement is the shape a C-style `for`'s
+  // INIT and POST arrive in -- program.go:5280 wraps the post into an ExprStmt
+  // only when walking. It used to be refused by name (9h-2a) because the loop
+  // was not lowered; now it is a supported statement.
+  let bad = natNativeScanAssignLocal(plan, fns, binaryLine(n), binaryLeft(n), binaryRight(n))
+  if (bad != "") { return [bad, hasReturn] }
   } else {
   return [natNativeRefuseNoLine(natNativeStmtKindName(k) +
   " is not lowered by the native driver" + natNativeWhere(isMain)),
-  plan, hasReturn]
+  hasReturn]
+  }
+  }
+  }
+  }
+  }
   }
   }
             }
@@ -4144,7 +4350,7 @@ if (k == NODE_PRINT()) {
         }
         i = i + 1
     }
-    return ["", plan, hasReturn]
+    return ["", hasReturn]
 }
 
 // natNativeScanDecl validates one `let`/`var` binding.
@@ -4377,6 +4583,263 @@ func natNativeArgKindName(e, plan) {
     return ""
 }
 
+// natNativeCondOp maps a comparison operator to the oracle's condition opcode.
+//
+// The mapping is the oracle's emitCond switch (program.go:5121-5134) read as the
+// JUMP it emits: the condition FALLS THROUGH when the comparison HOLDS, so each
+// operator jumps to the false label on the INVERSE test.
+//
+//	==  jumps on Jnz (not equal)   !=  jumps on Jz  (equal)
+//	<   jumps on Jge               <=  jumps on Jg
+//	>   jumps on Jle               >=  jumps on Jl
+//
+// The same six codes appear in the Step 3 reference corpus (natIntCond), which
+// is where this mapping was first pinned against the oracle's bytes.
+func natNativeCondOp(op) {
+    if (op == "==") { return 0 }
+    if (op == "!=") { return 1 }
+    if (op == "<") { return 2 }
+    if (op == "<=") { return 3 }
+    if (op == ">") { return 4 }
+    if (op == ">=") { return 5 }
+    return -1
+}
+
+// natNativeScanCond validates the CONDITION of an `if`.
+//
+// The condition must be an integer comparison. The wording is the ORACLE's own
+// (program.go:5074/5079), because the two engines must say the same thing about
+// the same program: the C path and the native path already share that sentence,
+// and a third wording would make the native refusal look like a different rule.
+//
+// A comparison is a CONDITION, not a value: the oracle's emitExpr refuses any
+// operator other than + - *, so `let c = (a < b)` is not an expression in this
+// language on this target, and the condition scan is the only place a comparison
+// is accepted.
+func natNativeScanCond(cond, plan, line, fns) {
+    if (nodeType(cond) != NODE_BINARY()) {
+        return natNativeRefuse("condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats", line)
+    }
+    if (natNativeCondOp(binaryOp(cond)) < 0) {
+        return natNativeRefuse("condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats, found '" +
+            binaryOp(cond) + "'", line)
+    }
+    // The oracle evaluates the operands at depth 1 (program.go:5135/5140), so a
+    // nested binary operand stages at the same offsets.
+    let bad = natNativeScanIntExpr(binaryLeft(cond), plan, line, fns, 1)
+    if (bad != "") { return bad }
+    return natNativeScanIntExpr(binaryRight(cond), plan, line, fns, 1)
+}
+
+// natNativeScanIf validates one `if` statement: its condition and both branch
+// bodies.
+//
+// `fnStmts` is the FUNCTION's statement list, not the branch's. The branch's
+// own list is what is being validated; the function's list is what the
+// record-type lookup needs, because a record bound at the top level is still
+// that record when a field inside a branch is assigned.
+func natNativeScanIf(n, plan, tbl, fns, isMain, fnStmts, loopDepth) {
+    let bad = natNativeScanCond(ifCond(n), plan, ifLine(n), fns)
+    if (bad != "") { return bad }
+    bad = natNativeScanStmts(ifCons(n), plan, tbl, fns, isMain, fnStmts, loopDepth, 1)[0]
+    if (bad != "") { return bad }
+    return natNativeScanStmts(ifAlt(n), plan, tbl, fns, isMain, fnStmts, loopDepth, 1)[0]
+}
+
+// natNativeScanLoopArena refuses the ARENA-using constructs inside a loop body.
+//
+// THIS IS THE MEMORY-SAFETY GATE OF NAT-LOOP, and it is the reason a loop can
+// be lowered at all.
+//
+// The native path's heap arena is sized AT COMPILE TIME from the program's
+// allocation sites: the oracle's rule is that each site runs at most ONCE, so
+// `sites * bytes` bounds the total. Inside a loop the same site runs an
+// unbounded number of times, and that bound stops being provable. The oracle
+// therefore refuses exactly three things inside a loop, and this driver
+// refuses the same three with the same words:
+//
+//	string concatenation   (program.go:6629)
+//	push()                 (program.go:5487)
+//	map insertion          (program.go:4136)
+//
+// The refusal is by NAME and says WHY, because "not supported" would leave the
+// reader guessing whether the program is wrong or the toolchain is.
+//
+// The scan walks the WHOLE loop body, including nested branches and nested
+// loops, because a concatenation inside an `if` inside a loop is still a
+// concatenation inside a loop. `natNativeArenaKindInStmts` recurses, so the
+// bound it protects is the bound that actually applies.
+//
+// NOTE what is NOT here: a plain integer local, an array literal, a record
+// literal and a string LITERAL are all fine inside a loop, because none of
+// them allocates at RUN time. An array literal's elements live in the frame
+// (Phase 150A), a record's field area lives in the frame (Phase 150B3b), and
+// a string literal's bytes live in the static rodata section. The only
+// run-time allocations in this driver are the arena ones listed above, and
+// they are exactly the ones refused here.
+func natNativeScanLoopArena(stmts, plan) {
+    let kind = natNativeArenaKindInStmts(stmts, plan)
+    if (kind == 1) {
+        return "string concatenation inside a loop is not supported on the native target (the heap arena is sized at compile time, so a repeated concatenation cannot be bounded)"
+    }
+    if (kind == 2) {
+        return "push() inside a loop is not supported on the native target (the heap arena is sized at compile time, so a repeated push cannot be bounded)"
+    }
+    if (kind == 3) {
+        return "map insertion inside a loop is not supported on the native target (map capacity is sized at compile time, so a repeated insert cannot be bounded)"
+    }
+    return ""
+}
+
+// natNativeArenaKindInStmts scans a statement list for an arena-using
+// construct, recursing into nested branches and nested loops.
+//
+// It returns 1 for a string concatenation, 2 for a push(), 3 for a map
+// insertion, and 0 when there is none.
+func natNativeArenaKindInStmts(stmts, plan) {
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        let k = 0
+        if (natNativeIsDecl(st)) {
+            k = natNativeArenaKindIn(natNativeDeclValue(st), plan)
+        }
+        if (k == 0 && nodeType(st) == NODE_PRINT()) {
+            k = natNativeArenaKindIn(printVal(st), plan)
+        }
+        if (k == 0 && nodeType(st) == NODE_RETURN()) {
+            k = natNativeArenaKindIn(retVal(st), plan)
+        }
+        if (k == 0 && nodeType(st) == NODE_EXPR_STMT()) {
+            let e = exprStmtExpr(st)
+            // A map INSERTION is `m[k] = v`: an assignment whose target is an
+            // index into a MAP local. An index into an ARRAY is not an
+            // insertion, so the local's kind decides -- the oracle makes the
+            // same distinction (program.go:791).
+            if (natNativeIsAssignExpr(e) && nodeType(binaryLeft(e)) == NODE_INDEX()) {
+                let lidx = binaryLeft(e)
+                let ordm = natNativeSlotIndex(plan, identName(indexLeft(lidx)))
+                if (ordm >= 0 && natNativeSlotKind(plan, ordm) == natKindMap()) { k = 3 }
+            }
+            if (k == 0) { k = natNativeArenaKindIn(e, plan) }
+        }
+        if (k == 0 && nodeType(st) == NODE_IF()) {
+            k = natNativeArenaKindInStmts(ifCons(st), plan)
+            if (k == 0) { k = natNativeArenaKindInStmts(ifAlt(st), plan) }
+        }
+        if (k == 0 && nodeType(st) == NODE_WHILE()) {
+            k = natNativeArenaKindInStmts(whileBody(st), plan)
+        }
+        if (k == 0 && nodeType(st) == NODE_FOR()) {
+            k = natNativeArenaKindInStmts(forBody(st), plan)
+        }
+        if (k != 0) { return k }
+        i = i + 1
+    }
+    return 0
+}
+
+// natNativeArenaKindIn scans an expression tree for an arena-using construct.
+//
+// The two it can find are a string concatenation (a `+` whose operands are
+// strings) and a push() call. A map INSERTION is a statement shape, not an
+// expression shape, so it is not looked for here -- and the driver refuses
+// map insertions in every position already, so a loop cannot smuggle one in.
+//
+// The string test is natNativeIsStrBinary, which resolves an operand's kind
+// through the PLAN; its `stmts` argument is unused, which is why an empty
+// list is passed here.
+func natNativeArenaKindIn(e, plan) {
+    let t = nodeType(e)
+    if (t == NODE_BINARY()) {
+        if (binaryOp(e) == "+") {
+            if (natNativeIsStrBinary(e, [], plan) == 1) { return 1 }
+        }
+        let k = natNativeArenaKindIn(binaryLeft(e), plan)
+        if (k != 0) { return k }
+        return natNativeArenaKindIn(binaryRight(e), plan)
+    }
+    if (t == NODE_CALL()) {
+        if (callFunc(e) == "push") { return 2 }
+        let i = 0
+        while (i < len(callArgs(e))) {
+            let k = natNativeArenaKindIn(callArgs(e)[i], plan)
+            if (k != 0) { return k }
+            i = i + 1
+        }
+        return 0
+    }
+    if (t == NODE_UNARY()) { return natNativeArenaKindIn(unaryOperand(e), plan) }
+    if (t == NODE_INDEX()) { return natNativeArenaKindIn(indexExpr(e), plan) }
+    return 0
+}
+
+// natNativeScanForInit validates a C-style `for`'s INIT clause.
+//
+// The init is either a `let`/`var` binding or an assignment to an existing
+// local. The oracle emits it as a statement BEFORE the loop's first label
+// (program.go:5257-5261), so a `let` in the init is a real binding with a
+// real frame slot -- the oracle's layout pass descends into the init
+// (program.go:4679-4682), and natNativePlanDecls does the same.
+func natNativeScanForInit(init, plan, tbl, fns, isMain) {
+    if (len(init) == 0) { return "" }
+    if (natNativeIsDecl(init)) {
+        return natNativeScanIntExpr(natNativeDeclValue(init), plan, natNativeDeclLine(init), fns, 0)
+    }
+    if (natNativeIsAssignExpr(init)) {
+        return natNativeScanAssignLocal(plan, fns, binaryLine(init), binaryLeft(init), binaryRight(init))
+    }
+    return natNativeRefuseNoLine("a `for` init must be a `let` or an assignment, not `" +
+        getNodeType(init) + "`")
+}
+
+// natNativeScanForPost validates a C-style `for`'s POST clause.
+//
+// The post is an ASSIGNMENT to an existing local. The oracle wraps a bare `=`
+// BinaryExpr in an ExprStmt before lowering it (program.go:5282-5285), which
+// is why the post arrives here as a bare expression rather than as a
+// statement.
+func natNativeScanForPost(post, plan, tbl, fns, isMain) {
+    if (len(post) == 0) { return "" }
+    if (natNativeIsAssignExpr(post)) {
+        return natNativeScanAssignLocal(plan, fns, binaryLine(post), binaryLeft(post), binaryRight(post))
+    }
+    return natNativeRefuseNoLine("a `for` post must be an assignment, not `" +
+        getNodeType(post) + "`")
+}
+
+// natNativeScanAssignLocal validates `x = <int expression>` where x is an
+// existing local.
+//
+// This is the loop counter's assignment. The oracle's rule (program.go:4952-
+// 4969) is: the target must be a plain variable, it must have a slot, it must
+// not be a string or an array (those are immutable through this form), and
+// the right-hand side's kind must match the variable's.
+//
+// The right-hand side must be an INTEGER here, because the driver's value
+// model has one unit for an int and the reassignment is a frame-slot store;
+// a string or an array reassignment would need the rodata cursor or the
+// arena, and the oracle refuses those anyway.
+func natNativeScanAssignLocal(plan, fns, line, lhs, rhs) {
+    if (nodeType(lhs) != NODE_IDENT()) {
+        return natNativeRefuse("assignment target must be a variable", line)
+    }
+    let ord = natNativeSlotIndex(plan, identName(lhs))
+    if (ord < 0) {
+        return natNativeRefuse("undefined identifier '" + identName(lhs) + "'", line)
+    }
+    let k = natNativeSlotKind(plan, ord)
+    if (k != natKindInt()) {
+        if (k == natKindString() || k == natKindArray()) {
+            return natNativeRefuse("cannot reassign " + natKindName(k) + " '" + identName(lhs) +
+                "' (declare a fresh variable)", line)
+        }
+        return natNativeRefuse("cannot assign to a " + natKindName(k) + " variable '" +
+            identName(lhs) + "'", line)
+    }
+    return natNativeScanIntExpr(rhs, plan, line, fns, 0)
+}
+
 // natNativeScanIntExpr validates an INTEGER expression and nothing else.
 //
 // The subset is the oracle's int path: literals, int locals, `+ - *`, unary `-`, and
@@ -4408,6 +4871,39 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
             return natNativeRefuse("unsupported unary operator '" + unaryOp(e) + "'", line)
         }
         return natNativeScanIntExpr(unaryOperand(e), plan, line, fns, depth)
+    }
+    if (t == NODE_INDEX()) {
+        // NAT-IDX: an array element read. The target must be an ARRAY local,
+        // and the index must itself be an integer expression -- which is what
+        // makes `a[i]` ordinary array iteration rather than a literal-only
+        // special case.
+        //
+        // The KIND CHECK IS LOAD-BEARING, not decoration. Without it,
+        // `let a = 7; print(a[0])` scans clean: the target is an identifier, it
+        // resolves to a local, and the index is an integer expression.
+        // Lowering then treats that local's 8-byte scalar slot as a two-unit
+        // (base, len) array header, loads a "length" out of the neighbouring
+        // slot, and reads an element from whatever address that base happens
+        // to be. It produced a VALID PE, which is the worst outcome: no
+        // diagnostic, no trap, a wrong number.
+        //
+        // The diagnostics are the oracle's own (program.go:6290-6297): an index
+        // target must be a variable, it must exist, and it must be an array.
+        if (nodeType(indexLeft(e)) != NODE_IDENT()) {
+            return natNativeRefuse("array index target must be a variable", line)
+        }
+        let ord = natNativeSlotIndex(plan, identName(indexLeft(e)))
+        if (ord < 0) {
+            return natNativeRefuse("undefined identifier '" + identName(indexLeft(e)) + "'", line)
+        }
+        let k = natNativeSlotKind(plan, ord)
+        if (k != natKindArray()) {
+            return natNativeRefuse("index target must be an array (got " + natKindName(k) +
+                " '" + identName(indexLeft(e)) + "')", line)
+        }
+        // The index is evaluated at depth+1, which is the oracle's depth for the
+        // index expression (program.go:6320).
+        return natNativeScanIntExpr(indexExpr(e), plan, line, fns, depth + 1)
     }
     if (t == NODE_BINARY()) {
         let op = binaryOp(e)
@@ -4575,17 +5071,43 @@ func natArrayValue(s, off, elems) {
 // wrong, which is precisely what Step 3's label layer was added to catch. So the
 // two names come from natFresh in the oracle's order and nothing is hand-written.
 //
-// `roffsKind` indexes the WHOLE rodata offset array (print_int's own two
-// entries come first), and `srcOff`/`srcLen` are the interned source basename.
+// `roffsKind` is the rodata OFFSET of the reporter's "kind" argument, and
+// `srcOff`/`srcLen` are the interned source basename's offset and length.
 // `line` is the diagnostic's line.
-func natArrayIndex(s, off, idx, tag, roffsKind, srcOff, srcLen, line) {
+// natArrayIndex lowers the bounds check and the element load for `a[i]`.
+//
+// The INDEX EXPRESSION IS NOT EVALUATED HERE. The caller evaluates it into RAX
+// and moves it to RCX first, which is the ORACLE's order
+// (pkg/native/program.go:6320-6324):
+//
+//	emitExpr(x.Index, depth+1)   // the index, as an expression
+//	MovRegReg(RCX, RAX)
+//	LoadStack(RBX, off)           // the array's base
+//	LoadStack(RAX, off + 8)       // the array's length
+//	... the bounds check ...
+//	LoadScaled64(RAX, RBX, RCX, 8, 0)
+//
+// This function used to take the index LITERAL and materialise it straight
+// into RCX, which is why an index that was not a literal was refused. That was
+// a literal-only special case, and it was the whole of the limitation: the
+// oracle has never required a literal index, and a literal-only index is
+// exactly what makes ordinary array iteration impossible.
+//
+// `roffsKind`, `srcOff` and `srcLen` are the runtime-error REPORTER's context:
+// the rodata offset of the reporter's "kind" argument, and the source
+// basename's offset and length. They reach this function through the shared
+// expression walker's context, which is why an index can be lowered inside ANY
+// integer expression and not only directly under a `print`.
+//
+// `line` is the index expression's own line, so the diagnostic points at the
+// index and not at the statement that contains it.
+func natArrayIndex(s, off, roffsKind, srcOff, srcLen, line) {
     let fa = natFresh(s, "idxbad")
     s = fa[0]
     let badLbl = fa[1]
     let fb = natFresh(s, "idxok")
     s = fb[0]
     let doneLbl = fb[1]
-    s = natMovRegImm32(s, natRegRCX(), int(intLitVal(idx)))
     s = natLoadStack(s, natRegRBX(), off)
     s = natLoadStack(s, natRegRAX(), off + 8)
     // Bounds: 0 <= i < len, else the Phase-100 runtime error. Both arms jump to
@@ -4638,33 +5160,6 @@ func natNativeScanElems(elems, line) {
                 " is not an integer literal", line)
         }
         i = i + 1
-    }
-    return ""
-}
-
-// natNativeScanIndex validates an `a[i]` expression and returns "" or a refusal.
-//
-// The KIND CHECK IS LOAD-BEARING, not decoration. Without it, `let a = 7; print(a[0])`
-// scans clean: the target is an identifier, it resolves to a local, and the index is
-// an integer literal. Lowering then treats that local's 8-byte scalar slot as a
-// two-unit (base, len) array header, loads a "length" out of the neighbouring slot,
-// and reads an element from whatever address that base happens to be. It produced a
-// VALID PE, which is the worst outcome: no diagnostic, no trap, a wrong number.
-func natNativeScanIndex(idx, stmts, plan, line) {
-    let target = indexLeft(idx)
-    if (nodeType(target) != NODE_IDENT()) {
-        return natNativeRefuse("index target must be a local variable", line)
-    }
-    let ord = natNativeSlotIndex(plan, identName(target))
-    if (ord < 0) {
-        return natNativeRefuse("index of undeclared local `" + identName(target) + "`", line)
-    }
-    if (natNativeSlotKind(plan, ord) != natKindArray()) {
-        return natNativeRefuse("`" + identName(target) + "` is indexed but is not an " +
-            "array", line)
-    }
-    if (nodeType(indexExpr(idx)) != NODE_INT_LIT()) {
-        return natNativeRefuse("array index is not an integer literal", line)
     }
     return ""
 }
@@ -4827,6 +5322,25 @@ func natPrintStrBody(s, winWrite, offNewline) {
 // program that cannot fault from carrying ~615 bytes of reporter it never calls.
 // Those bytes are not free: the reporter's rodata strings sit in the section and
 // move every address after them.
+// natNativeUsesRuntimeError reports whether the program needs the Phase-100
+// runtime-error REPORTER.
+//
+// NAT-IDX: this predicate must see an array index wherever it can occur, and
+// that is now EVERYWHERE an integer expression can occur -- inside a loop
+// body, inside a branch, or nested inside another expression.
+//
+// The previous version looked only at a `print`'s argument and a `return`'s
+// value, at the TOP level of the function. That was correct while the driver
+// lowered an index only in those two positions, and it would have been WRONG
+// the moment an index could appear anywhere else: the reporter would not be
+// emitted, and the index's diagnostic would reference rodata that does not
+// exist.
+//
+// The reporter's absence is not a crash and not a wrong answer -- the bounds
+// check still jumps to its failure block -- but that block CALLS the reporter,
+// so a missing reporter is a call into a label that was never emitted. This is
+// the "the gate and the lowering cannot disagree" rule the original comment
+// stated, applied to the shapes that now exist.
 func natNativeUsesRuntimeError(stmts) {
     let i = 0
     while (i < len(stmts)) {
@@ -4838,36 +5352,78 @@ func natNativeUsesRuntimeError(stmts) {
 
 // natStmtHasIndex reports whether a statement CONTAINS an array index.
 //
-// It inspects both places the driver can lower an index -- a print argument and
-// a return value -- because those are the only two it reaches today. Both are
-// checked so that the gate and the lowering cannot disagree: a shape the gate
-// fails to see is emitted without the reporter, and a shape it sees but the
-// lowering refuses is dead weight. Neither is loud.
+// It inspects every position the driver can lower an index in, and it RECURSES
+// into nested bodies: a branch inside a loop, a loop inside a branch, and a
+// loop inside a loop all carry their statements' indexes.
 func natStmtHasIndex(n) {
     let k = nodeType(n)
     if (k == NODE_INDEX()) { return 1 }
-    if (k == NODE_PRINT()) {
-        if (natExprHasIndex(printVal(n)) == 1) { return 1 }
-        return 0
-    }
+    if (k == NODE_PRINT()) { return natExprHasIndex(printVal(n)) }
     if (k == NODE_RETURN()) { return natExprHasIndex(retVal(n)) }
+    if (natNativeIsDecl(n)) { return natExprHasIndex(natNativeDeclValue(n)) }
+    if (k == NODE_EXPR_STMT()) { return natExprHasIndex(exprStmtExpr(n)) }
+    if (k == NODE_IF()) {
+        // The CONDITION carries indexes too, and it is the position that is
+        // easiest to forget: an `if a[0] < a[1] { ... }` has its indexes in the
+        // condition, not in the branch body.
+        //
+        // Missing one is not a crash and not a wrong answer -- the bounds
+        // check still jumps to its failure block -- but that block CALLS the
+        // reporter, so a missing reporter is a call into a label that was
+        // never emitted. That is what the linker-time crash was.
+        if (natExprHasIndex(ifCond(n)) == 1) { return 1 }
+        if (natStmtHasIndexIn(ifCons(n)) == 1) { return 1 }
+        return natStmtHasIndexIn(ifAlt(n))
+    }
+    if (k == NODE_WHILE()) {
+        if (natExprHasIndex(whileCond(n)) == 1) { return 1 }
+        return natStmtHasIndexIn(whileBody(n))
+    }
+    if (k == NODE_FOR()) {
+        if (natExprHasIndex(forCond(n)) == 1) { return 1 }
+        if (len(forInit(n)) > 0 && natExprHasIndex(forInit(n)) == 1) { return 1 }
+        if (len(forPost(n)) > 0 && natExprHasIndex(forPost(n)) == 1) { return 1 }
+        return natStmtHasIndexIn(forBody(n))
+    }
+    return 0
+}
+
+// natStmtHasIndexIn is the statement-list form of natStmtHasIndex.
+func natStmtHasIndexIn(stmts) {
+    let i = 0
+    while (i < len(stmts)) {
+        if (natStmtHasIndex(stmts[i]) == 1) { return 1 }
+        i = i + 1
+    }
     return 0
 }
 
 // natExprHasIndex looks through an expression for an index node.
 //
-// The driver lowers an index directly under a print or a return, so one level is
-// enough. It is a named function rather than an inline test because the SAME
-// question is asked in two places, and one copy that is later extended without
-// the other is how the two drift apart.
+// It is a full walk rather than a one-level test, because an index can now be
+// nested inside an arithmetic expression (`a[i] + 1`), inside a comparison
+// (`a[i] == 3`), or inside a call's arguments (`f(a[i])`).
+//
+// It is a named function rather than an inline test because the SAME question
+// is asked in several places, and one copy that is later extended without the
+// other is how the two drift apart.
 func natExprHasIndex(e) {
-    return natNodeIsIndex(e)
-}
-
-// natNodeIsIndex is the single node-kind test, so `natExprHasIndex` has exactly
-// one definition of what an index IS.
-func natNodeIsIndex(e) {
-    if (nodeType(e) == NODE_INDEX()) { return 1 }
+    let t = nodeType(e)
+    if (t == NODE_INDEX()) { return 1 }
+    if (t == NODE_BINARY()) {
+        if (natExprHasIndex(binaryLeft(e)) == 1) { return 1 }
+        return natExprHasIndex(binaryRight(e))
+    }
+    if (t == NODE_UNARY()) { return natExprHasIndex(unaryOperand(e)) }
+    if (t == NODE_CALL()) {
+        let i = 0
+        while (i < len(callArgs(e))) {
+            if (natExprHasIndex(callArgs(e)[i]) == 1) { return 1 }
+            i = i + 1
+        }
+        return 0
+    }
+    if (t == NODE_INDEX()) { return 1 }
     return 0
 }
 
@@ -5229,7 +5785,11 @@ if (t == NODE_BINARY()) {
     return natNativeScanIntExpr(expr, plan, line, fns, 0)
 }
   if (t == NODE_UNARY()) { return natNativeScanIntExpr(expr, plan, line, fns, 0) }
-  if (t == NODE_INDEX()) { return natNativeScanIndex(expr, stmts, plan, line) }
+  // NAT-IDX: an index is an ordinary integer expression, validated by the
+  // SHARED walker validator. It used to have its own validator here, which
+  // required a LITERAL index -- the very limitation this increment removes --
+  // and two validators for one construct is how they drift apart.
+  if (t == NODE_INDEX()) { return natNativeScanIntExpr(expr, plan, line, fns, 0) }
   if (t == NODE_CALL()) {
       if (callFunc(expr) == "len") { return natNativeScanLen(expr, stmts, plan, line) }
       return natNativeScanCall(expr, plan, line, fns)
@@ -5333,23 +5893,39 @@ if (nodeType(expr) == NODE_IDENT()) {
 // reference rodata, a record or a string, and passing them would invite an arm that
 // does. Anything else falls through to the CALL arm, which is the only other integer
 // producer in this slice.
-func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
+func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
     let t = nodeType(e)
     if (t == NODE_INT_LIT()) {
         return natMovRegImm64(s, natRegRAX(), int(intLitVal(e)))
     }
     if (t == NODE_IDENT()) {
         let ord = natNativeSlotIndex(plan, identName(e))
-        return natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
+        // NAT-REG: an allocated local lives in a callee-saved register; the
+        // frame slot is the fallback for everything else.
+        return natNativeLoadLocal(s, plan, ord, natRegRAX())
+    }
+    if (t == NODE_INDEX()) {
+        // NAT-IDX: an array element read. The order is the oracle's
+        // (program.go:6320-6324): the INDEX EXPRESSION is evaluated first, at
+        // depth+1, then moved into RCX, and only then are the array's base and
+        // length loaded.
+        //
+        // The index is evaluated BEFORE the base is loaded, which matters: the
+        // index expression may itself read a local, and the base and the
+        // length are loaded into RBX and RAX afterwards.
+        let ord = natNativeSlotIndex(plan, identName(indexLeft(e)))
+        s = natEmitIntExpr(s, indexExpr(e), plan, fns, binTemp, extrasBase, frame, depth + 1, rctx)
+        s = natMovRegReg(s, natRegRCX(), natRegRAX())
+        return natArrayIndex(s, natNativeSlotOff(plan, ord), rctx[0], rctx[1], rctx[2], indexLine(e))
     }
     if (t == NODE_UNARY()) {
-        s = natEmitIntExpr(s, unaryOperand(e), plan, fns, binTemp, extrasBase, frame, depth)
+        s = natEmitIntExpr(s, unaryOperand(e), plan, fns, binTemp, extrasBase, frame, depth, rctx)
         return natNegReg(s, natRegRAX())
     }
     if (t == NODE_BINARY()) {
-        s = natEmitIntExpr(s, binaryLeft(e), plan, fns, binTemp, extrasBase, frame, depth + 1)
+        s = natEmitIntExpr(s, binaryLeft(e), plan, fns, binTemp, extrasBase, frame, depth + 1, rctx)
         s = natStoreStack(s, natRegRAX(), binTemp + depth * 8)
-        s = natEmitIntExpr(s, binaryRight(e), plan, fns, binTemp, extrasBase, frame, depth + 1)
+        s = natEmitIntExpr(s, binaryRight(e), plan, fns, binTemp, extrasBase, frame, depth + 1, rctx)
         s = natMovRegReg(s, natRegRCX(), natRegRAX())
         s = natLoadStack(s, natRegRAX(), binTemp + depth * 8)
         let op = binaryOp(e)
@@ -5357,7 +5933,44 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
         if (op == "-") { return natSubRegReg(s, natRegRAX(), natRegRCX()) }
         return natMulRegReg(s, natRegRAX(), natRegRCX())
     }
-    return natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth)
+    return natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx)
+}
+
+// natEmitIntCond lowers an integer comparison and jumps to falseLabel when the
+// comparison does NOT hold.
+//
+// It is the oracle's emitCond int path (program.go:5135-5146) instruction for
+// instruction:
+//
+//	evaluate the LEFT operand into RAX
+//	spill it to the scratch slot
+//	evaluate the RIGHT operand into RAX, move it to RCX
+//	reload the LEFT operand into RAX
+//	CmpRegReg(RAX, RCX)
+//	jump to falseLabel on the INVERSE of the comparison
+//
+// The scratch slot is the region's START (depth 0), not the depth-1 slot the
+// operands themselves use, which is why a condition and a depth-0 body
+// expression share one slot. The operands are evaluated at depth 1, exactly as
+// the oracle does, so a nested binary operand stages at the same offsets.
+//
+// The jump opcode per operator is natNativeCondOp's mapping, and it is the
+// oracle's: the condition FALLS THROUGH when the comparison holds.
+func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, rctx) {
+    let op = natNativeCondOp(binaryOp(cond))
+    s = natEmitIntExpr(s, binaryLeft(cond), plan, fns, binTemp, extrasBase, frame, 1, rctx)
+    s = natStoreStack(s, natRegRAX(), binTemp)
+    s = natEmitIntExpr(s, binaryRight(cond), plan, fns, binTemp, extrasBase, frame, 1, rctx)
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natLoadStack(s, natRegRAX(), binTemp)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    if (op == 0) { return natJnz(s, falseLabel) }
+    if (op == 1) { return natJz(s, falseLabel) }
+    if (op == 2) { return natJge(s, falseLabel) }
+    if (op == 3) { return natJg(s, falseLabel) }
+    if (op == 4) { return natJle(s, falseLabel) }
+    if (op == 5) { return natJl(s, falseLabel) }
+    return s
 }
 
 // natEmitIntCall lowers a call to a USER function and leaves the result in RAX.
@@ -5387,14 +6000,14 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
 // not emit it, so Linux and macOS emit nothing and stay byte-identical; Windows
 // already differs from the oracle's bytes (its whole entry and stdout path do), so
 // correctness there costs nothing that parity was measuring.
-func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth) {
+func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
     let fname = callFunc(e)
     let args = callArgs(e)
     let isWin = 0
     if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
     let i = 0
     while (i < len(args)) {
-        s = natEmitIntExpr(s, args[i], plan, fns, binTemp, extrasBase, frame, depth)
+        s = natEmitIntExpr(s, args[i], plan, fns, binTemp, extrasBase, frame, depth, rctx)
         if (i < 6) {
             s = natStoreStack(s, natRegRAX(), natArgTemp(i, frame))
         } else {
@@ -5441,7 +6054,15 @@ func natNativeHomeParams(s, params, plan) {
         let k = 0
         while (k < units) {
             if (unit < 6) {
-                s = natStoreStack(s, natArgReg(unit), natNativeSlotOff(plan, ord) + k * 8)
+                // NAT-REG: an allocated parameter is homed straight into its
+                // register. Only an INT parameter is ever allocated, so it is
+                // one unit and the "+ k * 8" offset does not apply.
+                let preg = natNativeSlotReg(plan, ord)
+                if (preg >= 0) {
+                    s = natMovRegReg(s, preg, natArgReg(unit))
+                } else {
+                    s = natStoreStack(s, natArgReg(unit), natNativeSlotOff(plan, ord) + k * 8)
+                }
             } else {
                 s = natLoadBaseOff(s, natRegRAX(), natRegR10(), (unit - 6) * 8)
                 s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, ord) + k * 8)
@@ -5466,7 +6087,7 @@ func natNativeHomeParams(s, params, plan) {
 //
 // The statement ORDINAL doubles as the label tag for `a[i]`, so no counter can fall
 // out of step with the statement list.
-func natNativeLower(s, stmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel) {
+func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, listPath) {
     // The scratch regions come from the CALLER's layout, because the caller is the
     // function being lowered. Reading them here instead of threading three more
     // arguments keeps ONE source of truth: natFrameLayout is the only place a frame
@@ -5477,12 +6098,30 @@ func natNativeLower(s, stmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLe
     let strTemp = lay[2]
     let extrasBase = lay[4]
     let frame = lay[6]
-    // sidx walks the rodata INPUT list in lockstep with the literals the program binds,
-    // starting at 2 because entries 0 and 1 are print_int's own "-" and "\n". Lockstep
-    // is what makes a literal's recorded offset agree with the list the linker interns;
-    // recomputing an offset from the literal's VALUE instead would break the moment two
-    // bindings shared one string, which natRodataSection interns only once.
-    let sidx = 2
+    // NAT-IDX: the runtime-error REPORTER's context, bundled so it can travel
+    // through the shared expression walker as ONE argument.
+    //
+    // The three values are the rodata offset of the reporter's "kind" argument
+    // and the source basename's offset and length. They are a property of the
+    // FUNCTION, not of a statement, so bundling them here -- once, where the
+    // function's own parameters arrive -- keeps them out of every call site.
+    //
+    // It is an explicit parameter and not global state: two functions in one
+    // image have different basenames, and a global would have to be saved and
+    // restored around every call.
+    let rctx = [rtKindSlot, srcOff, srcLen]
+    // sidx walks the LITERALS' offset list in lockstep with the literals the
+    // program binds. Lockstep is what makes a literal's recorded offset agree
+    // with the list the linker interns; recomputing an offset from the
+    // literal's VALUE instead would break the moment two bindings shared one
+    // string, which natRodataSection interns only once.
+    //
+    // The list holds the LITERALS' offsets and nothing else, so the cursor
+    // starts at 0. It used to hold the WHOLE rodata offset array and start at
+    // 2, which tied the cursor's start to how many non-literal entries came
+    // before the literals -- so the interning order and the cursor were the
+    // same fact, and moving the reporter's strings moved the cursor too.
+    let sidx = 0
     // Concat-site counter; used only to make the byte-copy labels unique.
     let site = 0
     let i = 0
@@ -5543,7 +6182,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     let srcOff = natNativeSlotOff(plan, srcOrd)
                     let stage = strTemp
                     // value
-                    s = natEmitIntExpr(s, args[1], plan, fns, binTemp, extrasBase, frame, 0)
+                    s = natEmitIntExpr(s, args[1], plan, fns, binTemp, extrasBase, frame, 0, rctx)
                     s = natStoreStack(s, natRegRAX(), stage)
                     // old base / old len
                     s = natLoadStack(s, natRegRAX(), srcOff)
@@ -5581,8 +6220,8 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     s = natAddRegImm32(s, natRegRAX(), 1)
                     s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx) + 8)
                 } else {
-                    s = natEmitIntExpr(s, v, plan, fns, binTemp, extrasBase, frame, 0)
-                    s = natStoreStack(s, natRegRAX(), natNativeSlotOff(plan, idx))
+                    s = natEmitIntExpr(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx)
+                    s = natNativeStoreLocal(s, plan, idx, natRegRAX())
                 }
                 }
             }
@@ -5635,7 +6274,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
             }
             if (nodeType(pv) == NODE_UNARY()) { isIntExpr = 1 }
             if (isIntExpr == 1) {
-                s = natEmitIntExpr(s, pv, plan, fns, binTemp, extrasBase, frame, 0)
+                s = natEmitIntExpr(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                 s = natMovRegReg(s, natRegRDI(), natRegRAX())
                 s = natCallPrintInt(s)
             } else {
@@ -5663,14 +6302,16 @@ stmts, plan, roffs, tbl)
                     sidx = sidx + 1
                 } else {
                     if (nodeType(pv) == NODE_INDEX()) {
-                        let ord = natNativeSlotIndex(plan, identName(indexLeft(pv)))
-                        s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(pv), i, rtKindSlot, srcOff, srcLen, printLine(n))
+                        // NAT-IDX: the index is lowered by the SHARED integer
+                        // expression walker, so it is an ordinary integer
+                        // expression and not a literal-only special case.
+                        s = natEmitIntExpr(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                         s = natMovRegReg(s, natRegRDI(), natRegRAX())
                         s = natCallPrintInt(s)
 } else {
 if (nodeType(pv) == NODE_DOT()) {
 let drec = identName(dotLeft(pv))
-let dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(stmts, drec), memberField(pv))
+let dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(fnStmts, drec), memberField(pv))
 if (dkn == natKindString()) {
 s = natEmitStrValue(s, pv, stmts, plan, roffs, tbl)
 s = natCallPrintStr(s)
@@ -5688,7 +6329,7 @@ let ordl = natNativeSlotIndex(plan,
 identName(callArgs(pv)[0]))
                             s = natArrayLen(s, natNativeSlotOff(plan, ordl))
                         } else {
-                        s = natEmitIntCall(s, pv, plan, fns, binTemp, extrasBase, frame, 0)
+                        s = natEmitIntCall(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                         }
                             s = natMovRegReg(s, natRegRDI(), natRegRAX())
                             s = natCallPrintInt(s)
@@ -5723,16 +6364,22 @@ identName(callArgs(pv)[0]))
         if (k == NODE_EXPR_STMT()) {
         let ae = exprStmtExpr(n)
         if (natNativeIsAssignExpr(ae)) {
-        let rr = natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx,
+        if (nodeType(binaryLeft(ae)) == NODE_IDENT()) {
+        // NAT-LOOP: a plain-local assignment -- `i = i + 1`. The
+        // record-field form is the other arm.
+        s = natEmitAssignLocal(s, plan, binaryLeft(ae), binaryRight(ae), fns, binTemp, extrasBase, frame, rctx)
+        } else {
+        let rr = natNativeLowerAssign(s, fnStmts, plan, tbl, roffs, sidx,
         binaryLeft(ae), binaryRight(ae))
         s = rr[0]
         sidx = rr[1]
+        }
         } else {
         // A bare call statement -- see the scan arm for why it exists. The result is
         // discarded, which is exactly what a void callee's caller does; a callee that
         // DOES return a value here is not an error, just an unused one, matching the
         // oracle's expression-statement handling.
-        s = natEmitIntCall(s, ae, plan, fns, binTemp, extrasBase, frame, 0)
+        s = natEmitIntCall(s, ae, plan, fns, binTemp, extrasBase, frame, 0, rctx)
         }
         } else {
         if (k == NODE_RETURN()) {
@@ -5744,8 +6391,9 @@ identName(callArgs(pv)[0]))
             // to emit inline (MovRegImm64 into RAX; LoadStack into RAX), which is why
             // the frozen return_value golden does not move.
             if (nodeType(rv) == NODE_INDEX()) {
-                let ord = natNativeSlotIndex(plan, identName(indexLeft(rv)))
-                s = natArrayIndex(s, natNativeSlotOff(plan, ord), indexExpr(rv), i, rtKindSlot, srcOff, srcLen, retLine(n))
+                // NAT-IDX: as in the print path, the index is lowered by the
+                // shared integer expression walker.
+                s = natEmitIntExpr(s, rv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
             } else {
                 let handledLen = 0
                 if (nodeType(rv) == NODE_CALL()) {
@@ -5759,7 +6407,7 @@ identName(callArgs(pv)[0]))
                     }
                 }
                 if (handledLen == 0) {
-                    s = natEmitIntExpr(s, rv, plan, fns, binTemp, extrasBase, frame, 0)
+                    s = natEmitIntExpr(s, rv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                 }
             }
             // Route the return through the single teardown the label marks, the
@@ -5779,9 +6427,165 @@ identName(callArgs(pv)[0]))
             // with no jump at all came out the other end.
             s = natJmp(s, retLabel)
         }
+        else {
+        if (k == NODE_IF()) {
+        // NAT-IF: the conditional branch, in the oracle's emitIf order
+        // (program.go:5215-5231): the condition jumps to the ELSE label, the
+        // consequence runs, an unconditional jump crosses to the END label, the
+        // alternative runs, and the END label closes both.
+        //
+        // The oracle allocates the ELSE label FIRST and the END label second
+        // (program.go:5216-5217), and an `if` with NO else still emits both --
+        // the alternative is an empty statement list, so the two labels can
+        // land on the same offset. That is reproduced rather than tidied.
+        //
+        // The label NAMES are kcc's own. The oracle's fresh() counter produces
+        // different names for the same construct, and names do not reach the
+        // bytes: a rel32 encodes a DISPLACEMENT, so only the ORDER and the
+        // NUMBER of the emitted instructions can differ. What has to match is
+        // the instruction sequence, and that is what this reproduces.
+        //
+        // The tag and the path make the names unique across the whole image.
+        // The tag is the FUNCTION's label, because two functions may each have
+        // an `if` at the same statement ordinal; the path is the statement's
+        // position in the enclosing list, so a nested `if` cannot collide with
+        // its parent. (The push() labels have the same hazard and are safe only
+        // because a push is a `let`, which a branch cannot contain.)
+        let sp = listPath + "." + str(i)
+        let elseLabel = "nat$ifelse$" + tag + "$" + sp
+        let endLabel = "nat$ifend$" + tag + "$" + sp
+        s = natEmitIntCond(s, ifCond(n), plan, fns, binTemp, extrasBase, frame, elseLabel, rctx)
+        s = natNativeLower(s, ifCons(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
+        s = natJmp(s, endLabel)
+        s = natMark(s, elseLabel)
+        s = natNativeLower(s, ifAlt(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp + "e")
+        s = natMark(s, endLabel)
+        }
+        else {
+        if (k == NODE_WHILE()) {
+        // NAT-LOOP: a `while` loop, in the oracle's emitWhile order
+        // (program.go:5234-5251):
+        //
+        //   loopLabel = fresh("while"); endLabel = fresh("whileend")
+        //   Mark(loopLabel); push loops{brk:endLabel, cont:loopLabel}
+        //   emitCond(cond, endLabel); body; pop
+        //   Jmp(loopLabel); Mark(endLabel)
+        //
+        // The loop context is what makes `break` and `continue` mean the
+        // NEAREST enclosing loop. For a `while`, `break` targets the loop's END
+        // label and `continue` targets its HEAD, so a `continue` re-evaluates
+        // the condition. That is the oracle's choice (program.go:5238) and it
+        // is why a `continue` in a C-style `for` behaves differently -- there
+        // the continue target is the POST label.
+        let sp = listPath + "." + str(i)
+        let loopLabel = "nat$while$" + tag + "$" + sp
+        let endLabel = "nat$whileend$" + tag + "$" + sp
+        s = natMark(s, loopLabel)
+        s = natLoopPush(s, endLabel, loopLabel)
+        s = natEmitIntCond(s, whileCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx)
+        s = natNativeLower(s, whileBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
+        s = natLoopPop(s)
+        s = natJmp(s, loopLabel)
+        s = natMark(s, endLabel)
+        }
+        else {
+        if (k == NODE_FOR()) {
+        // NAT-LOOP: a C-style `for`, in the oracle's emitFor order
+        // (program.go:5256-5295):
+        //
+        //   init (inline, BEFORE any label)
+        //   loopLabel = fresh("for"); postLabel = fresh("forpost"); endLabel = fresh("forend")
+        //   Mark(loopLabel); push loops{brk:endLabel, cont:postLabel}
+        //   cond (if present); body
+        //   Mark(postLabel); post; pop
+        //   Jmp(loopLabel); Mark(endLabel)
+        //
+        // Three facts in that order are load-bearing:
+        //
+        //  * The INIT is emitted BEFORE the loop's first label, so a `let` in
+        //    the init runs ONCE and not once per iteration.
+        //  * The POST is emitted at the post label, and the post label is ALSO
+        //    the CONTINUE target -- so a `continue` in a `for` runs the update
+        //    clause before the condition is evaluated again. That is the
+        //    asymmetry with `while`, and it is the oracle's (program.go:5266).
+        //  * The CONTINUE target of a `for` is the post label, NOT the head, so
+        //    a `continue` skips the body but not the update.
+        let sp = listPath + "." + str(i)
+        let loopLabel = "nat$for$" + tag + "$" + sp
+        let postLabel = "nat$forpost$" + tag + "$" + sp
+        let endLabel = "nat$forend$" + tag + "$" + sp
+        if (len(forInit(n)) > 0) {
+        if (natNativeIsDecl(forInit(n))) {
+        let idx = natNativeSlotIndex(plan, natNativeDeclName(forInit(n)))
+        s = natEmitIntExpr(s, natNativeDeclValue(forInit(n)), plan, fns, binTemp, extrasBase, frame, 0, rctx)
+        s = natNativeStoreLocal(s, plan, idx, natRegRAX())
+        } else {
+        s = natEmitAssignLocal(s, plan, binaryLeft(forInit(n)), binaryRight(forInit(n)), fns, binTemp, extrasBase, frame, rctx)
+        }
+        }
+        s = natMark(s, loopLabel)
+        s = natLoopPush(s, endLabel, postLabel)
+        s = natEmitIntCond(s, forCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx)
+        s = natNativeLower(s, forBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
+        s = natMark(s, postLabel)
+        if (len(forPost(n)) > 0) {
+        s = natEmitAssignLocal(s, plan, binaryLeft(forPost(n)), binaryRight(forPost(n)), fns, binTemp, extrasBase, frame, rctx)
+        }
+        s = natLoopPop(s)
+        s = natJmp(s, loopLabel)
+        s = natMark(s, endLabel)
+        }
+        else {
+        if (k == NODE_BREAK()) {
+        // NAT-LOOP: `break` leaves the NEAREST enclosing loop. The oracle's
+        // rule is `Jmp(b.loops[len(b.loops)-1].brk)` (program.go:4917), and the
+        // scan has already refused a `break` with no loop to leave.
+        s = natJmp(s, natLoopBrk(s))
+        }
+        else {
+        if (k == NODE_CONTINUE()) {
+        // NAT-LOOP: `continue` jumps to the innermost loop's continue target.
+        // For a `while` that is the loop head (so the condition is evaluated
+        // again); for a C-style `for` it is the post label (so the update runs
+        // first). The oracle's rule is `Jmp(b.loops[len(b.loops)-1].cont)`
+        // (program.go:4923).
+        s = natJmp(s, natLoopCont(s))
+        }
+        else {
+        if (natNativeIsAssignExpr(n)) {
+        // NAT-LOOP: a bare `=` statement -- the shape a C-style `for`'s init
+        // and post arrive in. It used to be refused by name (9h-2a) because
+        // the loop was not lowered; now it is a supported statement.
+        s = natEmitAssignLocal(s, plan, binaryLeft(n), binaryRight(n), fns, binTemp, extrasBase, frame, rctx)
+        }
+        }
+        }
+        }
+        }
+        }
+        }
         }
         i = i + 1
     }
+    return s
+}
+
+// natEmitAssignLocal lowers `x = <int expression>`.
+//
+// It is the oracle's emitExprStmt assignment path (program.go:4970-4981)
+// without the register case: the oracle writes an allocated int local back to
+// its register (Phase 150C), and this driver has no register allocator, so
+// every local is a frame slot and the store is unconditional.
+//
+// The oracle's order is: evaluate the right-hand side into RAX, then store it
+// to the slot. The right-hand side is evaluated at depth 0, which is what
+// makes the operands stage in the same scratch slots the oracle's do.
+func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame, rctx) {
+    let ord = natNativeSlotIndex(plan, identName(lhs))
+    s = natEmitIntExpr(s, rhs, plan, fns, binTemp, extrasBase, frame, 0, rctx)
+    // NAT-REG: an allocated local is reassigned in its register; everything
+    // else is stored to the frame slot, which is the pre-existing path.
+    s = natNativeStoreLocal(s, plan, ord, natRegRAX())
     return s
 }
 
@@ -5795,29 +6599,51 @@ identName(callArgs(pv)[0]))
 // everything, and reusing main's layout for a callee would stage operands over the
 // callee's own locals.
 //
-// `usesStr` is 0 for a callee in this slice because the scan refuses every string
-// construct inside a non-main body, and computing it per function anyway is what
-// keeps that statement true if the subset ever widens.
+// `usesStrProg` is the PROGRAM-WIDE string flag, threaded in for the same reason
+// `usesMapProg` is. The oracle's string staging area is reserved from
+// program-wide flags and lands in EVERY function's layout (program.go:4454),
+// so a per-function flag left a callee's frame 2560 bytes short whenever main
+// did any string work at all -- measured on the Linux ELF target, where the
+// Windows frame rounding cannot hide the difference.
 //
 // It is defined AFTER natNativeLower on purpose: this file is assembled and compiled
 // in source order, so a function that CALLS another must be declared later than it
 // (the Phase-133 "wrapper use-before-def" class). Every other definition here follows
 // the same rule.
-func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin) {
-    let usesStr = 0
-    if (natNativeConcatSites(body, plan) > 0) { usesStr = 1 }
-    if (natNativePushCount(body) > 0) { usesStr = 1 }
-    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, 0, natNativeMaxExtras(body), isWin)
+//
+// `roffs` is the LITERALS' rodata offsets -- one entry per string literal the program
+// binds or prints, in the collector's order (NAT-RODATA). It is not the whole rodata
+// offset array: the linker owns the section's interning order, and the emitter only
+// ever wants "the offset of the k-th literal".
+func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg, usesStrProg) {
+    // NAT-STR-STAGE: the string staging area is reserved when the PROGRAM
+    // performs a string operation, not when this function does. The oracle's
+    // `b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush ||
+    // b.usesStrField` is a set of program-wide flags (program.go:4454) and its
+    // layout reserves the area in every function, so a per-function flag made
+    // every callee's frame short by natStrTempBytes().
+    let usesStr = usesStrProg
+    // NAT-FRAME: the map-stage slot is reserved when the PROGRAM uses a map,
+    // not when this function does. The oracle's `b.usesMap` is program-wide
+    // and its layout reserves the slot in every function, so a per-function
+    // flag would make a callee's frame 8 bytes short whenever main indexed
+    // something.
+    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, usesMapProg, natNativeMaxExtras(body), isWin)
     let frame = lay[6]
     let label = natNativeFuncLabel(name)
     let retLabel = label + "$ret"
     s = natMark(s, label)
+    // NAT-REG: save the claimed callee-saved registers BEFORE the frame is
+    // taken, so the frame's rsp-relative displacements stay unchanged, and
+    // restore them after the frame is released.
+    s = natNativeRegPush(s, plan)
     if (frame > 0) { s = natSubRegImm32(s, natRegRSP(), frame) }
     s = natNativeHomeParams(s, params, plan)
-    s = natNativeLower(s, body, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel)
+    s = natNativeLower(s, body, body, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, label, "")
     if (hasReturn == 0) { s = natXorRegReg(s, natRegRAX()) }
     s = natMark(s, retLabel)
     if (frame > 0) { s = natAddRegImm32(s, natRegRSP(), frame) }
+    s = natNativeRegPop(s, plan)
     return natRet(s)
 }
 
@@ -5845,8 +6671,8 @@ func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, 
 // both behind natNativeProgramOS, which shares this whole body;
 // `natNativeProgram` is a one-line wrapper naming the Windows target rather
 // than a second copy of the driver.
-func natNativeProgram(ast) {
-    return natNativeProgramOS(ast, natOSWindows(), "")
+func natNativeProgram(ast, useRegAlloc) {
+    return natNativeProgramOS(ast, natOSWindows(), "", useRegAlloc)
 }
 
 // natNativeProgramOS compiles a PARSED PROGRAM to a native image for one OS.
@@ -5875,7 +6701,7 @@ func natNativeProgram(ast) {
 // Calling natPELink for Linux (or vice versa) would not fail loudly; it would
 // produce a PE under a Linux target NAME. That is a miscompile, so the container
 // choice is made once, here, by the same targetOS that chose the stub.
-func natNativeProgramOS(ast, targetOS, sourceBase) {
+func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     let stmts = ast[1]
     let mainFn = natNativeFindMain(stmts)
     if (mainFn == 0) {
@@ -5907,7 +6733,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
         return [natNativeRefuseNoLine("`main` must take no parameters on the native " +
             "target: the entry stub calls it with none"), []]
     }
-    let scan = natNativeScanFor(mainParams, body, tbl, fns, 1)
+    let scan = natNativeScanFor(mainParams, body, tbl, fns, 1, useRegAlloc)
     if (scan[0] != "") { return [scan[0], []] }
     let plan = scan[1]
     let mainHasReturn = scan[2]
@@ -5922,13 +6748,16 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // different binTemp and extrasBase, and reusing main's would stage a callee's
     // operands over its own locals. What stays here is the part that is genuinely a
     // property of the PROGRAM rather than of a function -- whether a string path, an
-    // arena or the runtime-error reporter exists at all. That is sound only because
-    // the scan refuses every one of those constructs inside a non-main body, so a
-    // callee can never be the first to need them; if that ever changes, those
-    // predicates must move per function too.
-    let usesStr = 0
-    if (natNativeConcatSites(body, plan) > 0) { usesStr = 1 }
-    if (natNativePushCount(body) > 0) { usesStr = 1 }
+    // arena or the runtime-error reporter exists at all.
+    //
+    // NAT-STR-STAGE: the string flag is one of those program-level properties, and
+    // it is COMPUTED HERE, ONCE, and threaded into every function's layout -- the
+    // same way the map flag is. The dead per-function copy that stood here (a
+    // concat-site count and a push-site count over main's body) was computed twice,
+    // read by nothing, and was the wrong scope anyway: the oracle's staging area
+    // is reserved from PROGRAM-wide flags (program.go:4454) and lands in every
+    // function's layout, so a callee's frame was 2560 bytes short whenever main
+    // did any string work.
     // isWin is the BOOLEAN form of targetOS, for the two places that genuinely
     // only care about the Windows/Unix split: the frame's 16-byte alignment rule
     // and the stdout write SHAPE (Win64 kernel32 vs a raw syscall). Both treat
@@ -5950,51 +6779,104 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // simply had no effect, and it is the "a gate that can pass without checking
     // anything" failure the evidence discipline warns about.
     //
-    // The reporter's strings are appended to the rodata INPUT list AFTER the
-    // program's own literals, and the source basename LAST, because that is the
-    // order the oracle interns them in: helpers are emitted BEFORE the user
-    // function, so the reporter's "runtime error: " / " at " / ":" / "\n" are
-    // interned first, and the call site's "array index out of range" plus the
-    // file name come later. Interning is by FIRST USE, so a different order
-    // produces different offsets and every baked address after it moves.
+    // NAT-RODATA: the rodata INPUT list is built in the ORACLE'S INTERNING
+    // ORDER, which is its EMISSION order, because the oracle interns by FIRST
+    // USE as it emits (pkg/native/program.go:2136-2144: a map from the
+    // string's CONTENT to the offset it was interned at, and the offset is
+    // assigned at the moment of the first use). The order is:
+    //
+    //   1. print_int's own two strings ("-", "\n") -- print_int is the first
+    //      helper in both engines (program.go:2475-2481).
+    //   2. the runtime-error REPORTER HELPER's four strings -- the helper is
+    //      emitted BEFORE the user function in both engines (program.go:2519
+    //      against the driver's own helper order), so the oracle interns them
+    //      before any of the program's own literals.
+    //   3. the PROGRAM's own literals, in source order.
+    //   4. the CALL SITE's two strings -- "array index out of range" and the
+    //      source basename -- which the oracle interns at the first index
+    //      site, inside the user function.
+    //
+    // The list used to put (2) and (4) AFTER (3), which is NOT the oracle's
+    // order: the driver's own comment claimed the oracle's order and the code
+    // did not do it, which is why it was a defect and not a design choice.
+    // Measured: a program with a reporter AND a string literal had 31
+    // differing bytes and a different rodata layout.
+    //
+    // The offsets are read back OUT of natRodataSection's offset array, which
+    // is the D5 baseline's stated rule (PHASE-D5-BASELINE.md section 8.3) and
+    // the only thing that can be correct when a duplicate is interned: a LIST
+    // POSITION is not an OFFSET.
     let usesRtErr = 0
     if (natNativeUsesRuntimeError(body) == 1) { usesRtErr = 1 }
     let lits = natNativeStrLiterals(body)
     let strs = ["-", "\n"]
-    let li = 0
-    while (li < len(lits)) {
-        strs = appendArray(strs, lits[li])
-        li = li + 1
-    }
-    let rtKindSlot = 0
-    let srcOff = 0
-    let srcLen = 0
-    let rtErr = []
+    // litBase is the list position of the first literal.
+    let litBase = 2
     if (usesRtErr == 1) {
         strs = appendArray(strs, "runtime error: ")
         strs = appendArray(strs, " at ")
         strs = appendArray(strs, ":")
         strs = appendArray(strs, "\n")
+        litBase = 6
+    }
+    let li = 0
+    while (li < len(lits)) {
+        strs = appendArray(strs, lits[li])
+        li = li + 1
+    }
+    // callBase is the list position of the call site's first string.
+    let callBase = litBase + len(lits)
+    let rtKindSlot = 0
+    let srcOff = 0
+    let srcLen = 0
+    let rtErr = []
+    if (usesRtErr == 1) {
         strs = appendArray(strs, "array index out of range")
         // The source basename goes through the SAME interning list rather than
         // being special-cased, so `file:line` is genuine and the offset comes
         // from the same mechanism as every other string.
         strs = appendArray(strs, sourceBase)
-        rtKindSlot = 2 + len(lits) + 4
-        srcOff = 2 + len(lits) + 5
         srcLen = len(sourceBase)
     }
     let ro = natRodataSection(strs)
-    // The reporter's own four strings, read back OUT of the section's offset
-    // array rather than assumed -- the D5 baseline's §8.3 risk. rtErr[k] is the
-    // offset of the k-th reporter string in the interned section.
+    // The reporter's OWN four strings, read back OUT of the section's offset
+    // array rather than assumed -- the D5 baseline's section 8.3 risk. rtErr[k]
+    // is the offset of the k-th reporter string in the interned section.
+    //
+    // The CALL SITE's two are read back the same way, and they used to be the
+    // LIST POSITIONS 2 + len(lits) + 4 and + 5. A position counts ENTRIES and
+    // an offset counts BYTES, and the two differ as soon as any earlier string
+    // is longer than one byte -- which every one of them is. The symptom was
+    // the out-of-range diagnostic pointing at the WRONG BYTES: at offsets 6
+    // and 7 of the section, which are the middle of "runtime error: ", instead
+    // of at "array index out of range" and the file name. The two absolute
+    // addresses in the image therefore differed from the oracle's by 16 and 39
+    // bytes, and the NAT-FRAME record read that as an ORDER difference.
     if (usesRtErr == 1) {
         let rk = 0
-        let rbase = 2 + len(lits)
         while (rk < 4) {
-            rtErr = appendArray(rtErr, ro[1][rbase + rk])
+            rtErr = appendArray(rtErr, ro[1][2 + rk])
             rk = rk + 1
         }
+        rtKindSlot = ro[1][callBase]
+        srcOff = ro[1][callBase + 1]
+    }
+    // The EMITTER gets the LITERALS' offsets and nothing else.
+    //
+    // It used to get the whole offset array and start its cursor at 2, which
+    // coupled the emitter's cursor to the INTERNING ORDER: the cursor's start
+    // depended on how many non-literal entries preceded the literals, so
+    // moving the reporter's strings moved every literal's offset and with it
+    // the cursor. Two lists, two jobs: the linker wants the whole section in
+    // the oracle's interning order, and the emitter wants the k-th literal's
+    // offset. Handing the emitter exactly that decouples them, so the interning
+    // order can follow the oracle's without the lowering knowing anything
+    // about it.
+    let roffs = []
+    let ok = 0
+    while (ok < len(lits)) {
+        roffs = appendArray(roffs, ro[1][litBase + ok])
+        ok = ok + 1
     }
     // The entry stub is OS-specific and nothing else is: all three Mark
     // `_start` first and Mark `karkain_main` last, so every label displacement
@@ -6028,6 +6910,19 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // final byte layout is affected.
     let s = natNewEmitter(0)
     s = natSetTargetOS(s, targetOS)
+    // NAT-FRAME: the map-stage flag is a property of the WHOLE PROGRAM, as it
+    // is in the oracle (`b.usesMap` comes from scanMapUsage over the program,
+    // program.go:1571), and the oracle's per-function layout reserves the slot
+    // in EVERY function when it is set. Computing it here, once, and threading
+    // it into every function's layout is what reproduces that.
+    let usesMapProg = natNativeProgramUsesMap(body, fns)
+    // NAT-STR-STAGE: the string flag is a program-wide property for the same
+    // reason the map flag is. The oracle's five string flags (program.go:4454)
+    // are all properties of the WHOLE program, and its layout reserves the
+    // staging area in every function when any of them is set. So the flag is
+    // computed once, over every function, and threaded into every function's
+    // layout -- exactly as the map flag is.
+    let usesStrProg = natNativeProgramUsesStr(fns, tbl)
     // helpers first: print_int, then print_str when the program can produce a
     // string, then the arena allocator when it allocates.
     s = natPrintIntBody(s, isWin, 0, 1)
@@ -6051,7 +6946,13 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
     // Order matters: emitHelpers runs print_int, print_str, [print_float],
     // [alloc], map, runtime_error (program.go:2497-2520), and the map helpers
     // call alloc, so they must come after it.
-    if (natNativeUsesMap(body) == 1) {
+    //
+    // The flag is the SAME `usesMapProg` the layout uses, read from the variable
+    // rather than recomputed: two call sites of one computation are exactly the
+    // shape that let Step 9g's two literal collectors disagree, and the map
+    // helpers must be emitted under PRECISELY the condition that reserves the
+    // map-stage slot.
+    if (usesMapProg == 1) {
         s = natMapFind(s)
         s = natMapSet(s)
         s = natMapGet(s)
@@ -6092,13 +6993,14 @@ func natNativeProgramOS(ast, targetOS, sourceBase) {
             // A callee's own plan and return flag. A refusal here aborts the WHOLE
             // program: a half-emitted image is not a build with a warning, it is an
             // image whose missing function is a link-time surprise.
-            let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0)
+            let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0, useRegAlloc)
             if (fscan[0] != "") { return [fscan[0], []] }
             fplan = fscan[1]
             fhasReturn = fscan[2]
         }
         s = natNativeEmitFunc(s, fname, fparams, fbody, fplan, fhasReturn, fns,
-            ro[1], tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin)
+            roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg,
+            usesStrProg)
         fi = fi + 1
     }
     // and `_start` LAST, calling into `karkain_main`.
@@ -6408,11 +7310,17 @@ func natCallAlloc(s) {
 // natRodataSection returns one offset per INPUT entry with first-use interning, so the
 // k-th literal in the program is entry 2+k (0 and 1 are print_int's "-" and "\n").
 // The FIRST match is used, so a repeated literal resolves to the one copy interned.
+//
+// NAT-RODATA: `roffs` is now the LITERALS' offset list -- one entry per literal, in
+// the collector's order -- so the k-th literal is entry k and the "+2" is gone. The
+// list used to be the WHOLE offset array, which coupled this lookup to the
+// interning order: the literals' positions depended on how many non-literal
+// entries came before them.
 func natRodataOffsetFor(val, stmts, roffs) {
     let lits = natNativeStrLiterals(stmts)
     let i = 0
     while (i < len(lits)) {
-        if (lits[i] == val) { return roffs[2 + i] }
+        if (lits[i] == val) { return roffs[i] }
         i = i + 1
     }
     return 0
@@ -6659,6 +7567,409 @@ func natNativeStrTotalBytes(stmts) {
     }
     return total
 }
+// ============================================================
+// NAT-REG: the register allocator.
+//
+// The design is in docs/audit/NAT-REG-DESIGN.md. The short version: this
+// mirrors the ORACLE's Phase-150C allocator (pkg/native/regalloc.go) -- the
+// same allocatable set, the same engagement gate, the same linear scan over
+// live ranges and the same no-split rule -- over the DRIVER's own AST.
+//
+// A local that does not get a register keeps its frame slot, which is the
+// pre-existing path and needs no new code. The frame does NOT shrink: a
+// spilled local's slot is still reserved, so every slot displacement is
+// unchanged and what the allocator saves is memory TRAFFIC, not frame size.
+
+// natNativeHasControlFlow reports whether the statements contain a branch or
+// a loop. It is one half of the engagement gate: below the pressure
+// threshold there is nothing to relieve, and in a straight-line body a
+// push/pop pair would cost more than the load it removes.
+func natNativeHasControlFlow(stmts) {
+    let found = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let k = nodeType(stmts[i])
+        if (k == NODE_IF() || k == NODE_WHILE() || k == NODE_FOR() || k == NODE_FOR_IN()) { found = 1 }
+        i = i + 1
+    }
+    return found
+}
+
+// natNativeRegAlloc promotes int locals into callee-saved registers.
+//
+// The gate is the ORACLE's (pkg/native/program.go's planRegs): the function
+// must have control flow AND the peak number of simultaneously-live int
+// locals must be at least five (raMinLive = allocRegCount + 1).
+func natNativeRegAlloc(stmts, plan) {
+    if (natNativeHasControlFlow(stmts) == 0) { return plan }
+    let n = natNativeSlotCount(plan)
+    if (n < 5) { return plan }
+    // The live ranges: two entries per slot, the first and the last position
+    // at which the slot is touched, or -1 when it never is.
+    let ranges = []
+    let i = 0
+    while (i < n) {
+        ranges = appendArray(ranges, -1)
+        ranges = appendArray(ranges, -1)
+        i = i + 1
+    }
+    let w = natNativeLiveWalk(stmts, plan, ranges, [], 0)
+    ranges = natNativeRegWiden(w[0], n, w[1])
+    if (natNativeRegPeak(ranges, n) < 5) { return plan }
+    return natNativeRegScan(plan, n, ranges)
+}
+
+// natNativeRegWiden widens the ranges that INTERSECT a loop.
+//
+// A local mentioned inside a loop is live for the WHOLE loop: the body may run
+// many times, and a value defined before the loop must survive every
+// iteration. Widening is conservative in the safe direction -- it can only
+// cause an extra spill, never a wrong answer.
+func natNativeRegWiden(ranges, n, loops) {
+    let li = 0
+    while (li < len(loops)) {
+        let s = loops[li]
+        let e = loops[li + 1]
+        let i = 0
+        while (i < n) {
+            let f = ranges[i * 2]
+            let l = ranges[i * 2 + 1]
+            if (f >= 0 && f <= e && l >= s) {
+                if (s < f) { ranges[i * 2] = s }
+                if (e > l) { ranges[i * 2 + 1] = e }
+            }
+            i = i + 1
+        }
+        li = li + 2
+    }
+    return ranges
+}
+
+// natNativeRegPeak is the largest number of ranges covering one point.
+//
+// The coverage only changes at a range's endpoints, so evaluating it at
+// every range's start is enough.
+func natNativeRegPeak(ranges, n) {
+    let peak = 0
+    let i = 0
+    while (i < n) {
+        let f = ranges[i * 2]
+        if (f >= 0) {
+            let c = 0
+            let j = 0
+            while (j < n) {
+                let f2 = ranges[j * 2]
+                let l2 = ranges[j * 2 + 1]
+                if (f2 >= 0 && f2 <= f && l2 >= f) { c = c + 1 }
+                j = j + 1
+            }
+            if (c > peak) { peak = c }
+        }
+        i = i + 1
+    }
+    return peak
+}
+
+// natNativeRegScan is the linear scan.
+//
+// A register is available when the local holding it is dead before this
+// range starts; otherwise the candidate spills to its frame slot, which is
+// the pre-existing behaviour and needs no new code path.
+//
+// The scan walks the slots in PLAN order, which is the declaration order and
+// therefore the order of first definition, so the allocation is a pure
+// function of the program.
+func natNativeRegScan(plan, n, ranges) {
+    // held[r] is the last position of the range holding register r, or -1.
+    let held = [-1, -1, -1, -1]
+    let i = 0
+    while (i < n) {
+        let f = ranges[i * 2]
+        let l = ranges[i * 2 + 1]
+        if (f >= 0) {
+            let r = -1
+            let k = 0
+            while (k < 4) {
+                if (held[k] < 0 || held[k] < f) {
+                    r = k
+                    k = 4
+                }
+                k = k + 1
+            }
+            if (r >= 0) {
+                plan[i * 5 + 4] = 12 + r
+                held[r] = l
+            }
+        }
+        i = i + 1
+    }
+    return plan
+}
+
+// natNativeLiveWalk computes the live ranges.
+//
+// It returns [ranges, loops, pos]:
+//   ranges  two entries per slot: the first and the last position at which
+//           the slot is touched, or -1 when it never is
+//   loops   two entries per loop: the position it starts at and the position
+//           it ends at
+//   pos     the final position counter
+//
+// The walk is POINT ORDERED: every statement and every expression advances
+// the counter, so a local's range runs from its first touch to its last.
+func natNativeLiveWalk(stmts, plan, ranges, loops, pos) {
+    let i = 0
+    while (i < len(stmts)) {
+        let w = natNativeLiveStmt(stmts[i], plan, ranges, loops, pos)
+        ranges = w[0]
+        loops = w[1]
+        pos = w[2]
+        i = i + 1
+    }
+    return [ranges, loops, pos]
+}
+
+// natNativeLiveStmt handles ONE statement.
+//
+// The FOR arm's init and post are single STATEMENT nodes and not lists --
+// that is the AST's shape (ast.kark: makeFor stores the init, the condition,
+// the post and the body as four separate fields) -- which is why they are
+// handled here and not by natNativeLiveWalk.
+func natNativeLiveStmt(n, plan, ranges, loops, pos) {
+    let k = nodeType(n)
+    if (natNativeIsDecl(n)) {
+        pos = pos + 1
+        let r = natNativeLiveTouch(ranges, plan, natNativeDeclName(n), pos, 1)
+        ranges = r[0]
+        let w = natNativeLiveExpr(natNativeDeclValue(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+    }
+    if (k == NODE_PRINT()) {
+        let w = natNativeLiveExpr(printVal(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+    }
+    if (k == NODE_RETURN()) {
+        let w = natNativeLiveExpr(retVal(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+    }
+    if (k == NODE_EXPR_STMT()) {
+        let e = exprStmtExpr(n)
+        let isAssign = 0
+        if (natNativeIsAssignExpr(e)) { isAssign = 1 }
+        if (isAssign == 1) {
+            let lhs = binaryLeft(e)
+            if (nodeType(lhs) == NODE_IDENT()) {
+                // `x = v` defines x and uses v.
+                pos = pos + 1
+                let r = natNativeLiveTouch(ranges, plan, identName(lhs), pos, 1)
+                ranges = r[0]
+                let w = natNativeLiveExpr(binaryRight(e), plan, ranges, pos + 1)
+                ranges = w[0]
+                pos = w[1]
+            } else {
+                let w = natNativeLiveExpr(e, plan, ranges, pos + 1)
+                ranges = w[0]
+                pos = w[1]
+            }
+        } else {
+            let w = natNativeLiveExpr(e, plan, ranges, pos + 1)
+            ranges = w[0]
+            pos = w[1]
+        }
+    }
+    if (k == NODE_IF()) {
+        let w = natNativeLiveExpr(ifCond(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+        let c = natNativeLiveWalk(ifCons(n), plan, ranges, loops, pos + 1)
+        ranges = c[0]
+        loops = c[1]
+        pos = c[2]
+        let a = natNativeLiveWalk(ifAlt(n), plan, ranges, loops, pos + 1)
+        ranges = a[0]
+        loops = a[1]
+        pos = a[2]
+    }
+    if (k == NODE_WHILE()) {
+        let lstart = pos
+        let w = natNativeLiveExpr(whileCond(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+        let b = natNativeLiveWalk(whileBody(n), plan, ranges, loops, pos + 1)
+        ranges = b[0]
+        loops = b[1]
+        pos = b[2]
+        loops = appendArray(loops, lstart)
+        loops = appendArray(loops, pos)
+    }
+    if (k == NODE_FOR()) {
+        let lstart = pos
+        let fi = forInit(n)
+        if (len(fi) > 0) {
+            let w = natNativeLiveStmt(fi, plan, ranges, loops, pos + 1)
+            ranges = w[0]
+            loops = w[1]
+            pos = w[2]
+        }
+        let w = natNativeLiveExpr(forCond(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+        let b = natNativeLiveWalk(forBody(n), plan, ranges, loops, pos + 1)
+        ranges = b[0]
+        loops = b[1]
+        pos = b[2]
+        let fp = forPost(n)
+        if (len(fp) > 0) {
+            let w = natNativeLiveStmt(fp, plan, ranges, loops, pos + 1)
+            ranges = w[0]
+            loops = w[1]
+            pos = w[2]
+        }
+        loops = appendArray(loops, lstart)
+        loops = appendArray(loops, pos)
+    }
+    return [ranges, loops, pos]
+}
+// natNativeLiveTouch records a use (or a def) of a local at a position.
+//
+// Only INT locals are candidates: a string or an array is two units and is
+// never promoted.
+func natNativeLiveTouch(ranges, plan, name, pos, isDef) {
+    let ord = natNativeSlotIndex(plan, name)
+    if (ord < 0) { return [ranges, 0] }
+    if (natNativeSlotKind(plan, ord) != natKindInt()) { return [ranges, 0] }
+    let f = ranges[ord * 2]
+    let l = ranges[ord * 2 + 1]
+    if (f < 0) { f = pos }
+    if (isDef == 1 && pos < f) { f = pos }
+    if (pos > l) { l = pos }
+    ranges[ord * 2] = f
+    ranges[ord * 2 + 1] = l
+    return [ranges, 0]
+}
+
+// natNativeLiveExpr walks an expression for the identifiers it touches.
+func natNativeLiveExpr(e, plan, ranges, pos) {
+    let k = nodeType(e)
+    if (k == NODE_IDENT()) {
+        let r = natNativeLiveTouch(ranges, plan, identName(e), pos, 0)
+        return [r[0], pos + 1]
+    }
+    if (k == NODE_BINARY()) {
+        let l = natNativeLiveExpr(binaryLeft(e), plan, ranges, pos + 1)
+        let r = natNativeLiveExpr(binaryRight(e), plan, l[0], l[1])
+        return [r[0], r[1]]
+    }
+    if (k == NODE_UNARY()) {
+        let r = natNativeLiveExpr(unaryOperand(e), plan, ranges, pos + 1)
+        return [r[0], r[1]]
+    }
+    if (k == NODE_INDEX()) {
+        let l = natNativeLiveExpr(indexLeft(e), plan, ranges, pos + 1)
+        let r = natNativeLiveExpr(e[2], plan, l[0], l[1])
+        return [r[0], r[1]]
+    }
+    if (k == NODE_CALL()) {
+        let args = callArgs(e)
+        let rr = [ranges, pos + 1]
+        let i = 0
+        while (i < len(args)) {
+            let w = natNativeLiveExpr(args[i], plan, rr[0], rr[1])
+            rr = [w[0], w[1]]
+            i = i + 1
+        }
+        return [rr[0], rr[1]]
+    }
+    if (k == NODE_ARRAY_LIT()) {
+        let elems = arrayLitElems(e)
+        let rr = [ranges, pos + 1]
+        let i = 0
+        while (i < len(elems)) {
+            let w = natNativeLiveExpr(elems[i], plan, rr[0], rr[1])
+            rr = [w[0], w[1]]
+            i = i + 1
+        }
+        return [rr[0], rr[1]]
+    }
+    if (k == NODE_STRUCT_LIT()) {
+        let sf = structLitFields(e)
+        let rr = [ranges, pos + 1]
+        let i = 0
+        while (i < len(sf)) {
+            let w = natNativeLiveExpr(binaryRight(sf[i]), plan, rr[0], rr[1])
+            rr = [w[0], w[1]]
+            i = i + 1
+        }
+        return [rr[0], rr[1]]
+    }
+    return [ranges, pos + 1]
+}
+
+// natNativeRegList returns the registers the plan claims, in R12..R15 order.
+//
+// The order is the ALLOCATABLE SET's order and not the plan's, so the push/pop
+// sequence is a pure function of the allocation and never of the order the
+// slots happen to be declared in.
+func natNativeRegList(plan) {
+    let out = []
+    let r = 12
+    while (r < 16) {
+        let i = 0
+        let n = natNativeSlotCount(plan)
+        let found = 0
+        while (i < n) {
+            if (natNativeSlotReg(plan, i) == r) { found = 1 }
+            i = i + 1
+        }
+        if (found == 1) { out = appendArray(out, r) }
+        r = r + 1
+    }
+    return out
+}
+
+// natNativeRegPush saves the claimed callee-saved registers.
+//
+// They are pushed BEFORE the frame is taken, so the frame's rsp-relative
+// displacements below stay unchanged.
+func natNativeRegPush(s, plan) {
+    let regs = natNativeRegList(plan)
+    let i = 0
+    while (i < len(regs)) {
+        s = natPushReg(s, regs[i])
+        i = i + 1
+    }
+    return s
+}
+
+// natNativeRegPop restores them, in exact reverse order.
+func natNativeRegPop(s, plan) {
+    let regs = natNativeRegList(plan)
+    let i = len(regs) - 1
+    while (i >= 0) {
+        s = natPopReg(s, regs[i])
+        i = i - 1
+    }
+    return s
+}
+
+// natNativeStoreLocal stores an int local's value: in its allocated register
+// when it has one, and in its frame slot otherwise.
+func natNativeStoreLocal(s, plan, ord, valueReg) {
+    let reg = natNativeSlotReg(plan, ord)
+    if (reg >= 0) { return natMovRegReg(s, reg, valueReg) }
+    return natStoreStack(s, valueReg, natNativeSlotOff(plan, ord))
+}
+
+// natNativeLoadLocal reads an int local into a register: from its allocated
+// register when it has one, and from its frame slot otherwise.
+func natNativeLoadLocal(s, plan, ord, dstReg) {
+    let reg = natNativeSlotReg(plan, ord)
+    if (reg >= 0) { return natMovRegReg(s, dstReg, reg) }
+    return natLoadStack(s, dstReg, natNativeSlotOff(plan, ord))
+}
 
 // The arena is all zeros because the header SELF-INITIALISES: the cursor is zero in the
 // image and zero is the "not started" sentinel. The stored limit is never read either --
@@ -6672,4 +7983,236 @@ func natNativeArenaBytes0(n) {
         i = i + 1
     }
     return out
+}
+
+// ============================================================
+// NAT-STR-STAGE: the program-wide string-usage flag.
+//
+// The oracle reserves the string staging area from a set of FIVE program-wide
+// flags, and the reservation lands in EVERY function's layout:
+//
+//   pkg/native/program.go:4454
+//     if b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush || b.usesStrField {
+//         b.strTemp = next
+//         next += 8*5*maxBinDepth
+//     }
+//
+// All five flags are properties of the PROGRAM -- scanValueUsage (program.go:873)
+// and scanStructUsage (program.go:615) walk the whole program -- and the
+// oracle's layout() is called once PER FUNCTION, so a program with ONE string
+// operation reserves the staging area in EVERY function, including the callees
+// that never touch it.
+//
+// The driver reserved it PER FUNCTION, and only for two of the five
+// operations. Measured on the Linux ELF target, because the Windows 16-byte
+// frame rounding quantises an 8-byte difference away and cannot see a
+// 2560-byte one:
+//
+//   program                     driver frames   oracle frames
+//   helper + concat in main     [608, 3168]     [3168, 3168]
+//   helper + push in main       [608, 3208]     [3168, 3208]
+//   string field assignment     [640]           [3200]
+//
+// Every difference is the same 2560 bytes -- natStrTempBytes() -- and every one
+// of them is the driver's own SCOPE and COVERAGE, not the oracle's.
+//
+// This has the same shape as natNativeProgramUsesMap, whose map-stage slot has
+// the same program-wide scope in the oracle (program.go:4461): the precedent is
+// established rather than invented.
+//
+// The plan is RECOMPUTED here rather than threaded in, because
+// natNativePlanFor is a PURE function of (params, body, tbl) and the emitter
+// will compute the same slots from the same inputs. The alternative -- turning
+// the one-pass scan/emit loop into a scan pass and an emit pass -- would give
+// up the property that loop was built for: a refusal aborts the program
+// before anything is emitted.
+func natNativeProgramUsesStr(fns, tbl) {
+    let fi = 0
+    while (fi < natNativeFuncCount(fns)) {
+        let fparams = natNativeFuncParamsAt(fns, fi)
+        let fbody = natNativeFuncBodyAt(fns, fi)
+        let fplan = natNativePlanFor(fparams, fbody, tbl)
+        if (natNativeStrOpIn(fbody, fplan) == 1) { return 1 }
+        fi = fi + 1
+    }
+    return 0
+}
+
+// natNativeStrOpIn reports whether a statement list performs any of the FIVE
+// string operations the oracle's staging area exists for.
+//
+//   1. a string CONCATENATION    -- usesConcat
+//   2. a string EQUALITY         -- usesStrEq
+//   3. a string SLICE            -- usesStrSlice
+//   4. a push()                  -- usesPush
+//   5. a string FIELD ASSIGNMENT -- usesStrField
+//
+// Arms 1 and 4 REUSE the detectors the arena bound already uses
+// (natNativeConcatSites and natNativePushCount), so there is ONE notion of
+// where a concat site is rather than two collectors that could disagree -- the
+// Step 9g defect class.
+//
+// Arms 2, 3 and 5 have no detector yet, and each is UNREACHABLE from the
+// driver's accepted subset today: a string equality, a string slice, and a
+// string field assignment from anything but a literal are all refused by name
+// (the `==` arm of natNativeScanValue, the kind-46 refusal, and
+// natNativeScanAssign's string-field arm). They are implemented anyway,
+// because the reservation is a LAYOUT CONTRACT with the oracle: when one of
+// them is lowered, the staging area has to be reserved already, or the frame
+// would move at that point and every image with it.
+//
+// The statement positions scanned are the ones the driver lowers: a print
+// value, a binding's initialiser, a returned value and an expression
+// statement. A string operation inside a branch or a loop body is refused
+// before any image is produced, so its absence from this walk cannot change
+// an emitted frame.
+func natNativeStrOpIn(stmts, plan) {
+    if (natNativeConcatSites(stmts, plan) > 0) { return 1 }
+    if (natNativePushCount(stmts) > 0) { return 1 }
+    if (natNativeStrEqSites(stmts, plan) > 0) { return 1 }
+    if (natNativeStrSliceSites(stmts, plan) > 0) { return 1 }
+    if (natNativeStrFieldSites(stmts) > 0) { return 1 }
+    return 0
+}
+
+// natNativeStrEqSites counts string EQUALITY sites: a `==` or `!=` whose two
+// operands are both strings.
+//
+// The oracle's predicate is name-based and program-wide (scanStringViewOps,
+// program.go:1410: `x.Operator == "==" || x.Operator == "!="` with
+// `strKind(x.Left) && strKind(x.Right)`); this one is kind-based and
+// per-function, because the driver's kind inference is the plan's slot kinds
+// and the plan is per function. On the driver's accepted subset the two
+// agree, because a string equality is refused by name there.
+//
+// A string FIELD read is not classified as a string by this test, because the
+// driver's kind inference resolves slots, not field accesses. The oracle's
+// name-based test does classify it. Neither shape reaches an emitted frame
+// today -- a string equality is refused by name -- so this is a difference in
+// an unreachable arm, and it is recorded rather than papered over.
+func natNativeStrEqSites(stmts, plan) {
+    let n = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeStrEqIn(printVal(st), plan) }
+        if (natNativeIsDecl(st)) { n = n + natNativeStrEqIn(natNativeDeclValue(st), plan) }
+        if (nodeType(st) == NODE_RETURN()) { n = n + natNativeStrEqIn(retVal(st), plan) }
+        i = i + 1
+    }
+    return n
+}
+
+// natNativeStrEqIn walks an expression for a string equality.
+//
+// It descends into a comparison's operands as well as into the surrounding
+// expression, because the equality may sit anywhere in the tree.
+func natNativeStrEqIn(e, plan) {
+    if (nodeType(e) == NODE_BINARY()) {
+        let op = binaryOp(e)
+        if (op == "==" || op == "!=") {
+            if (natNativeStrKind(binaryLeft(e), 0, plan) == 1) {
+                if (natNativeStrKind(binaryRight(e), 0, plan) == 1) { return 1 }
+            }
+        }
+        return natNativeStrEqIn(binaryLeft(e), plan) + natNativeStrEqIn(binaryRight(e), plan)
+    }
+    if (nodeType(e) == NODE_UNARY()) { return natNativeStrEqIn(unaryOperand(e), plan) }
+    if (nodeType(e) == NODE_CALL()) {
+        let n = 0
+        let i = 0
+        while (i < len(callArgs(e))) {
+            n = n + natNativeStrEqIn(callArgs(e)[i], plan)
+            i = i + 1
+        }
+        return n
+    }
+    return 0
+}
+
+// natNativeStrSliceSites counts string SLICE sites: a `s[a:b]` whose target is
+// a string.
+//
+// The oracle's predicate is scanStringViewOps's `slice` arm (program.go:1405-1408:
+// a SliceExpr whose target is a string). This one is kind-based and
+// per-function, for the same reason the equality arm is.
+func natNativeStrSliceSites(stmts, plan) {
+    let n = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeStrSliceIn(printVal(st), plan) }
+        if (natNativeIsDecl(st)) { n = n + natNativeStrSliceIn(natNativeDeclValue(st), plan) }
+        if (nodeType(st) == NODE_RETURN()) { n = n + natNativeStrSliceIn(retVal(st), plan) }
+        i = i + 1
+    }
+    return n
+}
+
+// natNativeStrSliceIn walks an expression for a string slice.
+func natNativeStrSliceIn(e, plan) {
+    if (nodeType(e) == NODE_SLICE()) {
+        if (natNativeStrKind(sliceLeft(e), 0, plan) == 1) { return 1 }
+        return natNativeStrSliceIn(sliceStart(e), plan) + natNativeStrSliceIn(sliceEnd(e), plan)
+    }
+    if (nodeType(e) == NODE_BINARY()) {
+        return natNativeStrSliceIn(binaryLeft(e), plan) + natNativeStrSliceIn(binaryRight(e), plan)
+    }
+    if (nodeType(e) == NODE_UNARY()) { return natNativeStrSliceIn(unaryOperand(e), plan) }
+    if (nodeType(e) == NODE_CALL()) {
+        let n = 0
+        let i = 0
+        while (i < len(callArgs(e))) {
+            n = n + natNativeStrSliceIn(callArgs(e)[i], plan)
+            i = i + 1
+        }
+        return n
+    }
+    return 0
+}
+
+// natNativeStrFieldSites counts STRING FIELD ASSIGNMENTS: a `record.field = ...`
+// whose right-hand side carries a string literal.
+//
+// This is the oracle's scanStructUsage predicate (program.go:615-705), and it
+// is SYNTACTIC there too: an expression statement whose expression is `=`,
+// whose left side is a field access, and whose right side carries a string
+// literal -- recursing through `+`, because `f.label = "a" + "b"` carries one.
+// The oracle does not check the field's type here; the layout decides it
+// later. The driver keeps the same predicate, so the reservation matches.
+//
+// The driver's own field write does NOT stage through the area: it stores the
+// (pointer, length) pair directly into the field area (natNativeLowerAssign).
+// That is why the FRAME can match the oracle's without the CODE matching --
+// the driver does not duplicate the oracle's staging implementation, it only
+// reserves the region the oracle reserves.
+func natNativeStrFieldSites(stmts) {
+    let n = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        if (nodeType(st) == NODE_EXPR_STMT()) {
+            let e = exprStmtExpr(st)
+            if (natNativeIsAssignExpr(e)) {
+                if (nodeType(binaryLeft(e)) == NODE_DOT()) {
+                    if (natNativeStrLitIn(binaryRight(e)) == 1) { n = n + 1 }
+                }
+            }
+        }
+        i = i + 1
+    }
+    return n
+}
+
+// natNativeStrLitIn reports whether an expression carries a string literal,
+// recursing through `+` -- the oracle's hasStrLiteral (program.go:617-630).
+func natNativeStrLitIn(e) {
+    if (nodeType(e) == NODE_STRING_LIT()) { return 1 }
+    if (nodeType(e) == NODE_BINARY()) {
+        if (binaryOp(e) == "+") {
+            if (natNativeStrLitIn(binaryLeft(e)) == 1) { return 1 }
+            return natNativeStrLitIn(binaryRight(e))
+        }
+    }
+    return 0
 }

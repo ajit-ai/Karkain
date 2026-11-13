@@ -738,29 +738,58 @@ var natERefusals = []natERefusal{
 		code: "error[K145]", want: "unsupported unary operator '!'",
 	},
 	{
-		// Control flow: the driver lowers no branch. Naming the construct is
+		// Control flow: the driver lowers no LOOP. Naming the construct is
 		// the difference between a refusal a user can act on and "statement
 		// kind 5".
-		name: "callee_if",
-		src: "func f(n int) int {\n    if n < 2 { return 1 }\n    return 2\n}\n" +
+		//
+		// A CORRECTIVE CHANGE against the frozen NAT-CALL baseline, recorded
+		// in docs/audit/NAT-IF-BASELINE.md rather than silently here. This row
+		// used to be a BRANCH (`if` in a called function), and NAT-IF taught the
+		// driver to lower branches, so the row stopped being a refusal and the
+		// gate failed with "kcc ACCEPTED a program it cannot lower (exit 0)".
+		// It was REPLACED rather than deleted: this table's property is "a
+		// construct the driver cannot lower is refused BY NAME and writes no
+		// image", and a table that quietly shrinks stops being evidence for
+		// it. The replacement is the C-style `for`, which is still outside the
+		// subset; the `while` row below already covered the loop case.
+		name: "callee_for_in",
+		src: "func f(n int) int {\n    for x in [1, 2] { n = n + 1 }\n    return n\n}\n" +
 			"func main() { print(f(1)) }\n",
 		code: "error[K145]",
-		want: "`if` statement is not lowered by the native driver in a called function",
+		want: "`for-in` statement is not lowered by the native driver in a called function",
 	},
 	{
-		name: "callee_while",
-		src: "func f(n int) int {\n    while n < 2 { n = n + 1 }\n    return n\n}\n" +
+		// A CORRECTIVE CHANGE against the frozen NAT-CALL baseline, recorded
+		// in docs/audit/NAT-LOOP-BASELINE.md section 8. This row used to pin
+		// "a `while` in a called function is refused", and NAT-LOOP taught the
+		// driver to lower loops, so the row stopped being a refusal and the
+		// gate failed with "kcc ACCEPTED a program it cannot lower (exit 0)".
+		// It was REPLACED rather than deleted, because this table's property
+		// is "a construct the driver cannot lower is refused BY NAME and
+		// writes no image", and a table that quietly shrinks stops being
+		// evidence for it.
+		//
+		// The replacement is the CALLEE subset's int-only rule: a callee may
+		// not bind a string, because the rodata cursor is threaded per
+		// statement list in this driver and a callee's literals are never
+		// interned.
+		name: "callee_string_binding",
+		src: "func f(n int) int {\n    let s = \"hi\"\n    return n\n}\n" +
 			"func main() { print(f(1)) }\n",
 		code: "error[K145]",
-		want: "`while` statement is not lowered by the native driver in a called function",
+		want: "is not an integer expression",
 	},
 	{
 		// main keeps its pre-NAT-CALL wording byte for byte, which is why the
 		// suffix differs from the two rows above.
-		name: "main_if",
-		src:  "func main() {\n    if 1 < 2 { print(1) }\n}\n",
+		//
+		// Replaced by the same argument as the row above: a branch is now
+		// lowered, so the row that pinned "main lowers no branch" had to go,
+		// and the C-style `for` takes its place.
+		name: "main_for_in",
+		src:  "func main() {\n    for x in [1, 2] { print(1) }\n}\n",
 		code: "error[K145]",
-		want: "`if` statement is not lowered by the native driver in `func main`",
+		want: "`for-in` statement is not lowered by the native driver in `func main`",
 	},
 	{
 		// The entry stub calls main with no arguments, so a parameter has

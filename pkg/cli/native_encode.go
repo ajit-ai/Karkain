@@ -126,7 +126,7 @@ func KCCNativeASTCommand(file string, verbose bool) CommandResult {
 		// kcc unreachable is an ENVIRONMENT failure, not a compile failure.
 		return CommandResult{ExitCode: ExitEnv, Message: err.Error()}
 	}
-	out, code := runKCC(bin, "native-ast", file)
+	out, code := runKCC(bin, append([]string{"native-ast", file}, natRegAllocArgs()...)...)
 	if code != 0 && out == "" {
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf(
 			"kcc native-ast failed with exit %d and produced no output", code)}

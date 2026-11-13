@@ -143,14 +143,27 @@ func test_beta() { assert_eq(1, 1) }
     }
 
     if (Get-Command python -ErrorAction SilentlyContinue) {
-        python -c "import sphinx" 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) {
+        # PS 5.1 escalates a NATIVE command's stderr into a TERMINATING error
+        # under $ErrorActionPreference="Stop", and the `2>$null` redirect does
+        # NOT prevent that -- so the "is sphinx installed?" probe killed the
+        # whole script instead of taking the SKIP branch below. The exit code
+        # is the authority, so relax the preference around the probe.
+        $oldEAP2 = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        python -c "import sphinx" 2>&1 | Out-Null
+        $sphinxExit = $LASTEXITCODE
+        $ErrorActionPreference = $oldEAP2
+        if ($sphinxExit -eq 0) {
+            $ErrorActionPreference = "Continue"
             python -m sphinx -b html -W --keep-going (Join-Path $repo "docs\source") (Join-Path $repo "docs\build\html") 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { Fail "sphinx strict build failed" }
+            $htmlExit = $LASTEXITCODE
+            python -m sphinx -b linkcheck -W (Join-Path $repo "docs\source") (Join-Path $repo "docs\build\linkcheck") 2>&1 | Out-Null
+            $linkExit = $LASTEXITCODE
+            $ErrorActionPreference = $oldEAP2
+            if ($htmlExit -ne 0) { Fail "sphinx strict build failed" }
             Write-Output "OK sphinx strict html"
 
-            python -m sphinx -b linkcheck -W (Join-Path $repo "docs\source") (Join-Path $repo "docs\build\linkcheck") 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { Fail "sphinx linkcheck failed" }
+            if ($linkExit -ne 0) { Fail "sphinx linkcheck failed" }
             Write-Output "OK sphinx linkcheck"
         }
         else {

@@ -2479,7 +2479,6 @@ go test ./pkg/lexer/... ./pkg/parser/... ./pkg/codegen/... ./pkg/pm/... -count=1
 All tests must pass before committing.
 
 
-
 Also completed: **151B — the machine-code encoder in kcc** (increment 151,
 slice B; verdict **COMPLETE**). The "subtle slice" the 151 baseline calls out:
 the Go emitter's eager label resolution is what makes byte-identical images
@@ -3696,6 +3695,595 @@ never predicted. Gates green: the whole 151/151A/151B/151C/151D/151P0/152/150/
 typecheck (993s); `pkg/native`; `go build ./...` and `go vet ./pkg/... ./cmd/...`.
 
 
+Also completed: **NAT-IF - a conditional branch in the kcc native driver**
+(increment 151, slice "NAT-IF", branch `feature/v1.2.0-native-independence`;
+verdict **COMPLETE** for the slice; record
+`docs/audit/NAT-IF-BASELINE.md`). The native driver could lower no BRANCH at
+all: `if` was refused by name (`error[K145]: native target: `if` statement is
+not lowered by the native driver`). This is the first construct whose emitted
+bytes depend on a **label** rather than only on a frame slot, so it needed a
+byte-identity evidence of its own. **What shipped** (`src/compiler/native_value.kark`):
+`natEmitIntCond` + `natNativeCondOp` (the oracle's six-operator jump mapping --
+the condition FALLS THROUGH when the comparison holds, so each operator jumps
+to the false label on the inverse test), `natNativeScanCond` /
+`natNativeScanIf` / `natNativeScanBranch`, a branch-descending
+`natNativePlanDecls`, and a recursive `natNativeLower` that descends into a
+branch body with a statement PATH so two branches cannot collide on a label
+name. **Scope, deliberately narrow:** `if`/`else`/`else if`/nested `if` over
+INTEGER comparisons; `while`, `for`, `for-in`, `break`, `continue`, string and
+float comparisons, and a comparison used as a VALUE are all still refused BY
+NAME. **Evidence:** 19 programs compiled through the driver, WRITTEN AND
+EXECUTED on this Windows host as kcc-produced PEs with **exact** stdout bytes
+(never trimmed -- the Step 9b defect was a missing byte), a Linux ELF
+**byte-identity differential** against the Go oracle (the expected bytes come
+from calling the oracle at test time; a golden would have frozen the
+divergence), a 6-row refusal table asserting the exit code AND that no image
+was written, determinism, non-vacuity, and the CI-wiring check. Gate
+`pkg/cli/phase151g_if_test.go` (`TestPhaseNATIf_`), CI step *Run NAT-IF kcc
+native conditional-branch gate*. **TWO THINGS I GOT WRONG, both caught by the
+byte-identity layer and NOT by the execution layer** (a refusal produces no
+output, so the execution layer was perfectly happy): (1) the first draft
+REFUSED a `let` inside a branch, believing the layout pass gave branch-scoped
+bindings no frame slot. It DOES: the oracle's `scanLets` descends into a
+branch (`pkg/native/program.go:4674-4676`) and allocates the slot at the point
+the `if` is reached, so the branch's binding is the MIDDLE slot of three. A
+corrective change to the ORACLE was written first, on the same wrong belief,
+and **reverted** -- the oracle was right all along. (2) three frozen refusal
+rows pinned "an `if` is not lowered"; they were **replaced** (by `for-in`), not
+deleted, because a refusal table that quietly shrinks stops being evidence for
+the property it exists to prove. **THE REGISTER-ALLOCATOR BOUNDARY, measured
+not derived:** the oracle's Phase-150C allocator engages when a function has
+control flow AND more than `raMinLive` (= 5) simultaneously-live int locals;
+the self-hosted driver has no allocator (every local stays in its frame slot,
+the pre-150C path, always correct). Measured: 4 locals + a branch -> 454 bytes
+both sides, IDENTICAL; 5 locals -> 469 vs 471, DIFFER; 6 -> 484 vs 486,
+DIFFER. The boundary is asserted from BOTH sides and the five-local case is in
+the execution corpus, so "different bytes" is backed by "same behaviour".
+**Mutations: 4**, each restored byte-identically (SHA-256
+`145489AEB6AEDA59FFC4C8DCF583C6051A033AAE60248F8D65E1955190286F09`): the `<`
+jump changed (execution + byte-identity + boundary layers fail), the plan's
+descent removed (execution + byte-identity + the branch-binding agreement
+fail), the comparison's operands swapped (execution fails on 13 cases -- a
+comparison that COMPILES and computes the WRONG answer, the worst outcome for a
+native backend), and the jump that crosses the `else` removed (execution fails
+on 4, byte-identity on 6). **KIR pin 14385 -> 14477 -> 14597**: the middle
+value is the `push()` slice, which moved the pin and did NOT re-pin it, which
+left `main` and `develop` with a RED GATE; that is a fact about this
+repository's history and is recorded rather than tidied. 14597 was measured
+with `karkain kir --verify src/compiler/kir.kark` in the gate's own invocation
+(`text=14597 verify=14597`, 1724 s) and never predicted. **Boundary, stated
+once:** no execution evidence exists for the Linux ELF or the Mach-O image of
+this slice -- this host is windows/amd64 with no WSL and no Docker, and the
+repository has no macOS runner. The Windows PE images are executed; the Linux
+and macOS images are validated structurally by the Go oracle's own parsers and
+compared byte for byte against the oracle.
+
+
+Also completed: **NAT-QUAL - the v1.2.0 native-independence qualification**
+(increment 151, slice "NAT-QUAL"; verdict **COMPLETE**; record
+`docs/audit/NAT-IF-QUALIFICATION.md`). Adds NO language construct; it answers
+what the qualified native path supports, how that is checked, and whether the
+claim of independence is real. (1) **A machine-verifiable feature matrix**
+(`docs/inventory/native-feature-matrix.json`): 32 feature rows with a status
+and the gate behind it, 3 platform rows, 5 known limitations. The gate reads
+it and asserts that every `supported` row names a gate FILE THAT EXISTS and a
+TEST PATTERN THAT FILE ACTUALLY CONTAINS -- a row naming a gate that does not
+exist would otherwise read exactly like a row naming a gate that does. It
+**found two defects in the matrix on its first run** (a status with no gate
+behind it, and a gate name no test carried); both were fixed in the MATRIX, not
+in the gate. (2) **A platform table that must match the code**, compared
+against `pkg/cli/kcc_native.go`'s own `kccNativeOwnedTargets`: Windows PE32+
+emission and **execution both proven** on this host; Linux ELF emission proven
+but **execution NOT proven here** (no WSL, no Docker -- the Linux CI leg is
+where it comes from); Mach-O emission proven and **execution not proven
+anywhere** (no macOS runner in this repository and no Intel-Mac host in its
+history -- every Mach-O claim since increment 149 has been structural).
+(3) **Process-level independence evidence**, which is the layer the previous
+state could not provide: the old claim rested on a provenance STRING the
+compiler prints about itself, which is the engine's own account of what it did
+rather than an observation of it. Now PATH shims for `gcc` and `go` log every
+invocation; the native build's log is **EMPTY**, and -- this is the part that
+makes the empty log evidence -- the **LEGACY** build path, run with the same
+shims, produces a **NON-EMPTY** log, because the legacy path is supposed to
+reach `gcc`. A shim that never fired would have satisfied the empty-log
+assertion too. The self-hosted compiler is warmed OUTSIDE the trace, because
+the claim is about compiling a USER PROGRAM, not about how the compiler was
+built. Gate `pkg/cli/phase151h_qualification_test.go` (`TestPhaseNATQual_`),
+CI step *Run NAT-QUAL native independence qualification gate*.
+**`docs/inventory/compiler-dependencies.json` REFRESHED** (phase 144,
+verified 2026-09-23 -> phase 151, verified 2026-11-10): it predated the entire
+native backend and had **no `native` component at all**, and its KIR statement
+("KIR text does not yet feed the backend") is now stated as the LIMITATION it
+is -- the native driver consumes the PARSED AST directly, so KIR is verified but
+is not the backend's input. **What this does NOT claim:** that the compiler is
+independent (the compiler's OWN build still uses `gcc`, and the bootstrap
+proof is still carried to v1.3.0 as UNMET), or that the native path is
+complete (the matrix lists what is refused, and the refusal table proves each
+is refused by name).
+
+
+Also completed: **NAT-LOOP - loops in the kcc native driver**
+(increment 151, slice "NAT-LOOP", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-LOOP-BASELINE.md`). The driver could lower no loop at
+all: `while` was refused by name. A loop is the first construct whose
+**correctness** depends on a control-flow structure rather than on a frame
+layout, and the first whose **memory behaviour** depends on an argument about
+how many times a site runs, so it has more to prove than NAT-IF did. **The
+semantics are the Go oracle's, not invented** (`pkg/native/program.go`): the
+condition is evaluated before every iteration; the C-style `for`'s init runs
+ONCE, before the loop; its post runs after every iteration **including after a
+`continue`**; and `break`/`continue` act on the **nearest** enclosing loop.
+The one asymmetry that matters is that a `continue` in a `while` jumps to the
+loop HEAD (so the condition is evaluated again) while a `continue` in a `for`
+jumps to the POST label (so the update clause runs first) -- the oracle's
+choice (`program.go:5266`), and the difference a differential test exists to
+catch. **What shipped** (`src/compiler/native_value.kark` +
+`src/compiler/native_emit.kark`): the loop-context STACK (the oracle's
+`b.loops`, kept on the builder; kcc has one object where the oracle has two,
+so the stack is emitter slot 17, a flat pair of label names per loop), the
+`while` and C-style `for` lowerings in the oracle's exact emission order, the
+`break`/`continue` arms that read their target from the stack, a plain-local
+assignment (`x = <int expr>`, the loop counter's form), the branch-descending
+plan (`natNativePlanDecls` now descends into a loop body and into a `for`'s
+init, in the oracle's ORDER, because a slot allocated in a different order
+moves every frame displacement after it), and a generalised statement scanner
+with a loop-depth and an in-body flag. **THE MEMORY ARGUMENT, and it is the
+reason a loop can be lowered at all:** the heap arena is sized at compile time
+on the assumption that each allocation site runs at most once, and a loop
+breaks that assumption, so the three arena-using constructs -- a string
+concatenation, a `push()`, a map insertion -- are refused INSIDE a loop with
+the ORACLE'S OWN THREE MESSAGES (`program.go:6629`, `:5487`, `:4136`), and
+the detection walks nested branches and nested loops because a concatenation
+inside an `if` inside a loop is still one. **What is NOT done, deliberately:**
+no iteration-scoped arena checkpoint (it would need a proof that no live
+reference escapes an iteration, and in this value model an array's element
+area is reachable through the array's header, so the honest answer is to
+refuse the construct), no fixed iteration limit (that would turn an unbounded
+allocation into a wrong answer instead of a diagnostic), and no larger arena
+(nothing inside a loop allocates). Every value a loop touches is a static
+frame slot or a static section, so the compile-time arena bound keeps its
+meaning. **The register-allocation boundary is NOT concealed:** the oracle's
+Phase-150C allocator engages under control flow and pressure, so four locals
+and a loop stay byte-identical and five do not; the self-hosted driver has no
+allocator (every local is a frame slot, the pre-150C path, always correct),
+and the five-local case is in the execution corpus so "different bytes" is
+backed by "same behaviour". **Evidence** (`pkg/cli/phase151i_loop_test.go`,
+`TestPhaseNATLoop_`, 7 layers): 21 programs compiled by the self-hosted
+engine, WRITTEN AND EXECUTED on this host as kcc-produced PEs with exact
+stdout bytes; a **DIFFERENTIAL AGAINST THE C BACKEND** -- the same source
+compiled the old way and run, compared byte for byte -- which is the layer
+that proves the SEMANTICS rather than the bytes; a Linux ELF byte-identity
+differential against the Go oracle; an 8-row refusal table (exit code, the
+construct named, NO image); the allocator boundary from both sides;
+determinism, non-vacuity, the CI-wiring check, and the same PATH-shim
+independence evidence as NAT-QUAL with the legacy path as the positive
+control. **FOUR THINGS THE GATE FOUND, none of them by inspection:**
+(1) the first corpus case was a `while` whose body never advanced its counter,
+so it was an INFINITE LOOP and it HUNG the gate -- the shared `nat9dRun`
+helper has no timeout, so the loop gate now runs its programs under a
+20-second timeout of its own, because a hang is a worse failure than a red
+test; (2) two of my HAND-COMPUTED goldens were wrong and the COMPILER was
+right (`break_from_inner_loop` and `continue_in_inner_loop` expect
+`0,1,0,0,1,1` and `0,2,0,0,2,1` -- the outer counter is 1 on its second
+iteration and the inner loop skips 1 because of the `continue`); (3) **a call
+expression in a C-style `for`'s post is mis-parsed by BOTH engines** -- the Go
+parser reports "unexpected token ')'" and the self-hosted parser silently
+produces a Block node, which the driver refuses loudly with "statement kind 10
+is not lowered"; that is a PARSER defect in both engines, it predates this
+slice, and it belongs to a parser increment; (4) **the two engines disagree
+about a `for` init's SCOPE** -- the Go borrow checker scopes it to the loop
+("use of value 'i' after its scope has ended") while the self-hosted checker
+scopes it to the function, so a program that reads the counter after the loop
+is REFUSED by the C path and ACCEPTED by the native path. The differential
+also normalises the C path's CRLF (its stdout is in Windows text mode) while
+layer 1 still pins the native path's EXACT bytes against a golden with no
+normalisation at all. **Still refused, by name:** a non-comparison condition, a string or
+float comparison, a string binding inside a loop body, an ARRAY INDEX inside a
+loop body or condition (the index path carries the runtime-error reporter's
+rodata offsets and the shared expression walker does not -- the most-felt
+limitation of the qualified subset), a `for` post that is not an assignment,
+and the three arena constructs. **KIR pin 14597 -> 14792** (+195), measured
+with `karkain kir --verify src/compiler/kir.kark` in the gate's own
+invocation (`text=14792 verify=14792`) and never predicted. The language
+checker's K108 gets to `break`
+and `continue` outside a loop first, so the driver's own refusal of those is
+the second line of defence and is unreachable through this pipeline -- recorded
+rather than pretended otherwise.
+
+
+Also completed: **NAT-IDX - array indexing inside the kcc native driver**
+(increment 151, slice "NAT-IDX", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-IDX-BASELINE.md`). NAT-LOOP recorded the limitation in
+one sentence -- "the index path carries the runtime-error reporter's rodata
+offsets, and the shared integer expression walker does not carry them" -- and
+tracing the implementation showed that sentence covered THREE defects, not one.
+**(1) THE INDEX WAS A LITERAL-ONLY SPECIAL CASE.** `natArrayIndex` took the
+index node and did `int(intLitVal(idx))`, materialising a literal straight
+into RCX; the SCANNER refused a variable or arithmetic index first. The
+ORACLE has never required a literal: it evaluates the index as an EXPRESSION
+through the shared walker and moves the result into RCX
+(`pkg/native/program.go:6320-6324`). So the kcc index path was a literal-only
+reimplementation of a sequence the oracle computes generically, and that is the
+whole of the limitation. **(2) THE REPORTER'S CONTEXT REACHED TWO POSITIONS AND
+NO OTHERS** -- the print and return paths, the only two places an index could be
+lowered. It now travels through the walker as ONE bundled argument (`rctx`),
+explicitly (two functions in one image have different basenames, so a global
+would have to be saved and restored around every call) and without duplicating
+the walker. **(3) THE REPORTER'S PREDICATE COULD NOT SEE AN INDEX IN A
+CONDITION** -- and the consequence was not a missing diagnostic but a CRASH IN
+THE PE LINKER: the bounds check's failure block CALLS
+`karkain_runtime_error`, so with no reporter emitted the image held a call into
+a label that was never marked, and the linker applied a patch against a text
+laid out without it ("runtime error: array index out of range at
+main.kark:11397 ... natPEStore64"). The stack names the LINKER, with nothing
+connecting it to an index, which is why the predicate -- not the index path --
+was the third defect. The predicate is now a real walk: branches, loops,
+conditions, initialisers, post clauses, declarations, and nested expressions.
+**The two index validators were also consolidated** onto the shared one, which
+had drifted: the old one said "is indexed but is not an array" while the
+oracle says "index target must be an array (got %s '%s')". **Evidence**
+(`pkg/cli/phase151j_array_index_test.go`, `TestPhaseNATIdx_`, 8 layers): 16
+programs compiled by the self-hosted engine, WRITTEN AND EXECUTED on this host
+as kcc-produced PEs with exact stdout bytes -- the first element, the last, a
+VARIABLE index, an ARITHMETIC index, iteration in a `while`, iteration in a
+C-style `for`, an element in an arithmetic expression, an element in a
+COMPARISON, an index in a branch inside a loop, two arrays in one loop, an
+index with a `continue`, an index with a `break`, an element passed to a
+function, a NESTED index, and `len()`; a BEHAVIOURAL differential against the
+C backend (byte for byte); 5 BOUNDS cases -- index == length, index > length,
+out of range inside a loop (the three valid elements print, then the error), a
+NEGATIVE index, and an EMPTY array -- each a runtime error with a non-zero
+exit and NO value printed; 3 refusals by name with no image; the image SIZES
+agreeing with the oracle's; determinism; non-vacuity; and the PATH-shim
+independence evidence with the legacy path as the positive control. **The
+FRAME DELTA IS CLOSED by NAT-FRAME, and the description of it here was WRONG:
+the two engines' rounding rules were always IDENTICAL (both round the frame up
+to the next multiple of 16, and only on Windows), and the 8-byte difference
+was an UNRESERVED map-stage slot plus an `inc r8` that decoded as `inc rax`.
+NAT-FRAME measured this rather than inheriting it; the measurement is in
+docs/audit/NAT-FRAME-BASELINE.md. What remains for an array program is TWO
+bytes: the reporter's absolute rodata addresses, whose interning ORDER differs
+between the engines. Array programs are compared BEHAVIOURALLY against the C
+backend, and the gate asserts the sizes agree so a size difference would mean
+something else moved. **An ENVIRONMENTAL
+FLAKE was found and named**: the C backend's gcc is intermittently KILLED on
+this host (empty stderr, status 1) while the pagefile still thrashes after
+the self-hosted compiler's own rebuild -- it presented as a semantic
+difference in the differential layer and its own diagnostic could not explain
+it. The layer now retries a C COMPILATION failure (not a program failure,
+which is deterministic) and captures the child's stderr instead of discarding
+it. **Mutations: 3**, each restored byte-identically (SHA-256
+`C66E8FA5C0DE7F337A2D41B455DE110ABA6B302B1DB51062E3069FEB3626C2BA`): the
+index's move into RCX removed (the execution layer fails), the reporter's
+predicate no longer looking at an `if` condition (the LINKER CRASH returns with
+the identical signature and the gate fails), and the bounds check's `Jge`
+flipped to `Jle` (the bounds layer fails). A fourth mutation, making the index
+literal-only again, was caught by the gate's per-program TIMEOUT rather than by
+an assertion -- recorded as the weaker result it is. **Still refused, by
+name:** an index of a non-array, an index that is not an integer expression, an
+element of a non-int type, `for ... in`, and the two NAT-LOOP parser defects
+(a call expression in a `for` post is mis-parsed by both engines, and the two
+engines disagree about a `for` init's scope), neither of which blocks array
+indexing. **KIR pin 14792 -> 14834** (+42), measured with `karkain kir --verify
+src/compiler/kir.kark` in the gate's own invocation (text=14834 verify=14834) and never
+predicted.
+
+
+Also completed: **NAT-FRAME - the native frame layout against the Go oracle's**
+(increment 151, slice "NAT-FRAME", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-FRAME-BASELINE.md`). **THE BRIEF'S PREMISE WAS WRONG,
+and the first thing this increment did was MEASURE it.** The recorded
+discrepancy was a frame-layout ROUNDING difference -- "the driver rounds the
+locals region up to the next 16, the oracle up to the next 16 STRICTLY
+greater". There is no "strictly greater" rule anywhere in the oracle: both
+sides do `if next % 16 != 0 { next += 8 }`, and only on Windows. The first
+measurement was also misleading in a second way -- it compared the WINDOWS PE,
+where the 8-byte rounding QUANTISES an 8-byte difference away, so the PE could
+not see the delta at all. Measured on LINUX, the delta is exactly 8 bytes and
+ONLY for programs that index something (0 for no locals, 1-5 locals, and a
+call). **TWO REAL DEFECTS produced it, neither of them a rounding rule.**
+**(1) `inc r8` DECODED AS `inc rax`.** `natIncReg` built its REX byte BY HAND
+and ORed in `natMask(15)` -- the REX.**R** bit (0x04) -- where a register's
+extension lives in REX.**B** (`natMask(16)`, 0x01); REX.R extends the ModRM
+REG field, which for `FF /0` is the opcode extension and not a register. The
+map SET helper increments its entry counter and stores it as the map's COUNT,
+so **a map's entry count was silently wrong** -- a data-corruption bug with no
+gate at all (the matrix records map support as `implemented_not_gated`). The fix
+uses the CENTRALIZED constructor `natRex(s, 1, 0, r)` -- the same call
+`natDecReg` already made and the same shape as the oracle's `rex(true, 0, r)` --
+so there is still exactly one REX constructor. **(2) The MAP-STAGE slot was
+never reserved.** The oracle's map-usage flag is PROGRAM-WIDE
+(`scanMapUsage(prog)`) and its `isMapIndex` predicate is "an index expression
+whose target is a VARIABLE" -- which an ARRAY access satisfies -- so the oracle
+reserves the 8-byte map-stage slot in EVERY frame of a program that indexes
+anything, while the driver's two layout call sites passed a literal 0 and
+reserved it in none. The flag is now computed once, program-wide, and threaded
+into every function's layout. **RESULT:** the frames now match the oracle
+EXACTLY for every boundary case on both targets (10 cases x 2 targets), and the
+image difference for an array program fell from 5 bytes to 2. **What remains is
+ISOLATED, not hidden:** TWO bytes, both absolute rodata addresses inside the
+runtime-error REPORTER, because the two engines intern the reporter's strings
+in a different ORDER -- the oracle emits the reporter helper before the user
+function so its strings are interned first, and the driver appends them after
+the program's own literals (its own comment already claims the oracle's order,
+which makes this a defect and not a design choice). It is NOT fixed here
+because the fix moves the reporter's offsets in every image that can raise a
+diagnostic, and the D5 gate pins that interning today. **CORRECTION
+(2026-11-12, NAT-RODATA): that residual CLOSED and the diagnosis above is
+WRONG** -- the paragraph describes the state at the END OF NAT-FRAME, not the
+state now. The two engines' read-only sections were byte-identical, so the
+ORDER was never the cause; the driver baked the LIST POSITION of the
+array-bounds call site's two strings where the interned OFFSET belongs, so the
+diagnostic pointed at the wrong bytes. The array-index shape is now
+byte-identical to the oracle's. **Evidence**
+(`pkg/cli/phase151k_frame_test.go`, `TestPhaseNATFrame_`, 6 layers): the
+frame-size immediate of every boundary case read out of each IMAGE and compared
+with the ORACLE's, for BOTH targets (the Linux one matters, because the Windows
+rounding hides an 8-byte difference); the map-stage slot reserved for an
+indexing program and not for a non-indexing one; the `inc r8` ENCODING at the
+byte level (REX.W|REX.B = 0x49, not 0x4c); the residual asserted as exactly
+two differing bytes with equal frames and equal sizes; and the behavioural half
+-- local reads and writes, a call, a nested call, a variable index, a nested
+index, and the bounds-error path (a non-zero exit and NO value printed).
+**Mutations: 2**, each restored byte-identically (SHA-256
+`0511FAC87400934760C719C1CFC5B652999465B8466EB208228D7783938D1210` for the
+driver, `ADB060FFB588E5A037F3338733388FF35E697F6FBFF50CE598F535DDFEDD091D`
+for the emitter): reverting the map-stage reservation fails the
+frame-immediate layer on four cases with the exact byte difference AND the
+map-stage layer ("want a difference of 8"), and reverting the REX bit fails
+the encoding layer and turns the residual from two bytes into three. Both are
+caught by MEANINGFUL ASSERTIONS, not by a timeout. **A THIRD DIVERGENCE of the SAME CLASS was found while measuring the whole gated corpus (every program in the 9D/9E/9F/9H corpora, both engines, the frame immediate read out of each image): the STRING STAGE.** The oracle reserves it PROGRAM-WIDE over FIVE operations (usesConcat || usesStrEq || usesStrSlice || usesPush || usesStrField, pkg/native/program.go:4454) and the driver reserves it PER FUNCTION over TWO (concat sites and push counts). So a program that assigns a string to a field gets NO string stage at all, and a program whose string work happens in one function gets a different frame in another. **Measured (windows PE): the driver's frame is 640 and the oracle's is 3200 -- a difference of exactly 2560 bytes, which IS the string stage (8*5*maxBinDepth = 8*5*64).** It is NOT fixed here -- it is a string-stage POLICY, not a frame LAYOUT, and reconciling it means changing what the driver supports (string equality and slicing are not lowered at all) and re-deciding per-function-versus-program-wide for that region, which is a different increment with a different blast radius. It is PINNED rather than ignored: TestPhaseNATFrame_TheStringStageIsStillDivergent asserts the frames still differ AND that they differ by exactly 2560, so the gap cannot be forgotten and it fails loudly when it closes. **CORRECTION (2026-11-11, NAT-STR-STAGE): that gap CLOSED, and the paragraph above describes the state at the END OF NAT-FRAME, not the state now.** The string stage is reserved program-wide over the oracle's five operations and the frames match the oracle's exactly; the divergence test was INVERTED into an agreement test (`TestPhaseNATFrame_TheStringStageIsReservedProgramWide`) and the field-assignment case joined `natFrameCases`. **The FROZEN 9D GATE'S OWN RULE WAS WRONG and had to be corrected:** it rounded the LOCALS REGION and then added the fixed regions, while the oracle rounds the TOTAL and adds the argument spill AFTER; and it had no map-stage term at all. The two formulations agree while the only fixed region is 512 (a multiple of 16), which is why the rule was not wrong until the map-stage unit arrived -- they part company by 8 bytes afterwards. The same correction was applied to the 9E/9F/9H frame gates, and each corpus program now states whether it indexes anything. **The 9D gate's second check was VACUOUS** (it back-computed the locals region as want-512-96, which under the old rule was round16(localBytes), so the assertion held BY CONSTRUCTION) and is now a real LOWER BOUND on the frame, which an element-blind driver fails. **KIR pin 14834 -> 14841** (+7), measured with `karkain kir --verify src/compiler/kir.kark` in the gate's own invocation (text=14841 verify=14841) and never predicted. **Still refused, by name:**
+register allocation (that is `NAT-REG`), `for ... in`, map or string element
+support, non-integer element types, the two NAT-LOOP parser defects, and the
+stderr/GetStdHandle limitation -- all explicitly out of scope.
+
+Also completed: **NAT-STR-STAGE - the native string staging area: scope and coverage**
+(increment 151, slice "NAT-STR-STAGE", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-STR-STAGE-BASELINE.md`). NAT-FRAME found a THIRD
+divergence of the same class while sweeping the whole gated corpus and PINNED it
+rather than fixing it: the string stage is PROGRAM-WIDE in the oracle over FIVE
+operations (usesConcat || usesStrEq || usesStrSlice || usesPush || usesStrField,
+pkg/native/program.go:4454) and PER FUNCTION over TWO in the driver. **THE
+CORRECTION IS THE ALLOCATION, AND ONLY THE ALLOCATION.** The flag is now
+computed ONCE, over the whole program, by `natNativeProgramUsesStr(fns, tbl)`
+-- the same shape as `natNativeProgramUsesMap`, whose map-stage slot has the
+same program-wide scope in the oracle -- and threaded into every function's
+layout in place of the per-function computation, which is deleted along with a
+DEAD program-level copy of it that nothing read. The five-operation predicate
+`natNativeStrOpIn` REUSES the arena bound's existing detectors for the concat
+and push arms, so there is ONE notion of where a concat site is rather than two
+collectors that could disagree (the Step 9g defect class); the equality, slice
+and string-field-assignment arms are new detectors, and each is UNREACHABLE
+from the driver's accepted subset today (all three are refused by name), which
+is stated rather than hidden -- they exist because the reservation is a LAYOUT
+CONTRACT with the oracle, and when one of them is lowered the area has to be
+reserved already or the frame would move at that point and every image with it.
+**WHAT WAS NOT DONE, and is the interesting part:** the driver does NOT
+duplicate the oracle's staging implementation. The oracle's string-field write
+stages the (pointer, length) pair through the area (program.go:6236-6250) and
+the driver's writes the pair directly into the field area, so the FRAME matches
+exactly while the CODE does not -- the field-assignment image is 25 bytes
+SHORTER on the driver (measured 443 against 468) and its rodata starts 25 bytes
+earlier. **MEASURED (Linux ELF; the Windows 16-byte frame rounding quantises
+an 8-byte difference away and cannot see a 2560-byte one): before the
+correction `helper + concat in main` gave the driver [608, 3168] against the
+oracle's [3168, 3168], `helper + push in main` [608, 3208] against [3168, 3208],
+and a string field assignment [640] against [3200] -- every difference the same
+2560 bytes (8 * 5 * maxBinDepth). AFTER: all eleven corpus cases agree frame
+for frame.** Evidence (`pkg/cli/phase151l_strstage_test.go`,
+`TestPhaseNATStrStage_`): the frame-size immediates of EVERY function read out
+of each image and compared element for element with the ORACLE's, on the LINUX
+target; the SCOPE asserted as a DIFFERENCE (the same helper in two programs
+differing only by main's concatenation grows by exactly 2560 in EVERY frame);
+the five operations measured on BOTH engines, with the driver's two refusals
+required to name the construct and produce no image; EXECUTED PE goldens with
+EXACT stdout bytes (never trimmed -- the Step 9b defect was a missing byte);
+determinism; a refusal table for the constructs the driver declines (a string
+in a branch, a string in a loop, a string in a callee, a string equality, a
+string slice); and the differential RECORDING the total allocation, the
+allocation's scope, the string offsets, the function count, the image size, the
+section boundaries, the frame immediates and the byte-identity result.
+**Mutations: 2**, each restored byte-identically: restoring the per-function
+allocation fails the scope layer (the helper's frame stops growing) and the
+corpus's multi-function cases, and corrupting the program-wide aggregation so
+it keeps only the LAST function's answer fails ONLY the case whose string work
+is in a function that is not the last one -- the case added for it.
+**THE ONE DIFFERENCE THAT REMAINS is the ORACLE's over-approximation, not the
+driver's:** the oracle's string inference is NAME-based and program-wide
+(`scanConcatSites` builds a name table and repeats its walk until it is stable,
+program.go:1180-1182), so a name bound to a string ANYWHERE is a string
+EVERYWHERE -- shadowing included. The oracle therefore classifies a helper's
+`a + a` (an int parameter shadowed by a string in main) as a string
+CONCATENATION SITE, reserves the staging area in both functions and allocates
+an arena -- while its own EMISSION lowers it as an integer addition: the same
+program builds, runs and prints an integer sum. The driver follows the
+EMISSION rather than copying the over-approximation, because copying it would
+mean allocating an arena for a program that allocates nothing and classifying
+an integer addition as a string concatenation. Measured: the oracle reserves
+2560 bytes in both frames of that program, the driver none; pinned by
+`TestPhaseNATStrStage_TheOracleNameQuirkIsNotReproduced`. **Two existing gates
+moved with the correction:** the string-assignment case joined NAT-FRAME's
+`natFrameCases` (so the parity assertion covers it), and
+`TestPhaseNATFrame_TheStringStageIsStillDivergent` became
+`TestPhaseNATFrame_TheStringStageIsReservedProgramWide` -- it asserts the
+CLOSED state on both axes rather than recording a divergence that no longer
+exists. The shared frame rule `nat9dExpectFrame` gained a string-stage term
+in the oracle's layout POSITION (between the bin temporary area and the
+map-stage unit -- a rule that put it last would be wrong by 2560 rather than
+by 8), and the 9H record gate's `string_field_assign` case now expects it.
+**Still NOT claimed:** byte-identity (the reporter's rodata interning order
+still differs, and the field write's staging code differs), and the string
+EQUALITY and SLICE lowerings, which are still refused by name. **KIR pin
+14841 -> 14938** (+97), measured with `karkain kir --verify
+src/compiler/kir.kark` (`text=14938 verify=14938`, about 25 minutes on this
+host) and never predicted; re-pinned in `pkg/cli/phase122_pipeline_ownership_test.go`
+and `pkg/cli/phase151a5_win_test.go`. **CORRECTION (2026-11-12, NAT-RODATA):
+the reporter's rodata difference CLOSED**, and the paragraph above describes
+the state at the END OF NAT-STR-STAGE, not the state now. The array-index
+shape is byte-identical to the oracle's, and the diagnosis NAT-FRAME recorded
+was wrong: the two engines' read-only sections were byte-identical, and the
+driver baked the LIST POSITION of the array-bounds call site's two strings
+where the interned OFFSET belongs -- so the diagnostic pointed at the wrong
+bytes. The remaining differences are the field write's staging code and the
+oracle's "intern at the first index site" position, neither of which changes
+what a program prints.
+
+Also completed: **NAT-RODATA - the reporter's read-only data: the interning order and the interned offsets**
+(increment 151, slice "NAT-RODATA", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE** for the slice;
+record `docs/audit/NAT-RODATA-BASELINE.md`). **THE RECORDED DIAGNOSIS WAS
+WRONG, and measurement corrected it.** NAT-FRAME left a residual of TWO bytes
+in an indexing program's image and attributed it to the ORDER in which the
+reporter's strings are interned -- "the oracle emits the reporter helper
+before the user function, so its strings are interned first; the driver
+appends them after the program's own literals". **MEASURED, the order was not
+the cause: the two engines' read-only sections were BYTE-IDENTICAL** ("runtime
+error: " at the same offset, " at " at the same offset, "array index out of
+range" at the same offset). **The real defect was a REFERENCE-RESOLUTION
+one:** the driver computed the array-bounds call site's two rodata references
+as LIST POSITIONS (`2 + len(literals) + 4` and `+ 5`) and used them as RODATA
+OFFSETS. A position counts ENTRIES and an offset counts BYTES, and the two
+differ as soon as any earlier string is longer than one byte -- which every
+one of them is. The driver's two absolute addresses therefore pointed at
+offsets 6 and 7 of the section, which are the middle of "runtime error: ",
+instead of at the message and the file name. **So the out-of-range diagnostic
+pointed at the WRONG TEXT, and the address difference the record measured (16
+and 39 bytes) was the difference between two wrong numbers and two right
+ones.** The D5 baseline had already stated the intended design and the driver
+violated both halves of it (PHASE-D5-BASELINE.md section 8.3): "The reporter's
+strings must be appended in the order the oracle emits them (helpers first,
+then the call site), and their offsets read back OUT of natRodataSection's
+offset array." **What changed** (`src/compiler/native_value.kark`): the
+interning list is built in the ORACLE'S ORDER (print_int's two, the reporter
+HELPER's four, the program's literals, the call site's two); EVERY
+reporter-related offset -- the helper's four and now the call site's two -- is
+read back out of `natRodataSection`'s offset array, one mechanism and no
+arithmetic; and the EMITTER receives the LITERALS' offsets and nothing else,
+so its cursor starts at 0 and no longer depends on how many non-literal
+entries precede the literals. The linker owns the section's interning order;
+the emitter wants "the k-th literal's offset"; the two are separate facts
+now. **Measured (Linux ELF, driver against oracle): the array-index shape is
+now BYTE-IDENTICAL, and so is every fixture with a reporter and with its
+literals bound before the index site** -- before the correction the same
+fixtures differed by 2, 4, 31, 34 and 62 bytes. **Evidence**
+(`pkg/cli/phase151m_rodata_test.go`, `TestPhaseNATRodata_`): the section's
+ENTRIES read out of each image, in order, with their OFFSETS and its SIZE;
+the deduplication count; the byte-identity result per fixture; a DIRECT check
+that the image references the address of the message and of the file name
+(the claim that matters, because the defect was a wrong diagnostic rather than
+a wrong layout); determinism; a PE regression (the PE is a valid PE, its
+strings are interned once each, and the program RUNS); and a refusal table
+(a string in a CALLEE is refused by name). **TWO EXISTING GATES MOVED BY
+FAILING FIRST**, which is the signal each was built to give:
+`TestPhaseD2_KnownNonParityIsStillNonParity` failed because `array_index` had
+become byte-identical, so the shape moved into the parity list and the
+known-non-parity list is now EMPTY -- that gate was REMOVED rather than left
+with nothing to compare, and `TestPhaseD2_TheKnownNonParityListIsEmpty`
+records that every shape which was ever known to differ is still asserted
+identical; and NAT-FRAME's `TestPhaseNATFrame_TheImagesAgreeOnEverythingButTheReporterStrings`
+failed because the images stopped differing in two bytes, so it is now
+`TestPhaseNATFrame_TheImagesAgreeEntirely` and asserts EVERY byte. **Mutations:
+2**, each restored byte-identically (SHA-256
+`728539293D548A3917D5FF483261EE36C25826D847585B95065C0EDAE66D7C38`): putting
+the list position back as the call site's offset fails the correctness check
+("the image does NOT reference the address of 'array index out of range'") and
+the byte-identity check, and putting the reporter's four strings back after the
+program's literals fails the interning-order check and the byte-identity check.
+**ONE DIFFERENCE REMAINS, and it is a LAYOUT difference with no correctness
+consequence:** the oracle interns the call site's two strings AT THE FIRST
+INDEX SITE, so a program that binds a literal AFTER an index site puts them
+earlier, while the driver groups them after the literals (measured: 39 bytes;
+the diagnostic's text is identical in both engines). Closing it would mean
+re-deriving the interning order from the emitter's walk, or interning at
+emission time as the oracle does -- a larger blast radius than this slice's
+area, and the oracle's implementation is not duplicated for the sake of byte
+identity. **The PE is NOT a byte-identity target**, and the reason is measured:
+the Windows entry stub and the loader-independent PEB bootstrap are SEPARATE
+IMPLEMENTATIONS in the two engines (the driver's `natWinStub` against the
+oracle's `emitWinBootstrap`), so the PE's .text virtual size is 0xa9c against
+0xa94 and about a thousand bytes of the bootstrap differ -- which is why the
+byte-identity differential compares the LINUX ELF. **Still NOT claimed:** the
+field-assignment staging difference, the oracle's name-table over-reservation,
+the string equality and slicing refusals, the register allocator, the
+arena-bound limitations and the parser limitations -- all unchanged, and none
+of them affects the reporter rodata except the field write's 25 bytes of
+extra code, which moves the section's start in that one image. **KIR pin
+14938 -> 14946** (+8), measured with `karkain kir --verify
+src/compiler/kir.kark` (`text=14946 verify=14946`, about 23 minutes on this
+host) and never predicted -- the delta is small because most of the slice's
+source growth is COMMENTS, which the KIR text does not render; re-pinned in
+`pkg/cli/phase122_pipeline_ownership_test.go` and
+`pkg/cli/phase151a5_win_test.go`.
+
+
+Also completed: **NAT-REG - native register allocation in the self-hosted driver**
+(increment 151, slice "NAT-REG", branch
+`feature/v1.2.0-native-independence`; verdict **COMPLETE for the slice**;
+design `docs/audit/NAT-REG-DESIGN.md`, record `docs/audit/NAT-REG-BASELINE.md`).
+**THE ORACLE ALREADY HAD AN ALLOCATOR and the driver did not**, and that is the
+whole shape of the gap: `pkg/native/regalloc.go` is the Phase-150C allocator,
+it promotes INT locals into R12-R15 (callee-saved under BOTH the System V and
+the Win64 ABI, and untouched by the rest of the backend, which works in
+RAX/RCX/RDX/RSI/RDI/R8-R11 and clobbers RBX), and it engages only under
+pressure: the function must contain CONTROL FLOW and the peak number of
+simultaneously-live int locals must be at least five (`raMinLive =
+allocRegCount + 1`). The driver's locals were all frame-resident, so a
+five-local function was encoded differently from the oracle's. **THE
+CORRECTION IS A PORT, NOT A NEW DESIGN**, and it is small because the
+architecture was already there: the allocation lives in the PLAN, as a fifth
+field per slot (the plan is per function and already threaded everywhere, so
+this needs no new parameter and no global state), the liveness is a
+point-ordered walk over the driver's own AST with the loop widening the
+oracle's rule requires, and the allocation is the same linear scan: a register
+is available when the local holding it is dead before this range starts, and a
+candidate that cannot get one keeps its frame slot, which is the pre-existing
+path and needs no new code. **The frame does NOT shrink** -- a spilled local
+keeps its slot -- so every slot displacement is unchanged and what the
+allocator saves is memory TRAFFIC, not frame size. **The switch is
+`KARKAIN_NATIVE_REGALLOC=1` and the DEFAULT is the stack-based path**, which
+is the qualified implementation this repository ships: the register path is
+new code in a self-hosted compiler, and the brief's own rule is that it does
+not become the default until it has passed the complete qualification suite.
+Evidence (`pkg/cli/phase151n_regalloc_test.go`, `TestPhaseNATReg_`): the
+register-allocated path and the stack-based path are built over the SAME
+programs and must produce the SAME observable result -- stdout and exit
+status, byte for byte -- with the Go oracle as a third opinion; the frame must
+be IDENTICAL between the two paths; and the two paths must be BYTE-DIFFERENT
+for the high-pressure cases, because otherwise the agreement would be
+vacuous. **THE GATE EXECUTES THE HOST'S OWN NATIVE IMAGE** -- the Windows PE
+on Windows, the Linux ELF on Linux -- which is deliberately NOT the pattern
+the other native gates use: they build the PE everywhere and SKIP the
+execution layer on POSIX, so their behavioural layers run NOWHERE in CI.
+This gate cannot skip its only layer, because a gate that skips the layer it
+exists to check asserts nothing. The image is validated with the ORACLE's
+own parser (`native.ParsePE` for a PE, `native.Parse` for an ELF).
+The corpus covers the brief's twenty-two areas: simple arithmetic,
+deeply nested expressions, several simultaneously live values, register
+exhaustion, spill and reload, repeated reads, local updates, comparisons and
+branches, nested branches, loops with changing variables, `break` and
+`continue`, arguments, nested calls, a value live ACROSS a call, return
+values, array indexing, bounds behaviour, float (refused by name in both
+paths), several functions, determinism, low pressure and deliberate high
+pressure. **Mutations: 4**, each restored byte-identically (SHA-256
+`8DFCCC6005547F76D9883C10B3626E68CF3E19306D7BD7F438FC08813A3FEA2A`):
+omitting the epilogue's POP, storing a spilled value to the wrong slot, reusing
+a register whose holder is still live, and dropping the loop widening -- the
+last two are the ones that would CLOBBER a value and the first two are the
+ones that would corrupt a callee's register. **A FIFTH mutation was NOT
+caught and is recorded rather than hidden:** dropping the scan's liveness
+check makes the allocator MORE conservative -- it never reuses a register --
+which is a missed optimisation, not a wrong answer, and the gate cannot see
+it. That is why the mutation that matters is the one that reuses a register
+WHOSE HOLDER IS STILL LIVE. **Not claimed:** a performance improvement. The
+allocator trades memory traffic for a push/pop pair per claimed register, and
+for a program this small the wall-clock time is dominated by the process
+startup, so the measured sizes are RECORDED and the comparison is not claimed.
+
+
 Also completed: **B2 seed-closure discovery job + the v1.2.0 scope amendment**
 (verdict **COMPLETE** as a change; **B2 itself remains OPEN and unproven** --
 the job is DISCOVERY, not a release gate). Two things landed. (1) A new
@@ -3903,3 +4491,193 @@ history was empty, not green. The two discovery jobs (`Increment 154
 self-bootstrap`, `B2 seed closure`) report failure on the documented exit-143
 runner class; that is their purpose and they are deliberately not required
 checks, so they record the limitation instead of blocking the branch.
+
+
+Also completed: **v1.2.0 - "Native Independence" (the GA release)** (verdict
+**COMPLETE for the effective gate**; the authoritative qualification report is
+`docs/audit/KARKAIN-V1.2.0-GA-QUALIFICATION.md`, the release notes are
+`docs/release/KARKAIN-1.2-RELEASE-NOTES.md`, and the scope freeze and the
+closure conditions are `docs/release/v1.2.0-CHECKLIST.md`). **THE EFFECTIVE
+GATE IS CONDITIONS 1, 4, 7 AND 8**: conditions **2** (`stdlib_v2` no-C) and
+**3** (`std.net` no-C) were carried to v1.3.0 as UNMET by an owner-authorized
+amendment (2026-10-10), and conditions **5** (`stage2 == stage3`) and **6**
+(no Go toolchain for that closure) were carried to v1.3.0 as UNMET by another
+(owner-authorized 2026-10-29). The condition TEXT is untouched; only the
+STATUS moved, and the status lives in one place per condition.
+
+**THE RELEASE IS THE SELF-HOSTED NATIVE BACK END.** All three C-free targets
+are kcc-owned - `native-x86_64-windows` (Phase 151D), `native-x86_64-linux`
+(Phase A1) and `native-x86_64-macos` (Phase B) - through the SAME
+whole-program driver, so the three containers cannot disagree about a
+program's frame, its rodata interning or its refusals. Nothing refuses with
+`error[K116]` any more: `kccNativeOwnedTargets` has no member left to refuse.
+**The evidence is honest about what is proven by EXECUTION and what is
+proven STRUCTURALLY:** the Windows PE images are executed on the dev host and
+byte-checked; the Linux ELF is byte-identical to the Go oracle and executes on
+the Linux CI leg (this dev host is windows/amd64 with no WSL and no Docker);
+the macOS Mach-O is a real PIE with `MH_PIE`, a writable `__DATA` arena and a
+decodable rebase stream, and it is **structurally validated only**, because
+this repository has no macOS runner and no Intel-Mac host in its history.
+
+**THE VERSION IDENTITY FLIP** moved `VERSION`, both Go banners, three kcc
+banners, six generated headers, the LSP server version and the five
+version-pinning test files to **1.2.0**, and the documentation flip moved the
+roadmap, the compatibility policy, the release notes (a new v1.2.0 section),
+the installation guide, the supported-target page and the README. The
+v1.1.0 and v1.0.0 HISTORICAL statements were restored rather than blanket-
+replaced, because a version flip that rewrites history is how a release stops
+being auditable. **The KIR pin did NOT move: 15243 before and after** (measured
+twice on the release state with `karkain kir --verify src/compiler/kir.kark`,
+`text=15243 verify=15243`), because the flip changes a string literal's
+CONTENT and not the AST's shape - the delta was **measured, not predicted**.
+
+**FOUR REAL DOCUMENTATION DEFECTS FOUND AND FIXED IN THE FLIP**, each of which
+contradicted the implementation and would have shipped a false claim: (1) the
+installation guide and the supported-target page still said kcc REFUSES the
+Linux and macOS targets with `error[K116]` - false since Phase A1 and Phase
+B; (2) the archive table still named the **v1.0.0** archives the CI has not
+produced since the 1.1.0 release; (3) the "Release cut pending" marker was
+still in place for a release that is being cut; (4) the README's status prose
+still said the **native backend** was `Planned`/`Not Yet Implemented` - which
+contradicts the release's entire purpose - and its release-binaries row still
+said "Pending release cut". The compatibility policy's "the label applies
+from Phase 142" was mangled by the flip (Phase 142 is the 1.1.0 label) and was
+corrected.
+
+**THREE RELEASE-SCRIPT DEFECT CLASSES FOUND AND FIXED, all MEASURED rather
+than inferred, and all three had been silently RED for a whole version.**
+(1) **STALE VERSION EXPECTATIONS.** `verify-install.ps1` expected
+``Karkain Compiler v1.0.0`` - stale since the 1.1.0 release, so the install
+stage had been RED for a whole version; and `verify-rc-journey.ps1` expected
+`v1.1.0`. Both now expect the release's own version. (2) **A CLEANUP FAILURE
+FAILED THE WHOLE INSTALL.** The root cause was measured, not guessed:
+**`Remove-Item -Recurse -Force` cannot delete a DIRECTORY under `%TEMP%` on
+this host** (`%TEMP%` = `C:\Windows\Temp`), while the FILES inside delete
+fine, while `[IO.Directory]::Delete` succeeds and while `cmd /c rmdir` succeeds
+- verified against an EMPTY directory, and against a directory that never held
+anything at all, and against the same call under the repository root, where it
+works. The three scripts now use a best-effort `Remove-ScratchDir` helper
+(`[IO.Directory]::Delete` with a retry and an `rmdir` fallback) and a cleanup
+failure can no longer fail an install whose work already succeeded. The QA
+battery's own temp cleanups had the same defect and were fixed the same way.
+(3) **A DELIBERATE SKIP KILLED THE BATTERY.** PS 5.1 escalates a NATIVE
+command's stderr into a **terminating** error when `$ErrorActionPreference` is
+`Stop`, and the `2>$null` redirect does **NOT** prevent that. The QA
+battery's `docs` stage probed `python -m sphinx --version` with `2>$null`,
+so on a host that HAS python but NOT sphinx the probe killed the whole
+battery instead of skipping the stage - and `beta-fresh-checkout.ps1` had the
+identical defect on its `python -c "import sphinx"` probe, so the
+fresh-checkout gate died instead of printing `SKIP sphinx (not installed)`.
+Both now relax the preference around the probe and take the exit code as the
+authority, which is the same discipline the fresh-checkout script's own
+comment already described for its other native commands. **A SECOND, SEPARATE
+DEFECT WAS IN THE STAGE RUNNER ITSELF:** `Run-Stage` reads `$LASTEXITCODE`,
+and the docs stage's own probe left it at the probe's non-zero code, so a
+DELIBERATE SKIP was reported as a stage FAILURE even after the probe stopped
+crashing. The skip path now resets it. **The QA script's cligates stage also
+needed a longer `-timeout`**: it bundles EIGHT gate families and the
+Phase-114 corpus runs in BOTH engines, so it exceeded Go's 10-minute default
+and then a 40-minute one on this ~4 GB host; it is now 90 minutes with the
+reason recorded in the script's header. Both were HARNESS artifacts rather
+than regressions.
+
+**THE MEASURED QA BATTERY, reported honestly.** `build` PASS (61.6 s), `vet`
+PASS (40.1 s), `cligates` PASS (1556.4 s), `conformance` PASS (161.0 s),
+`probes` PASS (44.0 s), `examples` PASS (60 passed, 0 failed, 2 skipped),
+`fresh` PASS (387.6 s - "BETA FRESH-CHECKOUT: PASS", with the sphinx leg
+correctly SKIPPING now), `install` PASS (exit 0), `verify-install` PASS (exit
+0), `journey` PASS (11 passed, 0 failed), `docs` **SKIP** (no Sphinx on this
+host; the CI Pages job covers it). The `units` stage fails **only** on
+`pkg/bootstrap`'s two
+heavyweight tests - `TestBootstrap_Stage2SelfHosting` and
+`TestBootstrap_BitwiseIdentity` - which the `error[K127]` memory guard
+refuses on this ~4 GB host (measured: 166-791 MiB free against the guard's
+1536 MiB requirement). With the guard's own documented override
+(`KARKAIN_BOOTSTRAP_MIN_MEM=0`) the burn still dies in the stage-2 transpile
+("karkain transpile failed: exit status 1"), so the failure is the host's
+capacity and not the override. **Every other package in the `units` stage
+passes** (lexer, parser, sema, ir, codegen, backend, npu, pm, module,
+runtime, wasm, compiler, source, diagnostics, target, lsp). The conformance
+corpus is **64/64** and the probes corpus is green; the conformance stage
+FAILED twice on this host with a **different** test each time
+(`test_array_of_strings` and `test_array_push_and_len`, then
+`test_primality`), each with "C compilation failed: exit status 1" and no
+compiler diagnostic - the documented class in which the C backend's gcc is
+KILLED while the pagefile thrashes, which is why the NAT-IDX gate captures
+the child's stderr instead of discarding it. A third run passed 64/64, and the
+battery's own `conformance` and `cligates` stages then passed 64/64 as well.
+The journey stage failed the same way twice on this host (`karkain test` and
+`karkain prof`, both "C compilation failed: exit status 1") and passed 11/11 on
+the re-run. All of it is recorded as a **flake**, not as a success.
+
+**TWO RELEASE BLOCKERS FOUND BY THE FIRST CI RUN OF THE RELEASE, both fixed
+before the tag, and both of the same kind: a claim that was true on the
+machine where it was written and false on the machine that ran it.** (1) **THE
+DOCS BUILD WAS RED.** The new v1.2.0 section of `release-notes.rst` carried a
+DUPLICATED section underline (the release-notes head was prepended and the
+original underline came with it) and a list-table row with FOUR items where
+every other row had two - and an RST list-table requires a uniform two-level
+bullet list, so Sphinx refused the directive. Reproduced locally with
+Sphinx 9.1.1 and `python -m sphinx -b html docs/source <out> -W --keep-going`:
+the build now SUCCEEDS with 0 warnings, and the linkcheck succeeds too. The
+CI's Documentation job had failed on exactly this. (2) **THE NAT-QUAL GATE WAS
+WINDOWS-ONLY IN ITS MECHANISM.** Its PATH shims for `gcc` and `go` were
+`.cmd` files, which Go's `exec.LookPath` resolves on Windows through PATHEXT
+- and on POSIX `LookPath("gcc")` does NOT find `gcc.cmd` at all, because the
+file is not named `gcc` and carries no exec bit. So on the Linux CI leg the
+shim could never fire, the traced log was empty for the WRONG reason, and
+the POSITIVE CONTROL failed with "the positive control did not fire". **The
+control is exactly what caught it**: a mechanism that cannot be shown to
+work cannot prove that it stayed silent. The shim is now written the way the
+host resolves it (a `.cmd` on Windows, an executable `#!/bin/sh` script
+named exactly like the tool on POSIX), and the trace follows the HOST's own
+native target rather than a cross-build. **This gate had never executed on
+the remote CI before this release** - the whole NAT-* series lived on the
+feature branch - so this was its first execution anywhere but Windows, and
+the first execution was the one that found the defect.
+
+**THE RELEASE'S ARTIFACT UPLOAD WAS BLOCKED BY THE ACCOUNT'S ARTIFACT STORAGE
+QUOTA, and the fix was to DELETE 1832 STALE CI ARTIFACTS - not to change the
+compiler.** The build matrix's `Build (linux/ppc64le)` job built and packaged
+its archive successfully and then failed at `actions/upload-artifact@v4` with
+`Failed to CreateArtifact: Artifact storage quota has been hit. Unable to
+upload any new artifacts. Usage is recalculated every 6-12 hours.` The
+fail-fast matrix then CANCELLED the other twelve build jobs, and the release
+job - which downloads those artifacts - cannot run without them. The quota
+was exhausted by **1832 run artifacts** accumulated over about two weeks of
+CI runs, each about 3.5 MB. **These are CI build outputs, NOT release
+assets**: the published archives live in the Releases API and the v1.1.0
+release's 14 assets were verified INTACT across the cleanup. The bulk
+`DELETE /repos/{owner}/{repo}/actions/artifacts` endpoint is NOT available on
+this repository's plan (it answers 404), so the artifacts were deleted one
+at a time through the per-artifact endpoint. **This is worth recording
+because the symptom looks like a build failure and is not one**: the
+`Build` and `Package` steps were green, and only the upload - the one step
+that talks to the storage service - was red.
+
+**THE CI ABORTS A JOB AT ITS FIRST FAILING STEP, so one red gate hides every
+gate behind it.** The first CI run of this release failed at the NAT-QUAL
+step and the 39 steps behind it - NAT-LOOP, NAT-IDX, NAT-FRAME, NAT-STR-
+STAGE, NAT-RODATA, NAT-REG, the 151A family, the 152 family, the conformance
+corpus and the P1 gate - were reported as **skipped**, not as passed. That
+is the same trap the increment-154 record describes, and it is why a single
+gate's first execution on a new platform matters more than its own result.
+The 49 steps in front of it - including the Phase 151 native-parity gates,
+A1, Phase B, D2, D5 and D8 - were green.
+
+**THE NAT-REG SLICE** is in the same release: the register allocator is a
+PORT of the oracle's Phase-150C allocator rather than a new design, and it is
+**OPT-IN** (`KARKAIN_NATIVE_REGALLOC=1`) with the qualified stack-based path
+as the default, because new code in a self-hosted compiler does not become
+the default until it has passed the complete qualification suite. The gate is
+BEHAVIOURAL - the two paths and the Go oracle must produce the same stdout
+and exit status over the same programs - and it is NON-VACUOUS because the
+two paths must be byte-different where the allocator engages. Four mutations
+are caught (omitting the epilogue's POP, storing a spilled value to the wrong
+slot, reusing a register whose holder is still live, and dropping the loop
+widening); a FIFTH is NOT caught and is recorded rather than hidden - dropping
+the scan's liveness check makes the allocator MORE conservative, which is a
+missed optimisation and not a wrong answer. **No performance improvement is
+claimed**: the allocator trades memory traffic for a push/pop pair per
+claimed register, and the measured sizes are mixed (sometimes smaller,
+sometimes a byte or two larger).

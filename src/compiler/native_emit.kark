@@ -569,7 +569,7 @@ func natSetTargetOS(s, os) {
 // natNewEmitter is the ONLY constructor, so every growth is purely additive: no
 // existing emission changes and no previously-shipped byte moves.
 func natNewEmitter(unused) {
-    return [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0]
+    return [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0, []]
 }
 
 // natStUid is the fresh-label counter (emitter slot 16).
@@ -597,6 +597,79 @@ func natFresh(s, prefix) {
 // the Go Emitter's Len() exactly or every rel32 is wrong.
 func natLen(s) {
     return len(natStCode(s))
+}
+
+// ------------------------------------------------------------------
+// The loop-context stack (NAT-LOOP, emitter slot 17)
+// ------------------------------------------------------------------
+//
+// The Go oracle keeps the loop contexts on the BUILDER, not on the emitter:
+//
+//	type loopTgt struct { brk, cont string }
+//	b.loops = append(b.loops, loopTgt{brk: endLabel, cont: loopLabel})
+//	b.e.Jmp(b.loops[len(b.loops)-1].brk)   // break
+//	b.e.Jmp(b.loops[len(b.loops)-1].cont)  // continue
+//
+// kcc has ONE object where the oracle has two (the builder and the emitter are
+// the same state array here), so the stack lives in the state array as slot 17.
+// The layout is FLAT -- two entries per loop, the break target then the
+// continue target -- because this language has no structs, and a flat pair is
+// the same convention the plan uses for its four-slot records.
+//
+// The stack is what makes `break` and `continue` mean "the NEAREST enclosing
+// loop" rather than "whatever label the lowering happened to be inside", and
+// that is the whole reason it is a stack and not a pair of variables: a nested
+// loop must be able to push its own targets and pop them again, and the
+// OUTER loop's targets must survive the inner loop intact.
+//
+// natLoopPop copies the stack without its last two entries instead of
+// truncating in place, because this language's arrays are values: there is no
+// slice operator, so a shorter array is built.
+
+func natStLoopStack(s) { return s[17] }
+
+// natLoopPush records a loop context. The break target comes first, then the
+// continue target, and the order is the oracle's (program.go:5266:
+// loopTgt{brk: endLabel, cont: postLabel}).
+func natLoopPush(s, brk, cont) {
+    let st = natStLoopStack(s)
+    st = appendArray(st, brk)
+    st = appendArray(st, cont)
+    s[17] = st
+    return s
+}
+
+// natLoopPop removes the innermost loop context.
+func natLoopPop(s) {
+    let st = natStLoopStack(s)
+    let n = len(st) - 2
+    let out = []
+    let i = 0
+    while (i < n) {
+        out = appendArray(out, st[i])
+        i = i + 1
+    }
+    s[17] = out
+    return s
+}
+
+// natLoopDepth is the number of enclosing loops. The scan uses it to refuse a
+// `break` or `continue` that has no loop to leave, and the oracle refuses the
+// same shape at emission time with the same words.
+func natLoopDepth(s) {
+    return len(natStLoopStack(s)) / 2
+}
+
+// natLoopBrk is the break target of the innermost loop.
+func natLoopBrk(s) {
+    let st = natStLoopStack(s)
+    return st[len(st) - 2]
+}
+
+// natLoopCont is the continue target of the innermost loop.
+func natLoopCont(s) {
+    let st = natStLoopStack(s)
+    return st[len(st) - 1]
 }
 
 // natByte appends one raw byte, truncated to 8 bits.
@@ -1302,15 +1375,27 @@ func natStoreScaled8(s, src, base, index, scale, disp) {
     return natSibTail(s, src, base, index, scale, disp)
 }
 
-// natIncReg emits inc r64 (REX.W, plus R for r8-r15).
+// natIncReg emits inc r64 (REX.W, plus the extension bit of the register).
 //
 // This is the 64-bit INC, which CLEARS the upper 32 bits. Every index it is applied
 // to here is a small byte-loop counter, so that is not observable -- but a caller
 // counting past 2^32 would be surprised, and the oracle's IncReg behaves identically.
+//
+// NAT-FRAME: this function used to build the REX byte BY HAND and set the wrong
+// bit. It ORed in natMask(15) -- the REX.R bit (0x04) -- for an extended
+// register, when the register number lives in the ModRM's rm field and is
+// therefore carried by REX.B (natMask(16), 0x01). The consequence was not
+// cosmetic: `inc r8` decoded as `inc rax`, so the map helper's entry counter
+// was incremented in the WRONG REGISTER and the count it then stored was the
+// UN-incremented value. A map's entry count was silently wrong.
+//
+// The fix is to use the CENTRALIZED constructor, natRex, exactly as natDecReg
+// already does -- natRex(s, 1, 0, r) puts W from the first argument, no R
+// (the reg field of /0 is the opcode extension, not a register) and B from the
+// register's extension. The oracle's IncReg is rex(true, 0, r), which is the
+// same thing.
 func natIncReg(s, r) {
-    let rex = natMask(13) | natMask(14)
-    if (natRegExt(r) == 1) { rex = rex | natMask(15) }
-    s = natByte(s, rex)
+    s = natRex(s, 1, 0, r)
     s = natByte(s, natMask(44))                          // 0xFF group-5
     return natModrm(s, 3, 0, r)                          // /0 = inc
 }

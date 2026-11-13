@@ -3,17 +3,57 @@ Release Notes
 =============
 
 This page tracks the honest development state of Karkain. The toolchain is a
-**Karkain 1.1.0 (Stable)** build: functional, tested, and self-hosted. The
-v1.1.0 identity is the public label from Phase 142 (1.0.x continues as the
-LTS line); the 1.0.0 story is preserved below as history.
+**Karkain 1.2.0 (Stable)** build: functional, tested, and self-hosted. The
+v1.2.0 identity is the public label from the v1.2.0 release (1.0.x and 1.1.0
+continue as historical lines); the 1.1.0 and 1.0.0 stories are preserved below
+as history.
 
-Versioning: the CLI reports ``Karkain Compiler v1.1.0`` via
-``karkain --version``; the public label progressed Developer Preview (≤115,
-v0.115.x) → Beta 1 (117–118, v0.117.x) → **1.0.0 (Stable)** (Phase 119) →
-**1.1.0 (Stable)** (Phase 142, minor bump: strictly additive surface).
+Versioning: the CLI reports ``Karkain Compiler v1.2.0`` via
+``karkain --version``; the public label progressed Developer Preview (115,
+v0.115.x) -> Beta 1 (117-118, v0.117.x) -> **1.0.0 (Stable)** (Phase 119) ->
+**1.1.0 (Stable)** (Phase 142) -> **1.2.0 (Stable)** (Native Independence).
 
-v1.1.0 — Stable Build (current)
-================================
+v1.2.0 - Native Independence (current)
+======================================
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 0
+
+   * - Status
+     - Karkain 1.2.0 (Stable) - the project's public status. Full story:
+       ``docs/audit/KARKAIN-V1.2.0-GA-QUALIFICATION.md``
+   * - Theme
+     - **Sovereignty I - Off C, Off Go.** The native targets are emitted by the
+       SELF-HOSTED compiler, not by a C compiler and not by the Go backend:
+       ``karkain build --target native-x86_64-<os>`` produces an image with
+       no ``gcc`` and no ``go`` on ``PATH``.
+   * - What shipped
+     - The native VALUE MODEL in the self-hosted engine: arrays, the heap
+       arena, string operations (concat, push, records, maps) and float64.
+
+       The self-hosted engine's own machine-code ENCODER, the ELF, PE and
+       Mach-O container writers, and the whole-program driver.
+
+       The native milestones, each with its own gate: NAT-CALL (user
+       functions), NAT-IF (branches), NAT-QUAL (the qualification), NAT-LOOP
+       (loops, break/continue), NAT-IDX (array indexing and the bounds
+       diagnostic), NAT-FRAME (the frame layout against the Go oracle's),
+       NAT-STR-STAGE (the string staging area), NAT-RODATA (the reporter's
+       read-only data) and NAT-REG (register allocation, opt-in).
+   * - Compatibility
+     - Every 1.1.0 program builds and runs identically. The surface change is
+       strictly additive; the one behavioural change is that the native
+       targets are now produced by the self-hosted engine.
+   * - Known differences
+     - The reporter's read-only data is laid out in the oracle's interning
+       order except for one shape, and the field-assignment code differs by 25
+       bytes because the oracle stages the pair through the string staging area
+       and the self-hosted driver does not. Both are documented in
+       ``docs/inventory/native-feature-matrix.json``.
+
+v1.1.0 - Stable Build (historical)
+==================================
 
 .. list-table::
    :widths: 30 70

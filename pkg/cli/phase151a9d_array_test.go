@@ -69,6 +69,31 @@ type nat9dCase struct {
 	// bytes per scalar; a two-unit 16-byte header plus 8 bytes per element for an
 	// array. Zero means the frame is not asserted for this case.
 	localBytes int
+	// usesMapStage says whether the program indexes anything, which is what
+	// reserves the oracle's 8-byte MAP-STAGE unit.
+	//
+	// The oracle's map-usage predicate is "an index expression whose target is a
+	// VARIABLE" (pkg/native/program.go:730-737), and an ARRAY access satisfies
+	// it. So `a[0]` sets this and `let a = [1, 2]` alone does not.
+	//
+	// It is stated per case rather than derived, because the gate's job is to
+	// assert the frame against a rule restated INDEPENDENTLY of the
+	// implementation -- a derived flag would make the assertion compare the
+	// implementation with itself.
+	usesMapStage bool
+	// usesStrStage says whether the program performs a string OPERATION --
+	// a concatenation, a push(), a string equality, a string slice or a string
+	// field assignment -- which is what reserves the oracle's 2560-byte
+	// STRING-STAGE area.
+	//
+	// The oracle's five flags are program-wide (pkg/native/program.go:4454),
+	// so the area is reserved in EVERY function of such a program, not only in
+	// the one that does the string work. NAT-STR-STAGE closed the scope
+	// difference; this flag is what the frame rule below has to account for.
+	//
+	// A program that merely BINDS a string and prints it performs no string
+	// operation, and reserves nothing.
+	usesStrStage bool
 }
 
 // The corpus. Every entry is a different program.
@@ -83,12 +108,12 @@ var nat9dCases = []nat9dCase{
 	{
 		name:    "array_index_0",
 		src:     "func main() {\n    let a = [7, 35]\n    print(a[0])\n}\n",
-		wantOut: []byte("7\n"), wantExit: 0, localBytes: 32,
+		wantOut: []byte("7\n"), wantExit: 0, localBytes: 32, usesMapStage: true,
 	},
 	{
 		name:    "array_index_1",
 		src:     "func main() {\n    let a = [7, 35]\n    print(a[1])\n}\n",
-		wantOut: []byte("35\n"), wantExit: 0, localBytes: 32,
+		wantOut: []byte("35\n"), wantExit: 0, localBytes: 32, usesMapStage: true,
 	},
 	{
 		// Three elements indexed at 2. This proves the element area is sized by the
@@ -96,7 +121,7 @@ var nat9dCases = []nat9dCase{
 		// third must not read past what a 2-element allocation would have reserved.
 		name:    "array_index_2_of_3",
 		src:     "func main() {\n    let a = [7, 35, 99]\n    print(a[2])\n}\n",
-		wantOut: []byte("99\n"), wantExit: 0, localBytes: 40,
+		wantOut: []byte("99\n"), wantExit: 0, localBytes: 40, usesMapStage: true,
 	},
 	{
 		// An array local AND a scalar local. The load-bearing layout case: the array
@@ -106,7 +131,7 @@ var nat9dCases = []nat9dCase{
 		// wrong value, which no single-array case could detect.
 		name:    "array_and_scalar_local",
 		src:     "func main() {\n    let a = [7, 35]\n    let b = 1000\n    print(a[1])\n    print(b)\n}\n",
-		wantOut: []byte("35\n1000\n"), wantExit: 0, localBytes: 40,
+		wantOut: []byte("35\n1000\n"), wantExit: 0, localBytes: 40, usesMapStage: true,
 	},
 	{
 		// Two prints of the SAME array at DIFFERENT indexes. Besides proving both
@@ -115,7 +140,7 @@ var nat9dCases = []nat9dCase{
 		// (natFinish refuses a duplicate label).
 		name:    "two_indexes_one_array",
 		src:     "func main() {\n    let a = [7, 35, 99]\n    print(a[0])\n    print(a[2])\n}\n",
-		wantOut: []byte("7\n99\n"), wantExit: 0, localBytes: 40,
+		wantOut: []byte("7\n99\n"), wantExit: 0, localBytes: 40, usesMapStage: true,
 	},
 	{
 		// A multi-digit element next to a single-digit one, so a driver emitting the
@@ -123,7 +148,7 @@ var nat9dCases = []nat9dCase{
 		// rather than by a value that happens to look right.
 		name:    "multi_digit_elements",
 		src:     "func main() {\n    let a = [12345, 7]\n    print(a[0])\n    print(a[1])\n}\n",
-		wantOut: []byte("12345\n7\n"), wantExit: 0, localBytes: 32,
+		wantOut: []byte("12345\n7\n"), wantExit: 0, localBytes: 32, usesMapStage: true,
 	},
 	{
 		// A single-element array: the element area is 8 bytes, so the whole local is
@@ -131,7 +156,7 @@ var nat9dCases = []nat9dCase{
 		// implementation with no element area would still look correct.
 		name:    "single_element_array",
 		src:     "func main() {\n    let a = [42]\n    print(a[0])\n}\n",
-		wantOut: []byte("42\n"), wantExit: 0, localBytes: 24,
+		wantOut: []byte("42\n"), wantExit: 0, localBytes: 24, usesMapStage: true,
 	},
 }
 
@@ -163,10 +188,21 @@ var nat9dRefusals = []struct {
 		code: "error[K145]",
 	},
 	{
-		// A variable index, not a literal.
-		name: "variable_index",
-		src:  "func main() {\n    let a = [7, 35]\n    let i = 1\n    print(a[i])\n}\n",
-		want: "array index is not an integer literal",
+		// A CORRECTIVE CHANGE against the frozen Step 9d baseline, recorded
+		// in docs/audit/NAT-IDX-BASELINE.md section 8.
+		//
+		// This row used to pin "a variable index is refused", which was the
+		// literal-only limitation NAT-IDX removes: the index is now evaluated
+		// as an EXPRESSION, so `a[i]` works. The row was REPLACED rather than
+		// deleted, because the table's property is "a construct the driver
+		// cannot lower is refused BY NAME and writes no image", and a table
+		// that quietly shrinks stops being evidence for it.
+		//
+		// The replacement is a STRING index, which is still refused: the index
+		// must be an integer expression.
+		name: "string_index",
+		src:  "func main() {\n    let a = [3, 5, 7]\n    print(a[\"x\"])\n}\n",
+		want: "is not an integer expression",
 		code: "error[K145]",
 	},
 	{
@@ -174,9 +210,14 @@ var nat9dRefusals = []struct {
 		// accepted it, lowering read the scalar's slot as a (base, len) header, and
 		// the result was a VALID PE printing a meaningless number. No diagnostic,
 		// no trap.
+		//
+		// The wording is now the ORACLE's (pkg/native/program.go:6297), because
+		// NAT-IDX consolidated the index validation onto the shared walker
+		// validator, which uses the oracle's sentences. The old wording was
+		// kcc's own, so the two engines did not agree about the same program.
 		name: "index_of_scalar",
 		src:  "func main() {\n    let a = 7\n    print(a[0])\n}\n",
-		want: "is indexed but is not an array",
+		want: "index target must be an array",
 		code: "error[K145]",
 	},
 	{
@@ -235,21 +276,55 @@ func nat9dFrameSubRsp(t *testing.T, img []byte) []int32 {
 // src/compiler/native_value.kark so the gate is not comparing the implementation to
 // itself:
 //
-//	locals region rounded up to 16   (Win64 stack discipline)
-//	+ 512  bin temporary area        (maxBinDepth 64 * 8)
-//	+  96  argument spill area       (argSpillBytes, 6 args * 16)
+//	locals region                       (the program's own bindings)
+//	+ 512  bin temporary area            (maxBinDepth 64 * 8)
+//	+2560  string staging area           (only when the program performs a
+//	                                      string operation; 8 * 5 * maxBinDepth)
+//	+   8  map-stage unit                (only when the program indexes)
+//	then the Win64 stack-discipline rounding
+//	+  96  argument spill area           (argSpillBytes, 6 args * 16)
 //
-// The rounding is applied to the LOCALS REGION BEFORE the fixed regions are added,
-// which is the discipline Step 1 established and the reason a one-local program's
-// frame is 624 rather than 616.
-func nat9dExpectFrame(localBytes int) int32 {
-	rounded := ((localBytes + 15) / 16) * 16
-	if rounded == 0 {
-		// A program with no bindings still reserves the fixed regions; an empty
-		// locals region rounds to 0, not to 16.
-		rounded = 0
+// THREE ORDERING FACTS, all measured, and the first two corrected by NAT-FRAME:
+//
+//  1. The rounding is applied to the TOTAL, not to the locals region. The oracle
+//     adds the argument spill AFTER the rounding (pkg/native/program.go:4482-4485),
+//     and the map-stage unit before it, so "round the locals region, then add the
+//     fixed regions" is a DIFFERENT rule once the map-stage unit is present. The
+//     two agree while the only fixed region is 512 (a multiple of 16), which is why
+//     the original form of this rule was not wrong until the map-stage unit
+//     arrived. The two formulations differ by 8 bytes, and the ORACLE's is the one
+//     in the image.
+//
+//  2. The map-stage unit is present when the program indexes anything. The
+//     oracle's map-usage predicate accepts ANY variable-target index -- an ARRAY
+//     access included (pkg/native/program.go:730-737) -- and the oracle's flag is
+//     program-wide, so the unit is reserved in every frame of such a program.
+//
+//  3. The string staging area comes BETWEEN the bin temporary area and the
+//     map-stage unit, because that is the oracle's layout order
+//     (pkg/native/program.go:4443-4487). It is 2560 bytes, a multiple of 16, so
+//     it does not move the rounding residue -- but its POSITION does move the
+//     map-stage unit's offset, and a rule that put it last would be wrong by
+//     2560 rather than by 8.
+//
+// NAT-FRAME measured the first two against the oracle's own images rather than
+// inheriting them: the frames now agree exactly, on both targets, for every case
+// in this gate's corpus. NAT-STR-STAGE added the third.
+func nat9dExpectFrame(localBytes int, usesMapStage bool, usesStrStage bool) int32 {
+	next := localBytes + 512
+	if usesStrStage {
+		next += 8 * 5 * 64
 	}
-	return int32(rounded + 512 + 96)
+	if usesMapStage {
+		next += 8
+	}
+	// The Win64 stack discipline rounds the frame up to a multiple of 16, and adds
+	// 8 ONLY when the total is not already aligned. Every region is an 8-byte
+	// multiple, so the total's residue modulo 16 is either 0 or 8.
+	if next%16 != 0 {
+		next += 8
+	}
+	return int32(next + 96)
 }
 
 func nat9dContainsInt32(xs []int32, want int32) bool {
@@ -391,12 +466,14 @@ func TestPhase151A9D_FrameFollowsTheValueModelRule(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			img := nat9dImage(t, c.src)
 			got := nat9dFrameSubRsp(t, img)
-			want := nat9dExpectFrame(c.localBytes)
+			want := nat9dExpectFrame(c.localBytes, c.usesMapStage, c.usesStrStage)
 			if !nat9dContainsInt32(got, want) {
 				t.Errorf("no `sub rsp, %d` in the image; got %v.\n  want frame %d for "+
-					"localBytes %d = round16(%d) + 512 (binTemp) + 96 (argSpill).\n"+
+					"localBytes %d, map stage %v.\n"+
+					"  The frame is the locals region + 512 (binTemp) + 8 (map stage, "+
+					"when the program indexes) rounded up to 16, then + 96 (argSpill).\n"+
 					"  source: %s",
-					want, got, want, c.localBytes, c.localBytes, c.src)
+					want, got, want, c.localBytes, c.usesMapStage, c.src)
 			}
 		})
 	}
@@ -435,17 +512,35 @@ func TestPhase151A9D_ElementsNeedRoomInTheFrame(t *testing.T) {
 		t.Run(itoa9d(n)+"_elements", func(t *testing.T) {
 			img := nat9dImage(t, srcFor(n))
 			got := nat9dFrameSubRsp(t, img)
-			want := nat9dExpectFrame(16 + 8*n)
+			// These programs index (print(a[0])), so the map-stage unit is
+			// reserved.
+			want := nat9dExpectFrame(16+8*n, true, false)
 			if !nat9dContainsInt32(got, want) {
 				t.Fatalf("%d-element array: no `sub rsp, %d` in the image; got %v",
 					n, want, got)
 			}
-			locals := want - 512 - 96
-			if int(locals) < 16+8*n {
-				t.Errorf("%d-element array: locals region is %d bytes but the header "+
-					"plus %d elements needs %d.\n  A frame that under-reserves lets "+
-					"a[n] read adjacent stack data and print it as an array element",
-					n, locals, n, 16+8*n)
+			// The SOUNDNESS property: the frame must hold the locals region
+			// (the two-unit header plus every element) AND the fixed regions.
+			//
+			// This used to be checked by BACK-COMPUTING the locals region as
+			// want-512-96, which was wrong twice over: it could not isolate the
+			// locals region once the map-stage unit and the rounding pad were
+			// inside the frame, and under the pre-NAT-FRAME rule it was
+			// VACUOUS -- round16(localBytes) >= 16+8n held by construction, so
+			// the check could not fail.
+			//
+			// The honest form is a LOWER BOUND on the frame: the rounding only
+			// ever adds, so the frame must be at least the sum of the regions it
+			// has to hold. An element-blind driver -- one that reserved the
+			// header but not the elements -- would produce a frame 8 bytes per
+			// element short, and would fail here.
+			minFrame := int32(16+8*n) + 512 + 8 + 96
+			if want < minFrame {
+				t.Errorf("%d-element array: frame %d is smaller than the %d bytes "+
+					"the header and %d elements need, plus the fixed regions "+
+					"(%d).\n  A frame that under-reserves lets a[n] read adjacent "+
+					"stack data and print it as an array element",
+					n, want, 16, n, minFrame-int32(16+8*n))
 			}
 			if prev > want {
 				t.Errorf("%d-element array: frame %d is SMALLER than the %d-element "+
@@ -454,7 +549,7 @@ func TestPhase151A9D_ElementsNeedRoomInTheFrame(t *testing.T) {
 			}
 			if prev == want {
 				t.Logf("%d-element array shares frame %d with %d elements; that is "+
-					"legitimate, the locals region is rounded up to 16", n, want, n-1)
+					"legitimate, the frame is rounded up to 16", n, want, n-1)
 			}
 			prev = want
 		})

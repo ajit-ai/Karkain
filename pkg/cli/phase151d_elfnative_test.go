@@ -333,8 +333,24 @@ func TestPhase151D_LinuxRefusesUnsupportedPrograms(t *testing.T) {
 		src  string
 	}{
 		{"no_main", "func helper() {\n    print(1)\n}\n"},
-		{"unsupported_loop", "func main() {\n    let i = 0\n    while i < 3 {\n        print(i)\n        i = i + 1\n    }\n}\n"},
-		{"unsupported_if", "func main() {\n    let x = 1\n    if x > 0 {\n        print(x)\n    }\n}\n"},
+		{"unsupported_loop", "func main() {\n    let i = 0\n    for (let i = 0; i; i = i + 1) {\n        print(i)\n    }\n}\n"},
+		// A FOURTH corrective change against this frozen table, recorded in
+		// docs/audit/NAT-LOOP-BASELINE.md section 8: the row that pinned
+		// "a `while` is not lowered" stopped being a refusal when NAT-LOOP
+		// taught the driver to lower loops, and it was replaced by a loop
+		// that is STILL refused -- a C-style `for` whose condition is not a
+		// comparison, which the oracle's emitCond refuses too. The table's
+		// property is "a program the driver cannot lower is refused BY NAME
+		// and writes no image", and a table that quietly shrinks stops
+		// being evidence.
+		// A THIRD corrective change against this frozen table, recorded in
+		// docs/audit/NAT-IF-BASELINE.md section 8: a row that pinned "an `if`
+		// is not lowered" stopped being a refusal when NAT-IF taught the
+		// driver to lower a branch, and it was replaced by the next
+		// control-flow construct rather than deleted. The table's property is
+		// "a program the driver cannot lower is refused BY NAME and writes no
+		// image", and a table that quietly shrinks stops being evidence.
+		{"unsupported_for_in", "func main() {\n    for x in [1, 2] {\n        print(x)\n    }\n}\n"},
 		// A CORRECTIVE CHANGE against the frozen A1 baseline, recorded in
 		// docs/audit/NAT-CALL-BASELINE.md section 8 rather than silently here.
 		//

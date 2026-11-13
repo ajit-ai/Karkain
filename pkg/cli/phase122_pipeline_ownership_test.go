@@ -232,17 +232,38 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// This pin is shared with TestPhase151A5_KIRPinHolds, which carries the
 		// fuller accounting.
 		//
-		// RE-PINNED FOR NAT-CALL: 14050 -> 14385 (+335). The driver gained
-		// per-function analysis and lowering (natNativeSubset/natNativeScanFor/
-		// natNativeScanIntExpr/natNativeScanCall/natNativeMaxExtras), a fourth
-		// plan slot carrying the binding name, and the emission split
-		// (natEmitIntExpr/natEmitIntCall/natNativeHomeParams/natNativeEmitFunc/
-		// natNativeLower) that lets a real user function be called from `main`.
+		// RE-PINNED FOR NAT-IDX: 14792 -> 14834 (+42). NAT-IDX made the array
+		// index an EXPRESSION evaluated through the shared integer expression
+		// walker -- exactly as the Go oracle evaluates it -- instead of a
+		// literal-only special case; it bundled the runtime-error reporter's
+		// context into that walker as one argument; and it made the reporter's
+		// PREDICATE a real walk over branches, loops, conditions and nested
+		// expressions, because a predicate that cannot see an index produces a
+		// linker crash rather than a diagnostic.
+		//
+		// RE-PINNED FOR NAT-FRAME: 14834 -> 14841 (+7). The driver's frame now
+		// matches the oracle's exactly; the delta was an unreserved map-stage
+		// slot and an `inc r8` that decoded as `inc rax`, not a rounding rule.
+		//
+		// RE-PINNED FOR NAT-STR-STAGE: 14841 -> 14938 (+97). The string staging
+		// area is now reserved program-wide over the oracle's five operations,
+		// which added the program-wide flag, the five-operation predicate and
+		// its detectors to the driver.
+		//
+		// RE-PINNED FOR NAT-RODATA: 14938 -> 14946 (+8). The reporter's
+		// read-only data is now interned in the oracle's order and its offsets
+		// are read back out of the interning table.
+		//
+		// RE-PINNED FOR NAT-REG: 14946 -> 15243 (+297). The register allocator
+		// and its liveness walk are new FUNCTIONS, and the KIR text renders
+		// the AST rather than the file, so a slice that adds functions moves
+		// the pin by more than its line count.
+		//
 		// Measured with `karkain kir --verify src/compiler/kir.kark` in this
-		// gate's own invocation -- text=14385 verify=14385 -- and never
+		// gate's own invocation -- text=15243 verify=15243 -- and never
 		// predicted.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 14385 {
-			t.Errorf("whole-tree kir text = %d lines, want 14385:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 15243 {
+			t.Errorf("whole-tree kir text = %d lines, want 15243:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

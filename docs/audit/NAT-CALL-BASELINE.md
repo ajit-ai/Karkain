@@ -276,3 +276,121 @@ the expected gate failure observed, and the file restored byte-identically.
 Filled after the implementation lands: measured gate results, measured KIR pin,
 the frozen-gate zero-drift result, and any defect found by a gate rather than by
 inspection.
+
+### 8.1 What shipped
+
+`src/compiler/native_value.kark` (the driver) + `pkg/cli/phase151e_call_test.go`
+(the gate) + one `ci.yml` step. The gate file's name is `phase151e_call_test.go`,
+not this section's first draft — see §6 for why.
+
+The driver gained: `natNativeSubset`, `natNativeScanFor` (per function, with an
+`isMain` discriminator), `natNativeScanDecl`, `natNativeIsStrBinary`,
+`natNativeFuncs` and its accessors, `natNativeExprHasCall`, `natNativeScanCall`,
+`natNativeScanIntExpr`, `natNativeMaxExtras`/`natNativeMaxExtrasExpr`,
+`natNativeArgKindName`, `natNativeWhere`, `natNativeStmtKindName`,
+`natEmitIntExpr`, `natEmitIntCall`, `natNativeHomeParams`, `natNativeEmitFunc`,
+and a per-function `natNativeLower`. The plan widened from three slots to four
+(`[off, kind, elems, name]`) so a slot can be resolved by NAME, and
+`natNativeLocalIndex` was deleted so exactly one slot-resolution rule exists.
+
+### 8.2 Measured results
+
+* **Gate:** `TestPhaseNATCall_*` — 7 evidence layers plus a quirks test and a
+  CI-wiring check. Green; `ok karkain/pkg/cli` in 33-36 s.
+* **Corpus:** 20 shapes, each a different `.kark` file. Every one EXECUTES on
+  this Windows host as a PE with **exact** stdout bytes and exit codes, and
+  every one is **byte-identical** to the Go oracle's Linux ELF.
+* **Refusal table:** 24 rows, each asserting the exit code AND that no image
+  was written.
+* **Frames:** derived independently in the test from the layout rule and
+  compared per function, in source order.
+* **Windows alignment:** `sub rsp, 8` counts measured per program. Two
+  expectations in the first draft were WRONG and were corrected by
+  measurement: a nested call `inc(inc(1))` is TWO emission sites, and a print
+  inside a callee counts ONCE (an emission site, not a dynamic execution).
+* **KIR pin:** 14050 → **14385** (+335), measured with
+  `karkain kir --verify src/compiler/kir.kark` in the gate's own invocation —
+  `text=14385 verify=14385` — and never predicted.
+* **Frozen gates re-run:** `TestPhase151A9C_`/`9D_`/`9E_`/`9F_`/`9G_`/`9H_`,
+  `TestPhase151B9_`, `TestPhaseD2_`/`D5_`/`D8_`, `TestPhase151D_` and the whole
+  `pkg/native` suite — all green, zero byte drift.
+
+### 8.3 Defects the gates found, and two the gate's own expectations hid
+
+Found by a gate rather than by inspection:
+
+1. `natRel32` returns the `[state, pos]` PAIR, never the state — using the
+   state alone silently produced a wrong-length buffer.
+2. `natNativeEmitFunc` had to be defined before its first call site.
+3. `maxExtra` is **units − 6**, not the total unit count: the extras area
+   holds what does not fit in the six argument registers. With the total, a
+   seven-argument call reserved 8 units where the oracle reserves 1 — a
+   48-byte frame difference on the caller, which showed up as a byte-identity
+   failure on `main` alone while the callee (no calls) matched.
+4. `natNativeMaxExtras` was missing a `NODE_EXPR_STMT` arm, so a call in
+   expression-statement position did not size the extras area.
+5. A builtin call (`abs`) reported "expression of kind 23" instead of naming
+   the builtin; `isCheckerBuiltin` fixed the diagnostic.
+6. The refusal messages named the construct but not the parameter; they now
+   name both.
+7. `str(params[i])` — a bracket on a parameter list, not an index.
+8. **A real crash:** a callee that prints a STRING reached `natRodataRefOff`
+   with an offset that was never interned (a callee's literals are never
+   collected), and kcc died with "array index out of range". The callee subset
+   is now int-only, refused by name, and the fixture is in the refusal table.
+
+Two of MY OWN expectations in the gate were wrong and were corrected by
+measurement rather than by argument: the `winSub8` counts above, and the
+`let x = f(2, 3)` row — which is lowered inside a CALLED function and still
+refused in `main` (main's `let` arm is frozen by 9c). That asymmetry is now
+named in §2.1, §5 and the refusal table rather than implied.
+
+### 8.4 Mutation verification
+
+Five mutations, each restored byte-identically (the file's SHA-256 after every
+restore: `54A1CD0C14A1A5554EAE1A663BEFBA3A916DDF84B09E02C697A5BE863835DA3C`),
+with the self-hosted source's mtime bumped so `kccStale` cannot reuse a mutated
+binary:
+
+| # | Mutation | Observed |
+|---|---|---|
+| M1 | `extras = units` instead of `units − 6` | layers 2 and 3 fail on exactly the seven-argument cases; layer 3 named the caller (`PE frames = [672 672], want [672 624]`) |
+| M2 | the Windows call-site alignment removed | every call-bearing program faults with exit `3221225477` (0xC0000005); the alignment count drops to the print-only baseline |
+| M3 | parameter homing disabled | layer 1 prints zero or garbage for every parameterised callee |
+| M4 | the `$ret` jump removed | layer 2 fails on every return-bearing case |
+| M5 | the callee-`print` narrowing removed | the crashing fixture returns exit 6 instead of exit 3, and the refusal layer reports it as a crash rather than a refusal |
+
+### 8.5 Quirks recorded, not endorsed
+
+* **Line numbers in a diagnostic are not reliable.** Measured on this tree: a
+  construct on line 2 of `main` is reported as line 1; a construct on line 3
+  inside a called function is reported as line 1. The gate therefore asserts
+  the CONSTRUCT a refusal names and never a line number.
+* **A void call in value position** (`print(v(1))` where `v` returns nothing)
+  is accepted by both checkers and yields the callee's implicit `0`. Measured
+  on the Go oracle FIRST: the C path prints `1\n0\n`, and the Go native ELF is
+  byte-identical to kcc's. It is a pre-existing parity gap, not a NAT-CALL
+  defect, and it is pinned as a quirk rather than fixed here.
+* **The refusal guidance blob** enumerates the subset in prose. It is accurate
+  about `let` (it says "and `let` of an integer expression inside a called
+  function"), but a refusal raised INSIDE a callee still quotes the whole
+  subset, which includes main-only constructs. The wording is imprecise and is
+  recorded here rather than left to be discovered.
+
+### 8.6 Corrective changes this slice made to frozen gates
+
+Three frozen gates asserted that a construct the driver could not lower was
+refused. NAT-CALL made three of those constructs lowerable, so the rows were
+**replaced, not deleted** — a refusal table that quietly shrinks stops being
+evidence for the property it exists to prove.
+
+| Gate | Row that moved | Replacement | Recorded in |
+|---|---|---|---|
+| `phase151d_elfnative_test.go` | a user function call | integer division; a float expression | this section |
+| `phase151d_elfnative_test.go` | unary minus | `print(-7)` moved from the refusal table INTO the corpus (it is now supported) | this section |
+| `phase151e_call_test.go` (this slice) | `if` in a callee; `if` in `main` | `for-in` in a callee; `for-in` in `main` | this section |
+
+The fourth move — `if` in a callee and in `main` — was needed again by NAT-IF
+(see `docs/audit/NAT-IF-BASELINE.md` §8.6), which is the honest way to record
+it: the table's rows follow the driver's capability, and every move says which
+slice moved them.

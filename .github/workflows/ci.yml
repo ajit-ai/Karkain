@@ -354,6 +354,146 @@ jobs:
       - name: Run NAT-CALL kcc native user-call gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATCall_' -count=1 -timeout 30m -v
 
+      # NAT-IF, the conditional branch in the kcc native driver: `if cond { }`
+      # and `if cond { } else { }` over INTEGER comparisons.
+      #
+      # It is the first BRANCH in the native path, so it is the first construct
+      # whose emitted bytes depend on a label rather than only on a frame slot.
+      # The evidence is therefore the same shape as NAT-CALL's: EXECUTED PE
+      # goldens on this Windows runner (exact stdout bytes, never trimmed), a
+      # Linux ELF byte-identity DIFFERENTIAL against the Go oracle, and a
+      # refusal table that names every construct the slice declines.
+      #
+      # Its own pattern again: 'TestPhaseNATIf_' is matched by no other step, so
+      # a branch regression cannot hide behind a green neighbour, and the gate
+      # asserts THIS step exists.
+      - name: Run NAT-IF kcc native conditional-branch gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATIf_' -count=1 -timeout 30m -v
+
+      # NAT-QUAL, the v1.2.0 native-independence QUALIFICATION. It adds no
+      # language construct; it answers what the qualified native path supports
+      # and proves the claim of independence.
+      #
+      # The interesting layer is the third: PATH shims for `gcc` and `go` log
+      # every invocation, and a native build with those shims first on PATH
+      # must produce an EMPTY log -- while the LEGACY build path, run with the
+      # same shims, must produce a NON-empty one. The control is what makes the
+      # empty log evidence rather than a shim that silently never fired.
+      - name: Run NAT-QUAL native independence qualification gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATQual_' -count=1 -timeout 30m -v
+
+      # NAT-LOOP, the loop control flow in the kcc native driver: `while`, the
+      # C-style `for`, `break` and `continue`, and their nesting.
+      #
+      # A loop is the first construct whose CORRECTNESS depends on a control
+      # structure rather than on a frame layout, so the evidence compares the
+      # native execution against the C BACKEND's execution of the same source
+      # -- byte for byte -- rather than only against a golden. The C backend is
+      # the reference implementation of these semantics and is not modified.
+      #
+      # It also carries the memory argument: the arena-using constructs are
+      # refused inside a loop, because the arena is sized at compile time on the
+      # assumption that each allocation site runs at most once.
+      - name: Run NAT-LOOP kcc native loop-control-flow gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATLoop_' -count=1 -timeout 30m -v
+
+      # NAT-IDX, array indexing inside the kcc native driver: the index is
+      # evaluated as an EXPRESSION through the shared walker, exactly as the Go
+      # oracle evaluates it, and the runtime-error reporter's context travels
+      # through that walker as one explicit argument.
+      #
+      # Its evidence is EXECUTED PE goldens with exact stdout bytes, a
+      # behavioural differential against the C backend (array programs are NOT
+      # byte-identical to the oracle because of the documented frame delta, so
+      # they are compared by BEHAVIOUR), the bounds cases -- out-of-range,
+      # negative and empty-array indexes must all be runtime errors with a
+      # non-zero exit and no value printed -- and the same PATH-shim
+      # independence evidence with the legacy path as the positive control.
+      - name: Run NAT-IDX kcc native array-indexing gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATIdx_' -count=1 -timeout 30m -v
+
+      # NAT-FRAME, the native frame layout against the Go oracle's.
+      #
+      # The recorded discrepancy was a frame-size difference in array programs.
+      # The diagnosis was two defects, NEITHER of them the rounding rule: an
+      # `inc r8` that set the REX.R bit instead of REX.B (so it decoded as
+      # `inc rax` and a map's entry count was silently wrong), and the
+      # oracle's program-wide map-stage slot that the driver never reserved.
+      #
+      # This gate pins the frame immediates against the ORACLE's, for both
+      # targets -- the Linux one matters because the Windows rounding
+      # quantises an 8-byte difference away -- and it isolates the residual
+      # two-byte rodata-order difference rather than hiding it.
+      - name: Run NAT-FRAME native frame-layout gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATFrame_' -count=1 -timeout 30m -v
+
+      # NAT-STR-STAGE, the native string staging area: its SCOPE and its
+      # COVERAGE.
+      #
+      # The oracle reserves the 2560-byte staging area from FIVE PROGRAM-WIDE
+      # flags (usesConcat, usesStrEq, usesStrSlice, usesPush, usesStrField --
+      # pkg/native/program.go:4454) and its layout reserves the area in EVERY
+      # function. The driver reserved it per-function and for only two of the
+      # five, so a callee in a program whose main concatenated had a frame
+      # 2560 bytes short, and a program that assigned a string to a field
+      # reserved nothing at all.
+      #
+      # Its evidence is a DIFFERENTIAL against the Go oracle -- the frame-size
+      # immediates of EVERY function, read out of each image, compared element
+      # for element on the LINUX target, because the Windows frame rounding
+      # quantises an 8-byte difference away and cannot see a 2560-byte one --
+      # plus EXECUTED PE goldens with exact stdout bytes, the five-operation
+      # coverage measured on BOTH engines, a refusal table for the constructs
+      # the driver declines, determinism, and the one remaining divergence
+      # (the oracle's program-wide NAME table, which ignores shadowing) stated
+      # rather than hidden.
+      #
+      # Its own pattern again: 'TestPhaseNATStrStage_' is matched by no other
+      # step, so a string-stage regression cannot hide behind a green
+      # neighbour, and the gate asserts THIS step exists.
+      - name: Run NAT-STR-STAGE native string-staging-area gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATStrStage_' -count=1 -timeout 30m -v
+
+      # NAT-RODATA, the reporter's read-only data: what is interned, in what
+      # order, at what offset.
+      #
+      # The recorded residual was TWO bytes in an indexing program's image,
+      # attributed to the ORDER in which the reporter's strings are interned.
+      # Measurement says the order was not the cause: the rodata layout was
+      # byte-identical between the two engines, and the driver baked the LIST
+      # POSITION of the array-bounds call site's two strings where the interned
+      # OFFSET belongs -- so the diagnostic pointed at the middle of
+      # "runtime error: " instead of at the message and the file name.
+      #
+      # Its evidence is a DIFFERENTIAL against the Go oracle on the LINUX ELF
+      # (the PE cannot be compared byte for byte: the Windows entry stub and
+      # the PEB bootstrap are separate implementations in the two engines),
+      # the section's entries read out of each image with their offsets and
+      # their insertion order, the deduplication count, and a DIRECT check
+      # that the image references the address of the message and of the file
+      # name -- the claim that matters, because the defect was a wrong
+      # diagnostic rather than a wrong layout.
+      #
+      # Its own pattern again: 'TestPhaseNATRodata_' is matched by no other
+      # step, so a rodata regression cannot hide behind a green neighbour, and
+      # the gate asserts THIS step exists.
+      - name: Run NAT-RODATA native reporter rodata gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATRodata_' -count=1 -timeout 30m -v
+
+      # NAT-REG, native register allocation in the self-hosted driver.
+      #
+      # The register-allocated path is NEW code in a self-hosted compiler, so
+      # the evidence is BEHAVIOURAL: every case is built with the stack-based
+      # path, with the register-allocated path and with the Go oracle, and the
+      # two native paths must produce the SAME observable result. The frame
+      # must be unchanged (the allocator does not shrink it), and the two paths
+      # must be byte-different for the high-pressure cases -- otherwise the
+      # agreement would be vacuous.
+      #
+      # The switch is KARKAIN_NATIVE_REGALLOC=1 and the DEFAULT is the
+      # stack-based path, which is the qualified implementation.
+      - name: Run NAT-REG native register-allocation gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATReg_' -count=1 -timeout 30m -v
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing
