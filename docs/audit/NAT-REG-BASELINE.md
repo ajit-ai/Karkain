@@ -97,6 +97,18 @@ correctness defect, and no layout comparison can see it.
 | `TheOutputIsDeterministic` | two builds of the register path are byte-identical |
 | `TheSwitchIsOptIn` | the default path and the register path differ, and the gate runs with the variable unset |
 
+**THE GATE EXECUTES THE HOST'S OWN NATIVE IMAGE.** The claim is behavioural,
+and a behavioural claim needs an EXECUTED image, so the gate builds and runs
+the container this host can actually run: the Windows PE on Windows, the Linux
+ELF on Linux, the macOS Mach-O on macOS. **This is deliberately NOT the
+pattern the other native gates in this repository use**: they build the PE
+everywhere and SKIP the execution layer on POSIX, which means their
+behavioural layers run NOWHERE in CI. This gate cannot do that, because its
+WHOLE CLAIM is behavioural - a gate whose only layer is the one it skips
+asserts nothing. The image is validated with the oracle's OWN parser
+(`native.ParsePE` for a PE, `native.Parse` for an ELF), because a check
+written in the gate would share its assumptions with the code under test.
+
 **The corpus** covers the brief's twenty-two areas: simple arithmetic, deeply
 nested expressions, several simultaneously live values, register exhaustion,
 spill and reload, repeated local reads, local updates, comparisons and

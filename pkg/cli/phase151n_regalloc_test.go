@@ -3,9 +3,14 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"karkain/pkg/native"
 )
 
 // NAT-REG -- native register allocation in the self-hosted driver.
@@ -207,6 +212,84 @@ func natRegBuild(t *testing.T, karkain, src, target, engine string, regAlloc boo
 	return nativeBuildWithEngine(t, karkain, src, target, engine, "natreg.img")
 }
 
+// natRegHostTarget is the native target this host builds AND executes.
+//
+// The gate's claim is behavioural - the register-allocated path and the
+// stack-based path must compute the SAME answer - and a behavioural claim
+// needs an EXECUTED image. So the gate follows the host's own target rather
+// than a fixed one: the Windows PE on Windows, the Linux ELF on Linux, the
+// macOS Mach-O on macOS.
+//
+// This is NOT the pattern the other native gates in this repository use: they
+// build the PE everywhere and SKIP the execution layer on POSIX, which means
+// their behavioural layers run nowhere in CI. This gate cannot do that,
+// because its WHOLE CLAIM is behavioural - a gate whose only layer is the
+// one it skips is a gate that asserts nothing. So the gate builds and
+// executes the image the host can actually run.
+//
+// The CI leg that can run this gate is the one that has GMP (building kcc
+// needs gmp.h), and that leg is Linux, which can execute the ELF.
+func natRegHostTarget() string {
+	switch runtime.GOOS {
+	case "windows":
+		return NativeWindowsTarget
+	case "darwin":
+		return NativeMacOSTarget
+	default:
+		return NativeLinuxTarget
+	}
+}
+
+// natRegRunImage writes a native image to disk and EXECUTES it.
+//
+// The container is validated with the oracle's OWN parser (native.ParsePE
+// for a PE, native.Parse for an ELF), because a check written here would
+// share its assumptions with the code under test.
+func natRegRunImage(t *testing.T, img []byte, name string) ([]byte, int) {
+	t.Helper()
+	ext := ""
+	if runtime.GOOS == "windows" {
+		if _, _, err := native.ParsePE(img); err != nil {
+			t.Fatalf("%s: the driver image is not a structurally valid PE: %v", name, err)
+		}
+		ext = ".exe"
+	} else {
+		if _, _, err := native.Parse(img); err != nil {
+			t.Fatalf("%s: the driver image is not a structurally valid native image: %v", name, err)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "prog"+ext)
+	if err := os.WriteFile(path, img, 0o755); err != nil {
+		t.Fatalf("%s: writing the driver image: %v", name, err)
+	}
+	cmd := exec.Command(path)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("%s: starting the driver image: %v", name, err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		code := 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		} else if err != nil {
+			t.Fatalf("%s: running the driver image: %v", name, err)
+		}
+		return buf.Bytes(), code
+	case <-time.After(20 * time.Second):
+		_ = cmd.Process.Kill()
+		<-done
+		t.Fatalf("%s did not terminate within 20s.\n  A program that never terminates hangs "+
+			"the gate; the corpus is checked for termination, not only for its expected "+
+			"output.\n  partial output: % x", name, buf.Bytes())
+	}
+	return nil, 0
+}
+
 // TestPhaseNATReg_ThePathsAgree is the behavioural claim.
 //
 // EVERY case is built three ways -- the stack-based path, the register-
@@ -219,8 +302,8 @@ func TestPhaseNATReg_ThePathsAgree(t *testing.T) {
 	for _, c := range natRegCases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			stackRes := natRegBuild(t, karkain, c.src, NativeWindowsTarget, "kcc", false)
-			regRes := natRegBuild(t, karkain, c.src, NativeWindowsTarget, "kcc", true)
+			stackRes := natRegBuild(t, karkain, c.src, natRegHostTarget(), "kcc", false)
+			regRes := natRegBuild(t, karkain, c.src, natRegHostTarget(), "kcc", true)
 
 			if stackRes.ExitCode != c.wantExit || regRes.ExitCode != c.wantExit {
 				t.Fatalf("exit codes differ from the expected %d: the stack path gave %d, "+
@@ -241,8 +324,8 @@ func TestPhaseNATReg_ThePathsAgree(t *testing.T) {
 			if !stackRes.WroteImage || !regRes.WroteImage {
 				t.Fatalf("no image: stack=%v register=%v", stackRes.WroteImage, regRes.WroteImage)
 			}
-			stackOut, stackCode := natIRunImage(t, stackRes.Image, "natreg-stack")
-			regOut, regCode := natIRunImage(t, regRes.Image, "natreg-reg")
+			stackOut, stackCode := natRegRunImage(t, stackRes.Image, "natreg-stack")
+			regOut, regCode := natRegRunImage(t, regRes.Image, "natreg-reg")
 			if stackCode != regCode {
 				t.Errorf("the two paths exited differently: stack %d, register %d", stackCode, regCode)
 			}
@@ -254,9 +337,9 @@ func TestPhaseNATReg_ThePathsAgree(t *testing.T) {
 				t.Errorf("the register path printed %q, want %q", got, c.wantOut)
 			}
 			// And the ORACLE, for the cases it supports.
-			goRes := natRegBuild(t, karkain, c.src, NativeWindowsTarget, "go", false)
+			goRes := natRegBuild(t, karkain, c.src, natRegHostTarget(), "go", false)
 			if goRes.ExitCode == 0 && goRes.WroteImage {
-				goOut, goCode := natIRunImage(t, goRes.Image, "natreg-go")
+				goOut, goCode := natRegRunImage(t, goRes.Image, "natreg-go")
 				if goCode != regCode || !bytes.Equal(goOut, regOut) {
 					t.Errorf("the register path and the GO ORACLE disagree:\n  register: %q (exit %d)\n"+
 						"  oracle:   %q (exit %d)", regOut, regCode, goOut, goCode)
@@ -280,8 +363,8 @@ func TestPhaseNATReg_TheFrameIsUnchanged(t *testing.T) {
 			continue
 		}
 		t.Run(c.name, func(t *testing.T) {
-			stackRes := natRegBuild(t, karkain, c.src, NativeLinuxTarget, "kcc", false)
-			regRes := natRegBuild(t, karkain, c.src, NativeLinuxTarget, "kcc", true)
+			stackRes := natRegBuild(t, karkain, c.src, natRegHostTarget(), "kcc", false)
+			regRes := natRegBuild(t, karkain, c.src, natRegHostTarget(), "kcc", true)
 			if !stackRes.WroteImage || !regRes.WroteImage {
 				t.Fatalf("no image: stack=%v register=%v", stackRes.WroteImage, regRes.WroteImage)
 			}
@@ -318,8 +401,8 @@ func TestPhaseNATReg_TheHighPressureCasesDiffer(t *testing.T) {
 	for _, c := range natRegCases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			stackRes := natRegBuild(t, karkain, c.src, NativeLinuxTarget, "kcc", false)
-			regRes := natRegBuild(t, karkain, c.src, NativeLinuxTarget, "kcc", true)
+			stackRes := natRegBuild(t, karkain, c.src, natRegHostTarget(), "kcc", false)
+			regRes := natRegBuild(t, karkain, c.src, natRegHostTarget(), "kcc", true)
 			if !stackRes.WroteImage || !regRes.WroteImage {
 				t.Skip("the program does not build on the native target")
 			}
@@ -359,8 +442,8 @@ func TestPhaseNATReg_TheOutputIsDeterministic(t *testing.T) {
 	for _, c := range natRegCases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
-			first := natRegBuild(t, karkain, c.src, NativeLinuxTarget, "kcc", true)
-			second := natRegBuild(t, karkain, c.src, NativeLinuxTarget, "kcc", true)
+			first := natRegBuild(t, karkain, c.src, natRegHostTarget(), "kcc", true)
+			second := natRegBuild(t, karkain, c.src, natRegHostTarget(), "kcc", true)
 			if first.SHA != second.SHA {
 				t.Errorf("two builds differ: %s and %s", first.SHA, second.SHA)
 			}
@@ -382,8 +465,8 @@ func TestPhaseNATReg_TheSwitchIsOptIn(t *testing.T) {
 	karkain := phase130Karkain(t)
 	src := "func main() {\n    let a = 1\n    let b = 2\n    let c = 3\n    let d = 4\n    let e = 5\n    let f = 6\n" +
 		"    if (a > 0) {\n        print(a + b + c + d + e + f)\n    }\n}\n"
-	withEnv := natRegBuild(t, karkain, src, NativeLinuxTarget, "kcc", false)
-	regEnv := natRegBuild(t, karkain, src, NativeLinuxTarget, "kcc", true)
+	withEnv := natRegBuild(t, karkain, src, natRegHostTarget(), "kcc", false)
+	regEnv := natRegBuild(t, karkain, src, natRegHostTarget(), "kcc", true)
 	if withEnv.SHA == regEnv.SHA {
 		t.Errorf("the default path and the register path are byte-identical, so the switch "+
 			"does nothing.\n  default: %s\n  register: %s", withEnv.SHA, regEnv.SHA)

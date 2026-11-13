@@ -4254,7 +4254,14 @@ programs and must produce the SAME observable result -- stdout and exit
 status, byte for byte -- with the Go oracle as a third opinion; the frame must
 be IDENTICAL between the two paths; and the two paths must be BYTE-DIFFERENT
 for the high-pressure cases, because otherwise the agreement would be
-vacuous. The corpus covers the brief's twenty-two areas: simple arithmetic,
+vacuous. **THE GATE EXECUTES THE HOST'S OWN NATIVE IMAGE** -- the Windows PE
+on Windows, the Linux ELF on Linux -- which is deliberately NOT the pattern
+the other native gates use: they build the PE everywhere and SKIP the
+execution layer on POSIX, so their behavioural layers run NOWHERE in CI.
+This gate cannot skip its only layer, because a gate that skips the layer it
+exists to check asserts nothing. The image is validated with the ORACLE's
+own parser (`native.ParsePE` for a PE, `native.Parse` for an ELF).
+The corpus covers the brief's twenty-two areas: simple arithmetic,
 deeply nested expressions, several simultaneously live values, register
 exhaustion, spill and reload, repeated reads, local updates, comparisons and
 branches, nested branches, loops with changing variables, `break` and

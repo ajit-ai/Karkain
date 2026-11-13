@@ -151,7 +151,13 @@ against the oracle's, for both targets, and the frames now agree exactly.
 
 `TestPhaseNATReg_` compares the register-allocated path with the stack-based
 path BEHAVIOURALLY over the same programs, with the Go oracle as a third
-opinion.
+opinion. The gate **executes the host's own native image** - the Windows PE
+on Windows, the Linux ELF on Linux - which is deliberately NOT the pattern the
+other native gates use: they build the PE everywhere and skip the execution
+layer on POSIX, so their behavioural layers run nowhere in CI. This gate
+cannot skip its only layer. The image is validated with the oracle's own
+parser (`native.ParsePE` for a PE, `native.Parse` for an ELF), because a check
+written in the gate would share its assumptions with the code under test.
 
 ## 8. Known differences, and what each one affects
 
