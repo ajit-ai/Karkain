@@ -14,12 +14,18 @@ Pre-compiled binaries
 
 :implemented:`Available` — pre-built binaries for **v1.2.0** have been
 built and validated as a **13-archive set**. The v1.2.0 GitHub Release
-(tag-triggered CI pipeline) publishes them to `GitHub Releases
+publishes them to `GitHub Releases
 <https://github.com/ajit-ai/Karkain/releases>`_ with a ``checksums.txt``
 (SHA-256) listing; :ref:`release-status` below records whether the release is
-live. Each archive contains the ``karkain`` binary, the standard library,
-``README.md``, ``LICENSE`` and a ``VERSION`` file. The repository
-install/verify scripts also build from source; see
+live and how it was built. **The v1.2.0 archives were built locally on a
+Windows host from the tagged commit (``v1.2.0``, peeled commit ``77d7069``)
+using Go 1.21.13 — the Go version the CI workflow pins — with
+``CGO_ENABLED=0`` and the CI build flags. GitHub Actions could not execute
+the release matrix because the account was subject to a billing/payment
+restriction, so this is a locally built and published release, NOT a
+CI-green release.** Each archive contains the ``karkain`` binary, the
+standard library, ``README.md``, ``LICENSE`` and a ``VERSION`` file. The
+repository install/verify scripts also build from source; see
 :ref:`installation-source-build`.
 
 .. _release-status:
@@ -30,10 +36,14 @@ Release status
 .. note::
 
    :implemented:`Available` - the v1.2.0 archives are published to
-   `GitHub Releases <https://github.com/ajit-ai/Karkain/releases>`_ by the
-   tag-triggered CI pipeline, together with a ``checksums.txt`` (SHA-256)
-   listing. **Verify every archive against that file before running it**;
-   the exact commands are in :ref:`installation-source-build` below. The
+   `GitHub Releases <https://github.com/ajit-ai/Karkain/releases>`_,
+   together with a ``checksums.txt`` (SHA-256) listing. **They are locally
+   built and published, NOT a CI-green release:** they were built on a
+   Windows host from the tagged commit with Go 1.21.13 (the CI workflow's
+   Go version), and the tag-triggered CI pipeline did not complete because
+   the account was subject to a billing/payment restriction. **Verify every
+   archive against that file before running it**; the exact commands are in
+   :ref:`installation-source-build` below. The
    :ref:`build-from-source <installation-source-build>` path remains the way
    to get the toolchain for an unlisted platform.
 

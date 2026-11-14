@@ -6,9 +6,21 @@ historical line; 1.0.x remains the LTS line). Minor bump per the SemVer policy
 with one behavioural change — the C-free native targets are now produced by the
 **self-hosted** compiler rather than by the Go backend.
 
-**Release cut is owner-only** (annotated tag `v1.2.0` + the CI release job
-publishing the 13-archive set with `checksums.txt`). This document plus the
-qualification report prepare everything up to the ceremony.
+**Release cut is owner-only.** The annotated tag `v1.2.0` (tag object
+`e900c91e485fc316f52b664228f6c35f25416436`, peeled commit
+`77d70693e1e3134dac312a303bffafa7d50fa988`) is immutable and was not
+moved or recreated. **The 13-archive release set and `checksums.txt` were
+built locally on a Windows host from that tagged commit using Go 1.21.13 —
+the Go version the CI workflow pins — with `CGO_ENABLED=0`, `GOARM=7` for
+linux/arm and the CI build flags (`-ldflags="-s -w"`). Checksums were
+independently verified against the published `checksums.txt`. GitHub
+Actions could not execute the release matrix: the account was subject to a
+billing/payment restriction, so the tag-triggered workflow (run
+`43374786565`, 2026-11-14) had its `Build` jobs rejected before they
+started and did not complete successfully.** **This is a locally built and
+published release, NOT a CI-green release.** This document plus the
+qualification report (which records the same provenance) describe the
+release.
 
 ## What changed since 1.1.0
 
@@ -115,8 +127,9 @@ The effective v1.2.0 gate is therefore conditions **1, 4, 7 and 8**.
 
 ## Verifying a release artifact
 
-Every archive is published with a `checksums.txt` (SHA-256). Verify before
-running:
+Every archive is published with a `checksums.txt` (SHA-256). These
+checksums identify the locally built archives listed above (not CI
+artifacts). Verify before running:
 
 ```sh
 sha256sum -c checksums.txt
