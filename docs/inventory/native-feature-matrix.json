@@ -1,7 +1,7 @@
 {
   "schema": "karkain-native-feature-matrix-v1",
   "title": "Karkain native compilation path -- qualified feature matrix",
-  "verified": "2026-11-12",
+  "verified": "2026-11-14",
   "scope": "The Karkain-owned native path (kcc), i.e. `karkain build --target native-x86_64-<os>` with NO C compiler and NO Go toolchain in the program-compilation path. This is the v1.2.0 'Sovereignty I' qualification surface. It is NOT the C-backend path and NOT the WASM path.",
   "statuses": {
     "supported": "Lowered by the self-hosted driver, with a passing gate that executes or byte-compares it.",
@@ -54,6 +54,13 @@
     {"construct": "nested loops", "status": "supported", "gate": "TestPhaseNATLoop_", "gate_file": "pkg/cli/phase151i_loop_test.go"},
     {"construct": "binding inside a loop body", "status": "supported", "gate": "TestPhaseNATLoop_", "gate_file": "pkg/cli/phase151i_loop_test.go"},
     {"construct": "function call inside a loop", "status": "supported", "gate": "TestPhaseNATLoop_", "gate_file": "pkg/cli/phase151i_loop_test.go"},
+    {"construct": "array parameter (kind inferred from call sites) and passing one to a callee", "status": "supported", "gate": "TestPhaseNATStdlib_", "gate_file": "pkg/cli/phase151p_natstdlib_test.go", "note": "The parser discards parameter annotations, so a parameter's declared kind is not recoverable at the call site. The driver infers one kind per parameter from every call site in the program by fixpoint: a parameter becomes an array if any site passes an array there, an int otherwise, and a parameter receiving both is refused BY NAME with the function and parameter. An array parameter is homed as two units and receives exactly one argument shape — an identifier whose slot is an array — which is refused BY NAME otherwise (array literal, int literal, expression)."},
+    {"construct": "`len()` inside a called function", "status": "supported", "gate": "TestPhaseNATStdlib_", "gate_file": "pkg/cli/phase151p_natstdlib_test.go"},
+    {"construct": "`while (i < len(arr))` as a loop condition, in main or in a callee", "status": "supported", "gate": "TestPhaseNATStdlib_", "gate_file": "pkg/cli/phase151p_natstdlib_test.go", "note": "PRE-EXISTING DEFECT fixed in this milestone: `len` in a loop condition routed into the user-call lowering and the image crashed the PE linker. The dedicated print/return arms handled len and the condition path did not."},
+    {"construct": "boolean literal used as a value", "status": "supported", "gate": "TestPhaseNATStdlib_", "gate_file": "pkg/cli/phase151p_natstdlib_test.go", "note": "true lowers to 1, false to 0 (a bool is an int on this target). Required by array_contains returning true/false in std.collections."},
+    {"construct": "runtime-error reporter for an array index inside a called function", "status": "supported", "gate": "TestPhaseNATStdlib_", "gate_file": "pkg/cli/phase151p_natstdlib_test.go", "note": "PRE-EXISTING DEFECT fixed in this milestone: the reporter gate scanned only main's body, so a callee's index recorded a rodata reference against a section with no reporter strings and the PE linker crashed. The gate is program-wide now, and the reporter is emitted when any reachable function can raise a diagnostic."},
+    {"construct": "emit-time reachability skipping of unsupported-unreachable functions (and stdlib imports whose reachable callees are supported)", "status": "supported", "gate": "TestPhaseNATStdlib_", "gate_file": "pkg/cli/phase151p_natstdlib_test.go", "note": "An unmodified stdlib module carries functions the program never calls; their bodies may use constructs the driver refuses. A dead function whose body cannot be lowered is skipped, while a dead function that lowers emits byte-identically to the Go oracle (the frozen gates keep their 2-frame pin). A reachable callee that cannot lower remains a refusal, and the Go oracle cannot build programs whose dead code uses unsupported constructs at all, so that direction is a documented divergence."},
+
     {"construct": "integer division", "status": "not_supported", "gate": "TestPhase151D_", "gate_file": "pkg/cli/phase151d_elfnative_test.go"},
     {"construct": "integer modulo", "status": "not_supported", "gate": "TestPhaseNATCall_", "gate_file": "pkg/cli/phase151e_call_test.go"},
     {"construct": "comparison used as a value", "status": "not_supported", "gate": "TestPhaseNATIf_", "gate_file": "pkg/cli/phase151g_if_test.go"},

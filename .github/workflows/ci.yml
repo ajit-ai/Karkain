@@ -366,6 +366,18 @@ jobs:
       - name: Run NAT-CALL qualification gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATCallQual_' -count=1 -timeout 30m -v
 
+      # NAT-STDLIB, the v1.3.0 carried condition 2 milestone: the native path
+      # consumes an UNMODIFIED .kark module (std.collections) for the subset it
+      # supports — array parameters, `len` in a loop condition in main and in a
+      # callee, bool literals, and reachability pruning of unreachable
+      # functions. The whole example is refused BY NAME, exercised here with
+      # its diagnostic, never silently. EXECUTED PE goldens on the Windows
+      # runner, an ELF build with the oracle's parser (no Linux runner here),
+      # a no-gcc/clang/cl proof via failing stubs (152-A's mechanism), and
+      # argument-mismatch refusals asserted with exit 3 and no image.
+      - name: Run NAT-STDLIB native standard-library gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATStdlib_' -count=1 -timeout 30m -v
+
       # NAT-IF, the conditional branch in the kcc native driver: `if cond { }`
       # and `if cond { } else { }` over INTEGER comparisons.
       #

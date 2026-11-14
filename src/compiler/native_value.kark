@@ -3888,53 +3888,33 @@ func natRecordStoreLiteral(s, lit, off, kind, roffs, sidx) {
 }
 
 func natNativePlan(stmts, tbl) {
-    return natNativePlanFor([], stmts, tbl)
+    return natNativePlanForKinds([], [], stmts, tbl)
 }
 
-// natNativePlanFor is the real planner: PARAMETERS first, then the body's
-// bindings in declaration order, which is exactly the order the oracle's
-// layout() uses (pkg/native/program.go:4411-4428 for the parameters, then
-// scanLets for the body).
-//
-// PARAMETERS ARE INT, and that is a measured statement rather than a choice:
-// kcc's parser stores parameter NAMES only (parseFunc discards the type
-// annotation -- see src/compiler/parser.kark), so no annotation is available
-// here even though the source carries one. A one-unit int slot is therefore the
-// only honest reading of what this compiler knows. It is not a silent widening:
-// an argument whose kind is not int is REFUSED at the call site by
-// natNativeScanCall, so a string/array/record argument is named rather than
-// mis-homed into a one-unit int slot.
-//
-// The plan is FOUR slots wide -- [off, kind, elems, name] -- because
-// natNativeSlotIndex resolves a name against it and a parameter has no
-// declaration statement for a body walk to find. That widening is what lets the
-// scanner and the lowering share one lookup for parameters and locals.
+// natNativePlanFor is kept as the all-int entry point so every frozen caller keeps
+// driving the same numbers.
 func natNativePlanFor(params, stmts, tbl) {
+    return natNativePlanForKinds(params, natNativeAllIntKinds(len(params)), stmts, tbl)
+}
+
+func natNativePlanForKinds(params, kinds, stmts, tbl) {
     let plan = []
     let next = 0
     let pi = 0
     while (pi < len(params)) {
   plan = appendArray(plan, next)
-  plan = appendArray(plan, natKindInt())
+  plan = appendArray(plan, kinds[pi])
   plan = appendArray(plan, 0)
   plan = appendArray(plan, params[pi])
   plan = appendArray(plan, -1)
-  next = next + 8
+  next = next + natKindUnits(kinds[pi]) * 8
   pi = pi + 1
   }
-  // 9h-DEFECT-FIX: this function previously contained
-  //   `let tbl = natStructTable(stmts)`
-  // which SHADOWED the tbl parameter with a rebuild from main's BODY. Top-level
-  // `type X struct` declarations live at program level, never in main's body, so
-  // natStructSizeOf returned -1, `ne` became 0, and the record's field area
-  // reserved ZERO bytes: measured, `Point{x,y}` + `let n = 5` printed 5/4/5
-  // (n aliased p.x) and every record frame was 624 regardless of field area.
-  // The table must be the one natNativeProgram built from the program statements.
   let r = natNativePlanDecls(plan, stmts, tbl, next)
   return r[0]
-  }
+}
 
-  // natNativePlanDecls allocates a slot for every binding a statement list
+// natNativePlanDecls allocates a slot for every binding a statement list
   // declares, and returns the plan and the next free offset.
   //
   // NAT-IF: it DESCENDS into an `if`'s branches, because the oracle's layout
@@ -4046,11 +4026,11 @@ func natNativeSlotCount(plan) { return len(plan) / 5 }
 func natNativePlanBytes(plan) {
     if (len(plan) == 0) { return 0 }
     let last = natNativePlanCount(plan) - 1
-    let size = 8
-    if (natKindUnits(natNativeSlotKind(plan, last)) == 2) { size = size + 8 }
-if (natNativeSlotKind(plan, last) == natKindArray()) {
-  size = size + 8 * natNativeSlotElems(plan, last)
-  }
+    let units = natKindUnits(natNativeSlotKind(plan, last))
+    let size = units * 8
+    if (natNativeSlotKind(plan, last) == natKindArray()) {
+        size = size + 8 * natNativeSlotElems(plan, last)
+    }
   // Step 9h-1: a record's footprint is 8 bytes for the value slot PLUS 8 * units of
   // field area. Same `8 * extra` convention as the array clause, so planned bytes and
   // natRecordArea's allocation cannot drift apart.
@@ -4167,8 +4147,8 @@ func natNativeStmtKindName(k) {
     return "statement kind " + str(k)
 }
 
-func natNativeScanFor(params, stmts, tbl, fns, isMain, useRegAlloc) {
-    let plan = natNativePlanFor(params, stmts, tbl)
+func natNativeScanFor(params, stmts, tbl, fns, isMain, useRegAlloc, kinds) {
+    let plan = natNativePlanForKinds(params, kinds, stmts, tbl)
     // NAT-REG: the allocation is per function and lives in the plan, so it is
     // computed here -- once, where the plan is complete -- and every access
     // site reads it back out of the plan.
@@ -4435,32 +4415,505 @@ func natNativeIsStrBinary(e, stmts, plan) {
     return 0
 }
 
-// natNativeFuncs returns every top-level function as a flat descriptor list, three
+// natNativeFuncs returns the quad descriptors [name, params, body, kinds, ...] in
+// source order (see natNativeReachable for the reachability handling).
 // slots each: [name, params, body]. Source order is preserved because that is the
 // order the oracle emits functions in, and emission order decides every byte
-// offset after the helpers.
+// natNativeFuncs builds the quad descriptors [name, params, body, kinds, ...] in
+// source order, with `kinds` the per-parameter kind INFERRED from the call sites
+// (see natNativeInferParamKinds) and the dead functions PRUNED (see
+// natNativePruneFns).
 //
-// `params` comes back exactly as the parser stored it: NAMES only. That is why
-// natNativePlanFor treats every parameter as a one-unit int -- see its header.
+// `params` comes back exactly as the parser stored it: NAMES only. A parameter's
+// kind is NOT recoverable from the source, which is why inference is required for
+// array parameters; everything else is an int.
+// natNativeFuncs returns [fns, diagnostic]. fns is the quad descriptors
+// [name, params, body, kinds, ...] in SOURCE ORDER (dead functions included:
+// emission-time skipping, not list-time pruning, is how unreachable unsupported
+// functions are tolerated). diagnostic is "" on success. A conflict stops the
+// caller before emission.
 func natNativeFuncs(stmts) {
-    let out = []
+    let triple = []
     let i = 0
     while (i < len(stmts)) {
         let n = stmts[i]
         if (nodeType(n) == NODE_FUNC_DECL()) {
-            out = appendArray(out, funcName(n))
-            out = appendArray(out, funcParams(n))
-            out = appendArray(out, funcBody(n))
+            triple = appendArray(triple, funcName(n))
+            triple = appendArray(triple, funcParams(n))
+            triple = appendArray(triple, funcBody(n))
         }
+        i = i + 1
+    }
+    let inf = natNativeInferParamKinds(triple)
+    let kinds = inf[0]
+    if (inf[1] != "") { return [triple, inf[1]] }
+    let out = []
+    i = 0
+    while (i < len(triple) / 3) {
+        out = appendArray(out, triple[i * 3])
+        out = appendArray(out, triple[i * 3 + 1])
+        out = appendArray(out, triple[i * 3 + 2])
+        out = appendArray(out, kinds[i])
+        i = i + 1
+    }
+    return [out, ""]
+}
+
+// natNativeReachable computes, over the quad descriptors, the set of function
+// indices reachable from `main`. Reachability is a sound over-approximation
+// for the purpose here: a function is kept if ANY reachable function mentions
+// it, and the report is a 1/0 array in source order.
+//
+// WHY REACHABILITY, AND WHY EMIT-TIME. An unmodified stdlib module carries
+// functions the program never calls, and their bodies may use constructs the
+// driver refuses (maps, strings, other kinds of call). Requiring every
+// unreachable function in the module to lower would make `import std.collections`
+// impossible regardless of the calling program. A dead function whose body the
+// driver CANNOT lower is therefore skipped, while a dead function the driver
+// CAN lower is emitted normally — the latter preserves the byte-identity the
+// frozen gates pin (a supported dead helper emits exactly as the Go oracle
+// emits it). A function that is reachable from main, or from a reachable
+// callee, is never skipped: refusing a reachable function is the contract.
+//
+// The Go oracle emits dead functions unconditionally, so a program carrying
+// unsupported-unreachable dead code is NOT byte-identical to it — an accepted,
+// documented divergence: those programs cannot build on the oracle at all.
+func natNativeReachable(fns) {
+    let np = natNativeFuncCount(fns)
+    let reach = []
+    let i = 0
+    while (i < np) {
+        reach = appendArray(reach, 0)
+        i = i + 1
+    }
+    let mi = natNativeFuncIndex(fns, "main")
+    if (mi < 0) { return reach }
+    reach[mi] = 1
+    let q = [mi]
+    let qi = 0
+    while (qi < len(q)) {
+        let cur = q[qi]
+        qi = qi + 1
+        let body = natNativeFuncBodyAt(fns, cur)
+        let calls = natNativeCallsOf(body)
+        let j = 0
+        while (j < len(calls)) {
+            let fi = natNativeFuncIndex(fns, calls[j])
+            if (fi >= 0) {
+                if (reach[fi] == 0) {
+                    reach[fi] = 1
+                    q = appendArray(q, fi)
+                }
+            }
+            j = j + 1
+        }
+    }
+    return reach
+}
+
+// natNativeCallsOf walks a statement list and collects the NAMES of the callees it
+// mentions, so reachability is a sound over-approximation of the call graph.
+//
+// THE ACCUMULATION MATTERS: natNativeCallsInNode may already carry calls found
+// in an earlier position (the `if` arm walks the condition BEFORE the branches),
+// so the list is threaded through, not restarted per position. An earlier draft
+// restarted it, which silently discarded the condition's calls -- `if f(1) == 1`
+// was reported as calling nothing, and the pruned program then failed to build
+// with "call to undefined function".
+func natNativeCallsOf(stmts) {
+    return natNativeCallsOfInto(stmts, [])
+}
+
+func natNativeCallsOfInto(stmts, out) {
+    let i = 0
+    while (i < len(stmts)) {
+        out = natNativeCallsInNode(stmts[i], out)
         i = i + 1
     }
     return out
 }
 
-func natNativeFuncCount(fns) { return len(fns) / 3 }
-func natNativeFuncNameAt(fns, i) { return fns[i * 3] }
-func natNativeFuncParamsAt(fns, i) { return fns[i * 3 + 1] }
-func natNativeFuncBodyAt(fns, i) { return fns[i * 3 + 2] }
+func natNativeCallsInNode(n, out) {
+    let t = nodeType(n)
+    if (t == NODE_FUNC_DECL()) {
+        return natNativeCallsOf(funcBody(n))
+    }
+    if (t == NODE_LET_DECL() || t == NODE_VAR_DECL()) {
+        return natNativeCallsInExpr(natNativeDeclValue(n), out)
+    }
+    if (t == NODE_PRINT()) {
+        return natNativeCallsInExpr(printVal(n), out)
+    }
+    if (t == NODE_RETURN()) {
+        return natNativeCallsInExpr(retVal(n), out)
+    }
+    if (t == NODE_EXPR_STMT()) {
+        return natNativeCallsInExpr(exprStmtExpr(n), out)
+    }
+    if (t == NODE_IF()) {
+        out = natNativeCallsInExpr(ifCond(n), out)
+        out = natNativeCallsOfInto(ifCons(n), out)
+        out = natNativeCallsOfInto(ifAlt(n), out)
+        return out
+    }
+    if (t == NODE_WHILE()) {
+        out = natNativeCallsInExpr(whileCond(n), out)
+        out = natNativeCallsOfInto(whileBody(n), out)
+        return out
+    }
+    if (t == NODE_FOR()) {
+        if (nodeType(forInit(n)) == NODE_EXPR_STMT()) {
+            out = natNativeCallsInExpr(exprStmtExpr(forInit(n)), out)
+        } else if (natNativeIsDecl(forInit(n))) {
+            out = natNativeCallsInExpr(natNativeDeclValue(forInit(n)), out)
+        }
+        out = natNativeCallsInExpr(forCond(n), out)
+        out = natNativeCallsInExpr(forPost(n), out)
+        out = natNativeCallsOfInto(forBody(n), out)
+        return out
+    }
+    if (t == NODE_FOR_IN()) {
+        out = natNativeCallsOfInto(forInBody(n), out)
+        return out
+    }
+    if (t == NODE_BINARY()) {
+        // an assignment is a BinaryExpr with = in statement position; the left
+        // is handled as an expression too so calls there are counted.
+        out = natNativeCallsInExpr(binaryLeft(n), out)
+        return natNativeCallsInExpr(binaryRight(n), out)
+    }
+    if (t == NODE_BLOCK()) {
+        return natNativeCallsOfInto(blockStmts(n), out)
+    }
+    return out
+}
+
+func natNativeCallsInExpr(e, out) {
+    let t = nodeType(e)
+    if (t == NODE_CALL()) {
+        out = appendArray(out, callFunc(e))
+        let aa = callArgs(e)
+        let i = 0
+        while (i < len(aa)) {
+            out = natNativeCallsInExpr(aa[i], out)
+            i = i + 1
+        }
+        return out
+    }
+    if (t == NODE_INDEX()) {
+        out = natNativeCallsInExpr(indexLeft(e), out)
+        return natNativeCallsInExpr(indexExpr(e), out)
+    }
+    if (t == NODE_BINARY()) {
+        out = natNativeCallsInExpr(binaryLeft(e), out)
+        return natNativeCallsInExpr(binaryRight(e), out)
+    }
+    if (t == NODE_UNARY()) {
+        return natNativeCallsInExpr(unaryOperand(e), out)
+    }
+    if (t == NODE_ARRAY_LIT()) {
+        let elems = arrayLitElems(e)
+        let i = 0
+        while (i < len(elems)) {
+            out = natNativeCallsInExpr(elems[i], out)
+            i = i + 1
+        }
+        return out
+    }
+    if (t == NODE_STRUCT_LIT()) {
+        let fields = structLitFields(e)
+        let i = 0
+        while (i < len(fields)) {
+            out = natNativeCallsInExpr(binaryRight(fields[i]), out)
+            i = i + 1
+        }
+        return out
+    }
+    if (t == NODE_DOT()) {
+        return natNativeCallsInExpr(dotLeft(e), out)
+    }
+    if (t == NODE_BLOCK()) {
+        return natNativeCallsOf(blockStmts(e))
+    }
+    return out
+}
+
+func natNativeRawIndex(triple, name) {
+    let i = 0
+    let np = len(triple) / 3
+    while (i < np) {
+        if (triple[i * 3] == name) { return i }
+        i = i + 1
+    }
+    return 0 - 1
+}
+
+// natNativeArgKindFor reports the kind of an ARGUMENT EXPRESSION as observed at a
+// call site: 2 for an array (an array literal, or a name whose slot is an array --
+// a literal or a parameter), 1 for anything else.
+//
+// The parser discards parameter annotations, so this is the only kind evidence a
+// native driver can have. Everything that returns 1 that is not actually an int
+// (a float literal, a record literal, a string literal) is refused BY NAME in the
+// scan before emission; the value here only decides UNIT COUNT for the ABI, where
+// every non-array is one unit anyway.
+func natNativeArgKindFor(e, plan) {
+    let t = nodeType(e)
+    if (t == NODE_ARRAY_LIT()) { return 2 }
+    if (t == NODE_IDENT()) {
+        let ord = natNativeSlotIndex(plan, identName(e))
+        if (ord >= 0) {
+            let k = natNativeSlotKind(plan, ord)
+            if (k == natKindArray()) { return 2 }
+        }
+    }
+    return 1
+}
+
+// natNativeAllIntKinds returns n int kinds.
+func natNativeAllIntKinds(n) {
+    let out = []
+    let i = 0
+    while (i < n) {
+        out = appendArray(out, natKindInt())
+        i = i + 1
+    }
+    return out
+}
+
+// natNativeInferParamKinds computes one KIND PER PARAMETER, from every call site
+// in the program, by fixpoint.
+//
+// WHY INFERENCE IS REQUIRED. The parser discards parameter annotations, so a
+// parameter's declared type is unrecoverable; the argument at a call site is the
+// only evidence available. The rule is deliberately simple and total:
+//
+//   * every parameter starts as an int (one unit);
+//   * for each call site to a callee, each argument's kind is ORed in;
+//   * a parameter becomes an ARRAY if any site passes an array there, and stays
+//     an int otherwise;
+//   * a parameter that RECEIVES BOTH an array and a non-array argument across
+//     the program is a CONFLICT, refused by name with the function and parameter.
+//
+// Fixpoint, because an array may flow through a chain of functions: main passes
+// `scores` to array_max; array_max passes it to nothing; but a wrapper can pass
+// its own array parameter on to a third function, and one pass is not enough. At
+// most np*params promotions ever happen, so 8 passes is a generous bound; the
+// cap reports non-convergence as a refusal rather than producing a half-inferred
+// plan.
+//
+// RETURNS [kinds, ""] on success, or [kinds, diagnostic] on a conflict.
+func natNativeInferParamKinds(triple) {
+    let np = len(triple) / 3
+    let kinds = []
+    let i = 0
+    while (i < np) {
+        kinds = appendArray(kinds, natNativeAllIntKinds(len(triple[i * 3 + 1])))
+        i = i + 1
+    }
+    let pass = 0
+    while (pass < 8) {
+        // Build current plans (needed to resolve ident slot kinds at call sites).
+        let plans = []
+        i = 0
+        while (i < np) {
+            plans = appendArray(plans, natNativePlanForKinds(triple[i * 3 + 1], kinds[i], triple[i * 3 + 2], natStructTable([])))
+            i = i + 1
+        }
+        // Walk every call site in every function. A promotion is only legal in
+        // this pass mode, never a contradiction; contradiction detection happens
+        // after the fixpoint in natNativeParamKindConflict.
+        let changed = 0
+        i = 0
+        while (i < np) {
+            let r = natNativeInferInStmts(triple[i * 3 + 2], plans[i], triple, kinds, 1)
+            changed = changed + r[0]
+            i = i + 1
+        }
+        if (changed == 0) {
+            // Final validation pass: no promotions; find conflicts.
+            plans = []
+            i = 0
+            while (i < np) {
+                plans = appendArray(plans, natNativePlanForKinds(triple[i * 3 + 1], kinds[i], triple[i * 3 + 2], natStructTable([])))
+                i = i + 1
+            }
+            i = 0
+            while (i < np) {
+                let r = natNativeInferInStmts(triple[i * 3 + 2], plans[i], triple, kinds, 0)
+                if (r[1] != "") { return [kinds, r[1]] }
+                i = i + 1
+            }
+            return [kinds, ""]
+        }
+        pass = pass + 1
+    }
+    return [kinds, "parameter kind inference did not converge after 8 passes; refused rather than emit a half-inferred plan"]
+}
+
+// natNativeInferInStmts walks a statement list and processes every call site.
+// `promote` is 1 in the propagation phase (an array argument promotes the callee
+// parameter) and 0 in the validation phase (a non-array argument for an array
+// parameter is a conflict, reported with the function and parameter).
+//
+// Returns [promotions, conflict] — conflict is the first one found, "" when none.
+func natNativeInferInStmts(stmts, plan, triple, kinds, promote) {
+    let changed = 0
+    let bad = ""
+    let i = 0
+    while (i < len(stmts)) {
+        let n = stmts[i]
+        let t = nodeType(n)
+        if (natNativeIsDecl(n)) {
+            let r = natNativeInferInExpr(natNativeDeclValue(n), plan, triple, kinds, promote)
+            changed = changed + r[0]
+            if (bad == "") { bad = r[1] }
+        } else if (t == NODE_PRINT()) {
+            let r = natNativeInferInExpr(printVal(n), plan, triple, kinds, promote)
+            changed = changed + r[0]
+            if (bad == "") { bad = r[1] }
+        } else if (t == NODE_RETURN()) {
+            let r = natNativeInferInExpr(retVal(n), plan, triple, kinds, promote)
+            changed = changed + r[0]
+            if (bad == "") { bad = r[1] }
+        } else if (t == NODE_EXPR_STMT()) {
+            let r = natNativeInferInExpr(exprStmtExpr(n), plan, triple, kinds, promote)
+            changed = changed + r[0]
+            if (bad == "") { bad = r[1] }
+        } else if (t == NODE_IF()) {
+            let r = natNativeInferInExpr(ifCond(n), plan, triple, kinds, promote)
+            changed = changed + r[0]
+            if (bad == "") { bad = r[1] }
+            let r2 = natNativeInferInStmts(ifCons(n), plan, triple, kinds, promote)
+            changed = changed + r2[0]
+            if (bad == "") { bad = r2[1] }
+            let r3 = natNativeInferInStmts(ifAlt(n), plan, triple, kinds, promote)
+            changed = changed + r3[0]
+            if (bad == "") { bad = r3[1] }
+        } else if (t == NODE_WHILE()) {
+            let r = natNativeInferInExpr(whileCond(n), plan, triple, kinds, promote)
+            changed = changed + r[0]
+            if (bad == "") { bad = r[1] }
+            let r2 = natNativeInferInStmts(whileBody(n), plan, triple, kinds, promote)
+            changed = changed + r2[0]
+            if (bad == "") { bad = r2[1] }
+        } else if (t == NODE_FOR()) {
+            let ini = forInit(n)
+            if (nodeType(ini) == NODE_EXPR_STMT()) {
+                let r = natNativeInferInExpr(exprStmtExpr(ini), plan, triple, kinds, promote)
+                changed = changed + r[0]
+                if (bad == "") { bad = r[1] }
+            } else if (natNativeIsDecl(ini)) {
+                let r = natNativeInferInExpr(natNativeDeclValue(ini), plan, triple, kinds, promote)
+                changed = changed + r[0]
+                if (bad == "") { bad = r[1] }
+            }
+            let r2 = natNativeInferInExpr(forCond(n), plan, triple, kinds, promote)
+            changed = changed + r2[0]
+            if (bad == "") { bad = r2[1] }
+            let r3 = natNativeInferInExpr(forPost(n), plan, triple, kinds, promote)
+            changed = changed + r3[0]
+            if (bad == "") { bad = r3[1] }
+            let r4 = natNativeInferInStmts(forBody(n), plan, triple, kinds, promote)
+            changed = changed + r4[0]
+            if (bad == "") { bad = r4[1] }
+        } else if (t == NODE_FOR_IN()) {
+            let r2 = natNativeInferInStmts(forInBody(n), plan, triple, kinds, promote)
+            changed = changed + r2[0]
+            if (bad == "") { bad = r2[1] }
+        } else if (t == NODE_BINARY()) {
+            let r = natNativeInferInExpr(binaryLeft(n), plan, triple, kinds, promote)
+            changed = changed + r[0]
+            if (bad == "") { bad = r[1] }
+            let r2 = natNativeInferInExpr(binaryRight(n), plan, triple, kinds, promote)
+            changed = changed + r2[0]
+            if (bad == "") { bad = r2[1] }
+        }
+        i = i + 1
+    }
+    return [changed, bad]
+}
+
+func natNativeInferInExpr(e, plan, triple, kinds, promote) {
+    let t = nodeType(e)
+    if (t == NODE_CALL()) {
+        let callee = callFunc(e)
+        let fi = natNativeRawIndex(triple, callee)
+        if (fi >= 0) {
+            let pk = triple[fi * 3 + 1]
+            let args = callArgs(e)
+            let changed = 0
+            let bad = ""
+            let i = 0
+            while (i < len(args)) {
+                // A call IN ARGUMENT POSITION consumes the argument spill before the
+                // enclosing call reads it, so an inner call in argument 1+ is refused
+                // in the scan; the inference can still see its call sites there, which
+                // is what keeps promotions complete for supported programs.
+                let ak = natNativeArgKindFor(args[i], plan)
+                let r = natNativeInferInExpr(args[i], plan, triple, kinds, promote)
+                changed = changed + r[0]
+                if (bad == "") { bad = r[1] }
+                if (ak == 2) {
+                    if (promote == 1) {
+                        if (kinds[fi][i] == natKindInt()) {
+                            kinds[fi][i] = natKindArray()
+                            changed = changed + 1
+                        }
+                    } else {
+                        if (kinds[fi][i] != natKindArray()) {
+                            if (bad == "") { bad = "argument " + str(i + 1) + " of the call to `" + callee + "` is an array, but its parameter `" + pk[i] + "` was not promoted to one" }
+                        }
+                    }
+                } else {
+                    if (promote == 0 && kinds[fi][i] == natKindArray()) {
+                        if (bad == "") { bad = "int argument for array parameter `" + pk[i] + "` (call to `" + callee + "`)" }
+                    }
+                }
+                i = i + 1
+            }
+            return [changed, bad]
+        }
+        return [0, ""]
+    }
+    if (t == NODE_INDEX()) {
+        let r = natNativeInferInExpr(indexExpr(e), plan, triple, kinds, promote)
+        return [r[0], r[1]]
+    }
+    if (t == NODE_BINARY()) {
+        let r = natNativeInferInExpr(binaryLeft(e), plan, triple, kinds, promote)
+        let r2 = natNativeInferInExpr(binaryRight(e), plan, triple, kinds, promote)
+        let bad2 = ""
+        if (r[1] != "") { bad2 = r[1] } else { bad2 = r2[1] }
+        return [r[0] + r2[0], bad2]
+    }
+    if (t == NODE_UNARY()) {
+        return natNativeInferInExpr(unaryOperand(e), plan, triple, kinds, promote)
+    }
+    if (t == NODE_ARRAY_LIT()) {
+        let elems = arrayLitElems(e)
+        let i = 0
+        let changed = 0
+        let bad = ""
+        while (i < len(elems)) {
+            let r = natNativeInferInExpr(elems[i], plan, triple, kinds, promote)
+            changed = changed + r[0]
+            if (bad == "") { bad = r[1] }
+            i = i + 1
+        }
+        return [changed, bad]
+    }
+    if (t == NODE_DOT()) {
+        return natNativeInferInExpr(dotLeft(e), plan, triple, kinds, promote)
+    }
+    return [0, ""]
+}
+
+func natNativeFuncCount(fns) { return len(fns) / 4 }
+func natNativeFuncNameAt(fns, i) { return fns[i * 4] }
+func natNativeFuncParamsAt(fns, i) { return fns[i * 4 + 1] }
+func natNativeFuncBodyAt(fns, i) { return fns[i * 4 + 2] }
+func natNativeFuncKindsAt(fns, i) { return fns[i * 4 + 3] }
 
 // natNativeFuncIndex returns the descriptor index for `name`, or -1.
 func natNativeFuncIndex(fns, name) {
@@ -4532,6 +4985,7 @@ func natNativeScanCall(e, plan, line, fns) {
     }
     let params = natNativeFuncParamsAt(fns, fi)
     let args = callArgs(e)
+    let pkinds = natNativeFuncKindsAt(fns, fi)
     if (len(args) != len(params)) {
         return natNativeRefuse("call to `" + fname + "` has " + str(len(args)) +
             " argument(s) but `" + fname + "` declares " + str(len(params)), line)
@@ -4545,6 +4999,38 @@ func natNativeScanCall(e, plan, line, fns) {
                     "across calls, so an inner call would clobber an earlier argument -- " +
                     "bind the inner result to a local first", line)
             }
+        }
+        // An ARRAY parameter receives exactly one shape: an identifier whose slot
+        // is an array (a literal or another parameter). Everything else -- an int
+        // literal, a call, an expression -- is refused BY NAME rather than
+        // mis-homed into a two-unit array slot.
+        if (pkinds[i] == natKindArray()) {
+            let ak = natNativeArgKindFor(args[i], plan)
+            if (ak != 2) {
+                if (nodeType(args[i]) == NODE_INT_LIT() || nodeType(args[i]) == NODE_IDENT()) {
+                    return natNativeRefuse("int argument for array parameter `" + params[i] +
+                        "` (call to `" + fname + "`)", line)
+                }
+                return natNativeRefuse("array parameter `" + params[i] + "` (call to `" +
+                    fname + "`) receives an array literal or expression; bind it to a local " +
+                    "first", line)
+            }
+            // Identifiers only: an array LITERAL as an argument has no slots to
+            // stage from, so it is refused rather than mis-emitted.
+            if (nodeType(args[i]) != NODE_IDENT()) {
+                return natNativeRefuse("array parameter `" + params[i] + "` (call to `" +
+                    fname + "`) receives an array literal; bind it to a local first", line)
+            }
+            i = i + 1
+            continue
+        }
+        // Every non-array parameter receives exactly one 8-byte unit: an int. The
+        // argument's own kind names it, which matches the oracle's diagnostic word
+        // for word.
+        let ak = natNativeArgKindFor(args[i], plan)
+        if (ak == 2) {
+            return natNativeRefuse("array argument for int parameter `" + params[i] +
+                "` (call to `" + fname + "`)", line)
         }
         // Every parameter is an int in this slice (the parser stores parameter NAMES
         // only, so a parameter's declared kind is not recoverable here). Naming the
@@ -4853,6 +5339,7 @@ func natNativeScanAssignLocal(plan, fns, line, lhs, rhs) {
 func natNativeScanIntExpr(e, plan, line, fns, depth) {
     let t = nodeType(e)
     if (t == NODE_INT_LIT()) { return "" }
+    if (t == NODE_BOOL_LIT()) { return "" }
     if (t == NODE_IDENT()) {
         let ord = natNativeSlotIndex(plan, identName(e))
         if (ord < 0) {
@@ -4918,7 +5405,10 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
         if (bad != "") { return bad }
         return natNativeScanIntExpr(binaryRight(e), plan, line, fns, depth + 1)
     }
-    if (t == NODE_CALL()) { return natNativeScanCall(e, plan, line, fns) }
+    if (t == NODE_CALL()) {
+        if (callFunc(e) == "len") { return natNativeScanLen(e, plan, line) }
+        return natNativeScanCall(e, plan, line, fns)
+    }
     // getNodeType, not a node NUMBER. "expression of kind 23" was the first draft and
     // it names something a reader cannot act on; the AST bridge's own name is what the
     // rest of the compiler reports.
@@ -4931,31 +5421,25 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
 // caller-frame extras area. It is measured PER FUNCTION because the extras area is
 // reserved in the CALLER's frame, so one function's deep call must not enlarge
 // another's frame.
-func natNativeMaxExtras(stmts) {
+func natNativeMaxExtras(stmts, plan) {
     let best = 0
     let i = 0
     while (i < len(stmts)) {
         let n = stmts[i]
         if (natNativeIsDecl(n)) {
-            let m = natNativeMaxExtrasExpr(natNativeDeclValue(n))
+            let m = natNativeMaxExtrasExpr(natNativeDeclValue(n), plan)
             if (m > best) { best = m }
         }
         if (nodeType(n) == NODE_PRINT()) {
-            let m = natNativeMaxExtrasExpr(printVal(n))
+            let m = natNativeMaxExtrasExpr(printVal(n), plan)
             if (m > best) { best = m }
         }
         if (nodeType(n) == NODE_RETURN()) {
-            let m = natNativeMaxExtrasExpr(retVal(n))
+            let m = natNativeMaxExtrasExpr(retVal(n), plan)
             if (m > best) { best = m }
         }
-        // NAT-CALL: a bare call statement carries its arguments in exactly the same
-        // extras area a call in any other position does, so leaving this arm out
-        // gives a statement-position call a maxExtra of 0 and writes its 7th unit
-        // OUTSIDE the reserved region -- over the caller's own frame. It cannot be
-        // caught by the other arms either: `show(1,2,3,4,5,6,7)` as a statement is
-        // not a decl, not a print and not a return.
         if (nodeType(n) == NODE_EXPR_STMT()) {
-            let m = natNativeMaxExtrasExpr(exprStmtExpr(n))
+            let m = natNativeMaxExtrasExpr(exprStmtExpr(n), plan)
             if (m > best) { best = m }
         }
         i = i + 1
@@ -4963,15 +5447,19 @@ func natNativeMaxExtras(stmts) {
     return best
 }
 
-func natNativeMaxExtrasExpr(e) {
+// natNativeMaxExtrasExpr walks an expression tree counting the UNITS a call
+// would stage. `plan` resolves an argument's kind (ident whose slot is an int
+// is one unit; an array literal or an array ident is two) — the same rule the
+// call-site staging uses, so the spill sizing and the emission cannot disagree.
+func natNativeMaxExtrasExpr(e, plan) {
     let t = nodeType(e)
     if (t == NODE_BINARY()) {
-        let l = natNativeMaxExtrasExpr(binaryLeft(e))
-        let r = natNativeMaxExtrasExpr(binaryRight(e))
+        let l = natNativeMaxExtrasExpr(binaryLeft(e), plan)
+        let r = natNativeMaxExtrasExpr(binaryRight(e), plan)
         if (l > r) { return l }
         return r
     }
-    if (t == NODE_UNARY()) { return natNativeMaxExtrasExpr(unaryOperand(e)) }
+    if (t == NODE_UNARY()) { return natNativeMaxExtrasExpr(unaryOperand(e), plan) }
     if (t == NODE_CALL()) {
         let args = callArgs(e)
         // UNITS BEYOND THE SIX REGISTER ARGUMENTS, not the total. The oracle floors at
@@ -4981,15 +5469,24 @@ func natNativeMaxExtrasExpr(e) {
         // a 48-byte frame difference on the caller, which showed up as a byte-identity
         // failure on `main` alone while the callee (which has no calls) matched.
         //
-        // Every argument in this subset is ONE unit; a string argument would be two,
-        // and the scan refuses one at a call site, so `len(args)` is exact here.
-        let units = len(args)
+        // Each argument is ONE unit for an int and TWO for an array (its
+        // (base, len) header), so `units` is a sum, not a count.
+        let units = 0
+        let ui = 0
+        while (ui < len(args)) {
+            if (natNativeArgKindFor(args[ui], plan) == 2) {
+                units = units + 2
+            } else {
+                units = units + 1
+            }
+            ui = ui + 1
+        }
         let best = 0
         if (units > 6) { best = units - 6 }
         let inner = 0
         let i = 0
         while (i < len(args)) {
-            let m = natNativeMaxExtrasExpr(args[i])
+            let m = natNativeMaxExtrasExpr(args[i], plan)
             if (m > inner) { inner = m }
             i = i + 1
         }
@@ -5169,7 +5666,7 @@ func natNativeScanElems(elems, line) {
 // Only `len` of an ARRAY LOCAL is supported, and every other shape is named rather
 // than coerced: len of a scalar, len of an undeclared name, len of an expression, and
 // any other builtin call all get their own message.
-func natNativeScanLen(call, stmts, plan, line) {
+func natNativeScanLen(call, plan, line) {
     if (callFunc(call) != "len") {
         return natNativeRefuse("call to `" + callFunc(call) + "` is not lowered by the " +
             "native driver", line)
@@ -5764,6 +6261,7 @@ func natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx, lhs, rhs) {
 func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr, fns) {
     let t = nodeType(expr)
     if (t == NODE_INT_LIT()) { return "" }
+    if (t == NODE_BOOL_LIT()) { return "" }
     if (t == NODE_STRING_LIT()) { return "" }
     if (t == NODE_IDENT()) {
         let ord = natNativeSlotIndex(plan, identName(expr))
@@ -5791,7 +6289,7 @@ if (t == NODE_BINARY()) {
   // and two validators for one construct is how they drift apart.
   if (t == NODE_INDEX()) { return natNativeScanIntExpr(expr, plan, line, fns, 0) }
   if (t == NODE_CALL()) {
-      if (callFunc(expr) == "len") { return natNativeScanLen(expr, stmts, plan, line) }
+      if (callFunc(expr) == "len") { return natNativeScanLen(expr, plan, line) }
       return natNativeScanCall(expr, plan, line, fns)
   }
   // Step 9h-1: a record field read, `rec.field`. NARROW by construction -- only an
@@ -5898,6 +6396,10 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
     if (t == NODE_INT_LIT()) {
         return natMovRegImm64(s, natRegRAX(), int(intLitVal(e)))
     }
+    if (t == NODE_BOOL_LIT()) {
+        if (boolLitVal(e) == "true") { return natMovRegImm64(s, natRegRAX(), 1) }
+        return natMovRegImm64(s, natRegRAX(), 0)
+    }
     if (t == NODE_IDENT()) {
         let ord = natNativeSlotIndex(plan, identName(e))
         // NAT-REG: an allocated local lives in a callee-saved register; the
@@ -5933,12 +6435,27 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
         if (op == "-") { return natSubRegReg(s, natRegRAX(), natRegRCX()) }
         return natMulRegReg(s, natRegRAX(), natRegRCX())
     }
+    if (t == NODE_CALL()) {
+        if (callFunc(e) == "len") {
+            // `len` is a driver builtin, not a user function: route it in place,
+            // exactly as the print and return positions do, rather than falling
+            // into natEmitIntCall, which would emit a call to a label that does
+            // not exist. This was a pre-existing defect: `while (i < len(arr))`
+            // in EITHER main or a callee crashed the PE linker instead of doing
+            // the length load. The dedicated print/return arms did len correctly
+            // and the condition path did not, which is why no gate caught it.
+            let lo = natNativeSlotIndex(plan, identName(callArgs(e)[0]))
+            return natArrayLen(s, natNativeSlotOff(plan, lo))
+        }
+        return natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx)
+    }
     return natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx)
 }
 
 // natEmitIntCond lowers an integer comparison and jumps to falseLabel when the
 // comparison does NOT hold.
 //
+// It is the oracle's emitCond int path (program.go:5135-5146) instruction for
 // It is the oracle's emitCond int path (program.go:5135-5146) instruction for
 // instruction:
 //
@@ -5971,6 +6488,16 @@ func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, 
     if (op == 4) { return natJle(s, falseLabel) }
     if (op == 5) { return natJl(s, falseLabel) }
     return s
+}
+
+// natStoreArgUnit homes one argument UNIT into the spill area: the six register
+// slots (16 bytes apart, matching the oracle's argTemp) first, then the caller's
+// extras area addressed through R10 by the callee.
+func natStoreArgUnit(s, reg, unit, frame, extrasBase) {
+    if (unit < 6) {
+        return natStoreStack(s, reg, natArgTemp(unit, frame))
+    }
+    return natStoreStack(s, reg, extrasBase + (unit - 6) * 8)
 }
 
 // natEmitIntCall lowers a call to a USER function and leaves the result in RAX.
@@ -6006,23 +6533,33 @@ func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
     let isWin = 0
     if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
     let i = 0
+    let unit = 0
     while (i < len(args)) {
-        s = natEmitIntExpr(s, args[i], plan, fns, binTemp, extrasBase, frame, depth, rctx)
-        if (i < 6) {
-            s = natStoreStack(s, natRegRAX(), natArgTemp(i, frame))
+        if (natNativeArgKindFor(args[i], plan) == 2) {
+            // Two units: the array's (base, len) header, off its two frame slots.
+            // The argument must be an identifier (an array literal has no slots to
+            // stage from), which the scan refuses BY NAME before emission sees it.
+            let ord = natNativeSlotIndex(plan, identName(args[i]))
+            s = natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
+            s = natStoreArgUnit(s, natRegRAX(), unit, frame, extrasBase)
+            s = natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord) + 8)
+            s = natStoreArgUnit(s, natRegRAX(), unit + 1, frame, extrasBase)
+            unit = unit + 2
         } else {
-            s = natStoreStack(s, natRegRAX(), extrasBase + (i - 6) * 8)
+            s = natEmitIntExpr(s, args[i], plan, fns, binTemp, extrasBase, frame, depth, rctx)
+            s = natStoreArgUnit(s, natRegRAX(), unit, frame, extrasBase)
+            unit = unit + 1
         }
         i = i + 1
     }
     let k = 0
-    while (k < len(args)) {
+    while (k < unit) {
         if (k < 6) {
             s = natLoadStack(s, natArgReg(k), natArgTemp(k, frame))
         }
         k = k + 1
     }
-    if (len(args) > 6) {
+    if (unit > 6) {
         s = natLeaRegStack(s, natRegR10(), extrasBase)
     }
     if (isWin == 1) { s = natSubRegImm32(s, natRegRSP(), 8) }
@@ -6628,7 +7165,7 @@ func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, 
     // and its layout reserves the slot in every function, so a per-function
     // flag would make a callee's frame 8 bytes short whenever main indexed
     // something.
-    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, usesMapProg, natNativeMaxExtras(body), isWin)
+    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, usesMapProg, natNativeMaxExtras(body, plan), isWin)
     let frame = lay[6]
     let label = natNativeFuncLabel(name)
     let retLabel = label + "$ret"
@@ -6719,12 +7256,18 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // in and therefore the order their labels must be assigned in -- `fresh()`
     // numbering is global, so emitting a helper for one function before another moves
     // every subsequent label displacement and breaks byte-identity.
-    let fns = natNativeFuncs(stmts)
+    let fnp = natNativeFuncs(stmts)
+    let fns = fnp[0]
+    if (fnp[1] != "") {
+        return [natNativeRefuseNoLine("call-site parameter kind mismatch across the program; " +
+            "this build does not guess: " + fnp[1]), []]
+    }
     let mainIdx = natNativeFuncIndex(fns, "main")
     if (mainIdx < 0) {
         return [natNativeRefuseNoLine("no `func main`; the native entry stub calls " +
             "karkain_main, so a `main` is required"), []]
     }
+    let reach = natNativeReachable(fns)
     let mainParams = natNativeFuncParamsAt(fns, mainIdx)
     // A parameterised main has no caller to pass arguments, so the entry stub would
     // hand it whatever the kernel left in the argument registers. Refused by name
@@ -6733,7 +7276,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         return [natNativeRefuseNoLine("`main` must take no parameters on the native " +
             "target: the entry stub calls it with none"), []]
     }
-    let scan = natNativeScanFor(mainParams, body, tbl, fns, 1, useRegAlloc)
+    let scan = natNativeScanFor(mainParams, body, tbl, fns, 1, useRegAlloc, [])
     if (scan[0] != "") { return [scan[0], []] }
     let plan = scan[1]
     let mainHasReturn = scan[2]
@@ -6808,6 +7351,26 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // POSITION is not an OFFSET.
     let usesRtErr = 0
     if (natNativeUsesRuntimeError(body) == 1) { usesRtErr = 1 }
+    // The reporter is needed when an INDEX exists ANYWHERE in the program --
+    // and since every callee can carry one, the gate must look at every
+    // function, not at main's body alone. The callee-side counterpart of the
+    // missing-reporter refusal was a crash in the PE linker (the bounds
+    // check's failure block calls karkain_runtime_error, which was never
+    // emitted, and the recorded rodata reference landed past the interned
+    // list). This is the same rule NAT-STR-STAGE applied to the string staging
+    // area and NAT-FRAME to the map-stage slot: a PROGRAM-wide flag for a
+    // PROGRAM-wide contract, computed over every function.
+    if (usesRtErr == 0) {
+        let fi = 0
+        while (fi < natNativeFuncCount(fns)) {
+            if (natNativeFuncNameAt(fns, fi) != "main") {
+                if (natNativeUsesRuntimeError(natNativeFuncBodyAt(fns, fi)) == 1) {
+                    usesRtErr = 1
+                }
+            }
+            fi = fi + 1
+        }
+    }
     let lits = natNativeStrLiterals(body)
     let strs = ["-", "\n"]
     // litBase is the list position of the first literal.
@@ -6981,20 +7544,51 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // what keeps its shape -- and therefore its bytes -- identical to the oracle's
     // emitFunc rather than a second implementation that happens to agree.
     let fi = 0
+    let okfn = []
     while (fi < natNativeFuncCount(fns)) {
         let fname = natNativeFuncNameAt(fns, fi)
         let fparams = natNativeFuncParamsAt(fns, fi)
         let fbody = natNativeFuncBodyAt(fns, fi)
-        let fplan = plan
-        let fhasReturn = mainHasReturn
         let fisMain = 0
         if (fname == "main") { fisMain = 1 }
+        if (fisMain == 1) {
+            okfn = appendArray(okfn, 1)
+            fi = fi + 1
+            continue
+        }
+        // A callee's own plan and return flag. A REACHABLE callee that cannot be
+        // lowered aborts the WHOLE program: a half-emitted image is not a build
+        // with a warning, it is an image whose missing function is a link-time
+        // surprise. An UNREACHABLE callee that cannot be lowered is skipped
+        // instead (see natNativeReachable) — the program never calls it, so
+        // nothing reaches the missing label.
+        let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0, useRegAlloc, natNativeFuncKindsAt(fns, fi))
+        if (fscan[0] != "") {
+            if (reach[fi] == 1) { return [fscan[0], []] }
+            okfn = appendArray(okfn, 0)
+        } else {
+            okfn = appendArray(okfn, 1)
+        }
+        fi = fi + 1
+    }
+    fi = 0
+    while (fi < natNativeFuncCount(fns)) {
+        let fname = natNativeFuncNameAt(fns, fi)
+        let fparams = natNativeFuncParamsAt(fns, fi)
+        let fbody = natNativeFuncBodyAt(fns, fi)
+        let fisMain = 0
+        if (fname == "main") { fisMain = 1 }
+        // Dead, unsupported: skipped entirely rather than emitted broken. A
+        // caller reaching this label is impossible (it would have been
+        // reachable), which is exactly what natNativeReachable computed.
+        if (fisMain == 0 && okfn[fi] == 0 && reach[fi] == 0) {
+            fi = fi + 1
+            continue
+        }
+        let fplan = plan
+        let fhasReturn = mainHasReturn
         if (fisMain == 0) {
-            // A callee's own plan and return flag. A refusal here aborts the WHOLE
-            // program: a half-emitted image is not a build with a warning, it is an
-            // image whose missing function is a link-time surprise.
-            let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0, useRegAlloc)
-            if (fscan[0] != "") { return [fscan[0], []] }
+            let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0, useRegAlloc, natNativeFuncKindsAt(fns, fi))
             fplan = fscan[1]
             fhasReturn = fscan[2]
         }
@@ -8031,7 +8625,7 @@ func natNativeProgramUsesStr(fns, tbl) {
     while (fi < natNativeFuncCount(fns)) {
         let fparams = natNativeFuncParamsAt(fns, fi)
         let fbody = natNativeFuncBodyAt(fns, fi)
-        let fplan = natNativePlanFor(fparams, fbody, tbl)
+        let fplan = natNativePlanForKinds(fparams, natNativeFuncKindsAt(fns, fi), fbody, tbl)
         if (natNativeStrOpIn(fbody, fplan) == 1) { return 1 }
         fi = fi + 1
     }

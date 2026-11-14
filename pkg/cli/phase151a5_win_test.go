@@ -974,8 +974,18 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// rather than the file, so a slice that adds functions moves the pin by
 	// more than its line count. Measured with `karkain kir --verify
 	// src/compiler/kir.kark` -- text=15243 verify=15243 -- and never predicted.
-	if text != 15243 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 15243; see the comment above for the measured chain. output follows: %s", text, out)
+	//
+	// 15243 -> 15671 (NAT-STDLIB): NAT-STDLIB added the parameter-kind
+	// inference cluster (natNativeArgKindFor, natNativeAllIntKinds,
+	// natNativeInferParamKinds, natNativeInferInStmts, natNativeInferInExpr),
+	// the reachability walker (natNativeCallsOf, natNativeCallsInNode,
+	// natNativeCallsInExpr) and the balancing emit-time skip, plus the
+	// program-wide runtime-error-reporter gate for indexes inside callees
+	// and the `while (i < len(arr))` emission fix. Measured with
+	// `karkain kir --verify src/compiler/kir.kark` on this host --
+	// text=15671 verify=15671 -- and never predicted.
+	if text != 15671 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 15671; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

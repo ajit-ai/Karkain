@@ -259,11 +259,18 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// the AST rather than the file, so a slice that adds functions moves
 		// the pin by more than its line count.
 		//
-		// Measured with `karkain kir --verify src/compiler/kir.kark` in this
-		// gate's own invocation -- text=15243 verify=15243 -- and never
-		// predicted.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 15243 {
-			t.Errorf("whole-tree kir text = %d lines, want 15243:\n%s", got, out)
+		// RE-PINNED FOR NAT-STDLIB: 15243 -> 15671 (+428). NAT-STDLIB added
+		// the parameter-kind inference cluster (natNativeArgKindFor,
+		// natNativeAllIntKinds, natNativeInferParamKinds, natNativeInferInStmts,
+		// natNativeInferInExpr), the reachability walker (natNativeCallsOf,
+		// natNativeCallsInNode, natNativeCallsInExpr) and the balancing
+		// emit-time skip, plus the program-wide runtime-error-reporter gate
+		// for indexes inside callees and the `while (i < len(arr))` emission fix.
+		//
+		// Measured with `karkain kir --verify src/compiler/kir.kark` on this
+		// host -- text=15671 verify=15671 -- and never predicted.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 15671 {
+			t.Errorf("whole-tree kir text = %d lines, want 15671:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
