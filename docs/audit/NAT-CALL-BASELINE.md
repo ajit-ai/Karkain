@@ -394,3 +394,206 @@ The fourth move — `if` in a callee and in `main` — was needed again by NAT-I
 (see `docs/audit/NAT-IF-BASELINE.md` §8.6), which is the honest way to record
 it: the table's rows follow the driver's capability, and every move says which
 slice moved them.
+
+---
+
+# Appendix A — NAT-CALL qualification (2026-11-14)
+
+**Milestone:** `NAT-CALL` — v1.3.0 §1 item 1.
+**Version:** 1.3.0 (still NOT open; `VERSION` unchanged; no release claim follows
+from this appendix).
+**Branch:** `feature/v1.3.0-natcall` (created from `main` at `b5dcd7f`, the v1.2.0
+provenance-correction merge; `main` verified equal to `origin/main`).
+**Final commit:** pinned after the qualification commit lands (hash recorded in
+`AGENTS.md` and in the engineering report; the report is authoritative for the
+exact SHA).
+
+## A.0 Why this appendix exists
+
+The implementation is NOT new in this qualification pass. It landed in
+`4b67fc1` (2026-10-29, `feat(native): NAT-CALL - kcc native driver lowers user
+function calls (v1.3.0 opener)`) and was part of the tree the v1.2.0
+publication used. What was missing was the milestone's **qualification half**:
+an executed, on-this-host verification of the capability questions the brief
+asks, the diagnostics contract, and an honest separation of what works, what is
+refused by name, and what is refused only by the Go oracle (which kcc accepts).
+
+So this appendix does two things: it is the evidence for the milestone, and it
+corrects the premise "native calls remain unresolved" against measurement.
+
+## A.1 Preflight findings (divergence from the brief's premise, reported)
+
+* `main` = `b5dcd7f`, matches `origin/main`; tag `v1.2.0` = `e900c91` →
+  `77d7069`, unchanged.
+* Nine pre-existing untracked files present and untouched; nothing staged.
+* **The native function call is LOWERED, not missing.** The driver emits user
+  functions (source order), homes parameters, and calls them with the Phase 148
+  calling convention; it was gated green on 2026-10-29 and is green again on
+  this host (see A.4).
+* The brief's remaining questions — and their measured answers — are in A.5–A.13.
+
+## A.2 Files this qualification pass changes
+
+* `pkg/cli/phase151o_natcall_qual_test.go` (new; `TestPhaseNATCallQual_*`)
+* `.github/workflows/ci.yml` (new dedicated CI step *Run NAT-CALL qualification
+  gate*)
+* `docs/release/v1.3.0-CHECKLIST.md` (§1 item 1 status/evidence; nothing else)
+* `docs/audit/KARKAIN-IMPLEMENTATION-CONTROL.md` (new NAT-CALL row)
+* `docs/audit/NAT-CALL-BASELINE.md` (this appendix)
+* `AGENTS.md` (completion record)
+
+**No `src/compiler/*.kark` file is modified. The whole-tree KIR pin is
+therefore unchanged at 15243.**
+
+## A.3 The brief's 22-item test matrix, mapped to evidence
+
+| # | Item | Where / result |
+|---|------|----------------|
+| 1 | single function + invocation | `phase151e_call_test.go` `call_add` (executes, exact bytes); re-verified 2026-11-14 |
+| 2 | one parameter | `phase151e` `unary`; this appendix probe corpus |
+| 3 | multiple parameters | `phase151e` `call_add` (2 params); seven-argument `extras` case |
+| 4 | returns integer | `phase151e` `call_add` |
+| 5 | returns floating-point | **REFUSED BY NAME** (K145, `kind 22 is neither an integer literal`); pinned in the qualification gate. Execution is NOT claimed |
+| 6 | multiple calls | `phase151e` `two_calls` |
+| 7 | nested calls | `phase151e` `nested` (`inc(inc(1))`); `call_in_arithmetic` |
+| 8 | local variable isolation | `phase151e` `callee_local`; `callee_local_from_call` |
+| 9 | repeated calls | `phase151e` `two_calls`; `call_in_while_loop` (executed) |
+| 10 | forward references | works; `forward_reference` executed golden |
+| 11 | recursion | works on kcc; **the Go oracle refuses it** (see A.7); `recursion` executed golden |
+| 12 | register preservation | `locals_live_across_call` (ten int locals live across a call) executed golden; phase151e layer 4 |
+| 13 | stack alignment | phase151e layer 4 (`sub rsp, 8` Windows-only, counted) |
+| 14 | stack restoration | phase151e layer 4; frames verified in layer 3 |
+| 15 | argument evaluation order | left to right; `argument_evaluation_order` executed golden |
+| 16 | invalid argument counts | `error[K103]`, asserted with exit 3 on the CLI (main and callee sites) |
+| 17 | invalid argument types | `error[K145]` (e.g. string for int parameter); float-literal arg for float parameter also refused, see A.8 |
+| 18 | undefined function diagnostics | `error[K101]`, asserted with exit code and marker on the CLI |
+| 19 | invalid return-value diagnostics | `return` of a string refused (`K145`); binding a void call result refused (`K145`); pinned |
+| 20 | arrays + loops | `call_in_while_loop` executed; array indexing + loops live coverage in `phase151j_array_index_test.go` (NAT-IDX) |
+| 21 | Windows amd64 execution | EXECUTED PE, exact stdout bytes (this host) |
+| 22 | Linux amd64 execution | **NOT available.** Linux ELFs are byte-identical to the Go oracle's (differential), not executed (no WSL/Docker on this host; the Linux CI leg exists in ci.yml but is billing-blocked as of 2026-11-14) |
+
+Every unsupported item above carries an explicit gate pinning its refusal;
+nothing unsupported was silently accepted.
+
+## A.4 Commands actually run, and actual results
+
+```
+go test ./pkg/cli/ -run 'TestPhaseNATCall_'     -count=1   # ok  43.9s (2026-11-14)
+go test ./pkg/cli/ -run 'TestPhaseNATCallQual_' -count=1   # ok  20.5s (2026-11-14)
+```
+
+Probes executed through the real CLI (`karkain build --target
+native-x86_64-windows`) with the produced PE run and its stdout captured as
+lowercase hex, never trimmed:
+
+| Program | stdout (hex) |
+|---|---|
+| recursion (`fact(5)`) | `3132300a` |
+| forward reference | `320a` |
+| argument evaluation order | `3130300a3230300a330a` |
+| locals live across call (10 locals) | `35360a` |
+| callee local from call | `370a` |
+| arithmetic around call | `32320a` |
+| call in `while` | `300a320a340a360a` |
+| float parameter (int argument) | `330a` (see A.7) |
+
+## A.5 Supported and executed (Windows amd64)
+
+Single and multiple functions; multi-parameter int calls; seven or more
+arguments (units 6+ in the caller's extras area, addressed through R10);
+recursion; forward references; nested calls; calls in arithmetic position;
+calls in a loop; ten int locals live across a call; argument evaluation
+left to right; callee-owned `let` bindings including `let m = g()` inside a
+called function.
+
+## A.6 Diagnostics (all through the real CLI, exit 3, NO image written)
+
+| Source | Diagnostic |
+|---|---|
+| `func main() { print(nosuch(1)) }` | `error[K101] line 1: undefined function 'nosuch'` |
+| `print(f(1, 2))` for `f(n int)` | `error[K103] line 2: function 'f' expects 1 arguments but got 2` |
+| same inside a called function | same `K103` |
+| `print(f("hi"))` | `error[K145]: ... string argument for int parameter 'n'` |
+| `print(f(1.5))` for `f(x float)` | `error[K145]: ... float argument for int parameter 'x'` (see A.9 #2) |
+| `func f() float { return 1.5 }` | refused; the subset is int (`K145`, "kind 22") |
+| `func f() string { return "x" }` | refused (`K145`, "`return` of a string is not supported") |
+| `let c = f(1)` in `main` | refused (`K145`, main's `let` arm is frozen by 151A Step 9c) |
+| `let x = v()` (void callee) | refused (`K145`) |
+
+## A.7 Divergences from the Go oracle (measured, pinned, NOT edited away)
+
+1. **Recursion.** kcc lowers a recursive user function and the produced PE
+   EXECUTES (correct `120` for `fact(5)`). The Go oracle refuses it at compile
+   time: `error[K145]: cannot determine return kind of recursive function
+   'fact'`. kcc accepts a program the Go engine refuses; recorded here rather
+   than silently relied on.
+2. **Intact int argument to a float parameter.** Passing an int literal to a
+   `float` parameter EXECUTES on the kcc native path (`330a`). The Go oracle
+   refuses: `error[K145]: int argument for float parameter 'x'`.
+3. **Otherwise, byte identity holds for the covered corpus**: the kcc Linux
+   ELF is byte-identical to the Go oracle's for every shape in the
+   qualification corpus except the two kcc-only ones above, measured as a
+   differential (`pkg/native` produces the expected bytes at test time), and
+   never as a golden.
+
+These are parity facts, not endorsements of mixed int/float typing, which the
+language does not have.
+
+## A.8 Refused BY NAME (no silent acceptance; every row asserts the exit
+code, the diagnostic and no image)
+
+Callee bodies using non-int kinds; `/`, `%`, comparisons and the logical
+operators; string/array/record/map arguments; `main` with parameters; a `let`
+initialiser from a call in `main`; calls to native `std.*` modules (no native
+stdlib runtime exists — that is NAT-STDLIB, not this milestone).
+
+## A.9 Known defects / oddities (recorded, not fixed here)
+
+1. **`import "C"` HANGS the self-hosted compiler** (`karkain check` and the
+   native build path; killed after >240 s with no output). The Go engine
+   accepts the same minimal fixture (`Check passed.`). This is a pre-existing
+   kcc defect, out of NAT-CALL's scope, and it blocks any C-interop story on
+   the native path. Recorded with repro. **It must be triaged as a separate
+   slice**; it is not silently accepted and no native claim rests on it.
+2. **Diagnostic names the parameter `int` for a declared `float`**
+   ("float argument for int parameter `x`"): the parser discards parameter
+   annotations so the engine has no `float` kind to report; pinned, not
+   endorsed.
+3. Driver diagnostics line numbers are unreliable (pre-existing, see §8.5).
+4. Environmental: `kcc.exe` requires `C:\msys64\ucrt64\bin` on `PATH` or it
+   dies `0xC0000135` (STATUS_DLL_NOT_FOUND). Without it, the CLI reports
+   `kcc produced no answer` at exit 6, which reads like a compile error.
+
+## A.10 Performance (indicative only; no superiority claim)
+
+5,000,000 while-iterations, 3 runs, one process each: call vs inline delta
+between **-2 ms and +73 ms** (≈0–15 ns/call). Host noise dominates; the
+numbers are recorded to show the measurement was taken, NOT to claim a
+speedup. NAT-REG remains opt-in; nothing in this appendix changes the default
+engine path or claims register-allocation performance.
+
+## A.11 Platform evidence, separated
+
+| Platform | Evidence |
+|---|---|
+| Windows amd64 (this host) | **EXECUTED** PE, exact stdout bytes, exit codes |
+| Linux amd64 | byte-identity vs Go oracle (differential); **NOT executed** here; Linux CI leg exists but is billing-blocked 2026-11-14 |
+| macOS (amd64/arm64) | structural only (`ParseMachO`); no runner; NOT claimed executed |
+
+## A.12 Remaining dependencies / limitations
+
+NAT-STDLIB is the only route to a native `import std.*` program; `std.net` is
+blocked behind NAT-NET; the `import "C"` hang blocks C-interop; Linux/macOS
+execution evidence awaits a runner/CI (current block: account billing
+restriction, not engineering). Conditions 2, 3, 5, 6 of v1.2.0 remain carried
+to v1.3.0 UNMET and unchanged by this appendix.
+
+## A.13 CI status
+
+The new qualification gate is wired as its own step (*Run NAT-CALL
+qualification gate*, pattern `TestPhaseNATCallQual_`), which the wiring check
+in the gate asserts. **As of 2026-11-14 GitHub Actions cannot execute its
+steps: the account is subject to a billing/payment restriction, so the
+required `Test` job and all steps (including this one) have not run in CI.**
+The gate is green on this host; CI status is not claimed.
+

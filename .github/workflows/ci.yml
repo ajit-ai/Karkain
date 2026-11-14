@@ -354,6 +354,18 @@ jobs:
       - name: Run NAT-CALL kcc native user-call gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATCall_' -count=1 -timeout 30m -v
 
+      # NAT-CALL qualification addendum: the same gate's EXECUTION and
+      # diagnostics coverage. EXECUTED PE goldens on the Windows runner,
+      # the kcc-vs-Go ELF byte differential, by-name refusals with the exit
+      # code AND the diagnostic (an undefined function, a wrong argument
+      # count, a wrong argument type), locals live across a call, argument
+      # evaluation order, forward references and recursion — every claim
+      # paired with kcc provenance so a Go fallback cannot pass. Named
+      # explicitly and deliberately not folded into the NAT-CALL step: the
+      # addendum's own wiring check asserts this step exists.
+      - name: Run NAT-CALL qualification gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATCallQual_' -count=1 -timeout 30m -v
+
       # NAT-IF, the conditional branch in the kcc native driver: `if cond { }`
       # and `if cond { } else { }` over INTEGER comparisons.
       #
