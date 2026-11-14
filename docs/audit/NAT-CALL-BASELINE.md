@@ -404,9 +404,8 @@ slice moved them.
 from this appendix).
 **Branch:** `feature/v1.3.0-natcall` (created from `main` at `b5dcd7f`, the v1.2.0
 provenance-correction merge; `main` verified equal to `origin/main`).
-**Final commit:** pinned after the qualification commit lands (hash recorded in
-`AGENTS.md` and in the engineering report; the report is authoritative for the
-exact SHA).
+**Final commit:** `397d7b3` — `NAT-CALL: qualify the native user-function-call
+milestone` (pushed as `feature/v1.3.0-natcall`).
 
 ## A.0 Why this appendix exists
 
