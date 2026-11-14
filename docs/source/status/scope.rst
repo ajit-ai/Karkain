@@ -163,9 +163,13 @@ promised for the release candidate.
    * - Surface
      - Scope
    * - Pre-built binary distribution
-     - The CI build matrix and tag-triggered release workflow are ready;
-       archives/sha-256 will be produced on GitHub Releases for tagged
-       releases. Today installation is **from source**.
+     - v1.2.0 pre-built archives are published to GitHub Releases with
+       ``checksums.txt``. **They were built locally on a Windows host from
+       the tagged commit (Go 1.21.13, the CI workflow's Go version), NOT by
+       the tag-triggered CI pipeline** — the account was subject to a
+       billing/payment restriction and the release workflow did not
+       complete. This is a locally built and published release, NOT a
+       CI-green release. Building from source remains supported.
    * - Public package registry
      - ``karkain pkg publish/search/login`` against an operated central
        registry. Local registry is implemented (Phase 135).

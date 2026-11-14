@@ -16,15 +16,21 @@ difference. It does not claim anything the evidence does not support.
 
 | | |
 |---|---|
-| Development branch | `feature/v1.2.0-native-independence` |
-| NAT-REG commit | see the release log (`git log --oneline`) |
-| NAT-QUAL-FINAL commit | see the release log |
-| Release-preparation commit | see the release log |
-| Annotated tag | `v1.2.0` |
-| Peeled commit | the release commit, on `main` |
+| Starting branch | `feature/v1.2.0-native-independence` at `756df79` (NAT-RODATA) |
+| NAT-REG commit | `366ee03` - NAT-REG: add native register allocation to the self-hosted driver |
+| NAT-QUAL-FINAL commit | `80bc6eb` - NAT-QUAL-FINAL: qualify the v1.2.0 native path and correct the target ownership |
+| Release-preparation commit | `8fc6198` - release: prepare Karkain v1.2.0 (Native Independence) |
+| Corrective commits | `994bd5a` (the two release blockers the first CI run found), `1f36300` (the NAT-REG gate executes the host's own native image), `b49b463` (the artifact-quota record) |
+| Release branch | `main` |
+| Merge commit | `77d7069` - "Merge branch 'develop' for Karkain v1.2.0 (Native Independence)" (pull request #2) |
+| Annotated tag | `v1.2.0` (tag object `e900c91`) |
+| Peeled commit | `77d7069` - the merge commit on `main` |
 
-The three commits are separate and focused: the register allocator, the
-qualification evidence and corrections, and the release preparation.
+The three focused commits are separate and auditable: the register
+allocator, the qualification evidence and corrections, and the release
+preparation. The three corrective commits are a separate record: each is a
+defect the RELEASE's OWN CI run found, each is documented in AGENTS.md, and
+none of them re-plans a completed slice.
 
 ## 2. What v1.2.0 is
 
@@ -350,18 +356,26 @@ The **effective** gate is therefore conditions 1, 4, 7 and 8.
 | 5 | the documentation matches the implementation | **PASS** | four documentation defects found and fixed in the flip (the stale `K116` ownership claim, the stale `v1.0.0` archive names, the "Release cut pending" marker and the README's "native backend is Planned" prose); the ownership table, the archive table and the compatibility policy now match the code |
 | 6 | the supported targets confirmed | **PASS** | Windows PE executed on this host; Linux ELF byte-identical to the oracle and executed on the Linux CI leg; macOS Mach-O structurally validated - and **not** claimed as executed |
 | 7 | the version metadata confirmed | **PASS** | `VERSION` = `1.2.0`; `karkain --version` reports `Karkain Compiler v1.2.0 (windows/amd64, Stable Build)`; the kcc banners, the six generated headers, the LSP server and the five version-pinning test files agree; the install script's VERSION file and the shipped binary agree |
-| 8 | the release artifacts confirmed | **PASS** | the CI `release` job builds the 13-archive matrix from the tagged commit and publishes it with `checksums.txt`; the post-publish verification against the shipped binary is recorded in section 13 |
+| 8 | the release artifacts confirmed | **PASS (locally built)** | the 13 archives were built **locally on a Windows host** from the tagged commit using **Go 1.21.13** (the Go version the CI workflow pins), `CGO_ENABLED=0`, `GOARM=7` for linux/arm and the CI build flags; `checksums.txt` was generated locally and independently verified; **GitHub Actions could not execute the release matrix** (run `43374786565`, 2026-11-14: the Build jobs were rejected before they started because the account was subject to a billing/payment restriction), so this is a locally built and published release, **NOT a CI-green release**; the tag-triggered workflow did not complete |
 | 9 | no uncommitted phase-owned files remain | **PASS** | the working tree is clean at the release commit apart from the nine pre-existing unrelated untracked files, which were preserved untouched |
 | 10 | no unresolved release-blocking defect | **PASS** | the known differences in section 8 are binary-layout or capability differences, each either refused by name or proven not to affect a program's output; none is a wrong result, a memory-safety defect, an invalid executable or an incorrect runtime diagnostic |
 
 ### 12.2 The release decision
 
-**PASS - publish v1.2.0.**
+**PASS - publish v1.2.0, as a locally built release (owner-authorized 2026-11-14).**
 
 Every mandatory gate holds. The four carried closure conditions (2, 3, 5 and
 6) are carried by owner-authorized amendments whose TEXT is unchanged and
 whose STATUS lives in one place; they are not v1.2.0 blockers and they are
 not claimed as met.
+
+**Provenance is local, not CI.** The account was subject to a
+billing/payment restriction, the tag-triggered workflow `43374786565` did not
+execute its Build matrix, and the archives published with this release were
+built by the publisher on a Windows host from the tagged commit with Go
+1.21.13. **This release is NOT a CI-green release** and must not be
+described as one. The post-publication verification against the downloaded,
+publicly published assets is recorded in section 13.
 
 **Two things are explicitly NOT claimed.** No Mach-O image has been executed,
 because this repository has no macOS runner. And the self-hosted compiler's
@@ -372,24 +386,52 @@ required `Test` job.
 
 ## 13. The artifacts
 
-The release workflow (`.github/workflows/ci.yml`, the `release` job) builds the
-archive matrix on the tag push and publishes it with `checksums.txt`:
+The published archive set was **built locally on a Windows host** (not by
+GitHub Actions) from the tagged commit `77d70693e1e3134dac312a303bffafa7d50fa988`
+(tag `v1.2.0`, tag object `e900c91e485fc316f52b664228f6c35f25416436`):
 
 * Windows: amd64, arm64 (zip)
 * Linux: amd64, arm64, arm, 386, ppc64le, s390x (tar.gz)
 * macOS: amd64, arm64 (tar.gz)
 * FreeBSD, NetBSD, OpenBSD: amd64 (tar.gz)
 
-Every archive is built from the tagged commit by the CI matrix, and
-`checksums.txt` is generated from the artifacts themselves.
+Build environment: **Go 1.21.13** (the Go version the CI workflow pins at
+`actions/setup-go@v5`, `go-version: '1.21'`), `CGO_ENABLED=0`, `GOARM=7` for
+linux/arm, `-ldflags="-s -w"`, `go build ./cmd/karkain`. Packaging used the
+local Windows packaging tools (PowerShell `Compress-Archive`, bsdtar), not the
+Ubuntu GNU environment the CI matrix uses; archive containers therefore differ
+from CI's, but the contents (binary, `README.md`, `LICENSE`, `stdlib/`,
+`VERSION` = `v1.2.0`) are identical to what the CI `Package` steps produce.
+
+`checksums.txt` was generated locally from the artifacts themselves and
+independently verified (`Get-FileHash`, SHA-256, `sha256sum -c`-compatible
+format); every archive lists in it and verifies true. **The published
+checksums identify the locally built archives, not CI artifacts.** GitHub
+Actions could not execute the release matrix: run `43374786565` (2026-11-14)
+had its Build jobs rejected before they started ("recent account payments
+have failed or your spending limit needs to be increased"); the
+tag-triggered workflow did not complete, and no CI-built artifacts are
+claimed for this release. **This is NOT a CI-green release.**
 
 **The installation instructions tell the user to verify every archive against
-that file**, and the version banner in the shipped binary is the release's own.
+that file**, and the version banner in the shipped binary is the release's own
+(`Karkain Compiler v1.2.0 (windows/amd64, Stable Build)`).
+
+Post-publication verification (downloading the public assets) is recorded in
+this section's verification record: every downloaded archive was checked
+against the published `checksums.txt`, the Windows amd64 archive was extracted
+and its `--version` output confirmed.
 
 ## 14. What a reader should NOT conclude from this report
 
+* That the release is CI-green. It is not: the archives were built locally
+  on a Windows host (Go 1.21.13, the CI workflow's Go version) because the
+  account was subject to a billing/payment restriction and the
+  tag-triggered workflow `43374786565` did not execute its Build matrix. The
+  published checksums identify the locally built archives.
 * That the PE is byte-identical to the Go oracle's. It is not, and it is not
   claimed to be.
+
 * That a Mach-O image has been executed. It has not; there is no macOS runner.
 * That the native driver supports the whole language. It supports a qualified
   subset and refuses everything else BY NAME.

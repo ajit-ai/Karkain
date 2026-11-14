@@ -45,6 +45,14 @@ v1.2.0 - Native Independence (current)
      - Every 1.1.0 program builds and runs identically. The surface change is
        strictly additive; the one behavioural change is that the native
        targets are now produced by the self-hosted engine.
+   * - Release provenance
+     - The 13 published archives were built **locally on a Windows host**
+       from the tagged commit (``v1.2.0``, peeled commit ``77d7069``) using
+       Go 1.21.13 (the CI workflow's Go version); GitHub Actions could not
+       execute the release matrix because the account was subject to a
+       billing/payment restriction. **This is a locally built and published
+       release, NOT a CI-green release.** The tag-triggered workflow did
+       not complete. Checksums were independently verified.
    * - Known differences
      - The reporter's read-only data is laid out in the oracle's interning
        order except for one shape, and the field-assignment code differs by 25
