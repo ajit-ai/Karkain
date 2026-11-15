@@ -157,6 +157,16 @@ owner authorisation as the next v1.3.0 slice.)
 > recommendation stands — the tranche that remains is the string runtime and
 > the hex/base64/sha256 builtins. Condition 2 remains UNMET in full —
 > see `docs/audit/NAT-STDLIB-BASELINE.md`.
+>
+> **Status note 2026-11-15 (string tranche attempted, BLOCKED there):** the
+> string tranche could NOT be developed on this host — repeated memory-limit
+> collapses (exit 1073807364 / 3221225794) destroyed the shell during kcc
+> rebuilds and left the validation pass impossible (free RAM hit 138 MiB at
+> the end). The work-in-progress (parameter/return-kind inference, two-unit
+> argument staging, return-kind descriptors) was preserved at
+> `C:\Windows\Temp\opencode\native_value-string-wip.kark` and is NOT committed
+> or qualified. Verdict BLOCKED for the string tranche; condition 2 stays
+> UNMET in full; see `docs/audit/NAT-STDLIB-STRING-BASELINE.md`.
 
 Why this one, from evidence:
 
