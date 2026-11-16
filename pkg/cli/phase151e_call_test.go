@@ -807,14 +807,6 @@ var natERefusals = []natERefusal{
 		code: "error[K145]", want: "`let c` initialised from a non-integer expression",
 	},
 	{
-		// Every parameter is an int in this slice, so a non-int argument is
-		// refused at the CALL SITE by kind, naming both the parameter and the
-		// callee.
-		name: "string_argument",
-		src:  "func f(n int) int { return n }\nfunc main() { print(f(\"hi\")) }\n",
-		code: "error[K145]", want: "string argument for int parameter `n` (call to `f`)",
-	},
-	{
 		name: "bool_argument",
 		src:  "func f(n int) int { return n }\nfunc main() { print(f(true)) }\n",
 		code: "error[K145]", want: "bool argument for int parameter `n` (call to `f`)",
@@ -838,15 +830,6 @@ var natERefusals = []natERefusal{
 		name: "builtin_in_callee",
 		src:  "func f(n int) int { return abs(n) }\nfunc main() { print(f(1)) }\n",
 		code: "error[K145]", want: "call to builtin `abs` is not lowered by the native driver",
-	},
-	{
-		// A callee's `print` is int-only. Before this refusal existed the
-		// program CRASHED kcc with "array index out of range", because the
-		// literal was never interned and the emission path indexed the rodata
-		// list anyway. The refusal is the repair.
-		name: "callee_prints_string",
-		src:  "func f(n int) {\n    print(\"hi\")\n}\nfunc main() { f(1) }\n",
-		code: "error[K145]", want: "`StringLiteral` is not an integer expression",
 	},
 	{
 		// The checker refuses these BEFORE the driver, which is the correct
@@ -1087,5 +1070,76 @@ func TestPhaseNATCall_GateIsWiredInCI(t *testing.T) {
 	if strings.Contains(text, "-run 'TestPhase151_' -count=1") &&
 		!strings.Contains(text, "'TestPhaseNATCall_'") {
 		t.Error("only the broad 151 pattern is wired; NAT-CALL needs its own step")
+	}
+}
+
+// TestPhaseNATCall_StringProgramsExecute qualifies the programs the string
+// tranche made LEGAL. Both cases were pinned as refusals before the tranche and
+// both print exact bytes now ("hi" + LF, no CR).
+func TestPhaseNATCall_StringProgramsExecute(t *testing.T) {
+	if os.PathSeparator == '/' {
+		t.Skip("PE images only execute on Windows; every other layer is cross-platform")
+	}
+	cases := []struct {
+		name, src, wantHex string
+		wantExit           int
+	}{
+		{
+			name:     "string_argument_promotes_parameter",
+			src:      "func f(n int) int { return n }\nfunc main() { print(f(\"hi\")) }\n",
+			wantHex:  "68690a",
+			wantExit: 0,
+		},
+		{
+			name:     "callee_prints_string_literal",
+			src:      "func f(n int) {\n    print(\"hi\")\n}\nfunc main() { f(1) }\n",
+			wantHex:  "68690a",
+			wantExit: 0,
+		},
+		{
+			name:     "callee_returns_string_literal",
+			src:      "func f() string { return \"karkain\" }\nfunc main() { print(f()) }\n",
+			wantHex:  "6b61726b61696e0a",
+			wantExit: 0,
+		},
+		{
+			name:     "string_literal_argument_not_bound",
+			src:      "func f(g string) string { return g }\nfunc main() { print(f(\"karkain\")) }\n",
+			wantHex:  "6b61726b61696e0a",
+			wantExit: 0,
+		},
+		{
+			name:     "let_from_string_returning_call",
+			src:      "func f() string { return \"karkain\" }\nfunc main() {\n    let name = f()\n    print(name)\n}\n",
+			wantHex:  "6b61726b61696e0a",
+			wantExit: 0,
+		},
+		{
+			name:     "string_call_chain_through_callee",
+			src:      "func a() string { return \"inner\" }\nfunc b() string {\n    let s = a()\n    return s\n}\nfunc main() { print(b()) }\n",
+			wantHex:  "696e6e65720a",
+			wantExit: 0,
+		},
+		{
+			name: "literal_return_inside_branch",
+			src: "func f(n int) string {\n    if n == 1 {\n        return \"one\"\n    }\n    return \"other\"\n}\n" +
+				"func main() {\n    print(f(1))\n    print(f(2))\n}\n",
+			wantHex:  "6f6e650a6f746865720a",
+			wantExit: 0,
+		},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			img := natEImage(t, c.src)
+			got, code := nat9dRun(t, img)
+			want := natEHex(t, c.wantHex, c.name+" expected stdout")
+			if !nat9cBytesEq(got, want) {
+				t.Errorf("stdout = % x, want % x\n  source:\n%s", got, want, c.src)
+			}
+			if code != c.wantExit {
+				t.Errorf("exit = %d, want %d\n  source:\n%s", code, c.wantExit, c.src)
+			}
+		})
 	}
 }

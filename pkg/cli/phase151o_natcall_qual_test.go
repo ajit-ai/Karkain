@@ -127,6 +127,23 @@ var natCallQualCorpus = []natCallQualCase{
 		kccOnly: true,
 	},
 	{
+		// A string literal argument PROMOTES the parameter to a string
+		// (the string tranche): the program executes, and its bytes are
+		// qualified here rather than as a refusal.
+		name:    "string_argument_promotes_parameter",
+		src:     "func f(n int) int { return n }\nfunc main() { print(f(\"hi\")) }\n",
+		wantHex: "68690a",
+		kccOnly: true,
+	},
+	{
+		// A callee returning a string executes through the (RDI, RSI) return
+		// convention (the string tranche).
+		name:    "string_returning_callee",
+		src:     "func f() string { return \"x\" }\nfunc main() { print(f()) }\n",
+		wantHex: "780a",
+		kccOnly: true,
+	},
+	{
 		// A call inside a loop: the for-free and while-backed lowering both
 		// re-enter EmitCall once per iteration.
 		name:    "call_in_while_loop",
@@ -235,14 +252,6 @@ func natCallQualRefusals() []natCallQualRefusal {
 			code: "error[K103]", want: "function 'u' expects 1 arguments but got 2",
 		},
 		{
-			// Every parameter is an int to the native driver (the parser
-			// discards annotations), so a non-int argument is refused AT THE
-			// CALL SITE by the argument's own kind.
-			name: "string_argument",
-			src:  "func f(n int) int { return n }\nfunc main() { print(f(\"hi\")) }\n",
-			code: "error[K145]", want: "string argument for int parameter `n`",
-		},
-		{
 			name: "float_argument_to_float_parameter",
 			src:  "func f(x float) int { return 3 }\nfunc main() { print(f(1.5)) }\n",
 			code: "error[K145]", want: "float argument for int parameter `x`",
@@ -252,11 +261,6 @@ func natCallQualRefusals() []natCallQualRefusal {
 			name: "float_return",
 			src:  "func f() float { return 1.5 }\nfunc main() { print(f()) }\n",
 			code: "error[K145]", want: "kind 22 is neither an integer literal",
-		},
-		{
-			name: "string_return",
-			src:  "func f() string { return \"x\" }\nfunc main() { print(f()) }\n",
-			code: "error[K145]", want: "`return` of a string is not supported",
 		},
 		{
 			name: "main_let_from_call",

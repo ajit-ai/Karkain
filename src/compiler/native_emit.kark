@@ -556,6 +556,16 @@ func natSetTargetOS(s, os) {
     return s
 }
 
+// Slots 17 and 18 are the "string lowering context" the native value model needs
+// inside the shared argument walker, which has no path to the caller's statement
+// list and the current function's roffs slice. They carry the emitting
+// function's own body list and its literals-offset slice, set per function in
+// natNativeEmitFunc and read by natEmitIntCall when a string literal appears as
+// an argument. They are never used for anything else and are additive.
+func natStStrStmts(s) { return s[17] }
+func natStStrRoffs(s) { return s[18] }
+func natSetNativeStringCtx(s, stmts, roffs) { s[17] = stmts; s[18] = roffs; return s }
+
 // natNewEmitter returns a fresh emitter state: empty code, no labels, no
 // rel32 fixups, no imm64 placeholders.
 // Phase 151A Step 9g grows the state from thirteen slots to fifteen.
@@ -569,7 +579,7 @@ func natSetTargetOS(s, os) {
 // natNewEmitter is the ONLY constructor, so every growth is purely additive: no
 // existing emission changes and no previously-shipped byte moves.
 func natNewEmitter(unused) {
-    return [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0, []]
+    return [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0, [], [], []]
 }
 
 // natStUid is the fresh-label counter (emitter slot 16).

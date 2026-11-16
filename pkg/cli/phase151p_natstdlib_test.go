@@ -27,9 +27,8 @@
 // What does NOT work, each asserted here or pinned BY NAME:
 //
 //   - the whole `examples/stdlib_v2` program — refused with
-//     "`let name` initialised from a non-integer expression" (main's `let`
-//     cannot bind a call result yet; the string runtime it would need does
-//     not exist);
+//     "`let parts` initialised from a non-integer expression" (`str_split`
+//     wants a string array kind the native value model does not have);
 //   - ANY other stdlib module — std.string/encoding/crypto need a string
 //     runtime (params, returns, equality, slicing, concat in callees) and the
 //     hex/base64/sha256 builtins;
@@ -200,9 +199,10 @@ func TestPhaseNATStdlib_ImportedCollectionsExecutes(t *testing.T) {
 }
 
 // TestPhaseNATStdlib_ImportedCollectionsNoImageThenReport asserts the
-// whole-example refusal verbatim. main's `let` cannot bind a call result yet,
-// which is the first of the three string-runtime gaps the full stdlib_v2
-// example needs. The refusal names the construct and writes no image.
+// whole-example refusal verbatim. The string tranche taught the inference to
+// classify return kinds across the call graph, and a string module whose bodies
+// mix string and int returns on disjoint arms is rejected before emission
+// with that diagnostic. The refusal names the construct and writes no image.
 func TestPhaseNATStdlib_ImportedCollectionsNoImageThenReport(t *testing.T) {
 	karkain := phase130Karkain(t)
 	example := filepath.Join("..", "..", "examples", "stdlib_v2", "main.kark")
@@ -216,8 +216,13 @@ func TestPhaseNATStdlib_ImportedCollectionsNoImageThenReport(t *testing.T) {
 		t.Fatalf("the whole example compiled natively; that would make this refusal stale and it must move, not be deleted\n%s", out)
 	}
 	text := string(out)
-	if !strings.Contains(text, "`let name` initialised from a non-integer expression") {
-		t.Fatalf("the refusal does not name the blocking construct.\nWant fragment: `let name` initialised from a non-integer expression\nGot:\n%s", text)
+	// The full example is refused with the blocker this milestone hits next:
+	// `str_split` returns an array of strings, and the native value model has
+	// no string array kind, so the `let parts` initialiser cannot bind it.
+	// The same divergence the string tranche was supposed to remove; the
+	// fixture pins it so the refusal cannot silently vanish.
+	if !strings.Contains(text, "`let parts` initialised from a non-integer expression") {
+		t.Fatalf("the refusal does not name the blocking construct.\nWant fragment: `let parts` initialised from a non-integer expression\nGot:\n%s", text)
 	}
 	if _, err := os.Stat(outPath); err == nil {
 		t.Fatal("a refusal must write no image")
