@@ -518,6 +518,25 @@ jobs:
       # stack-based path, which is the qualified implementation.
       - name: Run NAT-REG native register-allocation gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATReg_' -count=1 -timeout 30m -v
+
+      # NAT-STREQ, string equality in the self-hosted native driver.
+      #
+      # `if (a == "x")` was refused by name, so the qualified path could build
+      # and print a string but could not BRANCH on one. The lowering is the
+      # oracle's (pkg/native/program.go emitStrEqCond): compare the lengths
+      # first, then walk the bytes.
+      #
+      # Its own pattern again: 'TestPhaseNATStrEq_' is matched by no other
+      # step, so a string-equality regression cannot hide behind a green
+      # neighbour, and the gate asserts THIS step exists.
+      #
+      # The gate retries ONLY the documented intermittent kcc 0xC0000005
+      # (no diagnostic, no image) and fails on the fourth attempt with the
+      # defect named, so an environmental crash can never be absorbed into a
+      # pass.
+      - name: Run NAT-STREQ kcc native string equality gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATStrEq_' -count=1 -timeout 40m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

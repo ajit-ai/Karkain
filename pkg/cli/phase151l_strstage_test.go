@@ -446,9 +446,13 @@ func TestPhaseNATStrStage_TheCoverageIsTheOracleFiveOperations(t *testing.T) {
 			// oracle's scanStringViewOps looks for.
 			op:   "func main() {\n    let s = \"x\"\n    while (s == \"y\") { print(1) }\n}\n",
 			twin: "func main() {\n    let s = \"x\"\n    print(s)\n}\n",
-			// The driver refuses a string comparison: its condition scanner
-			// requires an int operand.
-			refused: true,
+			// CORRECTIVE CHANGE against the frozen NAT-STR-STAGE baseline
+			// (recorded in docs/audit/PHASE-151Q-STREQ-BASELINE.md): this row
+			// said the driver REFUSED a string comparison because its
+			// condition scanner required an int operand. Phase 151Q ported the
+			// oracle's emitStrEqCond, so the equality lowers now and the
+			// operation must RESERVE the staging area like the other four.
+			refused: false,
 		},
 		{
 			name: "string_slice",

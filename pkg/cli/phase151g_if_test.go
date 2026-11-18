@@ -228,13 +228,22 @@ var natIfRefusals = []struct {
 		want: "found '+'",
 	},
 	{
-		// A string comparison is NOT lowered here. The oracle has a string
-		// path in emitCond; the self-hosted driver's string layer is main-only
-		// and its comparison path is not ported yet. The message names the
-		// operand's KIND, which is more useful than a node number.
-		name: "string_condition",
-		src:  "func main() {\n    let s = \"hi\"\n    if s == \"hi\" {\n        print(1)\n    }\n}\n",
-		want: "is string; only an int may appear in an arithmetic expression",
+		// A CORRECTIVE CHANGE against the frozen NAT-IF baseline, recorded in
+		// docs/audit/PHASE-151Q-STREQ-BASELINE.md. This row used to pin
+		// "is string; only an int may appear in an arithmetic expression" for
+		// `s == "hi"`, which stopped being true once Phase 151Q ported the
+		// oracle's emitStrEqCond: `==` and `!=` over two strings now lower.
+		// Replaced rather than deleted, because this table's property is "a
+		// construct the driver cannot lower is refused BY NAME and writes no
+		// image", and a table that quietly shrinks stops being evidence.
+		//
+		// The replacement is the boundary the port LEAVES: string ORDERING.
+		// The oracle refuses it with this exact sentence (program.go:5089) --
+		// lexicographic ordering would need a helper that does not exist in
+		// the native value model -- so both engines agree on the wording.
+		name: "string_ordering_condition",
+		src:  "func main() {\n    let s = \"hi\"\n    if s < \"hj\" {\n        print(1)\n    }\n}\n",
+		want: "string ordering ('<') is not supported; == and != compare content",
 	},
 	{
 		name: "float_condition",

@@ -5347,11 +5347,87 @@ func natNativeScanCond(cond, plan, line, fns) {
         return natNativeRefuse("condition must be a comparison (==, !=, <, <=, >, >=) over ints or floats, found '" +
             binaryOp(cond) + "'", line)
     }
+    // NAT-STREQ: either side a string makes this a STRING comparison -- the
+    // oracle's emitCond routes on isStringExpr(Left) (program.go:5081) then
+    // isStringExpr(Right) (:5093), and "the handler names whichever operand
+    // is not one". The classifier is natNativeStrKind, the same one
+    // natEmitCond routes the EMIT side with, so the scan and the emission
+    // cannot disagree about which path a condition takes.
+    if (natNativeStrKind(binaryLeft(cond), 0, plan) == 1 ||
+        natNativeStrKind(binaryRight(cond), 0, plan) == 1) {
+        return natNativeScanStrEqCond(cond, plan, line)
+    }
     // The oracle evaluates the operands at depth 1 (program.go:5135/5140), so a
     // nested binary operand stages at the same offsets.
     let bad = natNativeScanIntExpr(binaryLeft(cond), plan, line, fns, 1)
     if (bad != "") { return bad }
     return natNativeScanIntExpr(binaryRight(cond), plan, line, fns, 1)
+}
+
+// NAT-STREQ scan half. natNativeScanStrEqCond validates one STRING comparison
+// in the oracle's emitCond/emitStrEqCond order (program.go:5088-5091 then
+// :4999-5012): the operator is checked FIRST -- only == and != exist, and an
+// ordering operator gets the ordering refusal -- then each operand is kinded.
+//
+// SLICE-1 SCOPE, recorded as a divergence from the oracle: an operand must be
+// a string LITERAL or a string LOCAL. The oracle accepts a concatenation
+// operand (emitStr lowers it and the arena pays for it), a record-field read
+// and a call operand; reproducing those needs the arena reachable from the
+// condition path, which is its own slice. The refusal names the construct.
+func natNativeScanStrEqCond(cond, plan, line) {
+    let op = binaryOp(cond)
+    if (op != "==" && op != "!=") {
+        // The oracle's wording, verbatim (program.go:5089/5099) with kcc's
+        // own line prefix around it.
+        return natNativeRefuse("string ordering ('" + op + "') is not supported; == and != compare content", line)
+    }
+    let bad = natNativeScanStrEqOperand(binaryLeft(cond), plan, line)
+    if (bad != "") { return bad }
+    return natNativeScanStrEqOperand(binaryRight(cond), plan, line)
+}
+
+// natNativeScanStrEqOperand kinds ONE equality operand. The oracle does this
+// with exprKind inside emitStrEqCond (program.go:4999-5012) and refuses with
+// kindName; the slice-1 classifier handles the shapes the driver can lower
+// (literal, string local) and names every other one.
+func natNativeScanStrEqOperand(e, plan, line) {
+    if (nodeType(e) == NODE_STRING_LIT()) { return "" }
+    if (nodeType(e) == NODE_IDENT()) {
+        let ord = natNativeSlotIndex(plan, identName(e))
+        if (ord < 0) {
+            return natNativeRefuse("cannot determine the kind of '" + identName(e) +
+                "' in a string comparison", line)
+        }
+        if (natNativeSlotKind(plan, ord) != natKindString()) {
+            // The oracle's message, verbatim (program.go:5004/5011): the
+            // handler names whichever operand is not a string.
+            return natNativeRefuse(natKindName(natNativeSlotKind(plan, ord)) +
+                " operand in string comparison (no implicit conversion)", line)
+        }
+        return ""
+    }
+    // Literal kinds the value model has but a string comparison cannot mix
+    // with. The oracle reaches the same refusals through exprKind + kindName.
+    if (nodeType(e) == NODE_INT_LIT()) {
+        return natNativeRefuse("int operand in string comparison (no implicit conversion)", line)
+    }
+    if (nodeType(e) == NODE_FLOAT_LIT()) {
+        return natNativeRefuse("float operand in string comparison (no implicit conversion)", line)
+    }
+    if (nodeType(e) == NODE_BOOL_LIT()) {
+        return natNativeRefuse("bool operand in string comparison (no implicit conversion)", line)
+    }
+    // Slice-1 divergence, recorded: a concatenation, a call, a record-field
+    // read or an indexed operand inside a comparison is refused BY NAME.
+    // Equality stages its operands directly and allocates nothing, so the
+    // arena machinery is deliberately not reachable from here yet.
+    let what = "this operand"
+    if (nodeType(e) == NODE_BINARY()) { what = "a concatenation operand" }
+    if (nodeType(e) == NODE_CALL()) { what = "a call operand" }
+    if (nodeType(e) == NODE_DOT()) { what = "a record-field operand" }
+    if (nodeType(e) == NODE_INDEX()) { what = "an indexed operand" }
+    return natNativeRefuse(what + " in a string comparison is not lowered by the native driver here" +
+        " (a string literal or a string local is required)", line)
 }
 
 // natNativeScanIf validates one `if` statement: its condition and both branch
@@ -6224,16 +6300,25 @@ if (nodeType(n) == NODE_PRINT()) {
   // was never collected before, so its reference silently resolved to offset 0.
   // Value lookup makes the walk order irrelevant.
   if (nodeType(n) == NODE_IF()) {
+      // NAT-STREQ: the CONDITION descends too. A condition literal -- the "a"
+      // in `if ("a" == b)` -- is staged by the equality emit through
+      // natEmitStrValue exactly like a print literal, so the collector must
+      // intern it or the lookup would resolve to offset 0 (print_int's own
+      // "-"). natNativeStrLitAppend already descends through the comparison
+      // operators, so the whole condition can be appended.
+      out = natNativeStrLitAppend(out, ifCond(n))
       out = natNativeStrLitConcat(out, natNativeStrLiterals(ifCons(n)))
       out = natNativeStrLitConcat(out, natNativeStrLiterals(ifAlt(n)))
   }
   if (nodeType(n) == NODE_WHILE()) {
+      out = natNativeStrLitAppend(out, whileCond(n))
       out = natNativeStrLitConcat(out, natNativeStrLiterals(whileBody(n)))
   }
   if (nodeType(n) == NODE_FOR()) {
       if (len(forInit(n)) > 0 && natNativeIsDecl(forInit(n))) {
           out = natNativeStrLitAppend(out, natNativeDeclValue(forInit(n)))
       }
+      out = natNativeStrLitAppend(out, forCond(n))
       out = natNativeStrLitConcat(out, natNativeStrLiterals(forBody(n)))
   }
   if (nodeType(n) == NODE_FOR_IN()) {
@@ -6278,9 +6363,25 @@ func natNativeStrLitAppend(out, e) {
     if (nodeType(e) == NODE_STRING_LIT()) {
         return appendArray(out, stringLitVal(e))
     }
-if (nodeType(e) == NODE_BINARY() && binaryOp(e) == "+") {
+if (nodeType(e) == NODE_BINARY()) {
+  // NAT-STREQ: a COMPARISON descends too. A condition literal -- the "a" in
+  // `if ("a" == s)` -- is staged by the equality emit exactly like a print
+  // literal, so the collector must intern it or the lookup would resolve to
+  // offset 0 (print_int's own "-"). The oracle stages equality operands
+  // through emitStr (program.go:5014/5019), so its literal set includes
+  // condition literals by construction.
+  //
+  // The descent is deliberately NOT restricted to == and !=: a literal under
+  // a refused ordering comparison (<) is collected but never looked up,
+  // which only grows the interned section by a few deterministic bytes, and
+  // over-collection is the safe direction -- under-collection is the
+  // offset-0 landmine this collector exists to close.
+  if (binaryOp(e) == "+" || binaryOp(e) == "==" || binaryOp(e) == "!=" ||
+      binaryOp(e) == "<" || binaryOp(e) == "<=" || binaryOp(e) == ">" ||
+      binaryOp(e) == ">=") {
   out = natNativeStrLitAppend(out, binaryLeft(e))
   return natNativeStrLitAppend(out, binaryRight(e))
+  }
   }
   // 9h-2a: a `rec.field = "literal"` statement consumes one roffs entry, consumed by
   // natNativeLowerAssign in exactly statement order. Without this arm the collector
@@ -6791,6 +6892,88 @@ func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, 
     return s
 }
 
+// NAT-STREQ emit half. natEmitStrEqCond ports the oracle's emitStrEqCond
+// (pkg/native/program.go:4998-5068) instruction for instruction:
+//
+//   - both operands stage through natEmitStrValue (the emitStr counterpart)
+//     into the strTemp staging area -- left (ptr,len) at base+0/base+8, right
+//     at base+16/base+24 -- so the second evaluation cannot disturb the first;
+//   - unequal lengths decide immediately (LoadStack RAX=left len, CmpRegReg
+//     against RSI which STILL holds the right length, Jnz to the not-equal
+//     block) with no byte reads at all;
+//   - the byte loop compares one byte at a time through the scaled 8-bit
+//     loads, RDX as the index and RCX as the count, Jae leaving on the count;
+//   - two outcomes, and the operator only decides which one continues into
+//     the then-branch: the ne block jumps to falseLabel for `==` and to the
+//     past-eq label for `!=` (without that hop `!=` would fall into the equal
+//     block's own false jump and behave exactly like `==`), the eq block
+//     falls through for `==` and jumps to falseLabel for `!=`.
+//
+// The label NAMES are kcc's own (seeded from the construct's existing unique
+// label, so two comparisons cannot collide); only the instruction ORDER and
+// NUMBER reach the bytes.
+func natEmitStrEqCond(s, cond, falseLabel, strTemp, stmts, plan, roffs, tbl, seed) {
+    let op = binaryOp(cond)
+    let base = strTemp
+    s = natEmitStrValue(s, binaryLeft(cond), stmts, plan, roffs, tbl)
+    s = natStoreStack(s, natRegRDI(), base)
+    s = natStoreStack(s, natRegRSI(), base + 8)
+    s = natEmitStrValue(s, binaryRight(cond), stmts, plan, roffs, tbl)
+    s = natStoreStack(s, natRegRDI(), base + 16)
+    s = natStoreStack(s, natRegRSI(), base + 24)
+    let neLbl = seed + "$streqne"
+    let eqLbl = seed + "$streqeq"
+    let endLbl = seed + "$streqend"
+    let loopLbl = seed + "$streqlp"
+    s = natLoadStack(s, natRegRAX(), base + 8)
+    s = natCmpRegReg(s, natRegRAX(), natRegRSI())
+    s = natJnz(s, neLbl)
+    s = natLoadStack(s, natRegR8(), base)
+    s = natLoadStack(s, natRegR9(), base + 16)
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    s = natXorRegReg(s, natRegRDX())
+    s = natMark(s, loopLbl)
+    s = natCmpRegReg(s, natRegRDX(), natRegRCX())
+    s = natJae(s, eqLbl)
+    s = natLoadScaled8(s, natRegR10(), natRegR8(), natRegRDX(), 1, 0)
+    s = natLoadScaled8(s, natRegR11(), natRegR9(), natRegRDX(), 1, 0)
+    s = natCmpRegReg(s, natRegR10(), natRegR11())
+    s = natJnz(s, neLbl)
+    s = natIncReg(s, natRegRDX())
+    s = natJmp(s, loopLbl)
+    s = natMark(s, neLbl)
+    if (op == "==") {
+        s = natJmp(s, falseLabel)
+    } else {
+        s = natJmp(s, endLbl)
+    }
+    s = natMark(s, eqLbl)
+    if (op == "!=") {
+        s = natJmp(s, falseLabel)
+    }
+    s = natMark(s, endLbl)
+    return s
+}
+
+// natEmitCond is the condition dispatcher both the scan (natNativeScanCond)
+// and this emit half route through: a comparison with a string operand goes
+// to the equality emit, everything else keeps the int path BYTE-IDENTICAL to
+// what the frozen NAT-IF / NAT-LOOP gates pinned -- the wrapper is invisible
+// to an int condition because the classifier returns non-string for both
+// operands of every int comparison.
+//
+// The seed is the construct's existing unique label (elseLabel / endLabel),
+// so the equality's own labels cannot collide across statements or functions.
+func natEmitCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, rctx,
+    strTemp, stmts, roffs, tbl, seed) {
+    if (nodeType(cond) == NODE_BINARY() &&
+        (natNativeStrKind(binaryLeft(cond), 0, plan) == 1 ||
+         natNativeStrKind(binaryRight(cond), 0, plan) == 1)) {
+        return natEmitStrEqCond(s, cond, falseLabel, strTemp, stmts, plan, roffs, tbl, seed)
+    }
+    return natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, rctx)
+}
+
 // natStoreArgUnit homes one argument UNIT into the spill area: the six register
 // slots (16 bytes apart, matching the oracle's argTemp) first, then the caller's
 // extras area addressed through R10 by the callee.
@@ -7006,7 +7189,15 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
         // Reload the base from the record's frame slot immediately before each store,
         // so no field expression is evaluated between the reload and the store.
         s = natLoadStack(s, natRegRBX(), natNativeSlotOff(plan, idx))
-        let rr = natRecordStoreLiteral(s, stmts, fv, foff, fk, roffs, sidx)
+        // NAT-STREQ provenance: the FUNCTION-WIDE list, not the current
+        // sub-list. roffs was sliced from fnStmts, and natRodataOffsetFor
+        // matches by VALUE in the list it is given and then INDEXES roffs by
+        // that position -- so a branch-local list answers with the wrong
+        // entry whenever an earlier statement in the function bound a
+        // literal (p1: print("alpha") then print("beta") in an if printed
+        // "alph"). Value lookup makes the walk order irrelevant; the list
+        // IDENTITY is what has to agree.
+        let rr = natRecordStoreLiteral(s, fnStmts, fv, foff, fk, roffs, sidx)
         s = rr[0]
         sidx = rr[1]
         f = f + 1
@@ -7017,7 +7208,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     // stores: the interned rodata pointer and the byte length. No arena
                     // is involved -- an arena is only needed to BUILD a string, and a
                     // literal is already built.
-                    s = natRodataRefOff(s, natRegRDI(), natRodataOffsetFor(stringLitVal(v), stmts, roffs))
+                    s = natRodataRefOff(s, natRegRDI(), natRodataOffsetFor(stringLitVal(v), fnStmts, roffs))
                     s = natMovRegImm32(s, natRegRSI(), len(stringLitVal(v)))
                     s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
                     s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
@@ -7137,7 +7328,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
             } else {
             if (nodeType(pv) == NODE_BINARY()) {
 s = natStrConcat(s, binaryLeft(pv), binaryRight(pv), 0, site, strTemp,
-stmts, plan, roffs, tbl)
+fnStmts, plan, roffs, tbl)
                 s = natCallPrintStr(s)
                 site = site + 1
             } else {
@@ -7153,7 +7344,9 @@ stmts, plan, roffs, tbl)
                 s = natCallPrintInt(s)
             } else {
                 if (nodeType(pv) == NODE_STRING_LIT()) {
-                    s = natRodataRefOff(s, natRegRDI(), natRodataOffsetFor(stringLitVal(pv), stmts, roffs))
+                    // NAT-STREQ provenance: fnStmts, the list roffs was
+                    // sliced from -- see the natRecordStoreLiteral note.
+                    s = natRodataRefOff(s, natRegRDI(), natRodataOffsetFor(stringLitVal(pv), fnStmts, roffs))
                     s = natMovRegImm32(s, natRegRSI(), len(stringLitVal(pv)))
                     s = natCallPrintStr(s)
                 } else {
@@ -7169,7 +7362,7 @@ if (nodeType(pv) == NODE_DOT()) {
 let drec = identName(dotLeft(pv))
 let dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(fnStmts, drec), memberField(pv))
 if (dkn == natKindString()) {
-s = natEmitStrValue(s, pv, stmts, plan, roffs, tbl)
+s = natEmitStrValue(s, pv, fnStmts, plan, roffs, tbl)
 s = natCallPrintStr(s)
 } else {
 s = natRecordFieldLoadInt(s, stmts, plan, tbl, drec, memberField(pv))
@@ -7252,7 +7445,7 @@ identName(callArgs(pv)[0]))
             // no arm for it. String emit goes through natEmitStrValue, which
             // leaves (RDI, RSI) already set for the exit teardown.
             if (natNativeValueKindOf(rv, plan, fns) == 2) {
-                s = natEmitStrValue(s, rv, stmts, plan, roffs, tbl)
+                s = natEmitStrValue(s, rv, fnStmts, plan, roffs, tbl)
                 s = natJmp(s, retLabel)
             } else {
             // The dispatch is by NODE TYPE only where the type alone is decisive.
@@ -7326,7 +7519,7 @@ identName(callArgs(pv)[0]))
         let sp = listPath + "." + str(i)
         let elseLabel = "nat$ifelse$" + tag + "$" + sp
         let endLabel = "nat$ifend$" + tag + "$" + sp
-        s = natEmitIntCond(s, ifCond(n), plan, fns, binTemp, extrasBase, frame, elseLabel, rctx)
+        s = natEmitCond(s, ifCond(n), plan, fns, binTemp, extrasBase, frame, elseLabel, rctx, strTemp, fnStmts, roffs, tbl, elseLabel)
         s = natNativeLower(s, ifCons(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
         s = natJmp(s, endLabel)
         s = natMark(s, elseLabel)
@@ -7354,7 +7547,7 @@ identName(callArgs(pv)[0]))
         let endLabel = "nat$whileend$" + tag + "$" + sp
         s = natMark(s, loopLabel)
         s = natLoopPush(s, endLabel, loopLabel)
-        s = natEmitIntCond(s, whileCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx)
+        s = natEmitCond(s, whileCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx, strTemp, fnStmts, roffs, tbl, endLabel)
         s = natNativeLower(s, whileBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
         s = natLoopPop(s)
         s = natJmp(s, loopLabel)
@@ -7397,7 +7590,7 @@ identName(callArgs(pv)[0]))
         }
         s = natMark(s, loopLabel)
         s = natLoopPush(s, endLabel, postLabel)
-        s = natEmitIntCond(s, forCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx)
+        s = natEmitCond(s, forCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx, strTemp, fnStmts, roffs, tbl, endLabel)
         s = natNativeLower(s, forBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
         s = natMark(s, postLabel)
         if (len(forPost(n)) > 0) {
@@ -9061,20 +9254,23 @@ func natNativeProgramUsesStr(fns, tbl) {
 // where a concat site is rather than two collectors that could disagree -- the
 // Step 9g defect class.
 //
-// Arms 2, 3 and 5 have no detector yet, and each is UNREACHABLE from the
-// driver's accepted subset today: a string equality, a string slice, and a
-// string field assignment from anything but a literal are all refused by name
-// (the `==` arm of natNativeScanValue, the kind-46 refusal, and
-// natNativeScanAssign's string-field arm). They are implemented anyway,
-// because the reservation is a LAYOUT CONTRACT with the oracle: when one of
-// them is lowered, the staging area has to be reserved already, or the frame
-// would move at that point and every image with it.
+// Arms 3 and 5 are still UNREACHABLE from the driver's accepted subset: a
+// string slice and a string field assignment from anything but a literal are
+// refused by name (the kind-46 refusal and natNativeScanAssign's string-field
+// arm). They are implemented anyway, because the reservation is a LAYOUT
+// CONTRACT with the oracle: when one of them is lowered, the staging area has
+// to be reserved already, or the frame would move at that point and every
+// image with it.
+//
+// Arm 2 WAS in that state and is LOWERED now (NAT-STREQ): a string equality
+// in a CONDITION position stages through strTemp, so the counter must see
+// conditions and recurse into branch and loop bodies -- the equality is
+// allocation-free, so the loop refusal that keeps the arena constructs out of
+// loop bodies does not apply to it. natNativeStrEqSites does that.
 //
 // The statement positions scanned are the ones the driver lowers: a print
-// value, a binding's initialiser, a returned value and an expression
-// statement. A string operation inside a branch or a loop body is refused
-// before any image is produced, so its absence from this walk cannot change
-// an emitted frame.
+// value, a binding's initialiser, a returned value, an expression statement,
+// and now a branch/loop CONDITION plus the bodies beneath it.
 func natNativeStrOpIn(stmts, plan) {
     if (natNativeConcatSites(stmts, plan) > 0) { return 1 }
     if (natNativePushCount(stmts) > 0) { return 1 }
@@ -9091,14 +9287,17 @@ func natNativeStrOpIn(stmts, plan) {
 // program.go:1410: `x.Operator == "==" || x.Operator == "!="` with
 // `strKind(x.Left) && strKind(x.Right)`); this one is kind-based and
 // per-function, because the driver's kind inference is the plan's slot kinds
-// and the plan is per function. On the driver's accepted subset the two
-// agree, because a string equality is refused by name there.
+// and the plan is per function. The NAT-STR-STAGE record already pins the
+// name-table over-approximation this avoids (a name bound to a string
+// ANYWHERE is a string EVERYWHERE in the oracle, including an int parameter
+// shadowed in another function); the driver follows the EMISSION instead.
 //
 // A string FIELD read is not classified as a string by this test, because the
 // driver's kind inference resolves slots, not field accesses. The oracle's
-// name-based test does classify it. Neither shape reaches an emitted frame
-// today -- a string equality is refused by name -- so this is a difference in
-// an unreachable arm, and it is recorded rather than papered over.
+// name-based test does classify it. A field-read operand is refused by the
+// slice-1 scan (natNativeScanStrEqOperand), so the difference stays in an
+// arm that cannot reach an emitted frame, and it is recorded rather than
+// papered over.
 func natNativeStrEqSites(stmts, plan) {
     let n = 0
     let i = 0
@@ -9107,6 +9306,27 @@ func natNativeStrEqSites(stmts, plan) {
         if (nodeType(st) == NODE_PRINT()) { n = n + natNativeStrEqIn(printVal(st), plan) }
         if (natNativeIsDecl(st)) { n = n + natNativeStrEqIn(natNativeDeclValue(st), plan) }
         if (nodeType(st) == NODE_RETURN()) { n = n + natNativeStrEqIn(retVal(st), plan) }
+        // NAT-STREQ: a comparison exists only in CONDITION positions, and a
+        // condition sits on an if/while/for -- so the counter scans the
+        // condition AND recurses into the bodies, because an equality inside
+        // a branch or a loop body is LOWERED now (equality allocates
+        // nothing, so the loop refusal that keeps concat/push out of loop
+        // bodies does not apply to it). Missing the reservation would stage
+        // the comparison past the reserved area -- silent corruption, the
+        // exact class the Step 9g dual-collector defect taught.
+        if (nodeType(st) == NODE_IF()) {
+            n = n + natNativeStrEqIn(ifCond(st), plan)
+            n = n + natNativeStrEqSites(ifCons(st), plan)
+            n = n + natNativeStrEqSites(ifAlt(st), plan)
+        }
+        if (nodeType(st) == NODE_WHILE()) {
+            n = n + natNativeStrEqIn(whileCond(st), plan)
+            n = n + natNativeStrEqSites(whileBody(st), plan)
+        }
+        if (nodeType(st) == NODE_FOR()) {
+            n = n + natNativeStrEqIn(forCond(st), plan)
+            n = n + natNativeStrEqSites(forBody(st), plan)
+        }
         i = i + 1
     }
     return n

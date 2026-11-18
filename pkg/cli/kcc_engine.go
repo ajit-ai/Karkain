@@ -465,7 +465,21 @@ func copyFileContents(srcPath, dstPath string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dstPath, data, 0o644)
+	info, err := os.Stat(srcPath)
+	if err != nil {
+		return os.WriteFile(dstPath, data, 0o644)
+	}
+	if err := os.WriteFile(dstPath, data, 0o644); err != nil {
+		return err
+	}
+	// Preserve the source's modification time. kccStale compares the sandbox's
+	// copied sources against the kcc binary to decide whether a rebuild is
+	// needed; if the copy carries "now" instead of the source's own mtime, a
+	// current binary looks stale on every build and the self-hosted engine is
+	// rebuilt from scratch in the sandbox (expensive, and under memory pressure
+	// it can fail and leave no usable kcc.exe). The copy is meant to be a
+	// faithful mirror, so its mtime should match.
+	return os.Chtimes(dstPath, info.ModTime(), info.ModTime())
 }
 
 // copyKarkDir copies every *.kark file from srcDir into dstDir (created),
