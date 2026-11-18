@@ -2999,7 +2999,7 @@ func natRuntimeErrorHelper(s, rt, winWrite) {
 // The map runtime: natMapFind, natMapSet and natMapGet, the byte-for-byte
 // counterparts of emitMapFind / emitMapSet / emitMapGet.
 //
-// WHY THESE EXIST ON kcc FOR A PROGRAM WITH NO MAP is the D5 baseline's ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§3.1
+// WHY THESE EXIST ON kcc FOR A PROGRAM WITH NO MAP is the D5 baseline's ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§3.1
 // finding, and it is not a porting error to reproduce. The Go backend's
 // scanMapUsage decides "is this a map index" with:
 //
@@ -4501,7 +4501,7 @@ func natNativeRetKindWalk(stmts, plan, fds) {
         } else if (natNativeIsDecl(n)) {
             // binding a call result is not a RETURN, but later return kind
             // inference for calls reads kinds of idents through the plan,
-            // which natNativeValueKindOf resolves ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â nothing to do here.
+            // which natNativeValueKindOf resolves ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â nothing to do here.
         } else if (t == NODE_IF()) {
             let rc = natNativeRetKindWalk(ifCons(n), plan, fds)
             if (rc == 0) { return 0 }
@@ -4548,13 +4548,13 @@ func natNativeRetKindWalk(stmts, plan, fds) {
 // unreachable function in the module to lower would make `import std.collections`
 // impossible regardless of the calling program. A dead function whose body the
 // driver CANNOT lower is therefore skipped, while a dead function the driver
-// CAN lower is emitted normally ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the latter preserves the byte-identity the
+// CAN lower is emitted normally ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the latter preserves the byte-identity the
 // frozen gates pin (a supported dead helper emits exactly as the Go oracle
 // emits it). A function that is reachable from main, or from a reachable
 // callee, is never skipped: refusing a reachable function is the contract.
 //
 // The Go oracle emits dead functions unconditionally, so a program carrying
-// unsupported-unreachable dead code is NOT byte-identical to it ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â an accepted,
+// unsupported-unreachable dead code is NOT byte-identical to it ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â an accepted,
 // documented divergence: those programs cannot build on the oracle at all.
 func natNativeReachable(fns) {
     let np = natNativeFuncCount(fns)
@@ -4758,9 +4758,9 @@ func natNativeArgKindFor(e, plan) {
 }
 
 // natNativeValueKindOf classifies an expression for RETURN-kind inference:
-// 1 = int, 2 = string. It is deliberately conservative ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â unknown shapes are int,
+// 1 = int, 2 = string. It is deliberately conservative ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â unknown shapes are int,
 // because a wrong string classification only reserves a strTemp plan where an
-// int would do ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â and it is monotone (anything that could be a string is).
+// int would do ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â and it is monotone (anything that could be a string is).
 func natNativeValueKindOf(e, plan, fns) {
     let t = nodeType(e)
     if (t == NODE_STRING_LIT()) { return 2 }
@@ -5766,7 +5766,7 @@ func natNativeMaxExtras(stmts, plan) {
 
 // natNativeMaxExtrasExpr walks an expression tree counting the UNITS a call
 // would stage. `plan` resolves an argument's kind (ident whose slot is an int
-// is one unit; an array literal or an array ident is two) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the same rule the
+// is one unit; an array literal or an array ident is two) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the same rule the
 // call-site staging uses, so the spill sizing and the emission cannot disagree.
 func natNativeMaxExtrasExpr(e, plan) {
     let t = nodeType(e)
@@ -7417,7 +7417,7 @@ identName(callArgs(pv)[0]))
                             s = natCallPrintInt(s)
                         } else if (natNativeFuncReturnKindOf(fns, callFunc(pv)) == 2) {
                             // A string-returning call prints straight out of
-                            // (RDI, RSI) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no MovRegReg shimming.
+                            // (RDI, RSI) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â no MovRegReg shimming.
                             s = natEmitIntCall(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                             s = natCallPrintStr(s)
                         } else {
@@ -8126,7 +8126,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         s = natAllocHelper(s, arenaLen)
     }
     // The map runtime, on the oracle's syntactic predicate rather than on the
-    // program's actual needs -- see natMapFind's header and the D5 baseline ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§3.1.
+    // program's actual needs -- see natMapFind's header and the D5 baseline ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§3.1.
     // Order matters: emitHelpers runs print_int, print_str, [print_float],
     // [alloc], map, runtime_error (program.go:2497-2520), and the map helpers
     // call alloc, so they must come after it.
@@ -8182,7 +8182,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         // lowered aborts the WHOLE program: a half-emitted image is not a build
         // with a warning, it is an image whose missing function is a link-time
         // surprise. An UNREACHABLE callee that cannot be lowered is skipped
-        // instead (see natNativeReachable) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the program never calls it, so
+        // instead (see natNativeReachable) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â the program never calls it, so
         // nothing reaches the missing label.
         let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0, useRegAlloc, natNativeFuncKindsAt(fns, fi))
         if (fscan[0] != "") {
@@ -8638,7 +8638,13 @@ func natEmitStrSlice(s, sliceExpr, fns, binTemp, extrasBase, frame, rctx, strTem
         s = natEmitIntExpr(s, sliceStart(sliceExpr), plan, fns, binTemp, extrasBase, frame, 0, rctx)
     }
     s = natStoreStack(s, natRegRAX(), base + 16)
-    if (sliceEnd(sliceExpr) == 0 || nodeType(sliceEnd(sliceExpr)) == 0) {
+    let _se = sliceEnd(sliceExpr)
+    let _seOk = 0
+    if (_se != 0) {
+        let _set = nodeType(_se)
+        if (_set == NODE_INT_LIT() || _set == NODE_IDENT() || _set == NODE_BINARY() || _set == NODE_UNARY() || _set == NODE_INDEX() || _set == NODE_CALL()) { _seOk = 1 }
+    }
+    if (_seOk == 0) {
         s = natLoadStack(s, natRegRAX(), base + 8)
     } else {
         s = natEmitIntExpr(s, sliceEnd(sliceExpr), plan, fns, binTemp, extrasBase, frame, 0, rctx)
