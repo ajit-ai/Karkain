@@ -547,6 +547,17 @@ jobs:
       - name: Run NAT-STRSLICE kcc native string slicing gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATStrSlice_' -count=1 -timeout 40m -v
 
+      # NAT-STRIDX, string byte indexing in the self-hosted native driver.
+      #
+      # `s[i]` is a one-byte VIEW (ptr+i, 1), no copy, no allocation. The
+      # index is an ordinary integer expression; an out-of-range or negative
+      # index raises the Phase-100 runtime error ("string index out of
+      # range") on stderr and exits 1. UTF-8 byte semantics, not code points.
+      #
+      # Its own pattern: 'TestPhaseNATStrIdx_' is matched by no other step.
+      - name: Run NAT-STRIDX kcc native string byte indexing gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATStrIdx_' -count=1 -timeout 40m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

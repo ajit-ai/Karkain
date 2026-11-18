@@ -3960,6 +3960,12 @@ func natNativePlanForKinds(params, kinds, stmts, tbl, fns) {
             k = natKindString()
         }
     }
+    if (nodeType(v) == NODE_INDEX()) {
+        // NAT-STRIDX: `let b = s[i]` binds the one-byte view the index yields.
+        // The kind MUST be the string kind so the slot is two units and every
+        // downstream reader (print, concat, len, another index) sees a string.
+        if (natNativeStrKind(v, 0, plan) == 1) { k = natKindString() }
+    }
   plan = appendArray(plan, next)
   plan = appendArray(plan, k)
   plan = appendArray(plan, ne)
@@ -4385,6 +4391,14 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
             return natNativeScanCall(v, plan, natNativeDeclLine(n), fns)
         }
     }
+    if (vt == NODE_INDEX()) {
+      // NAT-STRIDX: `let b = s[i]` initialised from a string-typed byte index
+      // binds a one-byte string; anything else initialised from an index is
+      // refused by the non-integer check below, which is the honest answer.
+      if (natNativeStrKind(v, 0, plan) == 1) {
+        return ""
+      }
+    }
     if (vt != NODE_INT_LIT()) {
         return natNativeRefuse("`let " + natNativeDeclName(n) +
             "` initialised from a non-integer expression", natNativeDeclLine(n))
@@ -4787,14 +4801,12 @@ func natNativeValueKindOf(e, plan, fns) {
         // Byte indexing of a string: the result is a one-byte string, the way
         // `s[index]` is shaped today (and how str_char_at reads it). A non-string
         // base keeps the historical int classification.
-        let base = indexLeft(e)
-        if (nodeType(base) == NODE_IDENT()) {
-            let ord = natNativeSlotIndex(plan, identName(base))
-            if (ord >= 0) {
-                let kb = natNativeSlotKind(plan, ord)
-                if (kb == natKindString()) { return 2 }
-            }
-        }
+        //
+        // NAT-STRIDX: the classification is the shared str-kind, so a base this
+        // function's slot walk could not classify by itself is still decided by
+        // the one classifier every string position uses. Unclassifiable stays
+        // the int default, which is the pre-existing conservative answer.
+        if (natNativeStrKind(e, 0, plan) == 1) { return 2 }
         return 1
     }
     if (t == NODE_CALL()) {
@@ -5701,6 +5713,11 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
             return natNativeRefuse("undefined identifier '" + identName(indexLeft(e)) + "'", line)
         }
         let k = natNativeSlotKind(plan, ord)
+        if (k == natKindString()) {
+            return natNativeRefuse("string index of '" + identName(indexLeft(e)) +
+                "' cannot appear in an integer expression " +
+                "(a byte index yields a string)", line)
+        }
         if (k != natKindArray()) {
             return natNativeRefuse("index target must be an array (got " + natKindName(k) +
                 " '" + identName(indexLeft(e)) + "')", line)
@@ -5957,6 +5974,66 @@ func natArrayIndex(s, off, roffsKind, srcOff, srcLen, line) {
     // not assume that: mark the join so the success path can never fall into
     // the diagnostic block. (Its absence was a real regression in the oracle --
     // every array-using PE golden then ran the diagnostic on a VALID index.)
+    s = natMark(s, doneLbl)
+    return s
+}
+
+// natEmitStrIndex lowers `s[i]` -- a STRING's byte at index i -- to a VIEW:
+// (s.ptr + i, 1), the same shape natEmitStrSlice produces for s[i:i+1] and for
+// the same reason. A Karkain string is immutable on this path (no byte-store
+// exists), so a view is observationally identical to a copy, and it costs no
+// arena, no allocation and no copy -- "repeated indexing without allocating
+// memory" is therefore free, not just possible.
+//
+// The BOUNDS check is the array path's, instruction for instruction, with the
+// ONE difference the C backend defines: the kind argument is "string index out
+// of range" (codegen.go's TYPE_STRING arm of karkain_checked_get), not the
+// array's. An out-of-range byte index is the same Phase-100 diagnostic --
+// stderr, exit(1) -- because a silent wrong byte is the worst outcome for a
+// read that feeds every consumer.
+//
+// The INDEX EXPRESSION is evaluated into RAX at depth+1, in the ARRAY path's
+// order (index first, then the load of base and length into RBX/RAX): the
+// walker may read a local, and the base and the length must survive it.
+//
+// `rctx[3]` is the rodata offset of the "string index out of range" kind string,
+// `rctx[1]`/`rctx[2]` the source basename's offset and length. `line` is the
+// index expression's own line, so the diagnostic points at the index.
+func natEmitStrIndex(s, expr, plan, fns, binTemp, extrasBase, frame, rctx, line) {
+    let ord = natNativeSlotIndex(plan, identName(indexLeft(expr)))
+    let off = natNativeSlotOff(plan, ord)
+    s = natEmitIntExpr(s, indexExpr(expr), plan, fns, binTemp, extrasBase, frame, 1, rctx)
+    s = natMovRegReg(s, natRegRCX(), natRegRAX())
+    let fa = natFresh(s, "idxbad")
+    s = fa[0]
+    let badLbl = fa[1]
+    let fb = natFresh(s, "stridxok")
+    s = fb[0]
+    let doneLbl = fb[1]
+    s = natLoadStack(s, natRegRBX(), off)
+    s = natLoadStack(s, natRegRAX(), off + 8)
+    s = natTestRegReg(s, natRegRCX(), natRegRCX())
+    s = natJns(s, badLbl + "$neg")
+    s = natJmp(s, badLbl + "$fail")
+    s = natMark(s, badLbl + "$neg")
+    s = natCmpRegReg(s, natRegRCX(), natRegRAX())
+    s = natJge(s, badLbl + "$fail")
+    s = natAddRegReg(s, natRegRBX(), natRegRCX())
+    s = natMovRegReg(s, natRegRDI(), natRegRBX())
+    s = natMovRegImm32(s, natRegRSI(), 1)
+    s = natJmp(s, doneLbl)
+    s = natMark(s, badLbl + "$fail")
+    s = natRodataRefOff(s, natRegRDI(), rctx[3])
+    // The LENGTH OF THE LITERAL, not a count of characters typed: the Phase D8
+    // lesson is that the immediate must be derived or the diagnostic reads past
+    // the string.
+    s = natMovRegImm32(s, natRegRSI(), len("string index out of range"))
+    s = natRodataRefOff(s, natRegRDX(), rctx[1])
+    s = natMovRegImm32(s, natRegRCX(), rctx[2])
+    s = natMovRegImm32(s, natRegR8(), line)
+    s = natCall32(s)
+    let cr = natRel32(s, "karkain_runtime_error")
+    s = cr[0]
     s = natMark(s, doneLbl)
     return s
 }
@@ -6238,6 +6315,85 @@ func natExprHasIndex(e) {
         return 0
     }
     if (t == NODE_INDEX()) { return 1 }
+    return 0
+}
+
+// natExprHasStrIndex / natStmtHasStrIndex / natStmtHasStrIndexIn are the
+// STRING-index counterparts of the walker above: they report a NODE_INDEX
+// whose BASE IS A STRING, which is the only case the "string index out of
+// range" kind string exists for.
+//
+// They need the plan, because which base is a string is a plan question, not
+// a node-type question. The walk mirrors natStmtHasIndex position by position
+// (conditions, inits, posts, branch bodies, loop bodies) so the interner
+// cannot miss a site the emitter can reach.
+func natExprHasStrIndex(e, plan) {
+    let t = nodeType(e)
+    if (t == NODE_INDEX()) {
+        if (natNativeStrIndexSlot(plan, e) >= 0) { return 1 }
+        return natExprHasStrIndex(indexExpr(e), plan)
+    }
+    if (t == NODE_BINARY()) {
+        if (natExprHasStrIndex(binaryLeft(e), plan) == 1) { return 1 }
+        return natExprHasStrIndex(binaryRight(e), plan)
+    }
+    if (t == NODE_UNARY()) { return natExprHasStrIndex(unaryOperand(e), plan) }
+    if (t == NODE_CALL()) {
+        let i = 0
+        while (i < len(callArgs(e))) {
+            if (natExprHasStrIndex(callArgs(e)[i], plan) == 1) { return 1 }
+            i = i + 1
+        }
+        return 0
+    }
+    return 0
+}
+
+func natStmtHasStrIndex(n, plan) {
+    let k = nodeType(n)
+    if (k == NODE_PRINT()) { return natExprHasStrIndex(printVal(n), plan) }
+    if (k == NODE_RETURN()) { return natExprHasStrIndex(retVal(n), plan) }
+    if (natNativeIsDecl(n)) { return natExprHasStrIndex(natNativeDeclValue(n), plan) }
+    if (k == NODE_EXPR_STMT()) { return natExprHasStrIndex(exprStmtExpr(n), plan) }
+    if (k == NODE_IF()) {
+        if (natExprHasStrIndex(ifCond(n), plan) == 1) { return 1 }
+        if (natStmtHasStrIndexIn(ifCons(n), plan) == 1) { return 1 }
+        return natStmtHasStrIndexIn(ifAlt(n), plan)
+    }
+    if (k == NODE_WHILE()) {
+        if (natExprHasStrIndex(whileCond(n), plan) == 1) { return 1 }
+        return natStmtHasStrIndexIn(whileBody(n), plan)
+    }
+    if (k == NODE_FOR()) {
+        if (natExprHasStrIndex(forCond(n), plan) == 1) { return 1 }
+        if (len(forInit(n)) > 0 && natExprHasStrIndex(forInit(n), plan) == 1) { return 1 }
+        if (len(forPost(n)) > 0 && natExprHasStrIndex(forPost(n), plan) == 1) { return 1 }
+        return natStmtHasStrIndexIn(forBody(n), plan)
+    }
+    return 0
+}
+
+func natStmtHasStrIndexIn(stmts, plan) {
+    let i = 0
+    while (i < len(stmts)) {
+        if (natStmtHasStrIndex(stmts[i], plan) == 1) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// natNativeUsesStringIndex reports whether the program contains a string byte
+// index anywhere. The gate mirrors usesRtErr's discipline -- EVERY function,
+// not main's body alone -- because the caller needs the string interned even
+// when the site lives in a callee. A callee that cannot be lowered is scanned
+// anyway (the same conservative over-intern as usesRtErr), which can only cost
+// a few bytes of rodata, never a crash.
+func natNativeUsesStringIndex(stmts, plan) {
+    let i = 0
+    while (i < len(stmts)) {
+        if (natStmtHasStrIndex(stmts[i], plan) == 1) { return 1 }
+        i = i + 1
+    }
     return 0
 }
 
@@ -6662,6 +6818,9 @@ func natNativeScanStrSlice(e, stmts, plan, line) {
     if (nodeType(sliceLeft(e)) == NODE_SLICE()) {
         return natNativeRefuse("chained string slicing is not lowered", line)
     }
+    if (nodeType(sliceLeft(e)) == NODE_INDEX()) {
+        return natNativeRefuse("string slicing of a string index is not lowered", line)
+    }
     if (nodeType(sliceLeft(e)) == NODE_BINARY()) {
         return natNativeRefuse("string slicing of a concatenation is not lowered", line)
     if (sliceStart(e) == 0 || nodeType(sliceStart(e)) == 0) {
@@ -6672,6 +6831,48 @@ func natNativeScanStrSlice(e, stmts, plan, line) {
     }
     }
     return ""
+}
+
+// natNativeStrIndexSlot resolves a STRING byte index `s[i]` to its base local's
+// slot ordinal, or -1 when `e` is not one.
+//
+// One predicate, used by the scan's kind split, by every emission dispatch, and
+// by the arena accounting -- so there is exactly one notion of "which base makes
+// this a string index". The base MUST be a plain variable: the array-index
+// discipline established for `a[i]` (NAT-IDX) refuses every other base by name,
+// because an expression-shaped base reaches the slot plan as an unknown name and
+// the only possible outcomes are a crash or a wrong answer. Literals, composed
+// strings and calls are refused for the same reason, with their own message.
+func natNativeStrIndexSlot(plan, e) {
+    if (nodeType(e) != NODE_INDEX()) { return 0 - 1 }
+    let base = indexLeft(e)
+    if (nodeType(base) != NODE_IDENT()) { return 0 - 1 }
+    let ord = natNativeSlotIndex(plan, identName(base))
+    if (ord < 0) { return 0 - 1 }
+    if (natNativeSlotKind(plan, ord) != natKindString()) { return 0 - 1 }
+    return ord
+}
+
+// natNativeScanStrIndex validates `s[i]` when `s` IS a string: the index must be
+// an integer expression, and the base must be a string variable. It mirrors the
+// array validator's shape (an index as an expression is what makes iteration a
+// program rather than a literal-only special case), with the array-specific
+// diagnostics replaced by this construct's own.
+func natNativeScanStrIndex(expr, line, fns, plan) {
+    let base = indexLeft(expr)
+    if (nodeType(base) != NODE_IDENT()) {
+        return natNativeRefuse("string index target must be a variable", line)
+    }
+    let ord = natNativeSlotIndex(plan, identName(base))
+    if (ord < 0) {
+        return natNativeRefuse("undefined identifier '" + identName(base) + "'", line)
+    }
+    if (natNativeSlotKind(plan, ord) != natKindString()) {
+        return natNativeRefuse("index target must be a string (got " +
+            natKindName(natNativeSlotKind(plan, ord)) +
+            " '" + identName(base) + "')", line)
+    }
+    return natNativeScanIntExpr(indexExpr(expr), plan, line, fns, 0)
 }
 
 func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr, fns) {
@@ -6703,7 +6904,20 @@ if (t == NODE_BINARY()) {
   // SHARED walker validator. It used to have its own validator here, which
   // required a LITERAL index -- the very limitation this increment removes --
   // and two validators for one construct is how they drift apart.
-  if (t == NODE_INDEX()) { return natNativeScanIntExpr(expr, plan, line, fns, 0) }
+  // NAT-STRIDX: a string base is a byte index (the index is an integer
+  // expression and the base a string variable); a non-string base keeps the
+  // historical integer path, byte for byte. A literal base is refused with
+  // its own message rather than the array's: "array index target must be a
+  // variable" would name the wrong construct for `"abc"[0]`.
+  if (t == NODE_INDEX()) {
+      if (nodeType(indexLeft(expr)) == NODE_STRING_LIT()) {
+          return natNativeRefuse("string index target must be a variable", line)
+      }
+      if (natNativeStrIndexSlot(plan, expr) >= 0) {
+          return natNativeScanStrIndex(expr, line, fns, plan)
+      }
+      return natNativeScanIntExpr(expr, plan, line, fns, 0)
+  }
   if (t == NODE_SLICE()) {
       if (natNativeStrKind(sliceLeft(expr), stmts, plan) != 1) {
           return natNativeRefuse("a string slice target must be a string", line)
@@ -6772,6 +6986,17 @@ func natNativeScanReturn(expr, stmts, plan, line, tbl, fns, isMain) {
     if (nodeType(expr) == NODE_SLICE()) {
         return natNativeRefuse("string slicing in return position is not lowered", line)
     }
+    if (nodeType(expr) == NODE_INDEX()) {
+      if (isMain == 1) {
+        if (natNativeStrIndexSlot(plan, expr) >= 0) {
+          // `main` feeds the process exit status, which is an int; a string
+          // byte index in a callee is fine.
+          return natNativeRefuse("`return` of a string from `main` is not supported; " +
+              "a return value becomes the process exit status and must be an int " +
+              "(a string returned by a called function is fine)", line)
+        }
+      }
+    }
     let bad = ""
     if (nodeType(expr) == NODE_CALL()) {
         if (natNativeFuncReturnKindOf(fns, callFunc(expr)) == 2) {
@@ -6789,19 +7014,18 @@ if (nodeType(expr) == NODE_IDENT()) {
   "supported; a return value becomes the process exit status and must be " +
   "an int or a string", line)
   }
-  return ""
-  // A concatenated string is a STRING, and a string is not an exit status.
-  // natNativeScanValue returned "" for `return a + "b"` because the concat is a
-  // perfectly valid string expression, so it reached emission and died in
-  // natEmitStrValue with "array index out of range".
-  //
-  // The test is the NODE TYPE and not "is it a literal or an identifier": a
-  // first draft refused everything that was not an int literal or an identifier
-  // and broke 9e's `return len(a)`, which is a CallExpr returning an int and must
-  // keep working. Only a BinaryExpr reaches here as a validated non-int value.
+  // A concatenated string is a STRING, and a string is not an exit status --
+  // and this position never had an arm to lower it anyway: natEmitStrValue has
+  // no BinaryExpr case, so `return "a" + "b"` in a callee fell through to the
+  // identifier path and resolved identName() on a BinaryExpr to a slot that
+  // does not exist (the self-hosted compiler died with an access violation,
+  // measured). Refusing BY NAME is strictly better than crashing. The test is
+  // the string-concat classification, not the node type: `return a + b` over
+  // two ints is the ordinary int return and stays untouched.
   if (nodeType(expr) == NODE_BINARY()) {
-  // A string concat return is allowed when the caller binds it as a string;
-  // natEmitStrValue handles the allocation and the (RDI, RSI) result convention.
+      if (natNativeIsStrBinary(expr, stmts, plan) == 1) {
+          return natNativeRefuse("`return` of a string concatenation is not lowered by the native driver", line)
+      }
   }
   return ""
   }
@@ -6946,13 +7170,13 @@ func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, 
 // The label NAMES are kcc's own (seeded from the construct's existing unique
 // label, so two comparisons cannot collide); only the instruction ORDER and
 // NUMBER reach the bytes.
-func natEmitStrEqCond(s, cond, falseLabel, strTemp, stmts, plan, roffs, tbl, seed) {
+func natEmitStrEqCond(s, cond, falseLabel, strTemp, stmts, plan, roffs, tbl, seed, ictx) {
     let op = binaryOp(cond)
     let base = strTemp
-    s = natEmitStrValue(s, binaryLeft(cond), stmts, plan, roffs, tbl)
+    s = natEmitStrValue(s, binaryLeft(cond), stmts, plan, roffs, tbl, ictx)
     s = natStoreStack(s, natRegRDI(), base)
     s = natStoreStack(s, natRegRSI(), base + 8)
-    s = natEmitStrValue(s, binaryRight(cond), stmts, plan, roffs, tbl)
+    s = natEmitStrValue(s, binaryRight(cond), stmts, plan, roffs, tbl, ictx)
     s = natStoreStack(s, natRegRDI(), base + 16)
     s = natStoreStack(s, natRegRSI(), base + 24)
     let neLbl = seed + "$streqne"
@@ -7003,7 +7227,8 @@ func natEmitCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, rct
     if (nodeType(cond) == NODE_BINARY() &&
         (natNativeStrKind(binaryLeft(cond), 0, plan) == 1 ||
          natNativeStrKind(binaryRight(cond), 0, plan) == 1)) {
-        return natEmitStrEqCond(s, cond, falseLabel, strTemp, stmts, plan, roffs, tbl, seed)
+        return natEmitStrEqCond(s, cond, falseLabel, strTemp, stmts, plan, roffs, tbl, seed,
+            [fns, binTemp, extrasBase, frame, rctx])
     }
     return natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, rctx)
 }
@@ -7154,7 +7379,7 @@ func natNativeHomeParams(s, params, plan) {
 //
 // The statement ORDINAL doubles as the label tag for `a[i]`, so no counter can fall
 // out of step with the statement list.
-func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, listPath) {
+func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, strIdxKindSlot, fns, lay, retLabel, tag, listPath) {
     // The scratch regions come from the CALLER's layout, because the caller is the
     // function being lowered. Reading them here instead of threading three more
     // arguments keeps ONE source of truth: natFrameLayout is the only place a frame
@@ -7176,7 +7401,18 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
     // It is an explicit parameter and not global state: two functions in one
     // image have different basenames, and a global would have to be saved and
     // restored around every call.
-    let rctx = [rtKindSlot, srcOff, srcLen]
+    //
+    // NAT-STRIDX: the string index bounds-check calls the SAME reporter with a
+    // different "kind" string, so the context carries its offset as a fourth
+    // element. The array path keeps reading rctx[0..2] and is unchanged.
+    let rctx = [rtKindSlot, srcOff, srcLen, strIdxKindSlot]
+    // NAT-STRIDX: the int-expression evaluation context bundled as ONE value,
+    // for the same reason rctx is one value. The string value emitter needs it
+    // to lower a string byte index (its index is an ordinary int expression,
+    // evaluated by the SAME walker the int path uses), and threading five
+    // parameters individually would drift at exactly the one caller that
+    // rebuilds the pair.
+    let ictx = [fns, binTemp, extrasBase, frame, rctx]
     // sidx walks the LITERALS' offset list in lockstep with the literals the
     // program binds. Lockstep is what makes a literal's recorded offset agree
     // with the list the linker interns; recomputing an offset from the
@@ -7255,7 +7491,14 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
                     s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
                 } else {
-                if (nodeType(v) == NODE_CALL() && callFunc(v) == "push") {
+                if (nodeType(v) == NODE_INDEX() && natNativeStrIndexSlot(plan, v) >= 0) {
+                    // NAT-STRIDX: `let b = s[i]` binds the one-byte view the
+                    // index yields. The slot store is the string convention:
+                    // the pointer at +0, the length at +8.
+                    s = natEmitStrValue(s, v, fnStmts, plan, roffs, tbl, ictx)
+                    s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
+                    s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
+                } else if (nodeType(v) == NODE_CALL() && callFunc(v) == "push") {
                     // push: alloc a new array, copy old elements, append v.
                     // Ported from pkg/native/program.go emitPush.
                     let args = callArgs(v)
@@ -7361,8 +7604,8 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                 s = natCallPrintInt(s)
             } else {
             if (nodeType(pv) == NODE_BINARY()) {
-s = natStrConcat(s, binaryLeft(pv), binaryRight(pv), 0, site, strTemp,
-fnStmts, plan, roffs, tbl)
+                s = natStrConcat(s, binaryLeft(pv), binaryRight(pv), 0, site, strTemp,
+                    fnStmts, plan, roffs, tbl, ictx)
                 s = natCallPrintStr(s)
                 site = site + 1
             } else {
@@ -7390,18 +7633,22 @@ fnStmts, plan, roffs, tbl)
                     s = natCallPrintStr(s)
                 } else {
                     if (nodeType(pv) == NODE_INDEX()) {
-                        // NAT-IDX: the index is lowered by the SHARED integer
-                        // expression walker, so it is an ordinary integer
-                        // expression and not a literal-only special case.
-                        s = natEmitIntExpr(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
-                        s = natMovRegReg(s, natRegRDI(), natRegRAX())
-                        s = natCallPrintInt(s)
+                        // NAT-STRIDX: a string byte index prints as the one-byte
+                        // string it is; an array element keeps the int path.
+                        if (natNativeStrIndexSlot(plan, pv) >= 0) {
+                            s = natEmitStrValue(s, pv, fnStmts, plan, roffs, tbl, ictx)
+                            s = natCallPrintStr(s)
+                        } else {
+                            s = natEmitIntExpr(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
+                            s = natMovRegReg(s, natRegRDI(), natRegRAX())
+                            s = natCallPrintInt(s)
+                        }
 } else {
 if (nodeType(pv) == NODE_DOT()) {
 let drec = identName(dotLeft(pv))
 let dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(fnStmts, drec), memberField(pv))
 if (dkn == natKindString()) {
-s = natEmitStrValue(s, pv, fnStmts, plan, roffs, tbl)
+s = natEmitStrValue(s, pv, fnStmts, plan, roffs, tbl, ictx)
 s = natCallPrintStr(s)
 } else {
 s = natRecordFieldLoadInt(s, stmts, plan, tbl, drec, memberField(pv))
@@ -7485,7 +7732,7 @@ identName(callArgs(pv)[0]))
             // no arm for it. String emit goes through natEmitStrValue, which
             // leaves (RDI, RSI) already set for the exit teardown.
             if (natNativeValueKindOf(rv, plan, fns) == 2) {
-                s = natEmitStrValue(s, rv, fnStmts, plan, roffs, tbl)
+                s = natEmitStrValue(s, rv, fnStmts, plan, roffs, tbl, ictx)
                 s = natJmp(s, retLabel)
             } else {
             // The dispatch is by NODE TYPE only where the type alone is decisive.
@@ -7495,8 +7742,9 @@ identName(callArgs(pv)[0]))
             // to emit inline (MovRegImm64 into RAX; LoadStack into RAX), which is why
             // the frozen return_value golden does not move.
             if (nodeType(rv) == NODE_INDEX()) {
-                // NAT-IDX: as in the print path, the index is lowered by the
-                // shared integer expression walker.
+                // The int-kind index goes through the shared integer expression
+                // walker (the string-kind one was routed to the string path above
+                // via natNativeValueKindOf).
                 s = natEmitIntExpr(s, rv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
             } else {
                 let handledLen = 0
@@ -7560,10 +7808,10 @@ identName(callArgs(pv)[0]))
         let elseLabel = "nat$ifelse$" + tag + "$" + sp
         let endLabel = "nat$ifend$" + tag + "$" + sp
         s = natEmitCond(s, ifCond(n), plan, fns, binTemp, extrasBase, frame, elseLabel, rctx, strTemp, fnStmts, roffs, tbl, elseLabel)
-        s = natNativeLower(s, ifCons(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
+        s = natNativeLower(s, ifCons(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, strIdxKindSlot, fns, lay, retLabel, tag, sp)
         s = natJmp(s, endLabel)
         s = natMark(s, elseLabel)
-        s = natNativeLower(s, ifAlt(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp + "e")
+        s = natNativeLower(s, ifAlt(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, strIdxKindSlot, fns, lay, retLabel, tag, sp + "e")
         s = natMark(s, endLabel)
         }
         else {
@@ -7588,7 +7836,7 @@ identName(callArgs(pv)[0]))
         s = natMark(s, loopLabel)
         s = natLoopPush(s, endLabel, loopLabel)
         s = natEmitCond(s, whileCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx, strTemp, fnStmts, roffs, tbl, endLabel)
-        s = natNativeLower(s, whileBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
+        s = natNativeLower(s, whileBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, strIdxKindSlot, fns, lay, retLabel, tag, sp)
         s = natLoopPop(s)
         s = natJmp(s, loopLabel)
         s = natMark(s, endLabel)
@@ -7631,7 +7879,7 @@ identName(callArgs(pv)[0]))
         s = natMark(s, loopLabel)
         s = natLoopPush(s, endLabel, postLabel)
         s = natEmitCond(s, forCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx, strTemp, fnStmts, roffs, tbl, endLabel)
-        s = natNativeLower(s, forBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
+        s = natNativeLower(s, forBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, strIdxKindSlot, fns, lay, retLabel, tag, sp)
         s = natMark(s, postLabel)
         if (len(forPost(n)) > 0) {
         s = natEmitAssignLocal(s, plan, binaryLeft(forPost(n)), binaryRight(forPost(n)), fns, binTemp, extrasBase, frame, rctx)
@@ -7720,7 +7968,7 @@ func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame, rctx
 // binds or prints, in the collector's order (NAT-RODATA). It is not the whole rodata
 // offset array: the linker owns the section's interning order, and the emitter only
 // ever wants "the offset of the k-th literal".
-func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg, usesStrProg) {
+func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, strIdxKindSlot, isWin, usesMapProg, usesStrProg) {
     // NAT-STR-STAGE: the string staging area is reserved when the PROGRAM
     // performs a string operation, not when this function does. The oracle's
     // `b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush ||
@@ -7749,7 +7997,7 @@ func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, 
     s = natNativeRegPush(s, plan)
     if (frame > 0) { s = natSubRegImm32(s, natRegRSP(), frame) }
     s = natNativeHomeParams(s, params, plan)
-    s = natNativeLower(s, body, body, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, label, "")
+    s = natNativeLower(s, body, body, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, strIdxKindSlot, fns, lay, retLabel, label, "")
     if (hasReturn == 0) { s = natXorRegReg(s, natRegRAX()) }
     s = natMark(s, retLabel)
     if (frame > 0) { s = natAddRegImm32(s, natRegRSP(), frame) }
@@ -7944,6 +8192,27 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
             fi = fi + 1
         }
     }
+    // NAT-STRIDX: the string-index kind string is interned only when a string
+    // byte index actually exists, so a program whose indexes are ALL over
+    // arrays produces the SAME bytes as before this increment (the frozen
+    // NAT-IDX gate pins that byte-identity). Detection is plan-based -- the
+    // same predicate the emission dispatch uses -- and re-scans each callee
+    // exactly the way the arena accounting does.
+    let usesStrIdx = 0
+    if (natNativeUsesStringIndex(body, plan) == 1) { usesStrIdx = 1 }
+    if (usesStrIdx == 0) {
+        let fiS = 0
+        while (fiS < natNativeFuncCount(fns)) {
+            if (natNativeFuncNameAt(fns, fiS) != "main") {
+                let fiBodyS = natNativeFuncBodyAt(fns, fiS)
+                let fsS = natNativeScanFor(natNativeFuncParamsAt(fns, fiS), fiBodyS, tbl, fns, 0, useRegAlloc, natNativeFuncKindsAt(fns, fiS))
+                if (fsS[0] == "") {
+                    if (natNativeUsesStringIndex(fiBodyS, fsS[1]) == 1) { usesStrIdx = 1 }
+                }
+            }
+            fiS = fiS + 1
+        }
+    }
     // Program-wide literal collection, in EMISSION order (fi order, which is
     // function source order), over EXACTLY the functions the emitter will
     // emit. This mirrors the emission loop's skip decision: main always;
@@ -7996,6 +8265,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     let rtKindSlot = 0
     let srcOff = 0
     let srcLen = 0
+    let strIdxKindSlot = 0
     let rtErr = []
     if (usesRtErr == 1) {
         strs = appendArray(strs, "array index out of range")
@@ -8004,6 +8274,15 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         // from the same mechanism as every other string.
         strs = appendArray(strs, sourceBase)
         srcLen = len(sourceBase)
+        // NAT-STRIDX: the string index bounds-check calls the same reporter with
+        // its own kind string, interned at the SAME call site so the two kinds
+        // travel together -- and ONLY when a string index exists, so a program
+        // whose indexes are all over arrays produces the same bytes as before
+        // this increment. The cost of the append is 25 bytes of rodata, paid
+        // only by images that can reach the string-index arm.
+        if (usesStrIdx == 1) {
+            strs = appendArray(strs, "string index out of range")
+        }
     }
     let ro = natRodataSection(strs)
     // The reporter's OWN four strings, read back OUT of the section's offset
@@ -8027,6 +8306,9 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         }
         rtKindSlot = ro[1][callBase]
         srcOff = ro[1][callBase + 1]
+        if (usesStrIdx == 1) {
+            strIdxKindSlot = ro[1][callBase + 2]
+        }
     }
     // The EMITTER gets the LITERALS' offsets and nothing else.
     //
@@ -8228,7 +8510,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
             fhasReturn = fscan[2]
         }
         s = natNativeEmitFunc(s, fname, fparams, fbody, fplan, fhasReturn, fns,
-            sroffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg,
+            sroffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, strIdxKindSlot, isWin, usesMapProg,
             usesStrProg)
         fi = fi + 1
     }
@@ -8555,7 +8837,18 @@ func natRodataOffsetFor(val, stmts, roffs) {
     return 0
 }
 
-func natEmitStrValue(s, expr, stmts, plan, roffs, tbl) {
+// NAT-STRIDX: `ictx` is the int-expression evaluation context bundled by the
+// caller ([fns, binTemp, extrasBase, frame, rctx]). It exists because a string
+// byte index's index is an ordinary int expression and lowering it needs the
+// same walker the int path uses; threading the five pieces individually would
+// make this signature unmanageable and would drift at exactly the one caller
+// that rebuilds the pair.
+func natEmitStrValue(s, expr, stmts, plan, roffs, tbl, ictx) {
+  // NAT-STRIDX: `s[i]` -- a one-byte view of the string. The bounds check and
+  // the view itself live in natEmitStrIndex; this arm only routes.
+  if (nodeType(expr) == NODE_INDEX()) {
+      return natEmitStrIndex(s, expr, plan, ictx[0], ictx[1], ictx[2], ictx[3], ictx[4], indexLine(expr))
+  }
   // Step 9h-1: a record string field -- the NARROW case only. A general DotExpr
   // rewrite is deliberately NOT attempted.
   if (nodeType(expr) == NODE_DOT()) {
@@ -8585,12 +8878,12 @@ let off = natNativeSlotOff(plan, natNativeSlotIndex(plan, identName(expr)))
 // oracle ADVANCES the destination register by the staged length instead of encoding the
 // offset in the SIB displacement -- which cannot hold it. That is why the copy loop
 // exists in this shape.
-func natStrConcat(s, left, right, depth, site, strTemp, stmts, plan, roffs, tbl) {
+func natStrConcat(s, left, right, depth, site, strTemp, stmts, plan, roffs, tbl, ictx) {
     let base = strTemp + depth * 5 * 8
-    s = natEmitStrValue(s, left, stmts, plan, roffs, tbl)
+    s = natEmitStrValue(s, left, stmts, plan, roffs, tbl, ictx)
     s = natStoreStack(s, natRegRDI(), base)
     s = natStoreStack(s, natRegRSI(), base + 8)
-    s = natEmitStrValue(s, right, stmts, plan, roffs, tbl)
+    s = natEmitStrValue(s, right, stmts, plan, roffs, tbl, ictx)
     s = natStoreStack(s, natRegRDI(), base + 16)
     s = natStoreStack(s, natRegRSI(), base + 24)
     s = natLoadStack(s, natRegRDI(), base + 8)
@@ -8680,6 +8973,15 @@ func natNativeStrKind(e, stmts, plan) {
     if (nodeType(e) == NODE_STRING_LIT()) { return 1 }
     if (nodeType(e) == NODE_SLICE()) {
         if (natNativeStrKind(sliceLeft(e), stmts, plan) == 1) { return 1 }
+        return 0 - 2
+    }
+    if (nodeType(e) == NODE_INDEX()) {
+        // NAT-STRIDX: a byte index of a string yields a one-byte string. A
+        // base that is not a string is not a string; an unclassifiable one
+        // stays unknown.
+        let kb = natNativeStrKind(indexLeft(e), stmts, plan)
+        if (kb == 1) { return 1 }
+        if (kb == 0 - 1) { return 0 - 1 }
         return 0 - 2
     }
     if (nodeType(e) == NODE_BINARY()) {
@@ -8809,6 +9111,45 @@ func natNativeConcatIn(e, stmts, plan) {
         natNativeConcatIn(binaryRight(e), stmts, plan)
 }
 
+// natNativeConcatViewBytes counts the one-byte operands a concat expression
+// would contribute from a STRING BYTE INDEX. A view's bytes are NOT in the
+// literal census, and a bound that silently forgot them would be a bound that
+// is provable for programs without indices and untrue for programs with them.
+// The count is exact: one byte per view operand, and every site runs at most
+// once (loops are refused), so adding it to the literal bound pays for every
+// possible allocation exactly.
+//
+// The statement walk mirrors natNativeConcatSites precisely, so a view whose
+// site exists is always counted.
+func natNativeConcatViewBytes(stmts, plan) {
+    let n = 0
+    let i = 0
+    while (i < len(stmts)) {
+        let st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeConcatViewsIn(printVal(st), stmts, plan) }
+        if (natNativeIsDecl(st)) { n = n + natNativeConcatViewsIn(natNativeDeclValue(st), stmts, plan) }
+        if (nodeType(st) == NODE_IF()) {
+            n = n + natNativeConcatViewBytes(ifCons(st), plan) + natNativeConcatViewBytes(ifAlt(st), plan)
+        }
+        i = i + 1
+    }
+    return n
+}
+
+func natNativeConcatViewsIn(e, stmts, plan) {
+    if (nodeType(e) == NODE_INDEX()) {
+        if (natNativeStrIndexSlot(plan, e) >= 0) { return 1 }
+        return 0
+    }
+    if (nodeType(e) == NODE_UNARY()) {
+        return natNativeConcatViewsIn(unaryOperand(e), stmts, plan)
+    }
+    if (nodeType(e) != NODE_BINARY()) { return 0 }
+    if (binaryOp(e) != "+") { return 0 }
+    if (natNativeIsStrBinary(e, stmts, plan) != 1) { return 0 }
+    return natNativeConcatViewsIn(binaryLeft(e), stmts, plan) + natNativeConcatViewsIn(binaryRight(e), stmts, plan)
+}
+
 // natNativeArenaBytes is the compile-time arena size: sites * totalLiteralBytes + 16.
 //
 // SOUNDNESS rests on two facts, not on hope:
@@ -8850,7 +9191,7 @@ func natNativeArenaBytes(stmts, plan) {
     }
     let sites = natNativeConcatSites(stmts, plan)
     if (sites == 0) { return 0 }
-    let dataBytes = sites * natNativeStrTotalBytes(stmts)
+    let dataBytes = sites * natNativeStrTotalBytes(stmts) + natNativeConcatViewBytes(stmts, plan)
     if (dataBytes < natArenaMinSize()) { dataBytes = natArenaMinSize() }
     return dataBytes + natArenaHeaderLen()
 }
