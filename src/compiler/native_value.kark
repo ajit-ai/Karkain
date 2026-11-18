@@ -2999,7 +2999,7 @@ func natRuntimeErrorHelper(s, rt, winWrite) {
 // The map runtime: natMapFind, natMapSet and natMapGet, the byte-for-byte
 // counterparts of emitMapFind / emitMapSet / emitMapGet.
 //
-// WHY THESE EXIST ON kcc FOR A PROGRAM WITH NO MAP is the D5 baseline's §3.1
+// WHY THESE EXIST ON kcc FOR A PROGRAM WITH NO MAP is the D5 baseline's ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§3.1
 // finding, and it is not a porting error to reproduce. The Go backend's
 // scanMapUsage decides "is this a map index" with:
 //
@@ -4501,7 +4501,7 @@ func natNativeRetKindWalk(stmts, plan, fds) {
         } else if (natNativeIsDecl(n)) {
             // binding a call result is not a RETURN, but later return kind
             // inference for calls reads kinds of idents through the plan,
-            // which natNativeValueKindOf resolves — nothing to do here.
+            // which natNativeValueKindOf resolves ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â nothing to do here.
         } else if (t == NODE_IF()) {
             let rc = natNativeRetKindWalk(ifCons(n), plan, fds)
             if (rc == 0) { return 0 }
@@ -4548,13 +4548,13 @@ func natNativeRetKindWalk(stmts, plan, fds) {
 // unreachable function in the module to lower would make `import std.collections`
 // impossible regardless of the calling program. A dead function whose body the
 // driver CANNOT lower is therefore skipped, while a dead function the driver
-// CAN lower is emitted normally — the latter preserves the byte-identity the
+// CAN lower is emitted normally ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the latter preserves the byte-identity the
 // frozen gates pin (a supported dead helper emits exactly as the Go oracle
 // emits it). A function that is reachable from main, or from a reachable
 // callee, is never skipped: refusing a reachable function is the contract.
 //
 // The Go oracle emits dead functions unconditionally, so a program carrying
-// unsupported-unreachable dead code is NOT byte-identical to it — an accepted,
+// unsupported-unreachable dead code is NOT byte-identical to it ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â an accepted,
 // documented divergence: those programs cannot build on the oracle at all.
 func natNativeReachable(fns) {
     let np = natNativeFuncCount(fns)
@@ -4758,12 +4758,16 @@ func natNativeArgKindFor(e, plan) {
 }
 
 // natNativeValueKindOf classifies an expression for RETURN-kind inference:
-// 1 = int, 2 = string. It is deliberately conservative — unknown shapes are int,
+// 1 = int, 2 = string. It is deliberately conservative ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â unknown shapes are int,
 // because a wrong string classification only reserves a strTemp plan where an
-// int would do — and it is monotone (anything that could be a string is).
+// int would do ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â and it is monotone (anything that could be a string is).
 func natNativeValueKindOf(e, plan, fns) {
     let t = nodeType(e)
     if (t == NODE_STRING_LIT()) { return 2 }
+    if (t == NODE_SLICE()) {
+        if (natNativeStrKind(sliceLeft(e), 0, plan) == 1) { return 2 }
+        return 1
+    }
     if (t == NODE_BINARY()) {
         if (binaryOp(e) == "+") {
             if (natNativeValueKindOf(binaryLeft(e), plan, fns) == 2) { return 2 }
@@ -5762,7 +5766,7 @@ func natNativeMaxExtras(stmts, plan) {
 
 // natNativeMaxExtrasExpr walks an expression tree counting the UNITS a call
 // would stage. `plan` resolves an argument's kind (ident whose slot is an int
-// is one unit; an array literal or an array ident is two) — the same rule the
+// is one unit; an array literal or an array ident is two) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the same rule the
 // call-site staging uses, so the spill sizing and the emission cannot disagree.
 func natNativeMaxExtrasExpr(e, plan) {
     let t = nodeType(e)
@@ -6363,6 +6367,11 @@ func natNativeStrLitAppend(out, e) {
     if (nodeType(e) == NODE_STRING_LIT()) {
         return appendArray(out, stringLitVal(e))
     }
+    if (nodeType(e) == NODE_SLICE()) {
+        out = natNativeStrLitAppend(out, sliceLeft(e))
+        out = natNativeStrLitAppend(out, sliceStart(e))
+        return natNativeStrLitAppend(out, sliceEnd(e))
+    }
 if (nodeType(e) == NODE_BINARY()) {
   // NAT-STREQ: a COMPARISON descends too. A condition literal -- the "a" in
   // `if ("a" == s)` -- is staged by the equality emit exactly like a print
@@ -6649,6 +6658,22 @@ func natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx, lhs, rhs) {
   return [s, sidx]
 }
 
+func natNativeScanStrSlice(e, stmts, plan, line) {
+    if (nodeType(sliceLeft(e)) == NODE_SLICE()) {
+        return natNativeRefuse("chained string slicing is not lowered", line)
+    }
+    if (nodeType(sliceLeft(e)) == NODE_BINARY()) {
+        return natNativeRefuse("string slicing of a concatenation is not lowered", line)
+    if (sliceStart(e) == 0 || nodeType(sliceStart(e)) == 0) {
+        return natNativeRefuse("open-ended string slicing (s[:b]) is not lowered yet", line)
+    }
+    if (sliceEnd(e) == 0 || nodeType(sliceEnd(e)) == 0) {
+        return natNativeRefuse("open-ended string slicing (s[a:]) is not lowered yet", line)
+    }
+    }
+    return ""
+}
+
 func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr, fns) {
     let t = nodeType(expr)
     if (t == NODE_INT_LIT()) { return "" }
@@ -6679,6 +6704,12 @@ if (t == NODE_BINARY()) {
   // required a LITERAL index -- the very limitation this increment removes --
   // and two validators for one construct is how they drift apart.
   if (t == NODE_INDEX()) { return natNativeScanIntExpr(expr, plan, line, fns, 0) }
+  if (t == NODE_SLICE()) {
+      if (natNativeStrKind(sliceLeft(expr), stmts, plan) != 1) {
+          return natNativeRefuse("a string slice target must be a string", line)
+      }
+      return natNativeScanStrSlice(expr, stmts, plan, line)
+  }
   if (t == NODE_CALL()) {
       if (callFunc(expr) == "len") { return natNativeScanLen(expr, plan, line) }
       return natNativeScanCall(expr, plan, line, fns)
@@ -7332,6 +7363,11 @@ fnStmts, plan, roffs, tbl)
                 s = natCallPrintStr(s)
                 site = site + 1
             } else {
+            if (nodeType(pv) == NODE_SLICE()) {
+                s = natEmitStrSlice(s, pv, fns, binTemp, extrasBase, frame, rctx, strTemp, fnStmts, plan, roffs, tbl)
+                s = natCallPrintStr(s)
+                site = site + 1
+            } else {
             if (nodeType(pv) == NODE_INT_LIT()) {
                 // The oracle computes an int literal into RAX with a 64-bit
                 // immediate and then moves it to RDI (emitExpr -> MovRegImm64,
@@ -7381,7 +7417,7 @@ identName(callArgs(pv)[0]))
                             s = natCallPrintInt(s)
                         } else if (natNativeFuncReturnKindOf(fns, callFunc(pv)) == 2) {
                             // A string-returning call prints straight out of
-                            // (RDI, RSI) — no MovRegReg shimming.
+                            // (RDI, RSI) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â no MovRegReg shimming.
                             s = natEmitIntCall(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
                             s = natCallPrintStr(s)
                         } else {
@@ -7409,6 +7445,7 @@ identName(callArgs(pv)[0]))
                 s = natMovRegReg(s, natRegRDI(), natRegRAX())
                 s = natCallPrintInt(s)
             }
+}
 }
 }
 }
@@ -8089,7 +8126,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         s = natAllocHelper(s, arenaLen)
     }
     // The map runtime, on the oracle's syntactic predicate rather than on the
-    // program's actual needs -- see natMapFind's header and the D5 baseline §3.1.
+    // program's actual needs -- see natMapFind's header and the D5 baseline ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§3.1.
     // Order matters: emitHelpers runs print_int, print_str, [print_float],
     // [alloc], map, runtime_error (program.go:2497-2520), and the map helpers
     // call alloc, so they must come after it.
@@ -8145,7 +8182,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         // lowered aborts the WHOLE program: a half-emitted image is not a build
         // with a warning, it is an image whose missing function is a link-time
         // surprise. An UNREACHABLE callee that cannot be lowered is skipped
-        // instead (see natNativeReachable) — the program never calls it, so
+        // instead (see natNativeReachable) ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the program never calls it, so
         // nothing reaches the missing label.
         let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0, useRegAlloc, natNativeFuncKindsAt(fns, fi))
         if (fscan[0] != "") {
@@ -8576,8 +8613,66 @@ func natStrConcat(s, left, right, depth, site, strTemp, stmts, plan, roffs, tbl)
     return natAddRegReg(s, natRegRSI(), natRegRCX())
 }
 
+func natEmitStrSlice(s, sliceExpr, fns, binTemp, extrasBase, frame, rctx, strTemp, stmts, plan, roffs, tbl) {
+    let base = strTemp
+    if (nodeType(sliceLeft(sliceExpr)) == NODE_STRING_LIT()) {
+        s = natRodataRefOff(s, natRegRDI(),
+            natRodataOffsetFor(stringLitVal(sliceLeft(sliceExpr)), stmts, roffs))
+        s = natMovRegImm32(s, natRegRSI(), len(stringLitVal(sliceLeft(sliceExpr))))
+    } else {
+        let off = natNativeSlotOff(plan, natNativeSlotIndex(plan, identName(sliceLeft(sliceExpr))))
+        s = natLoadStack(s, natRegRDI(), off)
+        s = natLoadStack(s, natRegRSI(), off + 8)
+    }
+    s = natStoreStack(s, natRegRDI(), base)
+    s = natStoreStack(s, natRegRSI(), base + 8)
+    let _ss = sliceStart(sliceExpr)
+    let _ssOk = 0
+    if (_ss != 0) {
+        let _sst = nodeType(_ss)
+        if (_sst == NODE_INT_LIT() || _sst == NODE_IDENT() || _sst == NODE_BINARY() || _sst == NODE_UNARY() || _sst == NODE_INDEX() || _sst == NODE_CALL()) { _ssOk = 1 }
+    }
+    if (_ssOk == 0) {
+        s = natXorRegReg(s, natRegRAX())
+    } else {
+        s = natEmitIntExpr(s, sliceStart(sliceExpr), plan, fns, binTemp, extrasBase, frame, 0, rctx)
+    }
+    s = natStoreStack(s, natRegRAX(), base + 16)
+    if (sliceEnd(sliceExpr) == 0 || nodeType(sliceEnd(sliceExpr)) == 0) {
+        s = natLoadStack(s, natRegRAX(), base + 8)
+    } else {
+        s = natEmitIntExpr(s, sliceEnd(sliceExpr), plan, fns, binTemp, extrasBase, frame, 0, rctx)
+    }
+    s = natStoreStack(s, natRegRAX(), base + 24)
+    let ba = natFresh(s, "sl$bad")
+    s = ba[0]
+    let badLbl = ba[1]
+    let ca = natFresh(s, "sl$chk")
+    s = ca[0]
+    let chkLbl = ca[1]
+    s = natLoadStack(s, natRegRCX(), base + 16)
+    s = natTestRegReg(s, natRegRCX(), natRegRCX())
+    s = natJns(s, chkLbl)
+    s = natMark(s, badLbl)
+    s = natInt3(s)
+    s = natMark(s, chkLbl)
+    s = natLoadStack(s, natRegRAX(), base + 24)
+    s = natCmpRegReg(s, natRegRAX(), natRegRSI())
+    s = natJa(s, badLbl)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    s = natJl(s, badLbl)
+    s = natMovRegReg(s, natRegRSI(), natRegRAX())
+    s = natLoadStack(s, natRegRDI(), base)
+    s = natAddRegReg(s, natRegRDI(), natRegRCX())
+    return natSubRegReg(s, natRegRSI(), natRegRCX())
+}
+
 func natNativeStrKind(e, stmts, plan) {
     if (nodeType(e) == NODE_STRING_LIT()) { return 1 }
+    if (nodeType(e) == NODE_SLICE()) {
+        if (natNativeStrKind(sliceLeft(e), stmts, plan) == 1) { return 1 }
+        return 0 - 2
+    }
     if (nodeType(e) == NODE_BINARY()) {
         if (binaryOp(e) == "+") {
             if (natNativeStrKind(binaryLeft(e), stmts, plan) == 1) { return 1 }
@@ -9437,6 +9532,12 @@ func natNativeStrFieldSites(stmts) {
 // recursing through `+` -- the oracle's hasStrLiteral (program.go:617-630).
 func natNativeStrLitIn(e) {
     if (nodeType(e) == NODE_STRING_LIT()) { return 1 }
+    if (nodeType(e) == NODE_SLICE()) {
+        if (natNativeStrLitIn(sliceLeft(e)) == 1) { return 1 }
+        if (natNativeStrLitIn(sliceStart(e)) == 1) { return 1 }
+        if (natNativeStrLitIn(sliceEnd(e)) == 1) { return 1 }
+        return 0
+    }
     if (nodeType(e) == NODE_BINARY()) {
         if (binaryOp(e) == "+") {
             if (natNativeStrLitIn(binaryLeft(e)) == 1) { return 1 }
