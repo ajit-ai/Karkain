@@ -28,7 +28,13 @@ cd "$ROOT_DIR"
 
 # Step 3: Compile C23 output with gcc
 echo "[3/4] Compiling C23 → native executable..."
-gcc -std=c99 -o "$OUT_EXE" "$OUT_C" -lm -lgmp
+# Windows builds reference Winsock (net runtime, std.net), which MinGW does not
+# auto-link. Only add the flag there; Linux/macOS must not carry a Windows lib.
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) WIN_LIBS="-lws2_32" ;;
+    *) WIN_LIBS="" ;;
+esac
+gcc -std=c99 -o "$OUT_EXE" "$OUT_C" -lm -lgmp $WIN_LIBS
 
 # Step 4: Verify
 echo "[4/4] Verifying..."
