@@ -558,6 +558,18 @@ jobs:
       - name: Run NAT-STRIDX kcc native string byte indexing gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATStrIdx_' -count=1 -timeout 40m -v
 
+      # NAT-STRTRIM, native trim as a non-allocating string view in the
+      # self-hosted driver.
+      #
+      # `trim(s)` lowers to (ptr + start, trimmed_len) of the source bytes:
+      # no allocation, no copy, no runtime. Whitespace is exactly the four
+      # ASCII bytes the stdlib pins (0x20, 0x09, 0x0a, 0x0d). UTF-8 high
+      # bytes are never treated as whitespace.
+      #
+      # Its own pattern: 'TestPhaseNATStrTrim_' is matched by no other step.
+      - name: Run NAT-STRTRIM kcc native trim gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATStrTrim_' -count=1 -timeout 40m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing

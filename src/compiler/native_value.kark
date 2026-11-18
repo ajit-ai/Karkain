@@ -4833,6 +4833,7 @@ func natNativeBuiltinRetKind(name) {
     if (name == "utf8_encode_bytes") { return 2 }
     if (name == "sha256_hex") { return 2 }
     if (name == "sha512_hex") { return 2 }
+    if (name == "trim") { return 2 }
     if (name == "utf8_valid_bytes") { return 1 }
     if (name == "int") { return 1 }
     if (name == "len") { return 1 }
@@ -5192,6 +5193,7 @@ func natNativeExprHasCall(e) {
 // diagnostic than the true one.
 func natNativeScanCall(e, plan, line, fns) {
     let fname = callFunc(e)
+    if (fname == "trim") { return natNativeScanTrim(e, plan, line, fns) }
     if (fname == "len") {
         return natNativeRefuse("`len()` inside a called function is not lowered by the " +
             "native driver in this slice", line)
@@ -5223,6 +5225,25 @@ func natNativeScanCall(e, plan, line, fns) {
     while (i < len(args)) {
         if (i >= 1) {
             if (natNativeExprHasCall(args[i]) == 1) {
+                // An argument at index >= 1 that contains a call would be
+                // overwritten when the inner call reuses the spill area.
+                // Refusing it is honest; silently mis-passing is not. This
+                // applies to every argument at index >= 1, whatever its kind.
+                return natNativeRefuse("argument " + str(i + 1) + " of the call to `" +
+                    fname + "` contains another call; the argument spill area is reused " +
+                    "across calls, so an inner call would clobber an earlier argument -- " +
+                    "bind the inner result to a local first", line)
+            }
+        } else {
+            // NAT-STRTRIM: an inner call at argument index 0 is the one nesting
+            // shape the spill area permits -- nothing earlier needs to survive
+            // it, and an int argument goes through the int walker, which
+            // recurses into the callee natively. A string or array argument
+            // does not: the two-unit staging resolves identName() on the CALL
+            // node to a slot that does not exist, and the self-hosted compiler
+            // died with an access violation (measured, f(trim(s))). Refused by
+            // name for those kinds; the int case is unchanged.
+            if (natNativeExprHasCall(args[i]) == 1 && natNativeArgKindFor(args[i], plan) != 1) {
                 return natNativeRefuse("argument " + str(i + 1) + " of the call to `" +
                     fname + "` contains another call; the argument spill area is reused " +
                     "across calls, so an inner call would clobber an earlier argument -- " +
@@ -5740,7 +5761,22 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
         return natNativeScanIntExpr(binaryRight(e), plan, line, fns, depth + 1)
     }
     if (t == NODE_CALL()) {
-        if (callFunc(e) == "len") { return natNativeScanLen(e, plan, line) }
+        if (callFunc(e) == "len") {
+            // NAT-STRTRIM: `len(trim(s))` is lowered only at a len site that
+            // carries string-value context (a direct print or return value).
+            // Nested inside arithmetic it would need the string emitter inside
+            // the int walker, which is its own slice; refused by name rather than
+            // emitting a wrong answer.
+            let margs = callArgs(e)
+            if (len(margs) == 1) {
+                if (nodeType(margs[0]) == NODE_CALL()) {
+                    if (callFunc(margs[0]) == "trim") {
+                        return natNativeRefuse("len(trim(s)) inside arithmetic is not lowered (only as a direct print or return value)", line)
+                    }
+                }
+            }
+            return natNativeScanLen(e, plan, line, fns)
+        }
         return natNativeScanCall(e, plan, line, fns)
     }
     // getNodeType, not a node NUMBER. "expression of kind 23" was the first draft and
@@ -6038,6 +6074,124 @@ func natEmitStrIndex(s, expr, plan, fns, binTemp, extrasBase, frame, rctx, line)
     return s
 }
 
+// natTrimGotoWs emits the four-way whitespace test and jumps to `advLbl` when
+// the byte in `ch` is one of the FOUR ASCII whitespace bytes the Karkain
+// standard library removes (space 0x20, tab 0x09, LF 0x0a, CR 0x0d -- the
+// stdlib's own str_trim_left/right and the C backend's karkain_trim agree,
+// SPEC strings: case conversion is ASCII-only and trim is byte-wise). Any
+// other byte, including every byte >= 0x7f, falls through.
+func natTrimGotoWs(s, ch, advLbl) {
+    s = natCmpRegImm32(s, ch, 32)
+    s = natJz(s, advLbl)
+    s = natCmpRegImm32(s, ch, 9)
+    s = natJz(s, advLbl)
+    s = natCmpRegImm32(s, ch, 10)
+    s = natJz(s, advLbl)
+    s = natCmpRegImm32(s, ch, 13)
+    return natJz(s, advLbl)
+}
+
+// natEmitTrim lowers the std.string builtin `trim` (the builtin that
+// `str_trim` delegates to) to a NON-ALLOCATING VIEW: (ptr + start,
+// trimmed_len) of the source bytes. Nothing is copied, nothing is
+// allocated, the source string is not modified, and the view's lifetime is
+// the source's lifetime -- every string on this path is rodata- or
+// arena-backed, and both live for the process.
+//
+// THE VERIFIED CONTRACT (the actual declarations/implementation in this
+// repo, not an assumption):
+//   - stdlib/string/string.kark: `str_trim` delegates to the builtin
+//     `trim(s)`; `str_trim_left`/`str_trim_right` pin the same four bytes
+//     (space/tab/LF/CR) as the whitespace set.
+//   - the C backend (pkg/codegen/codegen.go, karkain_trim): strips exactly
+//     those four bytes from both ends; everything else, internal whitespace
+//     included, is preserved; all-whitespace input yields ""; an all- or
+//     zero-length view is returned in place.
+//   - the Go resolver treats `trim` as a known builtin (pkg/sema/resolve.go
+//     and the checker tables list it with arity 1).
+//   - non-ASCII bytes (>= 0x80) are NOT whitespace; they are preserved.
+//
+// Empty input yields a zero-length view; an all-whitespace input yields a
+// zero-length view whose pointer is one-past-the-last byte, which is never
+// dereferenced because the length is zero. Repeated trim calls are safe:
+// every level is another view of the same storage.
+//
+// The result is the SAME (ptr, len) pair when nothing is trimmed -- this is
+// not a copy of a trimmed string, it IS the source string re-armed.
+//
+// Registers: RBX = base, R11 = original length, RCX = scan index, RAX =
+// trailing index, R10 = scratch byte. R12-R15 (the NAT-REG allocated-int
+// registers) and RDI/RSI (the string-pair result) are not held across the
+// scan.
+func natEmitTrim(s, arg, stmts, plan, roffs, tbl, ictx) {
+    // The argument lowers to the ordinary string value pair (RDI=ptr, RSI=len).
+    s = natEmitStrValue(s, arg, stmts, plan, roffs, tbl, ictx)
+    s = natMovRegReg(s, natRegRBX(), natRegRDI())
+    s = natMovRegReg(s, natRegR11(), natRegRSI())
+    // --- leading scan: RCX = index of the first non-ws byte (== len if all ws)
+    s = natXorRegReg(s, natRegRCX())
+    let fp = natFresh(s, "trimlead")
+    s = fp[0]
+    let leadLbl = fp[1]
+    let fd = natFresh(s, "trimlend")
+    s = fd[0]
+    let leadDone = fd[1]
+    let lwa = natFresh(s, "trimlws")
+    s = lwa[0]
+    let leadWs = lwa[1]
+    s = natMark(s, leadLbl)
+    s = natCmpRegReg(s, natRegRCX(), natRegR11())
+    s = natJge(s, leadDone)
+    s = natLoadScaled8(s, natRegR10(), natRegRBX(), natRegRCX(), 1, 0)
+    s = natTrimGotoWs(s, natRegR10(), leadWs)
+    s = natJmp(s, leadDone)
+    s = natMark(s, leadWs)
+    s = natIncReg(s, natRegRCX())
+    s = natJmp(s, leadLbl)
+    s = natMark(s, leadDone)
+    // --- trailing scan: RAX = index of the last non-ws byte (before RCX if none)
+    s = natMovRegReg(s, natRegRAX(), natRegR11())
+    s = natDecReg(s, natRegRAX())
+    let tr = natFresh(s, "trimtail")
+    s = tr[0]
+    let tailLbl = tr[1]
+    let td = natFresh(s, "trimtend")
+    s = td[0]
+    let tailDone = td[1]
+    let twa = natFresh(s, "trimtws")
+    s = twa[0]
+    let tailWs = twa[1]
+    s = natMark(s, tailLbl)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    s = natJl(s, tailDone)
+    s = natLoadScaled8(s, natRegR10(), natRegRBX(), natRegRAX(), 1, 0)
+    s = natTrimGotoWs(s, natRegR10(), tailWs)
+    s = natJmp(s, tailDone)
+    s = natMark(s, tailWs)
+    s = natDecReg(s, natRegRAX())
+    s = natJmp(s, tailLbl)
+    s = natMark(s, tailDone)
+    // --- view: (RBX + RCX, RAX - RCX + 1), or a zero-length view
+    s = natMovRegReg(s, natRegRDI(), natRegRBX())
+    s = natAddRegReg(s, natRegRDI(), natRegRCX())
+    let az = natFresh(s, "trimempty")
+    s = az[0]
+    let emptyLbl = az[1]
+    let fin = natFresh(s, "trimdone")
+    s = fin[0]
+    let doneLbl = fin[1]
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    s = natJl(s, emptyLbl)
+    s = natMovRegReg(s, natRegRSI(), natRegRAX())
+    s = natSubRegReg(s, natRegRSI(), natRegRCX())
+    s = natIncReg(s, natRegRSI())
+    s = natJmp(s, doneLbl)
+    s = natMark(s, emptyLbl)
+    s = natXorRegReg(s, natRegRSI())
+    s = natMark(s, doneLbl)
+    return s
+}
+
 // natNativeScanElems validates an array literal's elements and returns "" or a
 // refusal. Only int literals are supported; anything else names the offending INDEX,
 // which is the oracle's own discipline -- its diagnostic says "array element 2 must
@@ -6060,7 +6214,7 @@ func natNativeScanElems(elems, line) {
 // Only `len` of an ARRAY LOCAL is supported, and every other shape is named rather
 // than coerced: len of a scalar, len of an undeclared name, len of an expression, and
 // any other builtin call all get their own message.
-func natNativeScanLen(call, plan, line) {
+func natNativeScanLen(call, plan, line, fns) {
     if (callFunc(call) != "len") {
         return natNativeRefuse("call to `" + callFunc(call) + "` is not lowered by the " +
             "native driver", line)
@@ -6068,6 +6222,13 @@ func natNativeScanLen(call, plan, line) {
     let args = callArgs(call)
     if (len(args) != 1) {
         return natNativeRefuse("len() takes exactly 1 argument, got " + str(len(args)), line)
+    }
+    if (nodeType(args[0]) == NODE_CALL() && callFunc(args[0]) == "trim") {
+        // NAT-STRTRIM: `len(trim(s))` -- the trimmed length IS the second unit of
+        // the view pair. The trim call is validated by its own scanner; the
+        // emission lowers it inline, so this position carries the string context
+        // directly (print and return values).
+        return natNativeScanTrim(args[0], plan, line, fns)
     }
     if (nodeType(args[0]) != NODE_IDENT()) {
         return natNativeRefuse("len() requires an array or string variable, not an " +
@@ -6875,6 +7036,53 @@ func natNativeScanStrIndex(expr, line, fns, plan) {
     return natNativeScanIntExpr(indexExpr(expr), plan, line, fns, 0)
 }
 
+// natNativeScanTrim validates a `trim(x)` call.
+//
+// The verified contract (see natEmitTrim's header): the argument must be a
+// string the driver can lower to (ptr, len) -- a literal, a string variable, a
+// string byte index, or a nested trim() call. Anything else, including record
+// fields, slices, concatenations and calls to anything but trim(), is refused
+// by name; accepting an operand the emitter cannot lower is how this driver
+// produced valid-looking images that compute garbage.
+func natNativeScanTrim(call, plan, line, fns) {
+    let args = callArgs(call)
+    if (len(args) != 1) {
+        return natNativeRefuse("trim() takes exactly 1 argument (got " + str(len(args)) + ")", line)
+    }
+    let e = args[0]
+    let t = nodeType(e)
+    if (t == NODE_STRING_LIT()) { return "" }
+    if (t == NODE_IDENT()) {
+        let ord = natNativeSlotIndex(plan, identName(e))
+        if (ord < 0) {
+            return natNativeRefuse("undefined identifier '" + identName(e) + "'", line)
+        }
+        if (natNativeSlotKind(plan, ord) != natKindString()) {
+            return natNativeRefuse("trim() argument must be a string (got " +
+                natKindName(natNativeSlotKind(plan, ord)) + " '" + identName(e) + "')", line)
+        }
+        return ""
+    }
+    if (t == NODE_INDEX()) {
+        if (natNativeStrIndexSlot(plan, e) >= 0) { return "" }
+        return natNativeRefuse("trim() argument must be a string; the index target must be a string", line)
+    }
+    if (t == NODE_CALL()) {
+        if (callFunc(e) == "trim") { return natNativeScanTrim(e, plan, line, fns) }
+        return natNativeRefuse("trim() argument must be a string literal, a string variable, a string index or trim(); a call to `" + callFunc(e) + "` is not", line)
+    }
+    if (t == NODE_DOT()) {
+        return natNativeRefuse("trim() of a record field is not lowered", line)
+    }
+    if (t == NODE_BINARY()) {
+        return natNativeRefuse("trim() of a concatenation is not lowered (bind it to a local first)", line)
+    }
+    if (t == NODE_SLICE()) {
+        return natNativeRefuse("trim() of a string slice is not lowered (bind it to a local first)", line)
+    }
+    return natNativeRefuse("trim() argument must be a string literal, a string variable, a string index or trim()", line)
+}
+
 func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr, fns) {
     let t = nodeType(expr)
     if (t == NODE_INT_LIT()) { return "" }
@@ -6925,7 +7133,7 @@ if (t == NODE_BINARY()) {
       return natNativeScanStrSlice(expr, stmts, plan, line)
   }
   if (t == NODE_CALL()) {
-      if (callFunc(expr) == "len") { return natNativeScanLen(expr, plan, line) }
+      if (callFunc(expr) == "len") { return natNativeScanLen(expr, plan, line, fns) }
       return natNativeScanCall(expr, plan, line, fns)
   }
   // Step 9h-1: a record field read, `rec.field`. NARROW by construction -- only an
@@ -6991,6 +7199,18 @@ func natNativeScanReturn(expr, stmts, plan, line, tbl, fns, isMain) {
         if (natNativeStrIndexSlot(plan, expr) >= 0) {
           // `main` feeds the process exit status, which is an int; a string
           // byte index in a callee is fine.
+          return natNativeRefuse("`return` of a string from `main` is not supported; " +
+              "a return value becomes the process exit status and must be an int " +
+              "(a string returned by a called function is fine)", line)
+        }
+      }
+    }
+    if (nodeType(expr) == NODE_CALL()) {
+      if (isMain == 1) {
+        if (callFunc(expr) == "trim") {
+          // NAT-STRTRIM: same boundary as `return trim(s)` in `main`: the view
+          // is a (ptr, len) pair and `main` feeds the process exit status,
+          // which is an int.
           return natNativeRefuse("`return` of a string from `main` is not supported; " +
               "a return value becomes the process exit status and must be an int " +
               "(a string returned by a called function is fine)", line)
@@ -7482,12 +7702,22 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     s = natMovRegImm32(s, natRegRSI(), len(stringLitVal(v)))
                     s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
                     s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
-                } else if (nodeType(v) == NODE_CALL() && natNativeFuncReturnKindOf(fns, callFunc(v)) == 2) {
+                } else if (nodeType(v) == NODE_CALL() && natNativeFuncReturnKindOf(fns, callFunc(v)) == 2
+                        && callFunc(v) != "trim") {
                     // A string-returning call: the callee leaves the result in
                     // (RDI, RSI). This arm binds it straight into the slot;
                     // natEmitIntExpr has no arm for a two-unit string value, so
-                    // letting it fall through would emit garbage.
+                    // letting it fall through would emit garbage. `trim` is
+                    // excluded because it is not a callable callee -- it has
+                    // no label, and routing it here left an unresolved call site
+                    // that crashed the PE linker (measured, t04/t07/t08).
                     s = natEmitIntCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx)
+                    s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
+                    s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
+                } else if (nodeType(v) == NODE_CALL() && callFunc(v) == "trim") {
+                    // NAT-STRTRIM: `let b = trim(s)` binds the non-allocating
+                    // view. The slot store is the string convention.
+                    s = natEmitTrim(s, callArgs(v)[0], fnStmts, plan, roffs, tbl, ictx)
                     s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
                     s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
                 } else {
@@ -7660,11 +7890,26 @@ if (nodeType(pv) == NODE_CALL()) {
 // `len` lowers in place; a call to a USER function goes through the
 // call ABI. They share the print_int tail and nothing else.
 if (callFunc(pv) == "len") {
+let pargs = callArgs(pv)
+if (nodeType(pargs[0]) == NODE_CALL() && callFunc(pargs[0]) == "trim") {
+    // NAT-STRTRIM: `len(trim(s))` -- the trimmed length IS the second unit of
+    // the view pair, so the int walker has nothing to do with it; lower the
+    // trim in place and print RSI.
+    s = natEmitTrim(s, callArgs(pargs[0])[0], fnStmts, plan, roffs, tbl, ictx)
+    s = natMovRegReg(s, natRegRDI(), natRegRSI())
+    s = natCallPrintInt(s)
+} else {
 let ordl = natNativeSlotIndex(plan,
-identName(callArgs(pv)[0]))
+identName(pargs[0]))
                             s = natArrayLen(s, natNativeSlotOff(plan, ordl))
                             s = natMovRegReg(s, natRegRDI(), natRegRAX())
                             s = natCallPrintInt(s)
+}
+                        } else if (callFunc(pv) == "trim") {
+                            // NAT-STRTRIM: `print(trim(s))` -- the view is a
+                            // two-unit (ptr, len) pair, print_str's own shape.
+                            s = natEmitTrim(s, callArgs(pv)[0], fnStmts, plan, roffs, tbl, ictx)
+                            s = natCallPrintStr(s)
                         } else if (natNativeFuncReturnKindOf(fns, callFunc(pv)) == 2) {
                             // A string-returning call prints straight out of
                             // (RDI, RSI) ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â no MovRegReg shimming.
@@ -7753,8 +7998,16 @@ identName(callArgs(pv)[0]))
                     // NOT routed through natEmitIntCall: that function lowers the call
                     // ABI, and `len` has no callee to call.
                     if (callFunc(rv) == "len") {
-                        let ordl = natNativeSlotIndex(plan, identName(callArgs(rv)[0]))
-                        s = natArrayLen(s, natNativeSlotOff(plan, ordl))
+                        let rargs = callArgs(rv)
+                        if (nodeType(rargs[0]) == NODE_CALL() && callFunc(rargs[0]) == "trim") {
+                            // NAT-STRTRIM: `len(trim(s))` -- the trimmed length
+                            // is the view pair's second unit.
+                            s = natEmitTrim(s, callArgs(rargs[0])[0], fnStmts, plan, roffs, tbl, ictx)
+                            s = natMovRegReg(s, natRegRAX(), natRegRSI())
+                        } else {
+                            let ordl = natNativeSlotIndex(plan, identName(rargs[0]))
+                            s = natArrayLen(s, natNativeSlotOff(plan, ordl))
+                        }
                         handledLen = 1
                     }
                 }
@@ -8844,6 +9097,14 @@ func natRodataOffsetFor(val, stmts, roffs) {
 // make this signature unmanageable and would drift at exactly the one caller
 // that rebuilds the pair.
 func natEmitStrValue(s, expr, stmts, plan, roffs, tbl, ictx) {
+  // NAT-STRTRIM: `trim(s)` -- a non-allocating view of the source bytes,
+  // available in every string position (print, concat, let binding, return,
+  // len, nested trim).
+  if (nodeType(expr) == NODE_CALL()) {
+      if (callFunc(expr) == "trim") {
+          return natEmitTrim(s, callArgs(expr)[0], stmts, plan, roffs, tbl, ictx)
+      }
+  }
   // NAT-STRIDX: `s[i]` -- a one-byte view of the string. The bounds check and
   // the view itself live in natEmitStrIndex; this arm only routes.
   if (nodeType(expr) == NODE_INDEX()) {
@@ -8973,6 +9234,10 @@ func natNativeStrKind(e, stmts, plan) {
     if (nodeType(e) == NODE_STRING_LIT()) { return 1 }
     if (nodeType(e) == NODE_SLICE()) {
         if (natNativeStrKind(sliceLeft(e), stmts, plan) == 1) { return 1 }
+        return 0 - 2
+    }
+    if (nodeType(e) == NODE_CALL()) {
+        if (callFunc(e) == "trim") { return 1 }
         return 0 - 2
     }
     if (nodeType(e) == NODE_INDEX()) {
