@@ -1455,7 +1455,12 @@ func parseBinary(state, left, minPrec) {
         // Postfix: index [expr] or slice [start:end]
         while (psCurKind(state) == TK_LBRACKET()) {
             psAdvance(state) // consume '['
-            let idx = parseExpr(state)
+            // Phase 55: an open start (`s[:x]`) is the literal 0, exactly as the Go
+            // parser rewrites TokenColon to IntLiteral{Value: "0"} — not nil, not absent.
+            let idx = makeIntLit("0", psLine(state))
+            if (psCurKind(state) != TK_COLON()) {
+                idx = parseExpr(state)
+            }
             if (psCurKind(state) == TK_COLON()) {
                 psAdvance(state) // consume ':'
                 let end = []

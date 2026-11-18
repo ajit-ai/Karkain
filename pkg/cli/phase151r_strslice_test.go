@@ -372,27 +372,26 @@ func TestPhaseNATStrSlice_Utf8ByteSemantics(t *testing.T) {
 }
 // TestPhaseNATStrSlice_OpenEndedForms covers `s[a:]`, `s[:b]` and `s[:]`.
 //
-// The kcc parser materialises an open start as a literal 0 rather than nil, so
-// these forms execute correctly but are NOT byte-identical to the oracle for
-// the nil-start case (the oracle emits a 3-byte xor-zero; kcc emits a 10-byte
-// movabs of 0). ELF byte-identity therefore only holds where the start is
-// present: byte-identity is asserted for `s[1:]`, and only execution + shape is
-// asserted for `s[:1]` and `s[:]`. This is an accepted, measured, documented
-// divergence, not a silent one.
+// All three forms are byte-identical to the Go oracle on the Linux ELF. The
+// open start is materialised as a literal 0 by BOTH parsers (the Go parser
+// rewrites TokenColon to IntLiteral{Value: "0"}; the kcc parser now emits the
+// same literal), so no start is ever "absent" in the AST and the two engines
+// emit the identical movabs of 0. This corrected the earlier nil-start
+// divergence (7 bytes): it was a parser-representation difference, not a
+// semantic one, and it is now verified byte-for-byte.
 func TestPhaseNATStrSlice_OpenEndedForms(t *testing.T) {
 	osOK := os.PathSeparator != '/' 
 	karkain := phase130Karkain(t)
 
 	type openCase struct {
-		name      string
-		src       string
-		want      string
-		byteIdent bool
+		name string
+		src  string
+		want string
 	}
 	cases := []openCase{
-		{"open_start", "func main() {\n    print(\"hi\"[1:])\n}\n", "i\n", true},
-		{"open_end", "func main() {\n    print(\"hi\"[:1])\n}\n", "h\n", false},
-		{"open_all", "func main() {\n    print(\"hi\"[:])\n}\n", "hi\n", false},
+		{"open_start", "func main() {\n    print(\"hi\"[1:])\n}\n", "i\n"},
+		{"open_end", "func main() {\n    print(\"hi\"[:1])\n}\n", "h\n"},
+		{"open_all", "func main() {\n    print(\"hi\"[:])\n}\n", "hi\n"},
 	}
 	for _, c := range cases {
 		c := c
@@ -415,12 +414,8 @@ func TestPhaseNATStrSlice_OpenEndedForms(t *testing.T) {
 			if !kccRes.WroteImage || !goRes.WroteImage {
 				t.Fatalf("both engines must produce an image; got kcc=%v go=%v", kccRes.WroteImage, goRes.WroteImage)
 			}
-			if c.byteIdent {
-				if kccRes.SHA != goRes.SHA {
-					t.Errorf("images differ for the nil-end case.\n  kcc: %d bytes %s\n  go:  %d bytes %s", len(kccRes.Image), shortSHA(kccRes.SHA), len(goRes.Image), shortSHA(goRes.SHA))
-				}
-			} else {
-				t.Logf("documented nil-start divergence: kcc %d bytes %s, oracle %d bytes %s", len(kccRes.Image), shortSHA(kccRes.SHA), len(goRes.Image), shortSHA(goRes.SHA))
+			if kccRes.SHA != goRes.SHA {
+				t.Errorf("images differ for %s.\n  kcc: %d bytes %s\n  go:  %d bytes %s", c.name, len(kccRes.Image), shortSHA(kccRes.SHA), len(goRes.Image), shortSHA(goRes.SHA))
 			}
 		})
 	}
