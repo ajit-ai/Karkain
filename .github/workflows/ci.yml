@@ -537,6 +537,16 @@ jobs:
       - name: Run NAT-STREQ kcc native string equality gate
         run: go test ./pkg/cli/ -run 'TestPhaseNATStrEq_' -count=1 -timeout 40m -v
 
+      # NAT-STRSLICE, string slicing in the self-hosted native driver.
+      #
+      # `s[a:b]` is a VIEW (ptr+a, b-a), no copy, no allocation. Bounds are
+      # 0 <= a <= b <= len, checked with a loud Int3. Open-ended forms
+      # (s[:], s[a:], s[:b]) are refused by name.
+      #
+      # Its own pattern: 'TestPhaseNATStrSlice_' is matched by no other step.
+      - name: Run NAT-STRSLICE kcc native string slicing gate
+        run: go test ./pkg/cli/ -run 'TestPhaseNATStrSlice_' -count=1 -timeout 40m -v
+
       # Phase 151C3, the PE32+ container. It lives in pkg/native rather than
       # pkg/cli because the differential needs the Go Builder's unexported
       # patch fields, which a pkg/cli gate cannot construct. The existing
