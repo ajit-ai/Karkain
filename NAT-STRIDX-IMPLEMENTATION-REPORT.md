@@ -283,16 +283,22 @@ are unreachable by this slice's corpus.
 
 ## 8. Commit & push status
 
-Committed to `feature/v1.3.0-natstdlib-string` as the final step of this increment
-(the commit hash is printed in the final status section below). Not merged to `develop` or
-`main`; no tag; no `VERSION` change; no release. This report is included in the commit.
+Committed to `feature/v1.3.0-natstdlib-string` as increment commit `d21f2fb`
+(`NAT-STRIDX: string byte indexing on the native target`, 4 files, +1221/-52) and
+pushed to `origin/feature/v1.3.0-natstdlib-string` (`596a05c..d21f2fb`).
+Not merged to `develop` or `main`; no tag; no `VERSION` change; no release.
+This report is included in the commit.
 
 ---
 
 ## 9. Final Git status
 
-`git status --short` at the end of the increment is printed in the turn that produced this
-report; the two previously untracked investigation reports
-(`NATIVE-STRING-ARRAY-ARCHITECTURE-INVESTIGATION.md`, `STDLIB-V2-NATIVE-BLOCKER-ASSESSMENT.md`)
-and every user-created untracked file remain untouched and uncommitted, as do `VERSION` and
-all protected gates.
+Starting HEAD `596a05c09758142791bff86c59c3c148ddaa3b6f`; ending HEAD `d21f2fbdae12f4f8a7bbbedc4b56c09be2691241`
+(the amended report records the same hash `d21f2fb`).
+Working tree after the increment contains only the user-created untracked files
+(identical set to the baseline: the six `KARKAIN_*.md`/`PERSONAL_*` documents,
+`NATIVE-STRING-ARRAY-ARCHITECTURE-INVESTIGATION.md`, `STDLIB-V2-NATIVE-BLOCKER-ASSESSMENT.md`,
+`docs/audit/KARKAIN_V1_2_0_RELEASE_BASELINE.md`, `examples/compute/matmul.c`) — none were
+modified or committed. `VERSION` is untouched; all protected gates and CI wiring
+(NAT-STREQ, NAT-STRSLICE, NAT-IDX) are untouched apart from the single new
+`NAT-STRIDX` step added alongside them.
