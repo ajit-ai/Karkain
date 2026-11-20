@@ -1,0 +1,75 @@
+// Karkain Standard Library - JSON Module (C1 independence slice)
+// Minimal JSON string escaping, quoting and field extraction built ONLY from
+// core Karkain builtins (substr, len, contains, trim). No imports — so it works
+// on both Go and self-hosted KCC engines, and on every native target.
+
+// json_quote escapes a string for use as a JSON string literal (without the
+// surrounding quotes).
+string json_quote(string s) {
+    string out = ""
+    int i = 0
+    while (i < len(s)) {
+        string ch = substr(s, i, 1)
+        if (ch == "\"") { out = out + "\\\"" }
+        else if (ch == "\\") { out = out + "\\\\" }
+        else if (ch == "\n") { out = out + "\\n" }
+        else if (ch == "\r") { out = out + "\\r" }
+        else if (ch == "\t") { out = out + "\\t" }
+        else { out = out + ch }
+        i = i + 1
+    }
+    return out
+}
+
+// json_string builds a quoted JSON string literal from s.
+string json_string(string s) {
+    return "\"" + json_quote(s) + "\""
+}
+
+// json_field returns the raw value text for key from a flat JSON object, or
+// "" if the key is absent. Values containing nested objects are not parsed.
+string json_field(string obj, string key) {
+    string needle = "\"" + key + "\":"
+    if (contains(obj, needle) != 1) { return "" }
+    int i = 0
+    while (i < len(obj)) {
+        if (substr(obj, i, len(needle)) == needle) {
+            int start = i + len(needle)
+            while (start < len(obj)) {
+                string ch = substr(obj, start, 1)
+                if (ch == " " || ch == "\t" || ch == "\n") { start = start + 1 } else { break }
+            }
+            int end = start
+            string first = substr(obj, start, 1)
+            if (first == "\"") {
+                end = end + 1
+                while (end < len(obj)) {
+                    string c = substr(obj, end, 1)
+                    if (c == "\\") { end = end + 2; continue }
+                    if (c == "\"") { end = end + 1; break }
+                    end = end + 1
+                }
+            } else {
+                while (end < len(obj)) {
+                    string c = substr(obj, end, 1)
+                    if (c == "," || c == "}") { break }
+                    end = end + 1
+                }
+            }
+            return trim(substr(obj, start, end - start))
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+// json_bool builds a JSON boolean literal.
+string json_bool(bool v) {
+    if (v) { return "true" }
+    return "false"
+}
+
+// json_int builds a JSON integer literal from a string of digits.
+string json_int(string digits) {
+    return digits
+}

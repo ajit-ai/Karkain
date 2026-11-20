@@ -87,6 +87,9 @@ jobs:
       - name: Run C1 std.path cross-engine gate
         run: go test ./pkg/cli/ -run 'TestPhaseC1StdPathCrossEngine' -count=1 -v
 
+      - name: Run C1 std.json cross-engine gate
+        run: go test ./pkg/cli/ -run 'TestPhaseC1StdJsonCrossEngine' -count=1 -v
+
       - name: Install wasmtime (WASM gate runner)
         run: |
           curl -sSf https://wasmtime.dev/install.sh | bash
