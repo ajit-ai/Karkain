@@ -210,3 +210,115 @@ mandatory type-first acceptance programs, the self-hosted compiler was rebuilt f
 migrated sources, and behavior preservation was verified differentially. However, 987
 genuine legacy declarations remain for the documented design-level reasons, so the
 zero-legacy acceptance condition is **not** met. No version or release state changed.
+
+## O. CI corrective changes — primitive type names stay identifiers
+
+The first CI run of PR #3 exposed five real defects (three fixed and pushed as
+`d453354`, `556510b`, `7b647d8`; the remaining two are fixed in this working tree).
+Two of them share one root cause: the migration introduced seven new lexer keyword
+tokens (`byte`, `short`, `long`, `float`, `double`, `char`, `Value`) even though the
+type-first parser already accepts type names as identifiers (`isKnownTypeName`,
+`psIsTypeToken(TK_IDENT)`). The keyword tokens created gaps instead:
+
+- `float64[] xs = []` — `float64` is a keyword and the following `[` made the
+  statement parser treat the declaration as an expression, emitting the word
+  `float64` into generated C as a bogus float literal (`'float64' undeclared`).
+- `double(2)` — a cast call that was an ordinary identifier call before the
+  migration; as a keyword it was rejected (`unexpected token 'double'`) by both
+  engines.
+
+**Correction (root cause, not per-symptom patches):** removed the `lookupIdent`
+(`pkg/lexer/lexer.go`) and `lookupKeyword` (`src/compiler/lexer.kark`) mappings for
+those seven names so they lex as identifiers in **both** engines. The token constants
+and parser type tables are left intact (dead but compiling), which keeps the change
+small. The parser's existing identifier-based type-first path then handles both
+`double[] xs` declarations and `double(x)` cast calls, with no new parser surface.
+
+Two supporting fixes remain necessary and are retained:
+
+- `pkg/parser/parser.go` — a keyword type followed by `[` (e.g. `int[]`, `string[]`,
+  `float64[]`, all *pre-existing* keywords) must be recognised as an array type-first
+  declaration; 256 such declarations exist in committed source.
+- `pkg/sema/typecheck.go` — `normalizeType` now folds `float64[]` and `double[]` to
+  the same canonical form, matching the scalar `float64`/`double` equivalence, so the
+  migration's `double[]` declaration spelling agrees with inferred `float64[]`.
+
+Verified after the correction: `go build ./...`, `go vet`, `pkg/parser`/`pkg/lexer`/
+`pkg/sema` suites, both-engine acceptance 8/8, both-engine `02_assertions_test.kark`
+check, and both-engine `03_numerics_forward.kark` run with identical output.
+`VERSION` stays `1.2.0`; the `v1.2.0` tag is untouched.
+
+The whole-tree KIR pin moved with the correction and was **measured, not
+predicted**: `karkain kir --verify src/compiler/kir.kark` reports
+`text=15766 verify=15766` (611 s on the development host), so the pin moved
+`15780 -> 15766` (-14). The seven removed `if (ident == "...")` statements in
+`src/compiler/lexer.kark` each render as two KIR lines, which accounts for the
+whole delta; both pin sites (`phase122_pipeline_ownership_test.go`,
+`phase151a5_win_test.go`) carry the same number and comment.
+
+## P. kcc parser corrections exposed by the Phase 114/133 gates (2026-11-20)
+
+Once the Phase 114 corpus passed on the KCC parity leg, CI would reach the
+Phase 130/133 closure gates, which run `examples/closures/*` on both engines.
+Two **kcc-only** parser defects blocked them. Both were reproduced on
+`origin/main` file content with the current compiler, so neither is caused by
+the type-first migration.
+
+**1. `fn <ident> = fn(...)` statement bindings were not parsed.** kcc's
+`parseBlock` had no `TK_FN` statement arm; it fell through to an expression
+statement, so `fn inc = fn(x int) int { ... }` (and the closure corpus's inner
+bindings) produced `error[K101]` undefined-function errors (six of them on
+`examples/01-fundamentals/15_closures.kark`). The Go reference has a
+`TokenFn` statement branch (`pkg/parser/parser.go:1109`). The fix mirrors it
+with a one-token peek: `fn` followed by an identifier is a type-first
+declaration (`parseTypeFirstDecl(state, "fn")`), while `fn(` in expression
+position remains a lambda. `15_closures` now prints `42/42/42/42/16/1` on both
+engines.
+
+**2. `name type` parameters produced phantom parameters.** kcc's `parseFunc`
+parameter loop tested `psIsTypeToken` first, and `psIsTypeToken` returns 1 for
+`TK_IDENT`, so the legacy `name type` branch was unreachable. `func f(n int)`
+became parameters `["n","int"]` and `func apply_twice(g fn, v int)` became
+four. Arity then failed at the call site: `error[K103] line 17: function
+'apply_twice' expects 4 arguments but got 2`, and `error[K103] ...
+'countdown' expects 2 arguments but got 1`. `git log -L` dates the `TK_IDENT`
+acceptance in `psIsTypeToken` to Phase 95, so this is pre-existing. The fix
+adds a **name-first arm before** the type-first test, guarded by
+`psCurKind == TK_IDENT && (psIsTypeKind(psPeekKind) == 1 || psPeekKind ==
+TK_FN)`, which is exactly the Go reference's order (name, then optional
+annotation). An `IDENT IDENT` pair (`P p`) is deliberately left on the
+existing type-first path.
+
+Measured after both corrections: a nine-shape parameter matrix (`a int`,
+`int a`, `s string`, `string s`, untyped one/two, mixed, `g fn`, `P p`)
+passes 9/9 on kcc; all seven `examples/closures/*.kark` programs produce
+byte-identical stdout on Go and kcc after CRLF normalisation
+(`00`=1/2/2/3/3, `01`=32/28, `02`=11/22/6, `03`=15/10/20, `04`=101/102/21/21/21,
+`05`=300, plus `15_closures`); the Phase 114 KCC parity corpus passes 61/61
+(`TestPhase114_CorpusExamples_KCCParity`, 579.1 s); and
+`TestPhase130|TestPhase133` passes (62.0 s). A source survey found only five
+live functions with name-first parameters, three of them in `examples/closures`
+and the other two in `examples/wasm/functions/main.kark` and
+`examples/phase105_errors/semantic.kark`, which the same gates cover.
+
+Known, measured divergence left in place: a **nominal type-first** parameter
+(`func f(P p)`) is accepted by kcc but rejected by the Go engine
+(`error[K002] undefined identifier 'p'`, because Go reads the name first).
+No committed `.kark` file uses that shape, so no gate exercises it; it is
+recorded rather than "fixed" toward a form the reference parser rejects.
+
+The whole-tree KIR pin moved with these parser arms and was **measured, not
+predicted**: `karkain kir --verify src/compiler/kir.kark` reports
+`text=15780 verify=15780` (966 s on this host, `KIR_EXIT=0`), i.e.
+`15766 -> 15780` (+14). The net against the migration pin is zero by
+coincidence (the keyword removal was -14), so both pin sites spell the chain
+out as `15780 -> 15766 -> 15780`. The `kcc check src/compiler/main.kark`
+self-check was started but **not completed** locally: it was still running
+after 896 s under 139 MiB free and was stopped to free the host for the pin
+measurement, which is the mandatory evidence. The compiler tree's own parse
+and type check are covered by the Phase 99 and Phase 122 CI gates.
+
+One unrelated repair is carried in the same change: a truncated NAT-RODATA
+sentence in the pin comment of `phase151a5_win_test.go` was completed to the
+text recorded when that pin was measured (`text=14946 verify=14946`).
+

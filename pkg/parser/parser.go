@@ -1120,7 +1120,12 @@ func (p *Parser) parseStatement() Node {
 	case lexer.TokenBool, lexer.TokenByte, lexer.TokenShort, lexer.TokenLong,
 		lexer.TokenFloat, lexer.TokenDouble, lexer.TokenFloat64, lexer.TokenChar,
 		lexer.TokenString, lexer.TokenBigInt, lexer.TokenBigFloat, lexer.TokenValue:
-		if p.peekToken.Type != lexer.TokenIdent && p.peekToken.Type != lexer.TokenMatrix {
+		// A keyword type followed by `[` is an array type-first declaration
+		// (`float64[] xs = []`, `int[] xs = []`). parseTypeFirstDecl consumes
+		// the `[]` suffix itself. Otherwise a keyword in statement position is
+		// a literal/expression (e.g. a match arm body starting with a string).
+		arrayTypeStart := p.peekToken.Type == lexer.TokenLBracket
+		if p.peekToken.Type != lexer.TokenIdent && p.peekToken.Type != lexer.TokenMatrix && !arrayTypeStart {
 			// A literal/expression in statement position (e.g. a match arm
 			// body starting with a string) is not a type-first declaration.
 			expr := p.parseExpr()

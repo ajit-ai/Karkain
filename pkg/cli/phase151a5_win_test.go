@@ -967,10 +967,28 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// 14938 -> 14946 (NAT-RODATA, 2026-11-12): the reporter's read-only data is
 	// now interned in the oracle's order and its offsets are read back out of
 	// the interning table. Measured with `karkain kir --verify
+	// src/compiler/kir.kark` (text=14946 verify=14946, about 23 minutes on
+	// this host), never predicted.
+	//
 	// RE-PINNED FOR TYPE-FIRST MIGRATION: 15243 -> 15780 (+537), measured on
 	// CI with `karkain kir --verify src/compiler/kir.kark` (text=15780
 	// verify=15780), never predicted. KIR renders the AST, so the type-first
 	// declaration migration across src/compiler moved the pin.
+	//
+	// RE-PINNED FOR TYPE-KEYWORD REMOVAL: 15780 -> 15766 (-14). The seven
+	// type names byte/short/long/float/double/char/Value stopped being lexer
+	// keywords in src/compiler/lexer.kark, so seven `if (ident == "...")`
+	// statements left lookupKeyword's AST; KIR renders each as two lines.
+	// Measured on this host with `karkain kir --verify src/compiler/kir.kark`
+	// (text=15766 verify=15766, 611 s), never predicted.
+	//
+	// RE-PINNED FOR THE KCC PARSER CORRECTIONS: 15766 -> 15780 (+14).
+	// parseFunc's `name <keyword type>` arm and parseBlock's
+	// `fn <ident> = fn(...)` arm each render AST lines. The net against the
+	// migration pin is zero by coincidence, so the chain is written out:
+	// 15780 -> 15766 -> 15780. Measured on this host with `karkain kir
+	// --verify src/compiler/kir.kark` (text=15780 verify=15780, 966 s),
+	// never predicted.
 	if text != 15780 {
 		t.Errorf("whole-tree KIR pin = %d lines, want 15780; see the comment above for the measured chain. output follows: %s", text, out)
 	}

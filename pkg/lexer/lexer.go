@@ -654,20 +654,11 @@ func lookupIdent(ident string) TokenType {
 		return TokenStruct
 	case "bool":
 		return TokenBool
-	case "byte":
-		return TokenByte
-	case "short":
-		return TokenShort
-	case "long":
-		return TokenLong
-	case "float":
-		return TokenFloat
-	case "double":
-		return TokenDouble
-	case "char":
-		return TokenChar
-	case "Value":
-		return TokenValue
+	// Type names such as byte/short/long/float/double/char/Value are NOT
+	// keywords: they lex as identifiers so the same identifier-based
+	// type-first declaration path handles them (and cast calls like double(x)
+	// keep working). Their token constants remain defined for the parser's
+	// type tables but the lexer never needs to emit them.
 	case "bigint":
 		return TokenBigInt
 	case "bigfloat":

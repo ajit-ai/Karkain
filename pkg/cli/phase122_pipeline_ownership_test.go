@@ -260,6 +260,23 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// text=15780 verify=15780) and never predicted.
 		// KIR renders the AST rather than the file, so added declarations move
 		// the pin. Verified by this gate's own invocation.
+		//
+		// RE-PINNED FOR TYPE-KEYWORD REMOVAL: 15780 -> 15766 (-14). The seven
+		// type names byte/short/long/float/double/char/Value stopped being
+		// lexer keywords in src/compiler/lexer.kark, so seven `if (ident ==
+		// "...")` statements left lookupKeyword's AST; KIR renders each as two
+		// lines. Measured on this host with `karkain kir --verify
+		// src/compiler/kir.kark` (text=15766 verify=15766, 611 s), never
+		// predicted.
+		//
+		// RE-PINNED FOR THE KCC PARSER CORRECTIONS: 15766 -> 15780 (+14).
+		// parseFunc gained the `name <keyword type>` arm and parseBlock gained
+		// the `fn <ident> = fn(...)` arm, so fourteen more AST lines render.
+		// The net is zero against the migration pin by coincidence (the
+		// keyword removal above was -14), which is why the chain is written
+		// out rather than compressed: 15780 -> 15766 -> 15780. Measured on
+		// this host with `karkain kir --verify src/compiler/kir.kark`
+		// (text=15780 verify=15780, 966 s), never predicted.
 		if got := phase121Count(t, out, "[ok] kir text: "); got != 15780 {
 			t.Errorf("whole-tree kir text = %d lines, want 15780:\n%s", got, out)
 		}

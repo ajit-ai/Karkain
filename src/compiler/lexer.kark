@@ -339,13 +339,11 @@ func lookupKeyword(ident) {
     if (ident == "type")     { return TK_TYPE() }
     if (ident == "bool")     { return TK_BOOL() }
     if (ident == "int")      { return TK_INT() }
-    if (ident == "byte")     { return TK_BYTE() }
-    if (ident == "short")    { return TK_SHORT() }
-    if (ident == "long")     { return TK_LONG() }
-    if (ident == "float")    { return TK_FLOAT() }
-    if (ident == "double")   { return TK_DOUBLE() }
-    if (ident == "char")     { return TK_CHAR() }
-    if (ident == "Value")    { return TK_VALUE() }
+    // Type names byte/short/long/float/double/char/Value are NOT keywords:
+    // they lex as identifiers so the identifier-based type-first path handles
+    // both `double[] xs = []` declarations and `double(x)` cast calls. The
+    // TK_* constants stay defined for the parser's type tables but are never
+    // emitted by the lexer.
     if (ident == "float64")  { return TK_FLOAT64() }
     if (ident == "string")   { return TK_STRING() }
     if (ident == "true")     { return TK_TRUE() }

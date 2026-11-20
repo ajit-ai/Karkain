@@ -16,10 +16,18 @@ import (
 type typeScope map[string]string
 
 func normalizeType(t string) string {
-	if t == "float64" {
-		return "double"
+	// Normalise the element type through any number of array suffixes, so
+	// `float64[]` and `double[]` (the migration's declaration spelling) are
+	// the same type — matching the scalar `float64`/`double` equivalence.
+	suffix := ""
+	for strings.HasSuffix(t, "[]") {
+		t = strings.TrimSuffix(t, "[]")
+		suffix += "[]"
 	}
-	return t
+	if t == "float64" {
+		t = "double"
+	}
+	return t + suffix
 }
 
 func isIntegerType(t string) bool {

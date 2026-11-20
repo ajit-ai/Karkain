@@ -946,7 +946,24 @@ func parseFunc(state, target) {
     Value params = []
     Value ptypes = []
     while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
-        if (psIsTypeToken(state)) {
+        if (psCurKind(state) == TK_IDENT() && (psIsTypeKind(psPeekKind(state)) == 1 || psPeekKind(state) == TK_FN())) {
+            // KCC-FIX: `name type` order where the type is a KEYWORD
+            // (`n int`, `g fn`). psIsTypeToken() below also accepts TK_IDENT,
+            // so it claimed this shape first: it read `n` as the TYPE, left
+            // `int` unconsumed, and the loop then emitted a phantom parameter
+            // for the keyword -- `func f(n int)` expected TWO arguments and
+            // `func apply_twice(g fn, v int)` expected four. The Go reference
+            // parser reads a name then an optional annotation, so this arm is
+            // parity, not an extension. An `IDENT IDENT` pair (`Value x`,
+            // `a Acct`) is deliberately NOT routed here: it is genuinely
+            // ambiguous and the type-first arm below keeps its behaviour.
+            string pname = psCurLiteral(state)
+            psAdvance(state)
+            string pty = psCurLiteral(state)
+            psAdvance(state)
+            params = appendArray(params, pname)
+            ptypes = appendArray(ptypes, pty)
+        } else if (psIsTypeToken(state)) {
             string pt = psCurLiteral(state)
             psAdvance(state)
             while (psCurKind(state) == TK_LBRACKET() && psPeekKind(state) == TK_RBRACKET()) {
@@ -1018,6 +1035,14 @@ func parseBlock(state) {
             if (cd != []) { stmts = appendArray(stmts, cd) }
         } else if (kind == TK_LET() || kind == TK_VAR() || kind == TK_CONST()) {
             Value vd = parseVarDecl(state)
+            if (vd != []) { stmts = appendArray(stmts, vd) }
+        } else if (kind == TK_FN() && psPeekKind(state) == TK_IDENT()) {
+            // Type-first function-value declaration: `fn name = fn(...) { ... }`.
+            // Mirrors the Go parser's TokenFn statement branch: `fn` followed by
+            // an identifier is a type-first declaration, while `fn(` in
+            // expression position stays a lambda.
+            psAdvance(state) // consume 'fn'
+            Value vd = parseTypeFirstDecl(state, "fn")
             if (vd != []) { stmts = appendArray(stmts, vd) }
         } else if (psIsTypeKind(kind) == 1) {
             psAdvance(state) // consume the type keyword
