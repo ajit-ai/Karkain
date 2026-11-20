@@ -431,8 +431,9 @@ func (p *Parser) parseFunc() *FuncDecl {
 			fn.Params = append(fn.Params, paramName)
 			p.nextToken() // consume param name
 
-		// Phase 46: Parse optional type annotation (e.g., `a int`, `b string`)
-		if p.curToken.Type == lexer.TokenIdent {
+		// Phase 46: Parse optional type annotation. Primitive types are keyword
+		// tokens; user-defined type names (including `string`) lex as IDENT.
+		if isTypeStartToken(p.curToken.Type) || p.curToken.Type == lexer.TokenIdent {
 			typeName := p.curToken.Literal(p.src)
 			fn.ParamTypes = append(fn.ParamTypes, typeName)
 			p.nextToken() // consume type name
