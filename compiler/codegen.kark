@@ -155,7 +155,7 @@ func emitC11Stmt(state, node) {
 
     if (nt == "VarDecl") {
         string vtype = emitC11Type(varDeclType(node))
-        emitLine(state, vtype + " " + varDeclName(node) + " = ";)
+        emitLine(state, vtype + " " + varDeclName(node) + " = ")
         emitC11Expr(state, varDeclValue(node))
         emit(state, ";")
     }
