@@ -4407,6 +4407,18 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
             if (bad != "") { return bad }
             return ""
         }
+        // STD-001 (v1.2.x): a call to a USER function may initialise an int
+        // binding in main, mirroring what a callee already does via
+        // natNativeScanIntExpr. natNativeScanCall refuses builtins the driver
+        // does not lower, so only lowerable callees pass.
+        return natNativeScanIntExpr(v, plan, natNativeDeclLine(n), fns, 0)
+    }
+    // STD-001 (v1.2.x): an int expression (binary, unary, index, identifier)
+    // may now initialise an int binding in main. The literal arms above still
+    // win for their kinds, so existing programs' scans are unchanged.
+    if (vt == NODE_INT_LIT()) { return "" }
+    if (vt == NODE_BINARY() || vt == NODE_UNARY() || vt == NODE_IDENT() || vt == NODE_INDEX()) {
+        return natNativeScanIntExpr(v, plan, natNativeDeclLine(n), fns, 0)
     }
     if (vt != NODE_INT_LIT()) {
         return natNativeRefuse("`let " + natNativeDeclName(n) +
