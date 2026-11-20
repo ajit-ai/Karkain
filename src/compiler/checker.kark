@@ -177,12 +177,26 @@ func createCheckerTab() {
     tab = appendArray(tab, [])  // 8: generic struct templates (name -> structDecl)
     tab = appendArray(tab, [])  // 9: instantiated specialization names (to avoid duplicates)
     tab = appendArray(tab, [])  // 10: function parameter types (name -> [types])
+    tab = appendArray(tab, [])  // 11: function parameter names (for lifetime analysis, Phase 1.2)
     return tab
 }
 
 func ckErrors(tab)  { return tab[3] }
 func ckLocals(tab)  { return tab[4] }
 func ckConsts(tab)  { return tab[5] }
+func ckParams(tab)  { return tab[11] }
+func ckParamAdd(tab, name) {
+    if (name == "") { return }
+    tab[11] = appendArray(tab[11], name)
+}
+func ckIsParam(tab, name) {
+    int i = 0
+    while (i < len(ckParams(tab))) {
+        if (ckParams(tab)[i] == name) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
 
 // strFindChar returns the index of the first occurrence of `c` in `s`,
 // or -1 when absent. (Self-hosted builtins include substr/len but no indexOf.)
@@ -526,7 +540,7 @@ func checkFuncDecl(tab, node, inherit) {
     // Only top-level declarations skip the copy (their lets must not leak).
     int saved = ckLocals(tab)
     tab[4] = []
-    if (inherit == 1) {
+    tab[11] = []    if (inherit == 1) {
         int si = 0
         while (si < len(saved)) {
             ckLocalAdd(tab, saved[si])
@@ -537,6 +551,7 @@ func checkFuncDecl(tab, node, inherit) {
     int i = 0
     while (i < len(params)) {
         ckLocalAdd(tab, params[i])
+        ckParamAdd(tab, params[i])
         i = i + 1
     }
     collectLocals(tab, funcBody(node))
@@ -608,7 +623,7 @@ func ckCheckArmBody(tab, arm, loop) {
     // ANY program containing a match. This is the same discipline the function
     // scope above uses.
     tab[4] = []
-    int i = 0
+    tab[11] = []    int i = 0
     while (i < len(saved)) {
         ckLocalAdd(tab, saved[i])
         i = i + 1
@@ -694,6 +709,14 @@ func checkStmt(tab, s, loop) {
 
     if (nt == "Return") {
         checkExpr(tab, retVal(s), loop)
+        // Phase 1.2 (v1.3.0): lifetime analysis.
+        //
+        // The self-hosted parser does not produce a distinct Borrow node for
+        // `&x` (it lexes `&` as bitwise-AND), so borrow/lifetime checks that
+        // the Go borrow checker performs cannot be replicated here at the
+        // same fidelity. The Go side (pkg/sema/borrow_checker.go,
+        // checkReturnLifetime) is the primary authority and rejects dangling
+        // references on return. This checker remains conservative.
         return
     }
     if (nt == "Print") {
@@ -990,7 +1013,7 @@ func checkExpr(tab, e, loop) {
     if (nt == "Lambda") {
         int outer = ckLocals(tab)
         tab[4] = []
-        int j = 0
+    tab[11] = []        int j = 0
         while (j < len(outer)) {
             ckLocalAdd(tab, outer[j])
             j = j + 1
