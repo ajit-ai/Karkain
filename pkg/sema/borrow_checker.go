@@ -27,6 +27,16 @@ type varEntry struct {
 	// escape analysis). Escaping values are heap-backed and outlive the scope;
 	// non-escaping values may die with the scope.
 	escapes bool
+	// Phase 1.2 (v1.3.0): true when this binding is a function parameter.
+	// Parameters outlive the function body's local scopes, so a reference to
+	// a parameter is never dangling. A reference to a non-parameter local
+	// returned from the function is a lifetime violation.
+	isParam bool
+	// Phase 1.2 (v1.3.0): if this binding was initialized from a borrow
+	// (&x or &mut x) or address-of (&x), the name of the borrowed owner.
+	// Empty if the binding is not a reference binding. Used to detect
+	// dangling references through intermediate bindings.
+	borrowsFrom string
 }
 
 type borrowRecord struct {
@@ -244,6 +254,10 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 		bc.checkVarDecl(n)
 	case *parser.ReturnStmt:
 		bc.checkNode(n.Value)
+		// Phase 1.2 (v1.3.0): lifetime analysis. A reference returned from a
+		// function must not point at a local that dies when the function
+		// returns. Parameters and escaping values are exempt.
+		bc.checkReturnLifetime(n.Value, uint16(n.Line))
 	case *parser.ExprStmt:
 		bc.checkNode(n.Expression)
 	case *parser.IfStmt:
@@ -383,6 +397,12 @@ func (bc *BorrowChecker) checkFuncDecl(n *parser.FuncDecl) {
 			typ = n.ParamTypes[i]
 		}
 		bc.declare(name, typ, uint16(n.Line))
+		// Phase 1.2 (v1.3.0): mark function parameters as non-dangling.
+		// A parameter outlives the function body's local scopes, so a
+		// reference to a parameter returned from the function is safe.
+		if e := bc.scope.lookupOwn(name); e != nil {
+			e.isParam = true
+		}
 	}
 	for _, stmt := range n.Body {
 		bc.checkNode(stmt)
@@ -402,6 +422,18 @@ func (bc *BorrowChecker) checkVarDecl(n *parser.VarDeclStmt) {
 	if bc.scope != nil {
 		if e := bc.scope.lookupOwn(n.Name); e != nil {
 			e.escapes = n.Escapes
+			// Phase 1.2 (v1.3.0): record if this binding is a reference
+			// to another value, for dangling-reference detection.
+			if be, ok := n.Value.(*parser.BorrowExpr); ok {
+				if id, ok := be.Operand.(*parser.Identifier); ok {
+					e.borrowsFrom = id.Name
+				}
+			}
+			if ao, ok := n.Value.(*parser.AddressOf); ok {
+				if id, ok := ao.Operand.(*parser.Identifier); ok {
+					e.borrowsFrom = id.Name
+				}
+			}
 		}
 	}
 }
@@ -532,6 +564,94 @@ func (bc *BorrowChecker) checkMove(n *parser.MoveExpr) {
 		return
 	}
 	entry.ownership = Moved
+}
+
+// checkReturnLifetime (Phase 1.2, v1.3.0) walks a return value and rejects
+// references that would outlive the data they point at. A borrow (&T / &mut T)
+// or address-of (&x) returned from a function must reference a value that
+// outlives the function's local scope: a parameter or an escaping (heap-backed)
+// binding. A reference to a plain local is dangling and is rejected.
+//
+// This is a conservative, lexical check. It does not track borrows stored in
+// structs or passed through intermediate bindings; those are future work.
+func (bc *BorrowChecker) checkReturnLifetime(expr parser.Node, line uint16) {
+	if expr == nil {
+		return
+	}
+	switch n := expr.(type) {
+	case *parser.BorrowExpr:
+		bc.checkBorrowLifetime(n.Operand, n.Mutable, line)
+	case *parser.AddressOf:
+		bc.checkBorrowLifetime(n.Operand, false, line)
+	case *parser.Identifier:
+		// Phase 1.2 (v1.3.0): if this identifier is a reference binding
+		// (initialized from &x or &mut x), check that the owner outlives
+		// the function.
+		if entry := bc.lookup(n.Name); entry != nil && entry.borrowsFrom != "" {
+			ownerEntry := bc.lookup(entry.borrowsFrom)
+			if ownerEntry != nil && !ownerEntry.isParam && !ownerEntry.escapes {
+				bc.errors = append(bc.errors, BorrowError{
+					Message: "cannot return reference '" + n.Name +
+						"' — it points at local variable '" +
+						entry.borrowsFrom + "' which does not outlive the function",
+					Line: line,
+				})
+			}
+		}
+	case *parser.BinaryExpr:
+		bc.checkReturnLifetime(n.Left, line)
+		bc.checkReturnLifetime(n.Right, line)
+	case *parser.UnaryExpr:
+		bc.checkReturnLifetime(n.Operand, line)
+	case *parser.IndexExpr:
+		bc.checkReturnLifetime(n.Left, line)
+		bc.checkReturnLifetime(n.Index, line)
+	case *parser.CallExpr:
+		for _, arg := range n.Args {
+			bc.checkReturnLifetime(arg, line)
+		}
+	case *parser.IndirectCallExpr:
+		bc.checkReturnLifetime(n.Target, line)
+		for _, arg := range n.Args {
+			bc.checkReturnLifetime(arg, line)
+		}
+	case *parser.StructLiteral:
+		for _, field := range n.Fields {
+			bc.checkReturnLifetime(field, line)
+		}
+	case *parser.ArrayLiteral:
+		for _, elem := range n.Elements {
+			bc.checkReturnLifetime(elem, line)
+		}
+	}
+}
+
+// checkBorrowLifetime checks whether a single borrow/address-of operand
+// references a value that will outlive the current function. If the operand is
+// an identifier naming a non-parameter, non-escaping local, it is dangling.
+func (bc *BorrowChecker) checkBorrowLifetime(operand parser.Node, mutable bool, line uint16) {
+	ident, ok := operand.(*parser.Identifier)
+	if !ok {
+		bc.checkNode(operand)
+		return
+	}
+	name := ident.Name
+	entry := bc.lookup(name)
+	if entry == nil {
+		return
+	}
+	if entry.isParam {
+		return // parameters outlive the function
+	}
+	if entry.escapes {
+		return // escaping (heap-backed) values outlive the scope
+	}
+	// Non-parameter, non-escaping local: dangling reference.
+	bc.errors = append(bc.errors, BorrowError{
+		Message: "cannot return reference to local variable '" + name +
+			"' — the reference would outlive the data it points at",
+		Line:    line,
+	})
 }
 
 // checkExhaustiveMatch verifies that match expressions cover all variants

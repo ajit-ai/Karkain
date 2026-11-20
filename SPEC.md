@@ -642,8 +642,23 @@ function call, and return. The owner is responsible for deallocation.
 - **Unsafe boundary:** `unsafe { ... }` blocks bypass borrow checking. The
   programmer assumes responsibility for memory safety within unsafe blocks.
 
-### 16.3 Lifetime analysis (planned)
+### 16.3 Lifetime analysis (partial — Phase 1.2)
 
+**Implemented (Go checker):**
+- `return &local` and `return &mut local` are rejected when `local` is a
+  non-parameter, non-escaping binding. Error: `cannot return reference to
+  local variable '<name>' — the reference would outlive the data it points at`.
+- Intermediate bindings (`let r = &x; return r`) are tracked via
+  `borrowsFrom` and rejected when `x` is a non-escaping local.
+- Parameters and escaping (heap-backed) values are exempt.
+
+**Not implemented:**
+- Lifetime tracking through struct fields or array elements.
+- Cross-function lifetime propagation (borrow passed to function and stored).
+- Self-hosted checker parity (the self-hosted parser does not produce a
+  distinct Borrow node; lifetime checks run on the Go side only).
+
+**Planned:**
 - References cannot outlive their data.
 - Stack-allocated values are invalidated when their scope ends.
 - Heap-allocated values are invalidated on deallocation.
