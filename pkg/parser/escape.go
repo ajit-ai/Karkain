@@ -34,8 +34,14 @@ func MarkVarEscaping(body []Node) {
 // scanStmtForEscapes finds identifiers that appear in escape positions
 // and adds them to the escaping set.
 func scanStmtForEscapes(stmt Node, escaping map[string]bool) {
+	if stmt == nil {
+		return
+	}
 	switch s := stmt.(type) {
 	case *VarDeclStmt:
+		if s == nil {
+			return
+		}
 		if s.Value != nil {
 			scanExprForEscapes(s.Value, escaping)
 		}

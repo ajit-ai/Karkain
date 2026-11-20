@@ -220,7 +220,7 @@ func natRegExt(r) {
 // valid x86, but it is a different byte, and this encoder's entire contract is
 // to be byte-identical rather than merely equivalent.
 func natRex(s, w, reg, rm) {
-    let r = natMask(13)
+    Value r = natMask(13)
     if (w == 1) { r = r | natMask(14) }
     if (natRegExt(reg) == 1) { r = r | natMask(15) }
     if (natRegExt(rm) == 1) { r = r | natMask(16) }
@@ -399,7 +399,7 @@ func natJcc(s, op, label) {
     s = natByte(s, op)
     // natRel32 returns the [state, pos] PAIR, not the state, so the state has
     // to be taken back out. The 151B natJnz below does the same thing.
-    let r = natRel32(s, label)
+    Value r = natRel32(s, label)
     return r[0]
 }
 
@@ -421,7 +421,7 @@ func natJg(s, label)  { return natJcc(s, natJccOpJg(), label) }
 // natJmp emits jmp rel32: E9 cd.
 func natJmp(s, label) {
     s = natByte(s, natMask(5))
-    let r = natRel32(s, label)
+    Value r = natRel32(s, label)
     return r[0]
 }
 
@@ -442,7 +442,7 @@ func natSubRegReg(s, dst, src) {
 func natJnz(s, label) {
     s = natByte(s, natMask(7))
     s = natByte(s, natMask(8))
-    let r = natRel32(s, label)
+    Value r = natRel32(s, label)
     return r[0]
 }
 
@@ -632,7 +632,7 @@ func natStLoopStack(s) { return s[17] }
 // continue target, and the order is the oracle's (program.go:5266:
 // loopTgt{brk: endLabel, cont: postLabel}).
 func natLoopPush(s, brk, cont) {
-    let st = natStLoopStack(s)
+    Value st = natStLoopStack(s)
     st = appendArray(st, brk)
     st = appendArray(st, cont)
     s[17] = st
@@ -641,10 +641,10 @@ func natLoopPush(s, brk, cont) {
 
 // natLoopPop removes the innermost loop context.
 func natLoopPop(s) {
-    let st = natStLoopStack(s)
-    let n = len(st) - 2
-    let out = []
-    let i = 0
+    Value st = natStLoopStack(s)
+    int n = len(st) - 2
+    Value out = []
+    int i = 0
     while (i < n) {
         out = appendArray(out, st[i])
         i = i + 1
@@ -662,13 +662,13 @@ func natLoopDepth(s) {
 
 // natLoopBrk is the break target of the innermost loop.
 func natLoopBrk(s) {
-    let st = natStLoopStack(s)
+    Value st = natStLoopStack(s)
     return st[len(st) - 2]
 }
 
 // natLoopCont is the continue target of the innermost loop.
 func natLoopCont(s) {
-    let st = natStLoopStack(s)
+    Value st = natStLoopStack(s)
     return st[len(st) - 1]
 }
 
@@ -681,7 +681,7 @@ func natByte(s, b) {
 // natBytes appends a little-endian run of bytes from a value, least
 // significant first. Go's u32/u64 do exactly this.
 func natBytesLE(s, v, n) {
-    let i = 0
+    int i = 0
     while (i < n) {
         s[0] = appendArray(s[0], (v >> (i * 8)) & natMask(0))
         i = i + 1
@@ -717,7 +717,7 @@ func natMark(s, label) {
 // The lookup is a linear scan: an emitter holds tens of labels, and a
 // scan keeps the structure identical to the Go map-free path.
 func natLabelPos(s, label) {
-    let i = 0
+    int i = 0
     while (i < len(natStLabelName(s))) {
         if (natStLabelName(s)[i] == label) {
             return i
@@ -729,7 +729,7 @@ func natLabelPos(s, label) {
 
 // natLabelOff returns the offset a label resolves to, or -1 if undefined.
 func natLabelOff(s, label) {
-    let p = natLabelPos(s, label)
+    int p = natLabelPos(s, label)
     if (p < 0) {
         return 0 - 1
     }
@@ -744,7 +744,7 @@ func natLabelOff(s, label) {
 // at emission time (everything after it is positioned relative to it)
 // while the TARGET is not known until every label is marked.
 func natRel32(s, label) {
-    let pos = natLen(s)
+    Value pos = natLen(s)
     s[3] = appendArray(s[3], pos)
     s[4] = appendArray(s[4], label)
     s[0] = appendArray(s[0], 0)
@@ -763,7 +763,7 @@ func natRel32(s, label) {
 func natImm64Patch(s, opcode) {
     s[0] = appendArray(s[0], natMask(2))
     s[0] = appendArray(s[0], opcode)     // B8 + rd
-    let pos = natLen(s)
+    Value pos = natLen(s)
     s[0] = appendArray(s[0], 0)
     s[0] = appendArray(s[0], 0)
     s[0] = appendArray(s[0], 0)
@@ -790,7 +790,7 @@ func natImm64Patch(s, opcode) {
 func natMovImm64(s, opcode, v) {
     s[0] = appendArray(s[0], natMask(2))
     s[0] = appendArray(s[0], opcode)      // B8 + rd
-    let pos = natLen(s)
+    Value pos = natLen(s)
     s = natU64(s, v)
     s[5] = appendArray(s[5], pos)
     return s
@@ -807,13 +807,13 @@ func natFinish(s) {
     // Duplicate labels first: a duplicate is a definition error, and
     // resolving against the second definition would hide it behind a
     // plausible-looking displacement.
-    let dup = natFindDupLabel(s)
+    string dup = natFindDupLabel(s)
     if (dup != "") {
         return "error[K117]: native encoder: duplicate label '" + dup + "'"
     }
-    let i = 0
+    int i = 0
     while (i < len(natStPatchOff(s))) {
-        let target = natLabelOff(s, natStPatchLabel(s)[i])
+        Value target = natLabelOff(s, natStPatchLabel(s)[i])
         if (target < 0) {
             return "error[K117]: native encoder: undefined label '" + natStPatchLabel(s)[i] + "' referenced by a rel32 fixup at byte " + str(natStPatchOff(s)[i])
         }
@@ -831,9 +831,9 @@ func natFinish(s) {
 // natFindDupLabel returns the first label marked more than once, or "" when
 // every label is unique.
 func natFindDupLabel(s) {
-    let i = 0
+    int i = 0
     while (i < len(natStLabelName(s))) {
-        let j = i + 1
+        int j = i + 1
         while (j < len(natStLabelName(s))) {
             if (natStLabelName(s)[j] == natStLabelName(s)[i]) {
                 return natStLabelName(s)[i]
@@ -851,9 +851,9 @@ func natFindDupLabel(s) {
 // the rendering must be unambiguous and fixed-width: a one-digit encoding
 // would let 0x0f and 0xf0 compare equal in a sloppy implementation.
 func natToHex(code) {
-    let digits = "0123456789abcdef"
-    let out = ""
-    let i = 0
+    string digits = "0123456789abcdef"
+    string out = ""
+    int i = 0
     while (i < len(code)) {
         let b = code[i] & natMask(0)
         out = out + substr(digits, b >> 4, 1) + substr(digits, b & natMask(1), 1)
@@ -886,7 +886,7 @@ func natToHex(code) {
 func natSeqImm64(s) {
     s = natMovImm64(s, natMovImm64Op(0), natMask(6))
     s = natByte(s, natMask(5))
-    let r = natRel32(s, "later")
+    Value r = natRel32(s, "later")
     s = r[0]
     s = natByte(s, natMask(3))
     s = natByte(s, natMask(3))
@@ -953,26 +953,26 @@ func natSyscall(s) {
 // backwards.
 func natSeqMulti(s) {
     s = natCall32(s)
-    let r1 = natRel32(s, "helper_a")
+    Value r1 = natRel32(s, "helper_a")
     s = r1[0]
     s = natByte(s, natMask(5))
-    let r2 = natRel32(s, "done")
+    Value r2 = natRel32(s, "done")
     s = r2[0]
     s = natMark(s, "helper_a")
     s = natCall32(s)
-    let r3 = natRel32(s, "helper_b")
+    Value r3 = natRel32(s, "helper_b")
     s = r3[0]
     s = natMark(s, "back")
     s = natByte(s, natMask(5))
-    let r4 = natRel32(s, "done")
+    Value r4 = natRel32(s, "done")
     s = r4[0]
     s = natMark(s, "helper_b")
     s = natCall32(s)
-    let r5 = natRel32(s, "back")
+    Value r5 = natRel32(s, "back")
     s = r5[0]
     s = natMark(s, "done")
     s = natByte(s, natMask(4))
-    let p = natImm64Patch(s, natMovImm64Op(0))
+    Value p = natImm64Patch(s, natMovImm64Op(0))
     return p[0]
 }
 
@@ -983,7 +983,7 @@ func natSeqMulti(s) {
 // compiler bug rather than as a build error.
 func natSeqUndefinedLabel(s) {
     s = natByte(s, natMask(5))
-    let r = natRel32(s, "nowhere")
+    Value r = natRel32(s, "nowhere")
     return r[0]
 }
 
@@ -1234,7 +1234,7 @@ func natShlRegImm(s, r, imm) {
 func natStoreAbs64(s) {
     s = natRex(s, 1, natRegRAX(), natRegRAX())
     s = natByte(s, natMask(46))
-    let pos = natLen(s)
+    Value pos = natLen(s)
     s = natU64(s, 0)
     // Record the position so the linker can be told where to write the resolved
     // IAT address. natFinish ignores this slot, so recording cannot change a byte;
@@ -1253,7 +1253,7 @@ func natStoreAbs64(s) {
 // true once print_int contributes its own IAT references to the same image, so
 // the index is recorded where it is known. The bytes emitted are identical.
 func natStoreAbs64Idx(s, idx) {
-    let p = natStoreAbs64(s)
+    string p = natStoreAbs64(s)
     s = p[0]
     s[8] = appendArray(s[8], idx)
     s[9] = appendArray(s[9], p[1])
@@ -1292,9 +1292,9 @@ func natSibScale(scale) {    if (scale == 1) { return 0 }
 // means RIP-relative rather than "[rbp]". Omitting it for an RBP base would
 // silently rebase the access.
 func natSibTail(s, reg, base, index, scale, disp) {
-    let sc = natSibScale(scale)
+    string sc = natSibScale(scale)
     let baseLow = base & natMask(72)
-    let mode = 1
+    int mode = 1
     if (disp == 0 && baseLow != 5) { mode = 0 }
     if (disp < (0 - 128) || disp > 127) { mode = 2 }
     if (mode == 0) {
@@ -1302,7 +1302,7 @@ func natSibTail(s, reg, base, index, scale, disp) {
     } else {
         if (mode == 1) { s = natModrm(s, 1, reg, 4) } else { s = natModrm(s, 2, reg, 4) }
     }
-    let sib = (sc << 6) | ((index & natMask(72)) << 3) | baseLow
+    string sib = (sc << 6) | ((index & natMask(72)) << 3) | baseLow
     s = natByte(s, sib)
     if (mode == 0) { return s }
     if (mode == 1) { return natByte(s, disp & 255) }
@@ -1366,7 +1366,7 @@ func natLoadScaled8(s, dst, base, index, scale, disp) {
 
 // natStoreScaled8 emits mov [base + index*scale + disp], src8.
 func natStoreScaled8(s, src, base, index, scale, disp) {
-    let r = natMask(13)
+    Value r = natMask(13)
     if (natRegExt(src) == 1) { r = r | natMask(15) }
     if (natRegExt(index) == 1) { r = r | natMask(47) }
     if (natRegExt(base) == 1) { r = r | natMask(16) }
@@ -1422,8 +1422,8 @@ func natScaledRex(s, reg, index, base) {
 // The SIB byte comes AFTER the ModRM (its rm=100 promises one), and the
 // displacement uses the same narrowest-fits form as everywhere else.
 func natLoadScaled32(s, dst, base, index, scale, disp) {
-    let sc = natSibScale(scale)
-    let r = natMask(13)
+    string sc = natSibScale(scale)
+    Value r = natMask(13)
     if (natRegExt(dst) == 1) { r = r | natMask(15) }
     if (natRegExt(index) == 1) { r = r | natMask(47) }   // REX.X -- NOT natMask(14),
                                                         // which is the REX.W bit
@@ -1436,7 +1436,7 @@ func natLoadScaled32(s, dst, base, index, scale, disp) {
     // narrow value is what this is: the second test must NOT also require
     // disp != 0, or disp==0 with an rbp base emits mod=10 + disp32 and the image
     // grows by three bytes.
-    let narrow = 2
+    int narrow = 2
     if (disp == 0 && base != 5) { narrow = 0 }
     if (narrow == 2 && disp >= -128 && disp <= 127) { narrow = 1 }
     if (narrow == 0) {
@@ -1514,7 +1514,7 @@ func natPopReg(s, r) {
 func natJns(s, label) {
     s = natByte(s, natMask(7))
     s = natByte(s, natMask(52))
-    let r = natRel32(s, label)
+    Value r = natRel32(s, label)
     return r[0]
 }
 
@@ -1627,7 +1627,7 @@ func natXorpdXmmXmm(s, dst, src) {
 //   3. both converts on high GP + high xmm registers, which is the only arm
 //      that exercises REX.W together with REX.R and REX.B at once.
 func natFloatCorpus(which) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     if (which == 0) {
         s = natAddsdXmmXmm(s, 0, 1)
         s = natSubsdXmmXmm(s, 0, 1)
@@ -1752,7 +1752,7 @@ func natMovGpRegXmm(s, dst, src) {
 func natJp(s, label) {
     s = natByte(s, natMask(7))
     s = natByte(s, natMask(69))
-    let r = natRel32(s, label)
+    Value r = natRel32(s, label)
     return r[0]
 }
 
@@ -1760,7 +1760,7 @@ func natJp(s, label) {
 func natJbe(s, label) {
     s = natByte(s, natMask(7))
     s = natByte(s, natMask(70))
-    let r = natRel32(s, label)
+    Value r = natRel32(s, label)
     return r[0]
 }
 
@@ -1768,6 +1768,6 @@ func natJbe(s, label) {
 func natJb(s, label) {
     s = natByte(s, natMask(7))
     s = natByte(s, natMask(71))
-    let r = natRel32(s, label)
+    Value r = natRel32(s, label)
     return r[0]
 }

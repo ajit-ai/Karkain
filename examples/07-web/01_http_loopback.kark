@@ -35,7 +35,7 @@ func main() {
     http_close(conn)
 
     // client reads and parses the response
-    let recv = http_read_all(cli, 65536)
+    string recv = http_read_all(cli, 65536)
     let resp = http_parse_response(recv)
     println(resp["status"])
     println(resp["reason"])

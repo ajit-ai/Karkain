@@ -12,16 +12,16 @@ import "libc" {
 // Channel Types and Constants
 // ============================================================
 
-const CHANNEL_BUFFERED: int = 0
-const CHANNEL_UNBUFFERED: int = 1
+const int CHANNEL_BUFFERED = 0
+const int CHANNEL_UNBUFFERED = 1
 
-const ACTOR_RUNNING: int = 0
-const ACTOR_STOPPED: int = 1
-const ACTOR_ERROR: int = 2
+const int ACTOR_RUNNING = 0
+const int ACTOR_STOPPED = 1
+const int ACTOR_ERROR = 2
 
-const MSG_DEFAULT: int = 0
-const MSG_POISON: int = -1
-const MSG_SYSTEM: int = -2
+const int MSG_DEFAULT = 0
+const int MSG_POISON = -1
+const int MSG_SYSTEM = -2
 
 // ============================================================
 // Message Type
@@ -134,10 +134,10 @@ func channel_send(ch: Channel, msg: Message) -> bool {
 // Receive a message from a channel (non-blocking)
 func channel_receive(ch: Channel) -> (Message, bool) {
     if (len(ch.buffer) > 0) {
-        let msg: Message = ch.buffer[0]
+        Message msg = ch.buffer[0]
         // Shift buffer
-        let new_buf: Message[] = []
-        let i: int = 1
+        Message[] new_buf = []
+        int i = 1
         while (i < len(ch.buffer)) {
             new_buf = append(new_buf, ch.buffer[i])
             i = i + 1
@@ -212,9 +212,9 @@ func mailbox_send(mb: Mailbox, msg: Message) -> bool {
 func mailbox_receive(mb: Mailbox) -> (Message, bool) {
     // Check priority inbox first
     if (len(mb.priority_inbox) > 0) {
-        let msg: Message = mb.priority_inbox[0]
-        let new_buf: Message[] = []
-        let i: int = 1
+        Message msg = mb.priority_inbox[0]
+        Message[] new_buf = []
+        int i = 1
         while (i < len(mb.priority_inbox)) {
             new_buf = append(new_buf, mb.priority_inbox[i])
             i = i + 1
@@ -225,9 +225,9 @@ func mailbox_receive(mb: Mailbox) -> (Message, bool) {
 
     // Then normal messages
     if (len(mb.messages) > 0) {
-        let msg: Message = mb.messages[0]
-        let new_buf: Message[] = []
-        let i: int = 1
+        Message msg = mb.messages[0]
+        Message[] new_buf = []
+        int i = 1
         while (i < len(mb.messages)) {
             new_buf = append(new_buf, mb.messages[i])
             i = i + 1
@@ -306,7 +306,7 @@ func actor_process_next(actor: Actor) -> bool {
 
     // Invoke handler
     if (actor.handler != null) {
-        let response: Message = actor.handler(msg)
+        Message response = actor.handler(msg)
         // If handler returns poison, stop actor
         if (response.msg_type == MSG_POISON) {
             actor.state = ACTOR_STOPPED
@@ -341,7 +341,7 @@ struct WorkerPool {
 
 // Create a worker pool with N workers
 func pool_create(size: int) -> WorkerPool {
-    let pool: WorkerPool = WorkerPool {
+    WorkerPool pool = WorkerPool {
         workers: [],
         next_id: 0,
         task_channel: channel_create_buffered(size * 16),
@@ -349,9 +349,9 @@ func pool_create(size: int) -> WorkerPool {
         is_shutdown: false
     }
 
-    let i: int = 0
+    int i = 0
     while (i < size) {
-        let worker: Actor = actor_create(i, "worker_" + i, null)
+        Actor worker = actor_create(i, "worker_" + i, null)
         pool.workers = append(pool.workers, worker)
         i = i + 1
     }
@@ -377,7 +377,7 @@ func pool_shutdown(pool: WorkerPool) {
     pool.is_shutdown = true
 
     // Send poison pills to all workers
-    let i: int = 0
+    int i = 0
     while (i < len(pool.workers)) {
         channel_send(pool.task_channel, msg_poison())
         actor_stop(pool.workers[i])
@@ -425,7 +425,7 @@ func select_send(ch: Channel, msg: Message) -> SelectCase {
 
 // Execute a select over multiple cases (returns first ready case index, or -1)
 func select_execute(cases: SelectCase[]) -> int {
-    let i: int = 0
+    int i = 0
     while (i < len(cases)) {
         if (cases[i].case_type == 0) {
             // Receive case
@@ -434,7 +434,7 @@ func select_execute(cases: SelectCase[]) -> int {
             }
         } else {
             // Send case - check if buffer has room
-            let ch: Channel = cases[i].channel
+            Channel ch = cases[i].channel
             if (!ch.is_closed && len(ch.buffer) < ch.capacity) {
                 return i
             }
@@ -491,7 +491,7 @@ func async_is_ready(ar: AsyncResult) -> bool {
 
 // Fan-out: distribute work items across a worker pool
 func fan_out(pool: WorkerPool, items: Message[]) {
-    let i: int = 0
+    int i = 0
     while (i < len(items)) {
         pool_submit(pool, items[i])
         i = i + 1
@@ -500,8 +500,8 @@ func fan_out(pool: WorkerPool, items: Message[]) {
 
 // Fan-in: collect results from a channel into an array
 func fan_in(result_ch: Channel, expected: int) -> Message[] {
-    let results: Message[] = []
-    let received: int = 0
+    Message[] results = []
+    int received = 0
     while (received < expected) {
         let (msg, ok) = channel_receive(result_ch)
         if (ok) {

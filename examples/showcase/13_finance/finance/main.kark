@@ -7,8 +7,8 @@ func fsqrt(x) {
     if (x <= 0.0) {
         return 0.0
     }
-    let guess = x / 2.0
-    let i = 0
+    double guess = x / 2.0
+    int i = 0
     while (i < 40) {
         guess = (guess + x / guess) / 2.0
         i = i + 1
@@ -18,7 +18,7 @@ func fsqrt(x) {
 
 func compound(principal, rate, years) {
     let amount = principal
-    let i = 0
+    int i = 0
     while (i < years) {
         amount = amount * (1.0 + rate)
         i = i + 1
@@ -27,10 +27,10 @@ func compound(principal, rate, years) {
 }
 
 func movingAverage(prices, window) {
-    let out = []
+    float64[] out = []
     let i = window
     while (i <= len(prices)) {
-        let sum = 0.0
+        float64 sum = 0.0
         let j = i - window
         while (j < i) {
             sum = sum + prices[j]
@@ -43,18 +43,18 @@ func movingAverage(prices, window) {
 }
 
 func volatility(prices) {
-    let n = len(prices)
-    let m = 0.0
-    let i = 0
+    int n = len(prices)
+    float64 m = 0.0
+    int i = 0
     while (i < n) {
         m = m + prices[i]
         i = i + 1
     }
     m = m / (n * 1.0)
-    let acc = 0.0
-    let j = 0
+    float64 acc = 0.0
+    int j = 0
     while (j < n) {
-        let d = prices[j] - m
+        float64 d = prices[j] - m
         acc = acc + (d * d)
         j = j + 1
     }
@@ -62,9 +62,9 @@ func volatility(prices) {
 }
 
 func emi(principal, annualRate, months) {
-    let monthly = annualRate / 12.0
-    let factor = 1.0
-    let k = 0
+    double monthly = annualRate / 12.0
+    float64 factor = 1.0
+    int k = 0
     while (k < months) {
         factor = factor * (1.0 + monthly)
         k = k + 1
@@ -78,7 +78,7 @@ func emi(principal, annualRate, months) {
 func main() {
     print("compound_1000@5pct_10y=" + str(compound(1000.0, 0.05, 10)))
 
-    let prices = [100.0, 102.0, 101.0, 105.0, 110.0, 108.0]
+    float64[] prices = [100.0, 102.0, 101.0, 105.0, 110.0, 108.0]
     let ma = movingAverage(prices, 3)
     print("ma3[0]=" + str(ma[0]))          // (100+102+101)/3      -> 101
     print("ma3[1]=" + str(ma[1]))          // (102+101+105)/3      -> 102.667

@@ -15,7 +15,7 @@ func read(c) {
 }
 
 func main() {
-    let c = Counter{value: 0}
+    Counter c = Counter{value: 0}
     let c2 = increment(c, 5)
     print(read(c2))
 

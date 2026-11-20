@@ -13,14 +13,14 @@
 import std.collections
 
 func main() {
-    let scores = { "ana": 92, "bob": 84 }
+    map[string]int scores = { "ana": 92, "bob": 84 }
     print(scores["ana"])
     print(scores["bob"])
 
     scores["cam"] = 97
     print(scores["cam"])
 
-    let counts = {}
+    map[int]int counts = {}
     counts["k"] = 1
     counts["k"] = counts["k"] + 1
     print(counts["k"])
@@ -28,23 +28,23 @@ func main() {
     print(map_contains_key(scores, "ana"))
     print(map_contains_key(scores, "zed"))
 
-    let names = map_keys(scores)
+    string[] names = map_keys(scores)
     print(len(names))
-    let i = 0
+    int i = 0
     while (i < len(names)) {
         print(names[i])
         i = i + 1
     }
 
     // Integer keys are compared by VALUE: distinct keys never collide.
-    let ports = { 80: "http", 443: "https" }
+    map[int]string ports = { 80: "http", 443: "https" }
     ports[8080] = "alt"
     print(ports[80])
     print(ports[443])
     print(ports[8080])
     print(len(ports))
 
-    let seen = {}
+    map[int]int seen = {}
     seen[1] = 10
     seen[2] = 20
     seen[1] = 11
@@ -55,8 +55,8 @@ func main() {
     delete(seen, 1)
     print(len(seen))
 
-    let nums = map_keys(ports)
-    let j = 0
+    int[] nums = map_keys(ports)
+    int j = 0
     while (j < len(nums)) {
         print(nums[j])
         j = j + 1

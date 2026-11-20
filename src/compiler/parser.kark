@@ -1,5 +1,5 @@
 // ============================================================
-// Self-hosted Karkain Parser — Production version
+// Self-hosted Karkain Parser Ã¢â‚¬â€ Production version
 // Rewritten from pkg/parser/parser.go (2088 lines Go) to pure Karkain
 // Uses lexer.kark for tokenization and ast.kark for node types
 // ============================================================
@@ -10,7 +10,7 @@
 // ============================================================
 
 func createParserState(tokens, source) {
-    let state = []
+    Value state = []
     state = appendArray(state, tokens)
     state = appendArray(state, 0)
     state = appendArray(state, [])   // errors
@@ -41,7 +41,7 @@ func setPsNoStructAtBrace(state, v) { state[6] = v }
 func psEnumNames(state) { return state[7] }
 func setPsEnumNames(state, v) { state[7] = v }
 func psAddEnumName(state, name) {
-    let names = psEnumNames(state)
+    int names = psEnumNames(state)
     names = appendArray(names, name)
     setPsEnumNames(state, names)
 }
@@ -63,7 +63,7 @@ func setPsPos(state, v)  { state[1] = v }
 // ============================================================
 
 func psListHas(list, item) {
-    let i = 0
+    int i = 0
     while (i < len(list)) {
         if (list[i] == item) { return 1 }
         i = i + 1
@@ -81,8 +81,8 @@ func capsAdd(s, name) {
 }
 
 func capRemove(s, name) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < len(s[0])) {
         if (s[0][i] != name) { out = appendArray(out, s[0][i]) }
         i = i + 1
@@ -92,13 +92,13 @@ func capRemove(s, name) {
 }
 
 func computeCaptures(params, body) {
-    let s = [[], []]
-    let i = 0
+    Value s = [[], []]
+    int i = 0
     while (i < len(body)) {
         s = walkCapturesStmt(s, body[i])
         i = i + 1
     }
-    let j = 0
+    int j = 0
     while (j < len(params)) {
         s = capRemove(s, params[j])
         j = j + 1
@@ -113,18 +113,18 @@ func computeCaptures(params, body) {
 
 func walkCapturesStmt(s, node) {
     if (len(node) < 1) { return s }
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "Ident") { return capsAdd(s, identName(node)) }
     if (nt == "ExprStmt") { return walkCapturesExpr(s, exprStmtExpr(node)) }
     if (nt == "Return") {
-        let rv = returnExpr(node)
+        int rv = returnExpr(node)
         if (len(rv) == 0) { return s }
         return walkCapturesExpr(s, rv)
     }
     if (nt == "Print") { return walkCapturesExpr(s, printExpr(node)) }
     if (nt == "Block") {
-        let inner = blockStmts(node)
-        let i = 0
+        Value inner = blockStmts(node)
+        int i = 0
         while (i < len(inner)) {
             s = walkCapturesStmt(s, inner[i])
             i = i + 1
@@ -133,13 +133,13 @@ func walkCapturesStmt(s, node) {
     }
     if (nt == "If") {
         s = walkCapturesExpr(s, ifCondition(node))
-        let tb = ifThen(node)
-        let i = 0
+        Value tb = ifThen(node)
+        int i = 0
         while (i < len(tb)) {
             s = walkCapturesStmt(s, tb[i])
             i = i + 1
         }
-        let eb = ifElse(node)
+        Value eb = ifElse(node)
         i = 0
         while (i < len(eb)) {
             s = walkCapturesStmt(s, eb[i])
@@ -149,8 +149,8 @@ func walkCapturesStmt(s, node) {
     }
     if (nt == "While") {
         s = walkCapturesExpr(s, whileCondition(node))
-        let wb = whileBody(node)
-        let i = 0
+        Value wb = whileBody(node)
+        int i = 0
         while (i < len(wb)) {
             s = walkCapturesStmt(s, wb[i])
             i = i + 1
@@ -160,8 +160,8 @@ func walkCapturesStmt(s, node) {
     if (nt == "ForIn") {
         s = walkCapturesExpr(s, forInIter(node))
         s = capsAdd(s, forInVar(node))
-        let fb = forInBody(node)
-        let i = 0
+        Value fb = forInBody(node)
+        int i = 0
         while (i < len(fb)) {
             s = walkCapturesStmt(s, fb[i])
             i = i + 1
@@ -169,17 +169,17 @@ func walkCapturesStmt(s, node) {
         return s
     }
     if (nt == "VarDecl" || nt == "LetDecl" || nt == "ConstDecl") {
-        let nm = varDeclName(node)
+        Value nm = varDeclName(node)
         if (nt == "LetDecl") { nm = letDeclName(node) }
         if (nt == "ConstDecl") { nm = constDeclName(node) }
         s = capsAdd(s, nm)
         s = capRemove(s, nm)
-        let val = varDeclValue(node)
+        Value val = varDeclValue(node)
         if (nt == "LetDecl") { val = letDeclValue(node) }
         if (nt == "ConstDecl") { val = constDeclValue(node) }
         if (getNodeType(val) == "FuncDecl") {
-            let cc = funcCaptures(val)
-            let ci = 0
+            Value cc = funcCaptures(val)
+            int ci = 0
             while (ci < len(cc)) {
                 s = capsAdd(s, cc[ci])
                 ci = ci + 1
@@ -191,8 +191,8 @@ func walkCapturesStmt(s, node) {
     if (nt == "FuncDecl") {
         // A let-bound lambda inside another closure: its own captures are
         // references from this body too.
-        let cp = funcCaptures(node)
-        let i = 0
+        Value cp = funcCaptures(node)
+        int i = 0
         while (i < len(cp)) {
             s = capsAdd(s, cp[i])
             i = i + 1
@@ -200,10 +200,10 @@ func walkCapturesStmt(s, node) {
         return s
     }
     if (nt == "Lambda") {
-        let lp = lambdaParams(node)
-        let lb = lambdaBody(node)
-        let lc = computeCaptures(lp, lb)
-        let i = 0
+        Value lp = lambdaParams(node)
+        Value lb = lambdaBody(node)
+        Value lc = computeCaptures(lp, lb)
+        int i = 0
         while (i < len(lc)) {
             s = capsAdd(s, lc[i])
             i = i + 1
@@ -215,7 +215,7 @@ func walkCapturesStmt(s, node) {
 
 func walkCapturesExpr(s, node) {
     if (len(node) < 1) { return s }
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "Ident") { return capsAdd(s, identName(node)) }
     if (nt == "BinaryExpr") {
         s = walkCapturesExpr(s, binaryLeft(node))
@@ -226,8 +226,8 @@ func walkCapturesExpr(s, node) {
     }
     if (nt == "Call") {
         s = capsAdd(s, callFunc(node))
-        let args = callArgs(node)
-        let i = 0
+        int args = callArgs(node)
+        int i = 0
         while (i < len(args)) {
             s = walkCapturesExpr(s, args[i])
             i = i + 1
@@ -238,11 +238,11 @@ func walkCapturesExpr(s, node) {
     // held in an array or passed as a parameter); an identifier target is a
     // used name exactly like a static callee.
     if (nt == "IndirectCall") {
-        let tgt = indirectTarget(node)
+        int tgt = indirectTarget(node)
         if (getNodeType(tgt) == "Ident") { s = capsAdd(s, identName(tgt)) }
         s = walkCapturesExpr(s, tgt)
-        let iargs = indirectArgs(node)
-        let i = 0
+        int iargs = indirectArgs(node)
+        int i = 0
         while (i < len(iargs)) {
             s = walkCapturesExpr(s, iargs[i])
             i = i + 1
@@ -263,8 +263,8 @@ func walkCapturesExpr(s, node) {
         return capsAdd(s, memberField(node))
     }
     if (nt == "ArrayLiteral") {
-        let elems = arrayElements(node)
-        let i = 0
+        int elems = arrayElements(node)
+        int i = 0
         while (i < len(elems)) {
             s = walkCapturesExpr(s, elems[i])
             i = i + 1
@@ -272,9 +272,9 @@ func walkCapturesExpr(s, node) {
         return s
     }
     if (nt == "MapLiteral") {
-        let ks = mapKeys(node)
-        let vs = mapValues(node)
-        let i = 0
+        int ks = mapKeys(node)
+        int vs = mapValues(node)
+        int i = 0
         while (i < len(ks)) {
             s = walkCapturesExpr(s, ks[i])
             s = walkCapturesExpr(s, vs[i])
@@ -283,10 +283,10 @@ func walkCapturesExpr(s, node) {
         return s
     }
     if (nt == "Lambda") {
-        let lp = lambdaParams(node)
-        let lb = lambdaBody(node)
-        let lc = computeCaptures(lp, lb)
-        let i = 0
+        Value lp = lambdaParams(node)
+        Value lb = lambdaBody(node)
+        Value lc = computeCaptures(lp, lb)
+        int i = 0
         while (i < len(lc)) {
             s = capsAdd(s, lc[i])
             i = i + 1
@@ -298,16 +298,16 @@ func walkCapturesExpr(s, node) {
 
 func markLocalsStmt(s, node) {
     if (len(node) < 1) { return s }
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "VarDecl" || nt == "LetDecl" || nt == "ConstDecl") {
-        let nm = varDeclName(node)
+        Value nm = varDeclName(node)
         if (nt == "LetDecl") { nm = letDeclName(node) }
         if (nt == "ConstDecl") { nm = constDeclName(node) }
         return capRemove(s, nm)
     }
     if (nt == "Block") {
-        let inner = blockStmts(node)
-        let i = 0
+        Value inner = blockStmts(node)
+        int i = 0
         while (i < len(inner)) {
             s = markLocalsStmt(s, inner[i])
             i = i + 1
@@ -315,13 +315,13 @@ func markLocalsStmt(s, node) {
         return s
     }
     if (nt == "If") {
-        let tb = ifThen(node)
-        let i = 0
+        Value tb = ifThen(node)
+        int i = 0
         while (i < len(tb)) {
             s = markLocalsStmt(s, tb[i])
             i = i + 1
         }
-        let eb = ifElse(node)
+        Value eb = ifElse(node)
         i = 0
         while (i < len(eb)) {
             s = markLocalsStmt(s, eb[i])
@@ -330,8 +330,8 @@ func markLocalsStmt(s, node) {
         return s
     }
     if (nt == "While") {
-        let wb = whileBody(node)
-        let i = 0
+        Value wb = whileBody(node)
+        int i = 0
         while (i < len(wb)) {
             s = markLocalsStmt(s, wb[i])
             i = i + 1
@@ -340,8 +340,8 @@ func markLocalsStmt(s, node) {
     }
     if (nt == "ForIn") {
         s = capRemove(s, forInVar(node))
-        let fb = forInBody(node)
-        let i = 0
+        Value fb = forInBody(node)
+        int i = 0
         while (i < len(fb)) {
             s = markLocalsStmt(s, fb[i])
             i = i + 1
@@ -349,8 +349,8 @@ func markLocalsStmt(s, node) {
         return s
     }
     if (nt == "FuncDecl") {
-        let fb = funcBody(node)
-        let i = 0
+        Value fb = funcBody(node)
+        int i = 0
         while (i < len(fb)) {
             s = markLocalsStmt(s, fb[i])
             i = i + 1
@@ -363,8 +363,8 @@ func markLocalsStmt(s, node) {
 func hasParserErrors(state) { return len(psErrors(state)) > 0 }
 
 func printParserErrors(state) {
-    let errs = psErrors(state)
-    let i = 0
+    int errs = psErrors(state)
+    int i = 0
     while (i < len(errs)) {
         print(errs[i])
         i = i + 1
@@ -372,38 +372,46 @@ func printParserErrors(state) {
 }
 
 func psCurKind(state) {
-    let pos = psPos(state)
-    let tokens = psTokens(state)
+    int pos = psPos(state)
+    Value tokens = psTokens(state)
     if (pos >= len(tokens)) { return TK_EOF() }
     return tokenKind(tokens[pos])
 }
 
 func psPeekKind(state) {
-    let pos = psPos(state) + 1
-    let tokens = psTokens(state)
+    int pos = psPos(state) + 1
+    Value tokens = psTokens(state)
+    if (pos >= len(tokens)) { return TK_EOF() }
+    return tokenKind(tokens[pos])
+}
+
+// psPeekKind2 returns the token two positions ahead (used to detect `T[]`).
+func psPeekKind2(state) {
+    int pos = psPos(state) + 2
+    Value tokens = psTokens(state)
     if (pos >= len(tokens)) { return TK_EOF() }
     return tokenKind(tokens[pos])
 }
 
 func psCurToken(state) {
-    let pos = psPos(state)
-    let tokens = psTokens(state)
+    int pos = psPos(state)
+    Value tokens = psTokens(state)
     if (pos >= len(tokens)) { return [] }
     return tokens[pos]
 }
 
 func psPeekToken(state) {
-    let pos = psPos(state) + 1
-    let tokens = psTokens(state)
+    int pos = psPos(state) + 1
+    Value tokens = psTokens(state)
     if (pos >= len(tokens)) { return [] }
     return tokens[pos]
 }
 
 func psAdvance(state) {
-    let pos = psPos(state)
-    let tokens = psTokens(state)
+    int pos = psPos(state)
+    Value tokens = psTokens(state)
     if (pos < len(tokens)) {
-        let tok = tokens[pos]
+        Value tok = tokens[pos]
         setPsPos(state, pos + 1)
         if (tokenLine(tok) > 0) { state[4] = tokenLine(tok) }
         return tok
@@ -429,15 +437,15 @@ func psIsTypeArgName(kind) {
 
 func psLooksLikeTypeArgs(state) {
     if (psCurKind(state) != TK_LBRACKET()) { return 0 }
-    let tokens = psTokens(state)
-    let base = psPos(state)
-    let n = len(tokens)
-    let i = base + 1
+    Value tokens = psTokens(state)
+    int base = psPos(state)
+    int n = len(tokens)
+    int i = base + 1
     if (i >= n) { return 0 }
     if (psIsTypeArgName(tokenKind(tokens[i])) == 0) { return 0 }
     i = i + 1
     while (i < n) {
-        let k = tokenKind(tokens[i])
+        int k = tokenKind(tokens[i])
         if (k == TK_COMMA()) {
             i = i + 1
             if (i >= n) { return 0 }
@@ -446,7 +454,7 @@ func psLooksLikeTypeArgs(state) {
         } else if (k == TK_RBRACKET()) {
             i = i + 1
             if (i >= n) { return 0 }
-            let f = tokenKind(tokens[i])
+            int f = tokenKind(tokens[i])
             if (f == TK_LPAREN()) { return 1 }
             if (f == TK_LBRACE()) { return 1 }
             return 0
@@ -460,26 +468,26 @@ func psLooksLikeTypeArgs(state) {
 // Phase 146 fix (CI TestPhase117_StdlibBothEngines): reports whether the
 // cursor's [name(,name)*] shape is followed by '{' (the struct-literal
 // follower). Go guards BOTH the bracket attempt and the brace attempt on
-// !unparenthesizedIfCondition (pkg/parser/parser.go:1902,1909) — a trailing
+// !unparenthesizedIfCondition (pkg/parser/parser.go:1902,1909) Ã¢â‚¬â€ a trailing
 // '{' in a bare if/while/for-in condition opens the body, so `lower[j] {`
 // is index-then-body. kcc's struct-literal branch already honors
 // psNoStructAtBrace, but the 146C type-args gate did not: it consumed `[j]`
 // and the body brace was then refused as a literal, silently dropping the
 // index (`str_to_upper` became a no-op, `str_starts_with` always false).
-// '('-follow (generic calls) still consumes — mono instantiates those
+// '('-follow (generic calls) still consumes Ã¢â‚¬â€ mono instantiates those
 // exactly as before. Mirrors the tail of psLooksLikeTypeArgs so the two
 // scans can never disagree on the shape.
 func psTypeArgsFollowIsBrace(state) {
     if (psCurKind(state) != TK_LBRACKET()) { return 0 }
-    let tokens = psTokens(state)
-    let base = psPos(state)
-    let n = len(tokens)
-    let i = base + 1
+    Value tokens = psTokens(state)
+    int base = psPos(state)
+    int n = len(tokens)
+    int i = base + 1
     if (i >= n) { return 0 }
     if (psIsTypeArgName(tokenKind(tokens[i])) == 0) { return 0 }
     i = i + 1
     while (i < n) {
-        let k = tokenKind(tokens[i])
+        int k = tokenKind(tokens[i])
         if (k == TK_COMMA()) {
             i = i + 1
             if (i >= n) { return 0 }
@@ -498,12 +506,12 @@ func psTypeArgsFollowIsBrace(state) {
 }
 
 func psAddError(state, msg) {
-    let line = psLine(state)
-    let errStr = "line " + str(line) + ": " + msg
+    int line = psLine(state)
+    string errStr = "line " + str(line) + ": " + msg
     state[2] = appendArray(state[2], errStr)
-    let col = 0
-    let pos = psPos(state)
-    let tokens = psTokens(state)
+    int col = 0
+    int pos = psPos(state)
+    Value tokens = psTokens(state)
     if (pos < len(tokens)) { col = tokenCol(tokens[pos]) + 1 }
     state[3] = appendArray(state[3], col)
 }
@@ -511,8 +519,8 @@ func psAddError(state, msg) {
 func psExpect(state, kind) {
     let cur = psCurKind(state)
     if (cur != kind) {
-        let tok = psCurToken(state)
-        let literal = tokenLiteral(tok, psSource(state))
+        Value tok = psCurToken(state)
+        int literal = tokenLiteral(tok, psSource(state))
         psAddError(state, "expected " + tokenKindName(kind) + " but got " + tokenKindName(cur))
         return 0
     }
@@ -521,20 +529,23 @@ func psExpect(state, kind) {
 }
 
 func psCurLiteral(state) {
-    let tok = psCurToken(state)
+    Value tok = psCurToken(state)
     return tokenLiteral(tok, psSource(state))
 }
 
 // True when the current token is a primitive type keyword or a type name,
 // so `func f(x int)` / `func f() int` / `let x int = ...` all parse.
 func psIsTypeToken(state) {
-    let k = psCurKind(state)
+    int k = psCurKind(state)
     if (k == TK_INT()) { return 1 }
     if (k == TK_FLOAT64()) { return 1 }
     if (k == TK_STRING()) { return 1 }
     if (k == TK_BOOL()) { return 1 }
+    if (k == TK_BYTE() || k == TK_SHORT() || k == TK_LONG()) { return 1 }
+    if (k == TK_FLOAT() || k == TK_DOUBLE() || k == TK_CHAR()) { return 1 }
+    if (k == TK_VALUE()) { return 1 }
     if (k == TK_IDENT()) { return 1 }
-    // Phase 133: `fn` is a keyword token, not an identifier — without this
+    // Phase 133: `fn` is a keyword token, not an identifier Ã¢â‚¬â€ without this
     // branch a `g fn` / `let g fn` annotation (or `fn` return type) silently
     // misparses instead of skipping cleanly as a type.
     if (k == TK_FN()) { return 1 }
@@ -626,30 +637,30 @@ func kindToOp(kind) {
 // ============================================================
 
 func parse(tokens, source) {
-    let state = createParserState(tokens, source)
+    int state = createParserState(tokens, source)
     return parseWithState(state)
 }
 
 // parseWithState parses with a caller-owned state so diagnostics survive.
 // (parse() above keeps its signature for compatibility, but its internal
-// state — and therefore its errors — die with the call. Driver entries in
+// state Ã¢â‚¬â€ and therefore its errors Ã¢â‚¬â€ die with the call. Driver entries in
 // main.kark must use parseWithState and then read hasParserErrors on the
 // state they passed in; otherwise native parse errors never surface.)
 func parseWithState(state) {
-    let stmts = []
-    let imports = []
+    Value stmts = []
+    Value imports = []
 
     while (psCurKind(state) != TK_EOF()) {
-        let kind = psCurKind(state)
+        int kind = psCurKind(state)
 
         // import "C" { ... }
         if (kind == TK_IMPORT()) {
             if (psPeekKind(state) == TK_STRING_LIT()) {
-                let content = psCurLiteral(state)
+                int content = psCurLiteral(state)
                 if (content == "C") {
                     psAdvance(state) // import
                     psAdvance(state) // "C"
-                    let cCode = parseCBlock(state)
+                    Value cCode = parseCBlock(state)
                     imports = appendArray(imports, makeCImport(cCode, psLine(state)))
                     continue
                 }
@@ -657,7 +668,7 @@ func parseWithState(state) {
             // module import
             if (psPeekKind(state) == TK_IDENT()) {
                 psAdvance(state) // import
-                let name = psCurLiteral(state)
+                int name = psCurLiteral(state)
                 psAdvance(state) // name
                 imports = appendArray(imports, makeImport(name, psLine(state)))
                 continue
@@ -667,24 +678,24 @@ func parseWithState(state) {
             continue
         }
 
-        // public func/type/enum — Phase 103 export modifier.
+        // public func/type/enum Ã¢â‚¬â€ Phase 103 export modifier.
         if (kind == TK_PUB()) {
             psAdvance(state)
-            let pk = psCurKind(state)
+            int pk = psCurKind(state)
             if (pk == TK_FUNC()) {
-                let funcNode = parseFunc(state, "")
+                Value funcNode = parseFunc(state, "")
                 if (funcNode != []) { funcNode = setFuncPublic(funcNode) }
                 if (funcNode != []) { stmts = appendArray(stmts, funcNode) }
                 continue
             }
             if (pk == TK_TYPE()) {
-                let sd = parseStructDecl(state)
+                Value sd = parseStructDecl(state)
                 if (sd != []) { sd = setStructPublic(sd, "1") }
                 if (sd != []) { stmts = appendArray(stmts, sd) }
                 continue
             }
             if (pk == TK_ENUM()) {
-                let ed = parseEnumDecl(state)
+                Value ed = parseEnumDecl(state)
                 if (ed != []) { ed = setEnumPublic(ed, "1") }
                 if (ed != []) { stmts = appendArray(stmts, ed) }
                 continue
@@ -693,84 +704,122 @@ func parseWithState(state) {
             continue
         }
 
+        // const T name = value (type-first module constant)
+        if (kind == TK_CONST()) {
+            psAdvance(state)
+            string tname = ""
+            if (psIsTypeKind(psCurKind(state)) == 1) {
+                tname = psTypeKindName(psCurKind(state))
+            } else {
+                tname = psCurLiteral(state)
+            }
+            psAdvance(state)
+            Value cd = parseTypeFirstConstTail(state, tname, psLine(state))
+            if (cd != []) { stmts = appendArray(stmts, cd) }
+            if (psCurKind(state) == TK_SEMICOLON()) { psAdvance(state) }
+            continue
+        }
+
+        // type-first function or module declaration: `int add(...)`, `int x = ...`
+        if (psIsTypeKind(kind) == 1 || kind == TK_IDENT()) {
+            string tname = ""
+            if (psIsTypeKind(kind) == 1) { tname = psTypeKindName(kind) } else { tname = psCurLiteral(state) }
+            int dline = psLine(state)
+            psAdvance(state)
+            while (psCurKind(state) == TK_LBRACKET() && psPeekKind(state) == TK_RBRACKET()) {
+                tname = tname + "[]"
+                psAdvance(state)
+                psAdvance(state)
+            }
+            if (psCurKind(state) == TK_IDENT() && psPeekKind(state) == TK_LPAREN()) {
+                Value tfFunc = parseTypeFirstFunc(state, tname, "")
+                if (tfFunc != []) { stmts = appendArray(stmts, tfFunc) }
+            } else {
+                Value vd = parseTypeFirstTail(state, tname, dline)
+                if (vd != []) { stmts = appendArray(stmts, vd) }
+            }
+            if (psCurKind(state) == TK_SEMICOLON()) { psAdvance(state) }
+            continue
+        }
+
         // func name(params) { body }
         if (kind == TK_FUNC()) {
-            let funcNode = parseFunc(state, "")
+            Value funcNode = parseFunc(state, "")
             if (funcNode != []) { stmts = appendArray(stmts, funcNode) }
             continue
         }
 
-        // @target(ident) func name(params) { body } — Phase 98.
+        // @target(ident) func name(params) { body } Ã¢â‚¬â€ Phase 98.
         // The attribute is consumed here so it is never treated as a call
         // expression; the target is attached to the FuncDecl node.
         if (kind == TK_AT()) {
-            let tv = parseTargetAttr(state)
+            string tv = parseTargetAttr(state)
             if (tv != "") {
                 if (psCurKind(state) != TK_FUNC()) {
                     psAddError(state, "@target(...) must be followed by 'func'")
                     continue
                 }
-                let funcNode = parseFunc(state, tv)
+                Value funcNode = parseFunc(state, tv)
                 if (funcNode != []) { stmts = appendArray(stmts, funcNode) }
                 continue
             }
-            // Not a @target attribute — fall through to the expression path.
+            // Not a @target attribute Ã¢â‚¬â€ fall through to the expression path.
         }
 
         // type Name struct { field type, ... }
         if (kind == TK_TYPE()) {
-            let sd = parseStructDecl(state)
+            Value sd = parseStructDecl(state)
             if (sd != []) { stmts = appendArray(stmts, sd) }
             continue
         }
 
         // enum Name { Variant, Variant(payload), ... }
         if (kind == TK_ENUM()) {
-            let ed = parseEnumDecl(state)
+            Value ed = parseEnumDecl(state)
             if (ed != []) { stmts = appendArray(stmts, ed) }
             continue
         }
 
         // kernel name(params) { body }
         if (kind == TK_KERNEL()) {
-            let k = parseKernel(state)
+            Value k = parseKernel(state)
             if (k != []) { stmts = appendArray(stmts, k) }
             continue
         }
 
         // Statement-level constructs
         if (kind == TK_LET() || kind == TK_VAR() || kind == TK_CONST()) {
-            let vd = parseVarDecl(state)
+            Value vd = parseVarDecl(state)
             if (vd != []) { stmts = appendArray(stmts, vd) }
             continue
         }
 
         if (kind == TK_PRINT()) {
-            let pr = parsePrint(state)
+            Value pr = parsePrint(state)
             if (pr != []) { stmts = appendArray(stmts, pr) }
             continue
         }
 
         if (kind == TK_RETURN()) {
-            let ret = parseReturn(state)
+            Value ret = parseReturn(state)
             if (ret != []) { stmts = appendArray(stmts, ret) }
             continue
         }
 
         if (kind == TK_IF()) {
-            let ifStmt = parseIf(state)
+            Value ifStmt = parseIf(state)
             if (ifStmt != []) { stmts = appendArray(stmts, ifStmt) }
             continue
         }
 
         if (kind == TK_WHILE()) {
-            let wh = parseWhile(state)
+            Value wh = parseWhile(state)
             if (wh != []) { stmts = appendArray(stmts, wh) }
             continue
         }
 
         if (kind == TK_FOR()) {
-            let fr = parseFor(state)
+            Value fr = parseFor(state)
             if (fr != []) { stmts = appendArray(stmts, fr) }
             continue
         }
@@ -788,13 +837,13 @@ func parseWithState(state) {
         }
 
         // Expression statement
-        let expr = parseExpr(state)
+        Value expr = parseExpr(state)
         if (expr != []) {
             stmts = appendArray(stmts, makeExprStmt(expr, psLine(state)))
             continue
         }
 
-        // Unknown token — skip
+        // Unknown token Ã¢â‚¬â€ skip
         psAddError(state, "unexpected token at top level")
         psAdvance(state)
     }
@@ -815,8 +864,8 @@ func parseCBlock(state) {
 
     // We need the raw source to extract C code between braces.
     // The lexer already consumed the '{', so we scan tokens until matching '}'
-    let depth = 1
-    let start = psPos(state)
+    int depth = 1
+    int start = psPos(state)
     psAdvance(state) // consume '{'
 
     while (psCurKind(state) != TK_EOF() && depth > 0) {
@@ -828,7 +877,7 @@ func parseCBlock(state) {
         psAdvance(state)
     }
 
-    // For now, return empty string — C block extraction needs source-level access
+    // For now, return empty string Ã¢â‚¬â€ C block extraction needs source-level access
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
     return ""
 }
@@ -849,7 +898,7 @@ func parseTargetAttr(state) {
     psAdvance(state) // consume 'target'
     if (psCurKind(state) != TK_LPAREN()) { return "" }
     psAdvance(state) // consume '('
-    let tname = ""
+    string tname = ""
     if (psCurKind(state) == TK_IDENT()) {
         tname = psCurLiteral(state)
         psAdvance(state) // consume target name
@@ -867,21 +916,21 @@ func parseTargetAttr(state) {
 // the function's opening token line. This matters when blank lines separate
 // declarations: the previous token's line can be off by the gap count.
 func parseFunc(state, target) {
-    let cur = psCurToken(state)
-    let line = 0
+    Value cur = psCurToken(state)
+    int line = 0
     if (len(cur) > 0) { line = tokenLine(cur) }
-    let startCol = 0
-    let pos = psPos(state)
-    let tokens = psTokens(state)
+    int startCol = 0
+    int pos = psPos(state)
+    Value tokens = psTokens(state)
     if (pos < len(tokens)) { startCol = tokenCol(tokens[pos]) }
 
     psAdvance(state) // consume 'func'
 
-    let name = psCurLiteral(state)
+    int name = psCurLiteral(state)
     psAdvance(state) // consume name
 
     // Phase 146: optional generic parameters [T, U]
-    let genericParams = []
+    Value genericParams = []
     if (psCurKind(state) == TK_LBRACKET()) {
         genericParams = parseGenericParams(state)
     }
@@ -893,18 +942,54 @@ func parseFunc(state, target) {
     }
     psAdvance(state)
 
-    // Parse parameters
-    let params = []
+    // Parse parameters (both `a int` and `int a` forms).
+    Value params = []
+    Value ptypes = []
     while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
-        if (psCurKind(state) == TK_IDENT()) {
-            params = appendArray(params, psCurLiteral(state))
+        if (psCurKind(state) == TK_IDENT() && (psIsTypeKind(psPeekKind(state)) == 1 || psPeekKind(state) == TK_FN())) {
+            // KCC-FIX: `name type` order where the type is a KEYWORD
+            // (`n int`, `g fn`). psIsTypeToken() below also accepts TK_IDENT,
+            // so it claimed this shape first: it read `n` as the TYPE, left
+            // `int` unconsumed, and the loop then emitted a phantom parameter
+            // for the keyword -- `func f(n int)` expected TWO arguments and
+            // `func apply_twice(g fn, v int)` expected four. The Go reference
+            // parser reads a name then an optional annotation, so this arm is
+            // parity, not an extension. An `IDENT IDENT` pair (`Value x`,
+            // `a Acct`) is deliberately NOT routed here: it is genuinely
+            // ambiguous and the type-first arm below keeps its behaviour.
+            string pname = psCurLiteral(state)
             psAdvance(state)
-            // Skip optional type annotation
-            if (psIsTypeToken(state)) { psAdvance(state) }
-            if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+            string pty = psCurLiteral(state)
+            psAdvance(state)
+            params = appendArray(params, pname)
+            ptypes = appendArray(ptypes, pty)
+        } else if (psIsTypeToken(state)) {
+            string pt = psCurLiteral(state)
+            psAdvance(state)
+            while (psCurKind(state) == TK_LBRACKET() && psPeekKind(state) == TK_RBRACKET()) {
+                pt = pt + "[]"
+                psAdvance(state)
+                psAdvance(state)
+            }
+            if (psCurKind(state) == TK_IDENT()) {
+                params = appendArray(params, psCurLiteral(state))
+                ptypes = appendArray(ptypes, pt)
+                psAdvance(state)
+            } else {
+                params = appendArray(params, pt)
+                ptypes = appendArray(ptypes, "")
+            }
+        } else if (psCurKind(state) == TK_IDENT()) {
+            string pname = psCurLiteral(state)
+            psAdvance(state)
+            string pt = ""
+            if (psIsTypeToken(state)) { pt = psCurLiteral(state); psAdvance(state) }
+            params = appendArray(params, pname)
+            ptypes = appendArray(ptypes, pt)
         } else {
             psAdvance(state)
         }
+        if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
     }
     if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
 
@@ -918,11 +1003,12 @@ func parseFunc(state, target) {
     }
     psAdvance(state)
 
-    let body = parseBlock(state)
+    Value body = parseBlock(state)
 
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
 
-    let funcDecl = makeFuncDecl(name, params, body, line, startCol)
+    Value funcDecl = makeFuncDecl(name, params, body, line, startCol)
+    funcDecl = setFuncParamTypes(funcDecl, ptypes)
     if (len(genericParams) > 0) {
         // Store genericParams at index 6
         if (len(funcDecl) <= 6) { funcDecl = appendArray(funcDecl, []) }
@@ -936,28 +1022,67 @@ func parseFunc(state, target) {
 // ============================================================
 
 func parseBlock(state) {
-    let stmts = []
+    Value stmts = []
     while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
-        let before = psPos(state)
-        let kind = psCurKind(state)
+        int before = psPos(state)
+        int kind = psCurKind(state)
 
-        if (kind == TK_LET() || kind == TK_VAR() || kind == TK_CONST()) {
-            let vd = parseVarDecl(state)
+        if (kind == TK_CONST() && psIsTypeKind(psPeekKind(state)) == 1) {
+            int tname = psTypeKindName(psPeekKind(state))
+            psAdvance(state) // consume 'const'
+            psAdvance(state) // consume type keyword
+            Value cd = parseTypeFirstConstTail(state, tname, psLine(state))
+            if (cd != []) { stmts = appendArray(stmts, cd) }
+        } else if (kind == TK_LET() || kind == TK_VAR() || kind == TK_CONST()) {
+            Value vd = parseVarDecl(state)
+            if (vd != []) { stmts = appendArray(stmts, vd) }
+        } else if (kind == TK_FN() && psPeekKind(state) == TK_IDENT()) {
+            // Type-first function-value declaration: `fn name = fn(...) { ... }`.
+            // Mirrors the Go parser's TokenFn statement branch: `fn` followed by
+            // an identifier is a type-first declaration, while `fn(` in
+            // expression position stays a lambda.
+            psAdvance(state) // consume 'fn'
+            Value vd = parseTypeFirstDecl(state, "fn")
+            if (vd != []) { stmts = appendArray(stmts, vd) }
+        } else if (psIsTypeKind(kind) == 1) {
+            psAdvance(state) // consume the type keyword
+            Value vd = parseTypeFirstDecl(state, psTypeKindName(kind))
+            if (vd != []) { stmts = appendArray(stmts, vd) }
+        } else if (kind == TK_IDENT() && psCurLiteral(state) == "map" && psPeekKind(state) == TK_LBRACKET()) {
+            psAdvance(state) // consume 'map'
+            int tname = psParseMapTypeSpec(state)
+            Value vd = parseTypeFirstDecl(state, tname)
+            if (vd != []) { stmts = appendArray(stmts, vd) }
+        } else if (kind == TK_IDENT() && psPeekKind(state) == TK_LBRACKET() && psPeekKind2(state) == TK_RBRACKET()) {
+            // Identifier-typed array declaration: `T[] xs = [...]`.
+            int tname = psCurLiteral(state)
+            psAdvance(state)
+            while (psCurKind(state) == TK_LBRACKET() && psPeekKind(state) == TK_RBRACKET()) {
+                tname = tname + "[]"
+                psAdvance(state)
+                psAdvance(state)
+            }
+            Value vd = parseTypeFirstTail(state, tname, psLine(state))
+            if (vd != []) { stmts = appendArray(stmts, vd) }
+        } else if (kind == TK_IDENT() && psPeekKind(state) == TK_IDENT()) {
+            int tname = psCurLiteral(state)
+            psAdvance(state)
+            Value vd = parseTypeFirstDecl(state, tname)
             if (vd != []) { stmts = appendArray(stmts, vd) }
         } else if (kind == TK_PRINT()) {
-            let pr = parsePrint(state)
+            Value pr = parsePrint(state)
             if (pr != []) { stmts = appendArray(stmts, pr) }
         } else if (kind == TK_RETURN()) {
-            let ret = parseReturn(state)
+            Value ret = parseReturn(state)
             if (ret != []) { stmts = appendArray(stmts, ret) }
         } else if (kind == TK_IF()) {
-            let ifStmt = parseIf(state)
+            Value ifStmt = parseIf(state)
             if (ifStmt != []) { stmts = appendArray(stmts, ifStmt) }
         } else if (kind == TK_WHILE()) {
-            let wh = parseWhile(state)
+            Value wh = parseWhile(state)
             if (wh != []) { stmts = appendArray(stmts, wh) }
         } else if (kind == TK_FOR()) {
-            let fr = parseFor(state)
+            Value fr = parseFor(state)
             if (fr != []) { stmts = appendArray(stmts, fr) }
         } else if (kind == TK_BREAK()) {
             psAdvance(state)
@@ -968,11 +1093,11 @@ func parseBlock(state) {
         } else if (kind == TK_LBRACE()) {
             // Nested block
             psAdvance(state)
-            let inner = parseBlock(state)
+            Value inner = parseBlock(state)
             if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
             stmts = appendArray(stmts, makeBlock(inner))
         } else {
-            let expr = parseExpr(state)
+            Value expr = parseExpr(state)
             if (expr != []) {
                 stmts = appendArray(stmts, makeExprStmt(expr, psLine(state)))
             } else {
@@ -992,19 +1117,180 @@ func parseBlock(state) {
 // Parse variable declaration: let name = value or let name: type = value
 // ============================================================
 
+// Type-first declarations: `int x = 42`, `int[] xs = [1,2]`.
+func psIsTypeKind(k) {
+    if (k == TK_INT()) { return 1 }
+    if (k == TK_BOOL()) { return 1 }
+    if (k == TK_FLOAT64()) { return 1 }
+    if (k == TK_STRING()) { return 1 }
+    if (k == TK_BYTE()) { return 1 }
+    if (k == TK_SHORT()) { return 1 }
+    if (k == TK_LONG()) { return 1 }
+    if (k == TK_FLOAT()) { return 1 }
+    if (k == TK_DOUBLE()) { return 1 }
+    if (k == TK_CHAR()) { return 1 }
+    if (k == TK_VALUE()) { return 1 }
+    return 0
+}
+
+func psTypeKindName(k) {
+    if (k == TK_INT()) { return "int" }
+    if (k == TK_BOOL()) { return "bool" }
+    if (k == TK_FLOAT64()) { return "float64" }
+    if (k == TK_STRING()) { return "string" }
+    if (k == TK_BYTE()) { return "byte" }
+    if (k == TK_SHORT()) { return "short" }
+    if (k == TK_LONG()) { return "long" }
+    if (k == TK_FLOAT()) { return "float" }
+    if (k == TK_DOUBLE()) { return "double" }
+    if (k == TK_CHAR()) { return "char" }
+    if (k == TK_VALUE()) { return "Value" }
+    return ""
+}
+
+// parseTypeFirstTail consumes the name and initializer after a type spec.
+func parseTypeFirstTail(state, typeName, line) {
+    string t = typeName
+    while (psCurKind(state) == TK_LBRACKET() && psPeekKind(state) == TK_RBRACKET()) {
+        t = t + "[]"
+        psAdvance(state)
+        psAdvance(state)
+    }
+    if (psCurKind(state) != TK_IDENT() && psCurKind(state) != TK_MATRIX()) {
+        psAddError(state, "expected variable name after type '" + t + "'")
+        return []
+    }
+    int name = psCurLiteral(state)
+    psAdvance(state)
+    if (psCurKind(state) != TK_ASSIGN()) {
+        psAddError(state, "expected '=' after type-first declaration")
+        return []
+    }
+    psAdvance(state)
+    Value value = parseExpr(state)
+    return makeVarDecl(name, value, t, line)
+}
+
+func parseTypeFirstFunc(state, retType, target) {
+    Value cur = psCurToken(state)
+    int line = 0
+    if (len(cur) > 0) { line = tokenLine(cur) }
+    Value tokens = psTokens(state)
+    int startCol = 0
+    if (psPos(state) < len(tokens)) { startCol = tokenCol(tokens[psPos(state)]) }
+    if (psCurKind(state) != TK_IDENT()) {
+        psAddError(state, "expected function name after return type")
+        return []
+    }
+    int name = psCurLiteral(state)
+    psAdvance(state)
+
+    if (psCurKind(state) != TK_LPAREN()) {
+        psAddError(state, "expected '(' after function name")
+        return []
+    }
+    psAdvance(state)
+    Value params = []
+    Value ptypes = []
+    while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
+        if (psIsTypeToken(state)) {
+            string pt = psCurLiteral(state)
+            psAdvance(state)
+            while (psCurKind(state) == TK_LBRACKET() && psPeekKind(state) == TK_RBRACKET()) {
+                pt = pt + "[]"
+                psAdvance(state)
+                psAdvance(state)
+            }
+            if (psCurKind(state) == TK_IDENT()) {
+                params = appendArray(params, psCurLiteral(state))
+                ptypes = appendArray(ptypes, pt)
+                psAdvance(state)
+            } else {
+                params = appendArray(params, pt)
+                ptypes = appendArray(ptypes, "")
+            }
+        } else if (psCurKind(state) == TK_IDENT()) {
+            string pname = psCurLiteral(state)
+            psAdvance(state)
+            string pt = ""
+            if (psIsTypeToken(state)) { pt = psCurLiteral(state); psAdvance(state) }
+            params = appendArray(params, pname)
+            ptypes = appendArray(ptypes, pt)
+        } else {
+            psAdvance(state)
+        }
+        if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+    }
+    if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
+    if (psIsTypeToken(state)) { psAdvance(state) }
+    if (psCurKind(state) != TK_LBRACE()) {
+        psAddError(state, "expected '{' for function body")
+        return []
+    }
+    psAdvance(state)
+    Value body = parseBlock(state)
+    if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
+    Value funcDecl = makeFuncDecl(name, params, body, line, startCol)
+    funcDecl = setTfFuncReturnType(funcDecl, retType)
+    funcDecl = setFuncParamTypes(funcDecl, ptypes)
+
+    if (target != "") { funcDecl = setFuncTarget(funcDecl, target) }
+    return funcDecl
+}
+
+func parseTypeFirstDecl(state, typeName) {
+    int line = psLine(state)
+    return parseTypeFirstTail(state, typeName, line)
+}
+
+// psParseMapTypeSpec consumes `map[K]V` after the `map` identifier.
+func psParseMapTypeSpec(state) {
+    string t = "map"
+    if (psCurKind(state) != TK_LBRACKET()) { return t }
+    psAdvance(state) // '['
+    int key = psCurLiteral(state)
+    psAdvance(state)
+    if (psCurKind(state) == TK_RBRACKET()) { psAdvance(state) }
+    int val = psCurLiteral(state)
+    if (psCurKind(state) != TK_EOF()) { psAdvance(state) }
+    return t + "[" + key + "]" + val
+}
+
+func parseTypeFirstConstTail(state, typeName, line) {
+    string t = typeName
+    while (psCurKind(state) == TK_LBRACKET() && psPeekKind(state) == TK_RBRACKET()) {
+        t = t + "[]"
+        psAdvance(state)
+        psAdvance(state)
+    }
+    if (psCurKind(state) != TK_IDENT()) {
+        psAddError(state, "expected constant name after type '" + t + "'")
+        return []
+    }
+    int name = psCurLiteral(state)
+    psAdvance(state)
+    if (psCurKind(state) != TK_ASSIGN()) {
+        psAddError(state, "expected '=' after typed constant")
+        return []
+    }
+    psAdvance(state)
+    Value value = parseExpr(state)
+    return makeConstDecl(name, value, t, line)
+}
+
 func parseVarDecl(state) {
-    let line = psLine(state)
-    let isLet = 1
+    int line = psLine(state)
+    int isLet = 1
     if (psCurKind(state) == TK_VAR()) { isLet = 0 }
-    let isConst = 0
+    int isConst = 0
     if (psCurKind(state) == TK_CONST()) { isConst = 1 }
     psAdvance(state) // consume let/var/const
 
-    let name = psCurLiteral(state)
+    int name = psCurLiteral(state)
     psAdvance(state) // consume name
 
     // Optional type annotation: name type or name: type
-    let typeName = ""
+    string typeName = ""
     if (psCurKind(state) == TK_COLON()) {
         psAdvance(state) // consume ':'
         typeName = psCurLiteral(state)
@@ -1013,22 +1299,28 @@ func parseVarDecl(state) {
         typeName = psCurLiteral(state)
         psAdvance(state) // consume type
     }
+    // Explicit array annotation: `int[]`, `string[]`, ...
+    while (psCurKind(state) == TK_LBRACKET() && psPeekKind(state) == TK_RBRACKET()) {
+        typeName = typeName + "[]"
+        psAdvance(state)
+        psAdvance(state)
+    }
 
     // Consume '='
     if (psCurKind(state) == TK_ASSIGN()) {
         psAdvance(state)
     }
 
-    let value = []
-    let isFn = 0
+    Value value = []
+    int isFn = 0
     if (psCurKind(state) == TK_FN()) {
         // Phase 121: let x = fn(a, b) { ... } desugars to a named FuncDecl so
         // the closure is emitted as a top-level C function (mirrors the Go
-        // parser). The binding's own name is never a capture — recursive calls
+        // parser). The binding's own name is never a capture Ã¢â‚¬â€ recursive calls
         // inside the body route to the top-level C symbol.
         isFn = 1
-        let lambda = parseLambda(state)
-        let caps = computeCaptures(lambdaParams(lambda), lambdaBody(lambda))
+        Value lambda = parseLambda(state)
+        Value caps = computeCaptures(lambdaParams(lambda), lambdaBody(lambda))
         caps = capRemove([caps, caps], name)[0]
         value = setFuncCaptures(makeFuncDecl(name, lambdaParams(lambda), lambdaBody(lambda), line, 0), caps)
     } else {
@@ -1040,14 +1332,14 @@ func parseVarDecl(state) {
 }
 
 // ============================================================
-// Phase 121: lambda expressions — fn(a, b) { return a + b }
+// Phase 121: lambda expressions Ã¢â‚¬â€ fn(a, b) { return a + b }
 // ============================================================
 
 func parseLambda(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'fn'
     if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
-    let params = []
+    Value params = []
     while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
         if (psCurKind(state) == TK_IDENT()) {
             params = appendArray(params, psCurLiteral(state))
@@ -1063,7 +1355,7 @@ func parseLambda(state) {
     // the parameter list (e.g. `fn(a, b) int { ... }`). Consume it so the
     // brace that opens the body is properly aligned on both engines.
     if (psIsTypeToken(state)) { psAdvance(state) }
-    let body = []
+    Value body = []
     if (psCurKind(state) == TK_LBRACE()) {
         psAdvance(state)
         body = parseBlock(state)
@@ -1078,34 +1370,34 @@ func parseLambda(state) {
 // ============================================================
 
 func parseAlloc(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'alloc'
     if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
-    let tname = psCurLiteral(state)
+    int tname = psCurLiteral(state)
     psAdvance(state) // consume type name
     if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
-    let count = parseExpr(state)
+    Value count = parseExpr(state)
     if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
     return makeAlloc(tname, count, line)
 }
 
 func parseFree(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'free'
     if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
-    let ptr = parseExpr(state)
+    Value ptr = parseExpr(state)
     if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
     return makeFree(ptr, line)
 }
 
-// Phase 137: spawn(fn, args...) — mirrors Go parseSpawn exactly
+// Phase 137: spawn(fn, args...) Ã¢â‚¬â€ mirrors Go parseSpawn exactly
 // (unconditional consumes; a non-identifier target is a recorded error
 // with recovery past the offending token).
 func parseSpawnExpr(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'spawn'
     psAdvance(state) // consume '('
-    let fname = ""
+    string fname = ""
     if (psCurKind(state) == TK_IDENT()) {
         fname = psCurLiteral(state)
         psAdvance(state) // consume function name
@@ -1113,11 +1405,11 @@ func parseSpawnExpr(state) {
         psAddError(state, "expected function name in spawn(...)")
         psAdvance(state) // recover past the offending token
     }
-    let args = []
+    Value args = []
     if (psCurKind(state) == TK_COMMA()) {
         psAdvance(state) // consume ','
         while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
-            let arg = parseExpr(state)
+            Value arg = parseExpr(state)
             if (arg != []) { args = appendArray(args, arg) }
             if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
         }
@@ -1126,13 +1418,13 @@ func parseSpawnExpr(state) {
     return makeSpawn(fname, args, line)
 }
 
-// Phase 137: receive(ch) — mirrors Go parseReceiveChannel/ChRecvExpr
+// Phase 137: receive(ch) Ã¢â‚¬â€ mirrors Go parseReceiveChannel/ChRecvExpr
 // (unconditional consumes).
 func parseChRecv(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'receive'
     psAdvance(state) // consume '('
-    let ch = parseExpr(state)
+    Value ch = parseExpr(state)
     if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
     return makeChRecv(ch, line)
 }
@@ -1141,16 +1433,16 @@ func parseChRecv(state) {
 // plain call nodes with the keyword as callee, exactly like the Go front
 // end. Arity and existence resolve at check time.
 func parseKeywordCall(state, name) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume keyword
     if (psCurKind(state) != TK_LPAREN()) {
         psAddError(state, "expected '(' after '" + name + "'")
         return []
     }
     psAdvance(state) // consume '('
-    let args = []
+    Value args = []
     while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
-        let arg = parseExpr(state)
+        Value arg = parseExpr(state)
         if (arg != []) { args = appendArray(args, arg) }
         if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
     }
@@ -1163,13 +1455,13 @@ func parseKeywordCall(state, name) {
 // ============================================================
 
 func parsePrint(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'print'
 
     // Optional '('
     if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
 
-    let val = parseExpr(state)
+    Value val = parseExpr(state)
 
     if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
 
@@ -1181,10 +1473,10 @@ func parsePrint(state) {
 // ============================================================
 
 func parseReturn(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'return'
 
-    let val = parseExpr(state)
+    Value val = parseExpr(state)
     return makeReturn(val, line)
 }
 
@@ -1193,26 +1485,26 @@ func parseReturn(state) {
 // ============================================================
 
 func parseIf(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'if'
 
-    // Phase 81: unparenthesized conditions — `if x < y { ... }`. An identifier
+    // Phase 81: unparenthesized conditions Ã¢â‚¬â€ `if x < y { ... }`. An identifier
     // directly before the body opener must stay a plain operand rather than
     // being consumed as a `Type{...}` struct literal. The flag is cleared
     // inside '(' groups so parenthesized struct literals keep working.
     setPsNoStructAtBrace(state, 1)
-    let cond = parseExpr(state)
+    Value cond = parseExpr(state)
     setPsNoStructAtBrace(state, 0)
 
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
-    let cons = parseBlock(state)
+    Value cons = parseBlock(state)
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
 
-    let alt = []
+    Value alt = []
     if (psCurKind(state) == TK_ELSE()) {
         psAdvance(state) // consume 'else'
         if (psCurKind(state) == TK_IF()) {
-            let elseIf = parseIf(state)
+            Value elseIf = parseIf(state)
             alt = appendArray(alt, elseIf)
         } else {
             if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
@@ -1229,20 +1521,20 @@ func parseIf(state) {
 // ============================================================
 
 func parseWhile(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'while'
 
-    // Phase 117: mirror parseIf — the condition may be parenthesized or bare
+    // Phase 117: mirror parseIf Ã¢â‚¬â€ the condition may be parenthesized or bare
     // (`while x < n { ... }`), and a soon-to-be body '{' must not be absorbed
     // as a struct/map literal continuation of the condition expression. The
     // flag is cleared inside '(' groups so parenthesized struct literals keep
     // working, exactly as in parseIf.
     setPsNoStructAtBrace(state, 1)
-    let cond = parseExpr(state)
+    Value cond = parseExpr(state)
     setPsNoStructAtBrace(state, 0)
 
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
-    let body = parseBlock(state)
+    Value body = parseBlock(state)
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
 
     return makeWhile(cond, body, line)
@@ -1253,22 +1545,22 @@ func parseWhile(state) {
 // ============================================================
 
 func parseFor(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'for'
 
     // for-in: for x in expr { ... }
     if (psCurKind(state) == TK_IDENT() && psPeekKind(state) == TK_IN()) {
-        let varName = psCurLiteral(state)
+        int varName = psCurLiteral(state)
         psAdvance(state) // var
         psAdvance(state) // in
         // Keep the upcoming body '{' from being absorbed as a struct or map
         // literal continuation of the iterator expression.
-        let saved = psNoStructAtBrace(state)
+        int saved = psNoStructAtBrace(state)
         setPsNoStructAtBrace(state, 1)
-        let iter = parseExpr(state)
+        Value iter = parseExpr(state)
         setPsNoStructAtBrace(state, saved)
         if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
-        let body = parseBlock(state)
+        Value body = parseBlock(state)
         if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
         return makeForIn(varName, iter, body, line)
     }
@@ -1276,7 +1568,7 @@ func parseFor(state) {
     // C-style: for (init; cond; post) { ... }
     if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
 
-    let init = []
+    Value init = []
     if (psCurKind(state) != TK_SEMICOLON()) {
         if (psCurKind(state) == TK_LET() || psCurKind(state) == TK_VAR() || psCurKind(state) == TK_CONST()) {
             init = parseVarDecl(state)
@@ -1286,17 +1578,17 @@ func parseFor(state) {
     }
     if (psCurKind(state) == TK_SEMICOLON()) { psAdvance(state) }
 
-    let cond = parseExpr(state)
+    Value cond = parseExpr(state)
     if (psCurKind(state) == TK_SEMICOLON()) { psAdvance(state) }
 
-    let post = []
+    Value post = []
     if (psCurKind(state) != TK_RPAREN()) {
         post = parseExpr(state)
     }
     if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
 
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
-    let body = parseBlock(state)
+    Value body = parseBlock(state)
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
 
     return makeFor(init, cond, post, body, line)
@@ -1306,17 +1598,17 @@ func parseFor(state) {
 // Phase 146: Parse generic parameters [T, U] with optional constraints T: Numeric
 // ============================================================
 func parseGenericParams(state) {
-    let params = []
+    Value params = []
     psAdvance(state) // consume '['
     while (psCurKind(state) != TK_RBRACKET() && psCurKind(state) != TK_EOF()) {
         if (psCurKind(state) == TK_IDENT()) {
-            let name = psCurLiteral(state)
+            int name = psCurLiteral(state)
             psAdvance(state)
             // Optional constraint: T: Numeric
             if (psCurKind(state) == TK_COLON()) {
                 psAdvance(state) // consume ':'
                 if (psCurKind(state) == TK_IDENT()) {
-                    let constraint = psCurLiteral(state)
+                    int constraint = psCurLiteral(state)
                     psAdvance(state)
                     name = name + ":" + constraint
                 }
@@ -1336,14 +1628,14 @@ func parseGenericParams(state) {
 // ============================================================
 
 func parseStructDecl(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'type'
 
-    let name = psCurLiteral(state)
+    int name = psCurLiteral(state)
     psAdvance(state) // consume name
 
     // Phase 146: optional generic parameters [T, U]
-    let genericParams = []
+    Value genericParams = []
     if (psCurKind(state) == TK_LBRACKET()) {
         genericParams = parseGenericParams(state)
     }
@@ -1351,11 +1643,11 @@ func parseStructDecl(state) {
     if (psCurKind(state) == TK_STRUCT()) { psAdvance(state) }
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
 
-    let fields = []
+    Value fields = []
     while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
-        let fieldName = psCurLiteral(state)
+        int fieldName = psCurLiteral(state)
         psAdvance(state)
-        let fieldType = psCurLiteral(state)
+        int fieldType = psCurLiteral(state)
         psAdvance(state)
         fields = appendArray(fields, fieldName + ":" + fieldType)
         if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
@@ -1363,7 +1655,7 @@ func parseStructDecl(state) {
     }
 
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
-    let st = makeStructDecl(name, fields, line)
+    Value st = makeStructDecl(name, fields, line)
     if (len(genericParams) > 0) {
         if (len(st) <= 4) { st = appendArray(st, []) }
         st[4] = genericParams
@@ -1376,20 +1668,20 @@ func parseStructDecl(state) {
 // ============================================================
 
 func parseEnumDecl(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'enum'
 
-    let name = psCurLiteral(state)
+    int name = psCurLiteral(state)
     psAdvance(state) // consume name
     psAddEnumName(state, name) // Phase 123: enable EnumName.Variant syntax
 
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
 
-    let variants = []
+    Value variants = []
     while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
-        let variantName = psCurLiteral(state)
+        int variantName = psCurLiteral(state)
         psAdvance(state)
-        let payload = ""
+        string payload = ""
         if (psCurKind(state) == TK_LPAREN()) {
             psAdvance(state)
             payload = psCurLiteral(state)
@@ -1409,15 +1701,15 @@ func parseEnumDecl(state) {
 // ============================================================
 
 func parseKernel(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'kernel'
 
-    let name = psCurLiteral(state)
+    int name = psCurLiteral(state)
     psAdvance(state)
 
     if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
 
-    let params = []
+    Value params = []
     while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
         if (psCurKind(state) == TK_IDENT()) {
             params = appendArray(params, psCurLiteral(state))
@@ -1432,14 +1724,14 @@ func parseKernel(state) {
     if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
 
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
-    let body = parseBlock(state)
+    Value body = parseBlock(state)
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
 
     return makeKernel(name, params, body, line)
 }
 
 // ============================================================
-// Expression parsing — Pratt parser
+// Expression parsing Ã¢â‚¬â€ Pratt parser
 // ============================================================
 
 func parseExpr(state) {
@@ -1455,10 +1747,10 @@ func parseBinary(state, left, minPrec) {
         // Postfix: index [expr] or slice [start:end]
         while (psCurKind(state) == TK_LBRACKET()) {
             psAdvance(state) // consume '['
-            let idx = parseExpr(state)
+            Value idx = parseExpr(state)
             if (psCurKind(state) == TK_COLON()) {
                 psAdvance(state) // consume ':'
-                let end = []
+                Value end = []
                 if (psCurKind(state) != TK_RBRACKET()) {
                     end = parseExpr(state)
                 }
@@ -1479,10 +1771,10 @@ func parseBinary(state, left, minPrec) {
         // TYPE_FUNC Value cell). Chains (`get_fn()(1)`) loop.
         while (psCurKind(state) == TK_LPAREN()) {
             psAdvance(state) // consume '('
-            let callLine = psLine(state)
-            let args = []
+            int callLine = psLine(state)
+            Value args = []
             while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
-                let arg = parseExpr(state)
+                Value arg = parseExpr(state)
                 if (arg != []) { args = appendArray(args, arg) }
                 if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
             }
@@ -1493,7 +1785,7 @@ func parseBinary(state, left, minPrec) {
         // Postfix: .field
         while (psCurKind(state) == TK_DOT()) {
             psAdvance(state) // consume '.'
-            let field = psCurLiteral(state)
+            int field = psCurLiteral(state)
             psAdvance(state)
             left = makeDot(left, field, psLine(state))
         }
@@ -1507,21 +1799,21 @@ func parseBinary(state, left, minPrec) {
         // Assignment: lhs = rhs (simple, index, or dot target)
         if (psCurKind(state) == TK_ASSIGN()) {
             psAdvance(state) // consume '='
-            let rhs = parseExpr(state)
+            Value rhs = parseExpr(state)
             left = makeBinary("=", left, rhs, psLine(state))
             break
         }
 
         // Binary operator
-        let kind = psCurKind(state)
+        int kind = psCurKind(state)
         if (!isOpToken(kind)) { break }
 
-        let op = kindToOp(kind)
-        let prec = kPrec(op)
+        int op = kindToOp(kind)
+        int prec = kPrec(op)
         if (prec < minPrec) { break }
 
         psAdvance(state) // consume operator
-        let right = parseBinary(state, [], prec + 1)
+        Value right = parseBinary(state, [], prec + 1)
         left = makeBinary(op, left, right, psLine(state))
     }
 
@@ -1531,12 +1823,12 @@ func parseBinary(state, left, minPrec) {
 func parseUnary(state) {
     if (psCurKind(state) == TK_MINUS()) {
         psAdvance(state)
-        let operand = parseUnary(state)
+        Value operand = parseUnary(state)
         return makeUnary("-", operand, psLine(state))
     }
     if (psCurKind(state) == TK_NOT()) {
         psAdvance(state)
-        let operand = parseUnary(state)
+        Value operand = parseUnary(state)
         return makeUnary("!", operand, psLine(state))
     }
     return parsePrimary(state)
@@ -1547,26 +1839,46 @@ func parseUnary(state) {
 // ============================================================
 
 func parsePrimary(state) {
-    let kind = psCurKind(state)
-    let line = psLine(state)
+    int kind = psCurKind(state)
+    int line = psLine(state)
+
+    // Character literal -> integer code point.
+    if (kind == TK_CHAR_LIT()) {
+        int lit = psCurLiteral(state)
+        int code = 0
+        if (len(lit) > 1 && substr(lit, 0, 1) == "\\") {
+            string e = substr(lit, 1, 1)
+            if (e == "n") { code = 10 }
+            if (e == "t") { code = 9 }
+            if (e == "r") { code = 13 }
+            if (e == "0") { code = 0 }
+            if (e == "\\") { code = 92 }
+            if (e == "'") { code = 39 }
+            if (code == 0 && e != "0") { code = asciiVal(e) }
+        } else if (len(lit) > 0) {
+            code = asciiVal(substr(lit, 0, 1))
+        }
+        psAdvance(state)
+        return makeIntLit(str(code), line)
+    }
 
     // String literal
     if (kind == TK_STRING_LIT()) {
-        let val = psCurLiteral(state)
+        int val = psCurLiteral(state)
         psAdvance(state)
         return makeStringLit(val, line)
     }
 
     // Integer literal
     if (kind == TK_INT_LIT()) {
-        let val = psCurLiteral(state)
+        int val = psCurLiteral(state)
         psAdvance(state)
         return makeIntLit(val, line)
     }
 
     // Float literal
     if (kind == TK_FLOAT_LIT()) {
-        let val = psCurLiteral(state)
+        int val = psCurLiteral(state)
         psAdvance(state)
         return makeFloatLit(val, line)
     }
@@ -1584,9 +1896,9 @@ func parsePrimary(state) {
     // Parenthesized expression
     if (kind == TK_LPAREN()) {
         psAdvance(state)
-        let saved = psNoStructAtBrace(state)
+        int saved = psNoStructAtBrace(state)
         setPsNoStructAtBrace(state, 0)
-        let expr = parseExpr(state)
+        Value expr = parseExpr(state)
         if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
         setPsNoStructAtBrace(state, saved)
         return expr
@@ -1602,8 +1914,9 @@ func parsePrimary(state) {
         return parseMapLit(state)
     }
 
-    // Identifier or function call or struct literal
-    if (kind == TK_IDENT()) {
+    // Identifier or function call or struct literal (`matrix` is a keyword
+    // token but is also a legal variable name in type-first declarations).
+    if (kind == TK_IDENT() || kind == TK_MATRIX()) {
         return parseIdentOrCall(state)
     }
 
@@ -1621,21 +1934,21 @@ func parsePrimary(state) {
     if (kind == TK_OK()) {
         psAdvance(state)
         if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
-        let v = parseExpr(state)
+        Value v = parseExpr(state)
         if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
         return makeResultOk(v, line)
     }
     if (kind == TK_ERR()) {
         psAdvance(state)
         if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
-        let v = parseExpr(state)
+        Value v = parseExpr(state)
         if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
         return makeResultErr(v, line)
     }
     if (kind == TK_SOME()) {
         psAdvance(state)
         if (psCurKind(state) == TK_LPAREN()) { psAdvance(state) }
-        let v = parseExpr(state)
+        Value v = parseExpr(state)
         if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
         return makeOptionSome(v, line)
     }
@@ -1689,14 +2002,14 @@ func parsePrimary(state) {
     // Builtin cast call: int(x). The int type keyword is also a cast name;
     // the Go lexer emits an ident for it, so calls parse there and not here.
     if (kind == TK_INT()) {
-        let tname = psCurLiteral(state)
-        let tline = psLine(state)
+        int tname = psCurLiteral(state)
+        int tline = psLine(state)
         psAdvance(state)
         if (psCurKind(state) == TK_LPAREN()) {
             psAdvance(state)
-            let targs = []
+            Value targs = []
             while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
-                let targ = parseExpr(state)
+                Value targ = parseExpr(state)
                 if (targ != []) { targs = appendArray(targs, targ) }
                 if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
             }
@@ -1714,11 +2027,11 @@ func parsePrimary(state) {
 // ============================================================
 
 func parseIdentOrCall(state) {
-    let name = psCurLiteral(state)
-    let line = psLine(state)
-    let col = 0
-    let pos = psPos(state)
-    let tokens = psTokens(state)
+    int name = psCurLiteral(state)
+    int line = psLine(state)
+    int col = 0
+    int pos = psPos(state)
+    Value tokens = psTokens(state)
     if (pos < len(tokens)) { col = tokenCol(tokens[pos]) }
 
     psAdvance(state) // consume identifier
@@ -1726,13 +2039,13 @@ func parseIdentOrCall(state) {
     // Phase 146: optional type arguments [T, U] for generic calls or struct
     // literals. Gate on the full shape [IDENT(,IDENT)*] followed by '(' or '{'
     // so ordinary postfix indexing (s[i], arr[0], m[i][j], slices) is never
-    // consumed here — a pure lookahead over the token array, parsing only
+    // consumed here Ã¢â‚¬â€ a pure lookahead over the token array, parsing only
     // proceeds via the shape check. Phase 146 fix: when psNoStructAtBrace is
     // set (bare if/while condition, for-in iterator) and the follower is '{',
     // the bracket is an index and the brace opens the body (Go parity:
-    // pkg/parser/parser.go:1902) — leave '[' for parseBinary's postfix index
+    // pkg/parser/parser.go:1902) Ã¢â‚¬â€ leave '[' for parseBinary's postfix index
     // loop instead of consuming it as type args.
-    let typeArgs = []
+    Value typeArgs = []
     if (psCurKind(state) == TK_LBRACKET() && psLooksLikeTypeArgs(state) == 1) {
         if (psNoStructAtBrace(state) == 0 || psTypeArgsFollowIsBrace(state) == 0) {
             typeArgs = parseGenericTypeArgs(state)
@@ -1742,14 +2055,14 @@ func parseIdentOrCall(state) {
     // Function call: name[typeArgs](args)
     if (psCurKind(state) == TK_LPAREN()) {
         psAdvance(state) // consume '('
-        let args = []
+        Value args = []
         while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
-            let arg = parseExpr(state)
+            Value arg = parseExpr(state)
             if (arg != []) { args = appendArray(args, arg) }
             if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
         }
         if (psCurKind(state) == TK_RPAREN()) { psAdvance(state) }
-        let call = makeCall(name, args, line, col)
+        Value call = makeCall(name, args, line, col)
         if (len(typeArgs) > 0) { call[5] = typeArgs }
         return call
     }
@@ -1757,7 +2070,7 @@ func parseIdentOrCall(state) {
     // Dot access: name.field, name.field(args), or EnumName.Variant[(payload)]
     if (psCurKind(state) == TK_DOT()) {
         psAdvance(state) // consume '.'
-        let field = psCurLiteral(state)
+        int field = psCurLiteral(state)
         psAdvance(state)
 
         // Enum variant: EnumName.Variant or EnumName.Variant(payload).
@@ -1766,7 +2079,7 @@ func parseIdentOrCall(state) {
         // and member-access paths so enum construction never lowers to
         // map_get (member access on an int tag).
         if (isEnumName(state, name)) {
-            let payload = []
+            Value payload = []
             if (psCurKind(state) == TK_LPAREN()) {
                 psAdvance(state) // consume '('
                 payload = parseExpr(state)
@@ -1778,9 +2091,9 @@ func parseIdentOrCall(state) {
         // Method call: name.method(args)
         if (psCurKind(state) == TK_LPAREN()) {
             psAdvance(state) // consume '('
-            let args = []
+            Value args = []
             while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
-                let arg = parseExpr(state)
+                Value arg = parseExpr(state)
                 if (arg != []) { args = appendArray(args, arg) }
                 if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
             }
@@ -1791,7 +2104,7 @@ func parseIdentOrCall(state) {
             // C.* keeps its dotted name for raw C binds.
             let callName = field
             if (name == "C") { callName = "C." + field }
-            let call = makeCall(callName, args, line, col)
+            Value call = makeCall(callName, args, line, col)
             if (len(typeArgs) > 0) { call[5] = typeArgs }
             return call
         }
@@ -1802,17 +2115,17 @@ func parseIdentOrCall(state) {
     // Struct literal: TypeName[typeArgs] { field: val, ... }
     if (psCurKind(state) == TK_LBRACE() && psNoStructAtBrace(state) == 0) {
         psAdvance(state) // consume '{'
-        let fields = []
+        Value fields = []
         while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
-            let fieldName = psCurLiteral(state)
+            int fieldName = psCurLiteral(state)
             psAdvance(state)
             if (psCurKind(state) == TK_COLON()) { psAdvance(state) }
-            let val = parseExpr(state)
+            Value val = parseExpr(state)
             fields = appendArray(fields, makeBinary("=", makeIdent(fieldName, 0, 0), val, 0))
             if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
         }
         if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
-        let lit = makeStructLit(name, fields, line)
+        Value lit = makeStructLit(name, fields, line)
         if (len(typeArgs) > 0) { lit[4] = typeArgs }
         return lit
     }
@@ -1823,7 +2136,7 @@ func parseIdentOrCall(state) {
 
 // Phase 146: parse generic type arguments [T, U] at expression position
 func parseGenericTypeArgs(state) {
-    let args = []
+    Value args = []
     psAdvance(state) // consume '['
     while (psCurKind(state) != TK_RBRACKET() && psCurKind(state) != TK_EOF()) {
         if (psIsTypeArgName(psCurKind(state)) == 1) {
@@ -1844,12 +2157,12 @@ func parseGenericTypeArgs(state) {
 // ============================================================
 
 func parseArrayLit(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume '['
 
-    let elements = []
+    Value elements = []
     if (psCurKind(state) != TK_RBRACKET()) {
-        let elem = parseExpr(state)
+        Value elem = parseExpr(state)
         if (elem != []) { elements = appendArray(elements, elem) }
         while (psCurKind(state) == TK_COMMA()) {
             psAdvance(state)
@@ -1867,15 +2180,15 @@ func parseArrayLit(state) {
 // ============================================================
 
 func parseMapLit(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume '{'
 
-    let keys = []
-    let values = []
+    Value keys = []
+    Value values = []
     while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
-        let k = parseExpr(state)
+        Value k = parseExpr(state)
         if (psCurKind(state) == TK_COLON()) { psAdvance(state) }
-        let v = parseExpr(state)
+        Value v = parseExpr(state)
         if (k != []) { keys = appendArray(keys, k) }
         if (v != []) { values = appendArray(values, v) }
         if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
@@ -1891,13 +2204,13 @@ func parseMapLit(state) {
 // ============================================================
 
 func parseMatchExpr(state) {
-    let line = psLine(state)
+    int line = psLine(state)
     psAdvance(state) // consume 'match'
 
     // Parse the match value without going through parseIdentOrCall, so an
     // identifier is not mistaken for a struct literal at the arm opener '{'.
-    let value = []
-    let vk = psCurKind(state)
+    Value value = []
+    int vk = psCurKind(state)
     if (vk == TK_IDENT()) {
         value = makeIdent(psCurLiteral(state), psLine(state), 0)
         psAdvance(state)
@@ -1913,12 +2226,12 @@ func parseMatchExpr(state) {
 
     if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
 
-    let arms = []
+    Value arms = []
     while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
-        let pType = ""
+        string pType = ""
         let pBinding = ""
-        let pValue = []
-        let pkind = psCurKind(state)
+        Value pValue = []
+        int pkind = psCurKind(state)
 
         if (pkind == TK_SOME()) {
             pType = "Some"
@@ -1954,15 +2267,15 @@ func parseMatchExpr(state) {
             pType = "literal"
             pValue = parsePrimary(state)
         } else if (pkind == TK_IDENT()) {
-            let nm = psCurLiteral(state)
+            int nm = psCurLiteral(state)
             psAdvance(state) // consume identifier
-            // Phase 123: Enum.Variant pattern — matches Go parseMatchExpr which
+            // Phase 123: Enum.Variant pattern Ã¢â‚¬â€ matches Go parseMatchExpr which
             // treats ANY dotted identifier arm as enum_variant (no enumNames
             // gate here; the tag lookup in codegen falls back to always-match
             // for unknown enums).
             if (psCurKind(state) == TK_DOT()) {
                 psAdvance(state) // consume '.'
-                let variant2 = psCurLiteral(state)
+                int variant2 = psCurLiteral(state)
                 psAdvance(state) // consume variant name
                 pType = "enum_variant"
                 pBinding = nm + "." + variant2
@@ -1977,7 +2290,7 @@ func parseMatchExpr(state) {
             psAdvance(state)
         }
 
-        // Phase 123: mirror Go parseMatchExpr — after any pattern the next
+        // Phase 123: mirror Go parseMatchExpr Ã¢â‚¬â€ after any pattern the next
         // token MUST be '=>' (payload destructuring `Enum.Variant(x)` is not
         // part of the language; Go rejects it with an error). On mismatch add
         // the same diagnostic and still advance so the loop cannot stall.
@@ -1989,23 +2302,23 @@ func parseMatchExpr(state) {
         }
 
         // Body: block, print statement, or a bare expression.
-        let body = []
-        let bk = psCurKind(state)
+        Value body = []
+        int bk = psCurKind(state)
         if (bk == TK_LBRACE()) {
             psAdvance(state)
-            let inner = parseBlock(state)
+            Value inner = parseBlock(state)
             if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
             body = makeBlock(inner)
         } else if (bk == TK_PRINT()) {
             body = parsePrint(state)
         } else {
-            let bexpr = parseExpr(state)
+            Value bexpr = parseExpr(state)
             if (bexpr != []) { body = makeExprStmt(bexpr, psLine(state)) }
         }
 
         arms = appendArray(arms, makeMatchArm(pType, pBinding, pValue, body, psLine(state)))
 
-        // Phase 123: comma is OPTIONAL between arms — mirror Go parseMatchExpr
+        // Phase 123: comma is OPTIONAL between arms Ã¢â‚¬â€ mirror Go parseMatchExpr
         // which consumes an optional comma and then lets the loop parse the
         // next arm naturally. Previously this blindly advanced one token on a
         // non-comma (mis-parsing every arm after the first in comma-less
@@ -2016,3 +2329,4 @@ func parseMatchExpr(state) {
     if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
     return makeMatch(value, arms, line)
 }
+

@@ -10,8 +10,8 @@
 
 // dot x y computes the dot product of two length-2 row vectors.
 func dot(x, y) {
-    let s = 0
-    let i = 0
+    int s = 0
+    int i = 0
     while (i < 2) {
         s = s + x[i] * y[i]
         i = i + 1
@@ -20,10 +20,10 @@ func dot(x, y) {
 }
 
 func main() {
-    let A = [[1, 2], [3, 4]]
-    let B = [[5, 6], [7, 8]]
-    let i = 0
-    let j = 0
+    int[][] A = [[1, 2], [3, 4]]
+    int[][] B = [[5, 6], [7, 8]]
+    int i = 0
+    int j = 0
     while (i < 2) {
         j = 0
         while (j < 2) {

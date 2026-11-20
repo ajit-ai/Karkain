@@ -79,7 +79,7 @@ func net_error() {
 }
 
 // net_fd_open reports whether a Connection/Listener fd is valid (>= 0).
-func net_fd_open(fd) {
+bool net_fd_open(fd) {
     if fd >= 0 {
         return true
     }

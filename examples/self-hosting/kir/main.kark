@@ -26,19 +26,19 @@ func fib(n) {
 }
 
 func main() {
-    let n = 6
-    var total = 0
+    int n = 6
+    int total = 0
     total = fib(n) + 1
 
     // Arrays: array-literal + for-in loop KIR forms.
-    let arr = [1, 2, 3]
+    int[] arr = [1, 2, 3]
     for i in arr {
         total = total + i
     }
 
     // Maps and struct literals: map/struct KIR forms.
-    let m = {"a": 1, "b": 2}
-    let p = Point { x: total, y: 0 }
+    map[string]int m = {"a": 1, "b": 2}
+    Point p = Point { x: total, y: 0 }
 
     // If/else (space-form print), then a while loop.
     if (total > 10) {

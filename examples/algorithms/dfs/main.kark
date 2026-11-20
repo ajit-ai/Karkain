@@ -1,8 +1,8 @@
 func dfs_visit(graph, node, visited) {
     visited[node] = 1
-    let k = 0
+    int k = 0
     while (k < len(graph[node])) {
-        let next = graph[node][k]
+        int[] next = graph[node][k]
         if (visited[next] == 0) {
             dfs_visit(graph, next, visited)
         }
@@ -11,9 +11,9 @@ func dfs_visit(graph, node, visited) {
 }
 
 func dfs(graph, start, target) {
-    let n = len(graph)
-    let visited = []
-    let i = 0
+    int n = len(graph)
+    int[] visited = []
+    int i = 0
     while (i < n) {
         push(visited, 0)
         i = i + 1
@@ -23,7 +23,7 @@ func dfs(graph, start, target) {
 }
 
 func main() {
-    let graph = [[1, 2], [0, 3, 4], [0, 5], [1], [1], [2]]
+    int[][] graph = [[1, 2], [0, 3, 4], [0, 5], [1], [1], [2]]
     print("DFS: start 0 visits 5?")
     print(dfs(graph, 0, 5))
     print("DFS: start 0 visits 3?")

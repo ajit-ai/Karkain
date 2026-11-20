@@ -61,11 +61,12 @@ Type inference
 
 .. code-block:: karkain
 
-   let x = 42          // int
-   let pi = 3.14       // float64
-   let msg = "hello"   // string
-   let flag = true     // bool
-   let arr = [1, 2, 3] // array
+   let x: int = 42
+   let pi: float64 = 3.14
+   let msg: string = "hello"
+   let flag: bool = true
+   let arr: int[] = [1, 2, 3] // typed array
+
 
 Typed declarations
 ==================
@@ -105,3 +106,21 @@ Conversion functions
    let x: float64 = float(42)     // 42.0
    let y: float64 = float("3.14") // 3.14
    let z: float64 = float(true)   // 1.0
+
+Nominal internal value type
+---------------------------
+
+``Value`` is an explicit nominal type used by the self-hosted compiler for
+heterogeneous AST/runtime cells. It is not a general ``any`` type: arithmetic,
+indexing and field access on a bare ``Value`` are rejected; only functions
+declared to return ``Value`` may initialize it. ``Value[]`` denotes an array
+of such values. It is an implementation-facing type of the compiler sources,
+not a user-facing replacement for the primitive catalogue.
+
+.. code-block:: kark
+
+   Value makeNode(int tag) {
+       Value n = []
+       return n
+   }
+

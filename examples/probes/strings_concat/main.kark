@@ -1,6 +1,6 @@
 func main() {
-    let a = "foo"
-    let b = "bar"
+    string a = "foo"
+    string b = "bar"
     print(a + b)
     print(a + b + a)
 }

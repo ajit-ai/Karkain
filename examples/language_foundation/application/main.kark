@@ -3,7 +3,7 @@
 // Run (from inside application/):  karkain run main.kark
 
 func main() {
-    let acc = Account{owner: "Ada", balance: 1000}
+    Account acc = Account{owner: "Ada", balance: 1000}
     print(formatAccount(acc))
 
     let grown = deposit(acc, 250)

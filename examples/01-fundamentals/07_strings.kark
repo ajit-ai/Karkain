@@ -9,9 +9,9 @@
 // Run:  karkain run examples/01-fundamentals/07_strings.kark
 
 func main() {
-    let first = "kark"
-    let second = "ain"
-    let name = first + second
+    string first = "kark"
+    string second = "ain"
+    string name = first + second
     print(name)
     print(len(name))
     print(name[0])

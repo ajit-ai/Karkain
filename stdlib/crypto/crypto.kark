@@ -7,12 +7,12 @@
 
 // sha256 returns the SHA-256 digest of data as a 64-character lowercase
 // hexadecimal string.
-func sha256(data) {
+string sha256(string data) {
     return sha256_hex(data)
 }
 
 // sha512 returns the SHA-512 digest of data as a 128-character lowercase
 // hexadecimal string.
-func sha512(data) {
+string sha512(string data) {
     return sha512_hex(data)
 }

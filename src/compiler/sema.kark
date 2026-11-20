@@ -7,7 +7,7 @@
 // ============================================================
 
 func createSymbolTable() {
-    let table = []
+    Value table = []
     // Parallel arrays acting as a map
     // names[i]   = symbol name (string)
     // kinds[i]   = "func", "var", "let", "kernel", "struct", "param"
@@ -29,9 +29,9 @@ func addSymbol(table, name, kind, count) {
 }
 
 func lookupSymbol(table, name) {
-    let names = symNames(table)
-    let kinds = symKinds(table)
-    let i = 0
+    Value names = symNames(table)
+    Value kinds = symKinds(table)
+    int i = 0
     while (i < len(names)) {
         if (names[i] == name) {
             return kinds[i]
@@ -42,9 +42,9 @@ func lookupSymbol(table, name) {
 }
 
 func lookupParamCount(table, name) {
-    let names = symNames(table)
-    let counts = symCounts(table)
-    let i = 0
+    Value names = symNames(table)
+    Value counts = symCounts(table)
+    int i = 0
     while (i < len(names)) {
         if (names[i] == name) {
             return counts[i]
@@ -63,7 +63,7 @@ func symbolCount(table) {
 // ============================================================
 
 func createWarningList() {
-    let warnings = []
+    Value warnings = []
     warnings = appendArray(warnings, [])  // 0: messages
     return warnings
 }
@@ -77,8 +77,8 @@ func warningCount(warnings) {
 }
 
 func printWarnings(warnings) {
-    let msgs = warnings[0]
-    let i = 0
+    Value msgs = warnings[0]
+    int i = 0
     while (i < len(msgs)) {
         print("SEMA WARNING: " + msgs[i])
         i = i + 1
@@ -206,7 +206,7 @@ func builtinArity(name) {
 // ============================================================
 
 func analyzeStatements(stmts, table, warnings) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
         analyzeNode(stmts[i], table, warnings)
         i = i + 1
@@ -214,7 +214,7 @@ func analyzeStatements(stmts, table, warnings) {
 }
 
 func analyzeNode(node, table, warnings) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
 
     if (nt == "FuncDecl") { analyzeFuncDecl(node, table, warnings) }
     if (nt == "KernelDecl") { analyzeKernelDecl(node, table, warnings) }
@@ -235,15 +235,15 @@ func analyzeNode(node, table, warnings) {
 // ============================================================
 
 func analyzeFuncDecl(node, table, warnings) {
-    let name = funcName(node)
-    let params = funcParams(node)
-    let body = funcBody(node)
-    let paramCount = len(params)
+    string name = funcName(node)
+    int params = funcParams(node)
+    Value body = funcBody(node)
+    int paramCount = len(params)
 
     addSymbol(table, name, "func", paramCount)
 
     // Add parameters to symbol table
-    let i = 0
+    int i = 0
     while (i < len(params)) {
         addSymbol(table, params[i][1], "param", 0)
         i = i + 1
@@ -254,15 +254,15 @@ func analyzeFuncDecl(node, table, warnings) {
 }
 
 func analyzeKernelDecl(node, table, warnings) {
-    let name = kernelName(node)
-    let params = kernelParams(node)
-    let body = kernelBody(node)
-    let paramCount = len(params)
+    int name = kernelName(node)
+    int params = kernelParams(node)
+    int body = kernelBody(node)
+    int paramCount = len(params)
 
     addSymbol(table, name, "kernel", paramCount)
 
     // Add parameters to symbol table
-    let i = 0
+    int i = 0
     while (i < len(params)) {
         addSymbol(table, params[i][1], "param", 0)
         i = i + 1
@@ -273,23 +273,23 @@ func analyzeKernelDecl(node, table, warnings) {
 }
 
 func analyzeVarDecl(node, table, warnings) {
-    let name = varDeclName(node)
-    let value = varDeclValue(node)
+    string name = varDeclName(node)
+    int value = varDeclValue(node)
 
     addSymbol(table, name, "var", 0)
     analyzeExpr(value, table, warnings)
 }
 
 func analyzeLetDecl(node, table, warnings) {
-    let name = letDeclName(node)
-    let value = letDeclValue(node)
+    int name = letDeclName(node)
+    int value = letDeclValue(node)
 
     addSymbol(table, name, "let", 0)
     analyzeExpr(value, table, warnings)
 }
 
 func analyzeStructDecl(node, table, warnings) {
-    let name = structName(node)
+    int name = structName(node)
     addSymbol(table, name, "struct", 0)
 }
 
@@ -298,15 +298,15 @@ func analyzeStructDecl(node, table, warnings) {
 // ============================================================
 
 func analyzeExpr(node, table, warnings) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
 
     if (nt == "Call") { analyzeCall(node, table, warnings) }
     // Phase 133: analyze the computed callee and arguments (no static name
     // to resolve; arity is runtime-enforced by the dispatch wrapper).
     if (nt == "IndirectCall") {
         analyzeExpr(indirectTarget(node), table, warnings)
-        let iargs = indirectArgs(node)
-        let i = 0
+        Value iargs = indirectArgs(node)
+        int i = 0
         while (i < len(iargs)) {
             analyzeExpr(iargs[i], table, warnings)
             i = i + 1
@@ -326,12 +326,12 @@ func analyzeExpr(node, table, warnings) {
 }
 
 func analyzeCall(node, table, warnings) {
-    let name = callFunc(node)
-    let args = callArgs(node)
-    let argCount = len(args)
+    string name = callFunc(node)
+    Value args = callArgs(node)
+    int argCount = len(args)
 
     // Analyze all arguments first
-    let i = 0
+    int i = 0
     while (i < len(args)) {
         analyzeExpr(args[i], table, warnings)
         i = i + 1
@@ -339,7 +339,7 @@ func analyzeCall(node, table, warnings) {
 
     // Check if it is a built-in function
     if (isBuiltinFunc(name) == 1) {
-        let expected = builtinArity(name)
+        int expected = builtinArity(name)
         if (expected >= 0 && expected != argCount) {
             addWarning(warnings, "Built-in '" + name + "' expected " + str(expected) + " arguments but got " + str(argCount))
         }
@@ -347,27 +347,27 @@ func analyzeCall(node, table, warnings) {
     }
 
     // Check if the function is declared
-    let kind = lookupSymbol(table, name)
+    Value kind = lookupSymbol(table, name)
     if (kind == "") {
         addWarning(warnings, "Call to undeclared function '" + name + "'")
         return
     }
 
     // Check arity for declared functions
-    let expectedParams = lookupParamCount(table, name)
+    Value expectedParams = lookupParamCount(table, name)
     if (expectedParams >= 0 && expectedParams != argCount) {
         addWarning(warnings, "Function '" + name + "' expected " + str(expectedParams) + " arguments but got " + str(argCount))
     }
 }
 
 func analyzeIdent(node, table, warnings) {
-    let name = identName(node)
+    string name = identName(node)
 
     // Boolean literals are valid identifiers
     if (name == "true") { return }
     if (name == "false") { return }
 
-    let kind = lookupSymbol(table, name)
+    Value kind = lookupSymbol(table, name)
     if (kind == "") {
         addWarning(warnings, "Undeclared identifier '" + name + "'")
     }
@@ -392,8 +392,8 @@ func analyzeMemberExpr(node, table, warnings) {
 }
 
 func analyzeArrayLiteral(node, table, warnings) {
-    let elems = arrayElements(node)
-    let i = 0
+    int elems = arrayElements(node)
+    int i = 0
     while (i < len(elems)) {
         analyzeExpr(elems[i], table, warnings)
         i = i + 1
@@ -401,9 +401,9 @@ func analyzeArrayLiteral(node, table, warnings) {
 }
 
 func analyzeMapLiteral(node, table, warnings) {
-    let keys = mapKeys(node)
-    let values = mapValues(node)
-    let i = 0
+    int keys = mapKeys(node)
+    int values = mapValues(node)
+    int i = 0
     while (i < len(keys)) {
         analyzeExpr(keys[i], table, warnings)
         analyzeExpr(values[i], table, warnings)
@@ -450,10 +450,10 @@ func analyzeExprStmt(node, table, warnings) {
 // ============================================================
 
 func analyze(ast) {
-    let table = createSymbolTable()
-    let warnings = createWarningList()
+    Value table = createSymbolTable()
+    Value warnings = createWarningList()
 
-    let stmts = programStatements(ast)
+    Value stmts = programStatements(ast)
     analyzeStatements(stmts, table, warnings)
 
     // Print any warnings

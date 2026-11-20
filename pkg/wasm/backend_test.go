@@ -306,6 +306,40 @@ func TestForIn(t *testing.T) {
 	}
 }
 
+func TestArrayTypeAnnotations(t *testing.T) {
+	// The type-first migration made `int[]` the canonical array declaration
+	// spelling. The backend ignores the annotation for codegen, but the K108
+	// feature scan must accept it (CI caught this via examples/wasm/data).
+	src := `func main() {
+    int[] items = [10, 20, 30, 40, 50]
+    print(len(items))
+    print(items[2])
+}
+`
+	bin := compile(t, src, "main.kark")
+	out, err := runWasm(t, bin)
+	if err != nil {
+		t.Fatalf("run: %v (out=%q)", err, out)
+	}
+	if want := "5\n30\n"; out != want {
+		t.Fatalf("output mismatch: got %q want %q", out, want)
+	}
+
+	// A float array must stay rejected: the backend has no float
+	// representation, and stripping the suffix must not widen the scalar rule.
+	prog, err := parseProgram(`func main() {
+    double[] xs = [1]
+    print(len(xs))
+}
+`, "main.kark")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if _, err := CompileProgram(prog, "main.kark"); err == nil || !strings.Contains(err.Error(), "type annotation 'double[]'") {
+		t.Fatalf("float array annotation must stay K108, got %v", err)
+	}
+}
+
 func TestStructs(t *testing.T) {
 	// Phase 139: struct values lower to boxed cells; literal order is free
 	// (placement is by declared index) and fields are mutable.

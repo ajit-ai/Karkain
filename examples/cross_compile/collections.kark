@@ -3,9 +3,9 @@
 // every Phase-111 target.
 
 func sum(vals) {
-    var total = 0
-    let n = len(vals)
-    let i = 0
+    int total = 0
+    int n = len(vals)
+    int i = 0
     while (i < n) {
         total = total + vals[i]
         i = i + 1
@@ -14,9 +14,9 @@ func sum(vals) {
 }
 
 func main() {
-    let nums = [3, 1, 4, 1, 5, 9, 2, 6]
+    int[] nums = [3, 1, 4, 1, 5, 9, 2, 6]
     println(str(sum(nums)))
-    let s = "cross-collections-" + str(len(nums))
+    string s = "cross-collections-" + str(len(nums))
     println(s)
     println(str(len(nums) * 10))
 }

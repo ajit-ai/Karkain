@@ -1,10 +1,10 @@
 // ============================================================
-// Self-hosted Karkain Parser — Production version
+// Self-hosted Karkain Parser â€” Production version
 // Rewritten from pkg/parser/parser.go (2088 lines Go) to pure Karkain
 // ============================================================
 
 // ============================================================
-// AST Node types — every node is an array of values
+// AST Node types â€” every node is an array of values
 // Node format: [nodeType, ...fields]
 // ============================================================
 
@@ -82,11 +82,11 @@ func NODE_ENUM_VARIANT_EXPR() { return 95 }
 func NODE_INDIRECTCALL() { return 96 }
 
 // ============================================================
-// Node constructors — create AST nodes as arrays
+// Node constructors â€” create AST nodes as arrays
 // ============================================================
 
-func makeNode(nodeType) {
-    let n = []
+Value makeNode(nodeType) {
+    Value n = []
     n = appendArray(n, nodeType)
     return n
 }
@@ -98,7 +98,7 @@ func nodeType(n) { if (len(n) == 0) { return [] } return n[0] }
 // ============================================================
 
 func makeProgram(stmts, imports) {
-    let n = makeNode(NODE_PROGRAM())
+    Value n = makeNode(NODE_PROGRAM())
     n = appendArray(n, stmts)
     n = appendArray(n, imports)
     return n
@@ -113,7 +113,7 @@ func progImports(p)    { return p[2] }
 // ============================================================
 
 func makeFuncDecl(name, params, body, line, col) {
-    let n = makeNode(NODE_FUNC_DECL())
+    Value n = makeNode(NODE_FUNC_DECL())
     n = appendArray(n, name)
     n = appendArray(n, params)
     n = appendArray(n, body)
@@ -130,6 +130,29 @@ func funcLine(n)        { return n[4] }
 func funcCol(n)         { return n[5] }
 func funcGenericParams(n) {
     if (len(n) > 6) { return n[6] }
+    return []
+}
+
+// Type-first return type lives at index 8 (target is 7).
+func setTfFuncReturnType(n, t) {
+    if (t == "") { return n }
+    while (len(n) < 8) { n = appendArray(n, "") }
+    if (len(n) == 8) { n = appendArray(n, t) } else { n[8] = t }
+    return n
+}
+func tfFuncReturnType(n) {
+    if (len(n) > 8) { return n[8] }
+    return ""
+}
+
+// Type-first parameter types live at index 10 (target 7, return 8).
+func setFuncParamTypes(n, pts) {
+    while (len(n) < 10) { n = appendArray(n, "") }
+    if (len(n) == 10) { n = appendArray(n, pts) } else { n[10] = pts }
+    return n
+}
+func funcParamTypes(n) {
+    if (len(n) > 10) { return n[10] }
     return []
 }
 
@@ -183,7 +206,7 @@ func funcCaptures(n) {
 // Phase 133 note: no parameter-type slot is needed on FuncDecl. Indirect
 // dispatch keys off bound NAMES (localNames, mirroring the Go engine), not
 // annotations, so `g fn` params only need to SKIP cleanly as a type token
-// (psIsTypeToken) — the annotation itself is documentary.
+// (psIsTypeToken) â€” the annotation itself is documentary.
 
 
 // ============================================================
@@ -191,7 +214,7 @@ func funcCaptures(n) {
 // ============================================================
 
 func makeVarDecl(name, value, typeName, line) {
-    let n = makeNode(NODE_VAR_DECL())
+    Value n = makeNode(NODE_VAR_DECL())
     n = appendArray(n, name)
     n = appendArray(n, value)
     n = appendArray(n, typeName)
@@ -209,7 +232,7 @@ func varDeclLine(n)     { return n[4] }
 // ============================================================
 
 func makeReturn(val, line) {
-    let n = makeNode(NODE_RETURN())
+    Value n = makeNode(NODE_RETURN())
     n = appendArray(n, val)
     n = appendArray(n, line)
     return n
@@ -223,7 +246,7 @@ func retLine(n) { return n[2] }
 // ============================================================
 
 func makeIf(cond, cons, alt, line) {
-    let n = makeNode(NODE_IF())
+    Value n = makeNode(NODE_IF())
     n = appendArray(n, cond)
     n = appendArray(n, cons)
     n = appendArray(n, alt)
@@ -241,7 +264,7 @@ func ifLine(n)  { return n[4] }
 // ============================================================
 
 func makeWhile(cond, body, line) {
-    let n = makeNode(NODE_WHILE())
+    Value n = makeNode(NODE_WHILE())
     n = appendArray(n, cond)
     n = appendArray(n, body)
     n = appendArray(n, line)
@@ -257,7 +280,7 @@ func whileLine(n)  { return n[3] }
 // ============================================================
 
 func makeFor(init, cond, post, body, line) {
-    let n = makeNode(NODE_FOR())
+    Value n = makeNode(NODE_FOR())
     n = appendArray(n, init)
     n = appendArray(n, cond)
     n = appendArray(n, post)
@@ -277,7 +300,7 @@ func forLine(n)   { return n[5] }
 // ============================================================
 
 func makeForIn(varName, iter, body, line) {
-    let n = makeNode(NODE_FOR_IN())
+    Value n = makeNode(NODE_FOR_IN())
     n = appendArray(n, varName)
     n = appendArray(n, iter)
     n = appendArray(n, body)
@@ -295,7 +318,7 @@ func forInLine(n) { return n[4] }
 // ============================================================
 
 func makePrint(val, line) {
-    let n = makeNode(NODE_PRINT())
+    Value n = makeNode(NODE_PRINT())
     n = appendArray(n, val)
     n = appendArray(n, line)
     return n
@@ -309,7 +332,7 @@ func printLine(n) { return n[2] }
 // ============================================================
 
 func makeBlock(stmts) {
-    let n = makeNode(NODE_BLOCK())
+    Value n = makeNode(NODE_BLOCK())
     n = appendArray(n, stmts)
     return n
 }
@@ -321,7 +344,7 @@ func blockStmts(n) { return n[1] }
 // ============================================================
 
 func makeExprStmt(expr, line) {
-    let n = makeNode(NODE_EXPR_STMT())
+    Value n = makeNode(NODE_EXPR_STMT())
     n = appendArray(n, expr)
     n = appendArray(n, line)
     return n
@@ -335,7 +358,7 @@ func exprStmtLine(n)  { return n[2] }
 // ============================================================
 
 func makeIdent(name, line, col) {
-    let n = makeNode(NODE_IDENT())
+    Value n = makeNode(NODE_IDENT())
     n = appendArray(n, name)
     n = appendArray(n, line)
     n = appendArray(n, col)
@@ -351,7 +374,7 @@ func identCol(n)   { return n[3] }
 // ============================================================
 
 func makeIntLit(val, line) {
-    let n = makeNode(NODE_INT_LIT())
+    Value n = makeNode(NODE_INT_LIT())
     n = appendArray(n, val)
     n = appendArray(n, line)
     return n
@@ -361,7 +384,7 @@ func intLitVal(n)  { return n[1] }
 func intLitLine(n) { return n[2] }
 
 func makeFloatLit(val, line) {
-    let n = makeNode(NODE_FLOAT_LIT())
+    Value n = makeNode(NODE_FLOAT_LIT())
     n = appendArray(n, val)
     n = appendArray(n, line)
     return n
@@ -385,28 +408,28 @@ func makeFloatLit(val, line) {
 // payload expression and produce the same result_ok/result_err/option_some/
 // option_none C calls.
 func makeResultOk(value, line) {
-    let n = makeNode(NODE_RESULT_OK())
+    Value n = makeNode(NODE_RESULT_OK())
     n = appendArray(n, value)
     n = appendArray(n, line)
     return n
 }
 
 func makeResultErr(value, line) {
-    let n = makeNode(NODE_RESULT_ERR())
+    Value n = makeNode(NODE_RESULT_ERR())
     n = appendArray(n, value)
     n = appendArray(n, line)
     return n
 }
 
 func makeOptionSome(value, line) {
-    let n = makeNode(NODE_OPTION_SOME())
+    Value n = makeNode(NODE_OPTION_SOME())
     n = appendArray(n, value)
     n = appendArray(n, line)
     return n
 }
 
 func makeOptionNone(line) {
-    let n = makeNode(NODE_OPTION_NONE())
+    Value n = makeNode(NODE_OPTION_NONE())
     n = appendArray(n, line)
     return n
 }
@@ -419,7 +442,7 @@ func floatLitVal(n)  { return n[1] }
 func floatLitLine(n) { return n[2] }
 
 func makeStringLit(val, line) {
-    let n = makeNode(NODE_STRING_LIT())
+    Value n = makeNode(NODE_STRING_LIT())
     n = appendArray(n, val)
     n = appendArray(n, line)
     return n
@@ -429,7 +452,7 @@ func stringLitVal(n)  { return n[1] }
 func stringLitLine(n) { return n[2] }
 
 func makeBoolLit(val, line) {
-    let n = makeNode(NODE_BOOL_LIT())
+    Value n = makeNode(NODE_BOOL_LIT())
     n = appendArray(n, val)
     n = appendArray(n, line)
     return n
@@ -443,7 +466,7 @@ func boolLitLine(n) { return n[2] }
 // ============================================================
 
 func makeBinary(op, left, right, line) {
-    let n = makeNode(NODE_BINARY())
+    Value n = makeNode(NODE_BINARY())
     n = appendArray(n, op)
     n = appendArray(n, left)
     n = appendArray(n, right)
@@ -461,7 +484,7 @@ func binaryLine(n)  { return n[4] }
 // ============================================================
 
 func makeUnary(op, operand, line) {
-    let n = makeNode(NODE_UNARY())
+    Value n = makeNode(NODE_UNARY())
     n = appendArray(n, op)
     n = appendArray(n, operand)
     n = appendArray(n, line)
@@ -479,7 +502,7 @@ func unaryLine(n)    { return n[3] }
 // Call: [NODE_CALL, funcName, args, line, col, typeArgs]
 // typeArgs (index 5) holds explicit type arguments for generic calls (Phase 146)
 func makeCall(funcName, args, line, col) {
-    let n = makeNode(NODE_CALL())
+    Value n = makeNode(NODE_CALL())
     n = appendArray(n, funcName)
     n = appendArray(n, args)
     n = appendArray(n, line)
@@ -504,7 +527,7 @@ func callTypeArgs(n) {
 // ============================================================
 
 func makeIndirectCall(target, args, line) {
-    let n = makeNode(NODE_INDIRECTCALL())
+    Value n = makeNode(NODE_INDIRECTCALL())
     n = appendArray(n, target)
     n = appendArray(n, args)
     n = appendArray(n, line)
@@ -518,14 +541,14 @@ func indirectLine(n)   { return n[3] }
 // ============================================================
 // Spawn: [NODE_SPAWN, funcName, args, line]
 // ChRecv: [NODE_RECEIVE, channel, line]
-// Phase 137: spawn(fn, args...) and receive(ch) expressions — mirrors
+// Phase 137: spawn(fn, args...) and receive(ch) expressions â€” mirrors
 // pkg/parser SpawnExpr{ActorName, Args} and ChRecvExpr{Channel}.
 // channel()/actor() stay CallExpr (as on the Go front end); only spawn
 // and receive own node types.
 // ============================================================
 
 func makeSpawn(funcName, args, line) {
-    let n = makeNode(NODE_SPAWN())
+    Value n = makeNode(NODE_SPAWN())
     n = appendArray(n, funcName)
     n = appendArray(n, args)
     n = appendArray(n, line)
@@ -537,7 +560,7 @@ func spawnArgs(n) { return n[2] }
 func spawnLine(n) { return n[3] }
 
 func makeChRecv(ch, line) {
-    let n = makeNode(NODE_RECEIVE())
+    Value n = makeNode(NODE_RECEIVE())
     n = appendArray(n, ch)
     n = appendArray(n, line)
     return n
@@ -551,7 +574,7 @@ func chRecvLine(n)    { return n[2] }
 // ============================================================
 
 func makeIndex(left, index, line) {
-    let n = makeNode(NODE_INDEX())
+    Value n = makeNode(NODE_INDEX())
     n = appendArray(n, left)
     n = appendArray(n, index)
     n = appendArray(n, line)
@@ -567,7 +590,7 @@ func indexLine(n)   { return n[3] }
 // ============================================================
 
 func makeSlice(left, start, end, line) {
-    let n = makeNode(NODE_SLICE())
+    Value n = makeNode(NODE_SLICE())
     n = appendArray(n, left)
     n = appendArray(n, start)
     n = appendArray(n, end)
@@ -586,7 +609,7 @@ func sliceLine(n)   { return n[4] }
 // ============================================================
 
 func makeAlloc(typeName, count, line) {
-    let n = makeNode(NODE_ALLOC())
+    Value n = makeNode(NODE_ALLOC())
     n = appendArray(n, typeName)
     n = appendArray(n, count)
     n = appendArray(n, line)
@@ -598,7 +621,7 @@ func allocCount(n)    { return n[2] }
 func allocLine(n)     { return n[3] }
 
 func makeFree(ptr, line) {
-    let n = makeNode(NODE_FREE())
+    Value n = makeNode(NODE_FREE())
     n = appendArray(n, ptr)
     n = appendArray(n, line)
     return n
@@ -612,7 +635,7 @@ func freeLine(n)  { return n[2] }
 // ============================================================
 
 func makeDot(left, right, line) {
-    let n = makeNode(NODE_DOT())
+    Value n = makeNode(NODE_DOT())
     n = appendArray(n, left)
     n = appendArray(n, right)
     n = appendArray(n, line)
@@ -631,7 +654,7 @@ func dotLine(n)   { return n[3] }
 // ============================================================
 
 func makeEnumVariantExpr(enumName, variant, value, line) {
-    let n = makeNode(NODE_ENUM_VARIANT_EXPR())
+    Value n = makeNode(NODE_ENUM_VARIANT_EXPR())
     n = appendArray(n, enumName)
     n = appendArray(n, variant)
     n = appendArray(n, value)
@@ -661,7 +684,7 @@ func funcReturnType(n) { return "Value" }
 // ============================================================
 
 func makeStructDecl(name, fields, line) {
-    let n = makeNode(NODE_STRUCT_DECL())
+    Value n = makeNode(NODE_STRUCT_DECL())
     n = appendArray(n, name)
     n = appendArray(n, fields)
     n = appendArray(n, line)
@@ -696,7 +719,7 @@ func structDeclPublic(n) {
 // ============================================================
 
 func makeStructLit(typeName, fields, line) {
-    let n = makeNode(NODE_STRUCT_LIT())
+    Value n = makeNode(NODE_STRUCT_LIT())
     n = appendArray(n, typeName)
     n = appendArray(n, fields)
     n = appendArray(n, line)
@@ -717,7 +740,7 @@ func structLitTypeArgs(n) {
 // ============================================================
 
 func makeArrayLit(elements, line) {
-    let n = makeNode(NODE_ARRAY_LIT())
+    Value n = makeNode(NODE_ARRAY_LIT())
     n = appendArray(n, elements)
     n = appendArray(n, line)
     return n
@@ -731,7 +754,7 @@ func arrayLitLine(n)   { return n[2] }
 // ============================================================
 
 func makeImport(name, line) {
-    let n = makeNode(NODE_IMPORT())
+    Value n = makeNode(NODE_IMPORT())
     n = appendArray(n, name)
     n = appendArray(n, line)
     return n
@@ -745,7 +768,7 @@ func importLine(n)  { return n[2] }
 // ============================================================
 
 func makeCImport(content, line) {
-    let n = makeNode(NODE_CIMPORT())
+    Value n = makeNode(NODE_CIMPORT())
     n = appendArray(n, content)
     n = appendArray(n, line)
     return n
@@ -759,7 +782,7 @@ func cimportLine(n)     { return n[2] }
 // ============================================================
 
 func makeBreak(line) {
-    let n = makeNode(NODE_BREAK())
+    Value n = makeNode(NODE_BREAK())
     n = appendArray(n, line)
     return n
 }
@@ -767,7 +790,7 @@ func makeBreak(line) {
 func breakLine(n) { return n[1] }
 
 func makeContinue(line) {
-    let n = makeNode(NODE_CONTINUE())
+    Value n = makeNode(NODE_CONTINUE())
     n = appendArray(n, line)
     return n
 }
@@ -783,7 +806,7 @@ func continueLine(n) { return n[1] }
 // ============================================================
 
 func makeLambda(params, body, line, seq) {
-    let n = makeNode(NODE_LAMBDA())
+    Value n = makeNode(NODE_LAMBDA())
     n = appendArray(n, params)
     n = appendArray(n, body)
     n = appendArray(n, line)
@@ -805,7 +828,7 @@ func lambdaSeq(n) {
 // ============================================================
 
 func makeKernel(name, params, body, line) {
-    let n = makeNode(NODE_KERNEL())
+    Value n = makeNode(NODE_KERNEL())
     n = appendArray(n, name)
     n = appendArray(n, params)
     n = appendArray(n, body)
@@ -823,7 +846,7 @@ func kernelLine(n)    { return n[4] }
 // ============================================================
 
 func makeBorrow(operand, mutable, line) {
-    let n = makeNode(NODE_BORROW())
+    Value n = makeNode(NODE_BORROW())
     n = appendArray(n, operand)
     n = appendArray(n, mutable)
     n = appendArray(n, line)
@@ -839,7 +862,7 @@ func borrowLine(n)    { return n[3] }
 // ============================================================
 
 func makeMatch(value, arms, line) {
-    let n = makeNode(NODE_MATCH())
+    Value n = makeNode(NODE_MATCH())
     n = appendArray(n, value)
     n = appendArray(n, arms)
     n = appendArray(n, line)
@@ -852,7 +875,7 @@ func matchLine(n)   { return n[3] }
 
 // MatchArm: [NODE_MATCH_ARM, patternType, binding, patternValue, body, line]
 func makeMatchArm(patternType, binding, patternValue, body, line) {
-    let n = makeNode(NODE_MATCH_ARM())
+    Value n = makeNode(NODE_MATCH_ARM())
     n = appendArray(n, patternType)
     n = appendArray(n, binding)
     n = appendArray(n, patternValue)
@@ -872,7 +895,7 @@ func armLine(n)          { return n[5] }
 // ============================================================
 
 func makeEnumDecl(name, variants, line) {
-    let n = makeNode(NODE_ENUM_DECL())
+    Value n = makeNode(NODE_ENUM_DECL())
     n = appendArray(n, name)
     n = appendArray(n, variants)
     n = appendArray(n, line)
@@ -903,7 +926,7 @@ func enumDeclPublic(n) {
 // ============================================================
 
 func getNodeType(node) {
-    let t = nodeType(node)
+    string t = nodeType(node)
     if (t == NODE_PROGRAM()) { return "Program" }
     if (t == NODE_FUNC_DECL()) { return "FuncDecl" }
     if (t == NODE_VAR_DECL()) { return "VarDecl" }
@@ -990,7 +1013,7 @@ func ifCondition(n) { return ifCond(n) }
 
 // Literals (values are stored as source text)
 func literalValue(n) {
-    let t = nodeType(n)
+    string t = nodeType(n)
     if (t == NODE_INT_LIT()) { return intLitVal(n) }
     if (t == NODE_FLOAT_LIT()) { return floatLitVal(n) }
     if (t == NODE_STRING_LIT()) { return stringLitVal(n) }
@@ -1010,7 +1033,7 @@ func structFields(n) { return structDeclFields(n) }
 // ============================================================
 
 func makeMapLit(keys, values, line) {
-    let n = makeNode(NODE_MAP_LIT())
+    Value n = makeNode(NODE_MAP_LIT())
     n = appendArray(n, keys)
     n = appendArray(n, values)
     n = appendArray(n, line)
@@ -1030,7 +1053,7 @@ func mapLitLine(n) { return n[3] }
 func NODE_LET_DECL() { return 39 }
 
 func makeLetDecl(name, value, typeName, line) {
-    let n = makeNode(NODE_LET_DECL())
+    Value n = makeNode(NODE_LET_DECL())
     n = appendArray(n, name)
     n = appendArray(n, value)
     n = appendArray(n, typeName)
@@ -1045,7 +1068,7 @@ func letDeclLine(n)  { return n[4] }
 
 // ============================================================
 // ConstDecl: [NODE_CONST_DECL, name, value, typeName, line]
-// A `const` declaration — immutable by construction. Shares the
+// A `const` declaration â€” immutable by construction. Shares the
 // LetDecl node shape (name/value/type/line at identical indices)
 // so every existing visitor can fall back to the let accessors.
 // ============================================================
@@ -1053,7 +1076,7 @@ func letDeclLine(n)  { return n[4] }
 func NODE_CONST_DECL() { return 94 }
 
 func makeConstDecl(name, value, typeName, line) {
-    let n = makeNode(NODE_CONST_DECL())
+    Value n = makeNode(NODE_CONST_DECL())
     n = appendArray(n, name)
     n = appendArray(n, value)
     n = appendArray(n, typeName)
@@ -1071,7 +1094,7 @@ func constDeclLine(n)  { return n[4] }
 // ============================================================
 
 func makeGlobalId(dim, line) {
-    let n = makeNode(NODE_GLOBAL_ID())
+    Value n = makeNode(NODE_GLOBAL_ID())
     n = appendArray(n, dim)
     n = appendArray(n, line)
     return n
@@ -1091,3 +1114,4 @@ func kernelWorkgroup(node) {
     if (len(node) > 5) { return node[5] }
     return ["64"]
 }
+

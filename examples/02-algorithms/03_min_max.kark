@@ -8,7 +8,7 @@
 
 func array_min(xs) {
     let best = xs[0]
-    let i = 1
+    int i = 1
     while (i < len(xs)) {
         if (xs[i] < best) {
             best = xs[i]
@@ -20,7 +20,7 @@ func array_min(xs) {
 
 func array_max(xs) {
     let best = xs[0]
-    let i = 1
+    int i = 1
     while (i < len(xs)) {
         if (xs[i] > best) {
             best = xs[i]
@@ -31,7 +31,7 @@ func array_max(xs) {
 }
 
 func main() {
-    let data = [7, 3, 12, 1, 9, 5, 8]
+    int[] data = [7, 3, 12, 1, 9, 5, 8]
     print(array_min(data))
     print(array_max(data))
     print(array_min([-4, -9, -1]))

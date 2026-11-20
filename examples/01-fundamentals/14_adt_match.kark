@@ -21,9 +21,9 @@ func tag(s) {
 }
 
 func main() {
-    let a = Shape.Circle(5)
-    let b = Shape.Rect(2)
-    let c = Shape.Unit
+    Shape a = Shape.Circle(5)
+    Shape b = Shape.Rect(2)
+    Shape c = Shape.Unit
     print(tag(a))
     print(tag(b))
     print(tag(c))

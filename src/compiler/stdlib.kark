@@ -26,26 +26,26 @@ func getArgs() {
 // ============================================================
 
 func hasPrefix(s, prefix) {
-    let plen = len(prefix)
+    int plen = len(prefix)
     if (plen == 0) { return 1 }
     if (len(s) < plen) { return 0 }
     return substr(s, 0, plen) == prefix
 }
 
 func hasSuffix(s, suffix) {
-    let slen = len(suffix)
+    int slen = len(suffix)
     if (slen == 0) { return 1 }
-    let sLen = len(s)
+    int sLen = len(s)
     if (sLen < slen) { return 0 }
     return substr(s, sLen - slen, slen) == suffix
 }
 
 func indexOf(s, sub) {
-    let subLen = len(sub)
-    let sLen = len(s)
+    int subLen = len(sub)
+    int sLen = len(s)
     if (subLen == 0) { return 0 }
     if (subLen > sLen) { return -1 }
-    let i = 0
+    int i = 0
     while (i <= sLen - subLen) {
         if (substr(s, i, subLen) == sub) { return i }
         i = i + 1
@@ -58,7 +58,7 @@ func indexOf(s, sub) {
 // ============================================================
 
 func trimPrefix(s, prefix) {
-    let plen = len(prefix)
+    int plen = len(prefix)
     if (plen == 0) { return s }
     if (len(s) < plen) { return s }
     if (substr(s, 0, plen) == prefix) {
@@ -68,8 +68,8 @@ func trimPrefix(s, prefix) {
 }
 
 func trimSuffix(s, suffix) {
-    let slen = len(suffix)
-    let sLen = len(s)
+    int slen = len(suffix)
+    int sLen = len(s)
     if (slen == 0) { return s }
     if (sLen < slen) { return s }
     if (substr(s, sLen - slen, slen) == suffix) {
@@ -83,9 +83,9 @@ func trimSuffix(s, suffix) {
 // ============================================================
 
 func join(parts, sep) {
-    let count = len(parts)
-    let result = ""
-    let i = 0
+    int count = len(parts)
+    string result = ""
+    int i = 0
     while (i < count) {
         if (i > 0) { result = result + sep }
         result = result + parts[i]
@@ -95,8 +95,8 @@ func join(parts, sep) {
 }
 
 func repeat(s, n) {
-    let result = ""
-    let i = 0
+    string result = ""
+    int i = 0
     while (i < n) {
         result = result + s
         i = i + 1
@@ -105,9 +105,9 @@ func repeat(s, n) {
 }
 
 func reverse(s) {
-    let n = len(s)
-    let result = ""
-    let i = n - 1
+    int n = len(s)
+    string result = ""
+    int i = n - 1
     while (i >= 0) {
         result = result + substr(s, i, 1)
         i = i - 1
@@ -116,14 +116,14 @@ func reverse(s) {
 }
 
 func count(s, sub) {
-    let subLen = len(sub)
+    int subLen = len(sub)
     if (subLen == 0) { return 0 }
-    let total = 0
-    let pos = indexOf(s, sub)
+    int total = 0
+    int pos = indexOf(s, sub)
     while (pos >= 0) {
         total = total + 1
-        let rest = substr(s, pos + subLen, len(s) - pos - subLen)
-        let npos = indexOf(rest, sub)
+        string rest = substr(s, pos + subLen, len(s) - pos - subLen)
+        int npos = indexOf(rest, sub)
         if (npos < 0) { pos = -1 } else {
             pos = pos + subLen + npos
         }
@@ -140,12 +140,12 @@ func isBlank(s) {
 }
 
 func isNumeric(s) {
-    let digits = "0123456789"
-    let n = len(s)
+    string digits = "0123456789"
+    int n = len(s)
     if (n == 0) { return 0 }
-    let i = 0
+    int i = 0
     while (i < n) {
-        let c = substr(s, i, 1)
+        string c = substr(s, i, 1)
         if (contains(digits, c) == 0) { return 0 }
         i = i + 1
     }

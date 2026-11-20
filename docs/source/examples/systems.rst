@@ -33,7 +33,7 @@ the file — all through ``import std.io``:
        let lines = io_read_lines("corpus_demo.txt")
        print(io_file_exists("corpus_demo.txt"))
        print(len(lines))
-       let i = 0
+       let i: int = 0
        while (i < len(lines)) {
            print(lines[i])
            i = i + 1

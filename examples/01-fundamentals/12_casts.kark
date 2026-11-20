@@ -12,19 +12,19 @@ func main() {
     print(17 / 5)
     print(17.0 / 5.0)
 
-    let f = 9.0
+    float64 f = 9.0
     print(f / 2)
     print(int(f))
     print(int(7.9))
     print(str(256))
 
-    let half = 7 / 2
-    let exact = 7.0 / 2.0
+    int half = 7 / 2
+    float64 exact = 7.0 / 2.0
     print(half)
     print(exact)
 
-    let pixels = 1920
-    let cols = 3
+    int pixels = 1920
+    int cols = 3
     print(pixels / cols)
     print(pixels % cols)
 }

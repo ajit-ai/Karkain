@@ -20,7 +20,7 @@
 // ============================================================
 
 func inferType(node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "IntLiteral") { return "int" }
     if (nt == "FloatLiteral") { return "float" }
     if (nt == "StringLiteral") { return "string" }
@@ -30,7 +30,7 @@ func inferType(node) {
     if (nt == "StructLiteral") { return "struct" }
     if (nt == "Lambda") { return "function" }
     if (nt == "Ident") {
-        let name = identName(node)
+        string name = identName(node)
         if (name == "true" || name == "false") { return "bool" }
     }
     return "unknown"
@@ -41,7 +41,7 @@ func inferType(node) {
 // (empty annotations and container/struct names produce "" so the
 // checker never flags them).
 func primitiveTag(anno) {
-    let t = trim(anno)
+    string t = trim(anno)
     if (t == "int" || t == "i64" || t == "u64" || t == "i32" || t == "byte") { return "int" }
     if (t == "float" || t == "double" || t == "f64" || t == "f32") { return "float" }
     if (t == "string" || t == "str") { return "string" }
@@ -78,9 +78,9 @@ func typeDescription(tag) {
 // primitive static type. Non-literal initializers and non-primitive
 // annotations never mismatch (conservative).
 func annotationMismatch(anno, value) {
-    let want = primitiveTag(anno)
+    string want = primitiveTag(anno)
     if (want == "") { return 0 }
-    let got = inferType(value)
+    string got = inferType(value)
     if (got == "unknown") { return 0 }
     if (isPrimitiveTag(got) == 0) { return 0 }
     if (want == got) { return 0 }

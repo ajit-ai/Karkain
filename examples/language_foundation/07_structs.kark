@@ -11,7 +11,7 @@ func birthday(p) {
 }
 
 func main() {
-    let alice = Person{name: "Alice", age: 30}
+    Person alice = Person{name: "Alice", age: 30}
     print(alice.name)
     print(alice.age)
     alice.age = 31
@@ -20,7 +20,7 @@ func main() {
     let aged = birthday(alice)
     print(aged.age)
 
-    let origin = Point{x: 0, y: 0}
+    Point origin = Point{x: 0, y: 0}
     print(origin.x)
     print(origin.y)
 }

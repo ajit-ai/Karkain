@@ -13,11 +13,11 @@ func manhattan(a, b) {
 }
 
 func classify(point, data) {
-    let best = 0
-    let bestDistance = 1000000000
-    let i = 0
+    int best = 0
+    int bestDistance = 1000000000
+    int i = 0
     while (i < len(data)) {
-        let d = manhattan(point, data[i])
+        int d = manhattan(point, data[i])
         if (d < bestDistance) {
             bestDistance = d
             best = data[i]
@@ -28,7 +28,7 @@ func classify(point, data) {
 }
 
 func main() {
-    let centroids = [10, 60, 100]
+    int[] centroids = [10, 60, 100]
     print(classify(12, centroids))
     print(classify(58, centroids))
     print(classify(99, centroids))

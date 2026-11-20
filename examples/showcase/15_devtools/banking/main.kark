@@ -13,7 +13,7 @@
 // compilation units, following the conformance convention.
 
 func main() {
-    let balance = openingBalance()
+    int balance = openingBalance()
     print("opening=" + formatAmount(balance))
 
     balance = applyCredit(balance, 250)

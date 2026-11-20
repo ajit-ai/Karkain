@@ -23,7 +23,7 @@ func withdraw(acc, amount) {
 }
 
 func main() {
-    let a = Account{ owner: "ana", balance: 100 }
+    Account a = Account{ owner: "ana", balance: 100 }
     print(a.owner)
     print(a.balance)
 

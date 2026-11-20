@@ -9,10 +9,10 @@
 // Phase-111 supported target.
 
 func main() {
-    let start = 1000
-    let step = 7
-    let count = 0
-    var total = 0
+    int start = 1000
+    int step = 7
+    int count = 0
+    int total = 0
     while (count < 64) {
         total = total + start
         start = start + step

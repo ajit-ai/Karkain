@@ -2,9 +2,9 @@
 // Run:  karkain run examples/language_foundation/09_types.kark
 
 func main() {
-    let a: int = 10
-    let b: int = 4
-    let f: float64 = 9.0
+    int a = 10
+    int b = 4
+    float64 f = 9.0
     print(a + b)
     print(a - b)
     print(a * b)

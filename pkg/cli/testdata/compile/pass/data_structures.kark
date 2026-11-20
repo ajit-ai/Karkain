@@ -6,7 +6,7 @@ type Point struct {
 func main() {
     let p = Point{x: 1, y: 2}
     print(p.x + p.y)
-    let list = [10, 20, 30]
+    int[] list = [10, 20, 30]
     print(len(list))
     print(list[1])
 }

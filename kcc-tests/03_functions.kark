@@ -9,12 +9,12 @@ func multiply(x, y) {
 }
 
 func compose_add_mul(a, b, c) {
-    let sum = add(a, b)
+    int sum = add(a, b)
     return multiply(sum, c)
 }
 
 func main() {
-    let r1 = add(3, 4)
+    int r1 = add(3, 4)
     let r2 = multiply(5, 6)
     let r3 = compose_add_mul(1, 2, 3)
     print(r1)

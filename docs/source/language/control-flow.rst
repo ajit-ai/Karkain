@@ -8,7 +8,7 @@ Control Flow
 
 .. code-block:: kark
 
-   let x = 10
+   let x: int = 10
    if x > 5 {
        print("big")
    } else {

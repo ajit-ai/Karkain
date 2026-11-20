@@ -7,10 +7,10 @@
 // Run:  karkain run examples/02-algorithms/02_binary_search.kark
 
 func binary_search(xs, target) {
-    let lo = 0
-    let hi = len(xs) - 1
+    int lo = 0
+    int hi = len(xs) - 1
     while (lo <= hi) {
-        let mid = (lo + hi) / 2
+        int mid = (lo + hi) / 2
         if (xs[mid] == target) {
             return mid
         }
@@ -24,7 +24,7 @@ func binary_search(xs, target) {
 }
 
 func main() {
-    let sorted = [2, 4, 6, 8, 10, 12, 14, 16]
+    int[] sorted = [2, 4, 6, 8, 10, 12, 14, 16]
     print(binary_search(sorted, 8))
     print(binary_search(sorted, 2))
     print(binary_search(sorted, 16))

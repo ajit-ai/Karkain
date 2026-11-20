@@ -36,8 +36,10 @@
       "name": "comment.line.double-slash.karkain"
     },
     "string": {
-      "match": "\".*?\"",
-      "name": "string.quoted.double.karkain"
+      "patterns": [
+        { "match": "\".*?\"", "name": "string.quoted.double.karkain" },
+        { "match": "'(?:\\\\.|[^'])'", "name": "string.quoted.single.karkain" }
+      ]
     },
     "number": {
       "patterns": [
@@ -62,32 +64,62 @@
           "name": "constant.language.boolean.karkain"
         },
         {
-          "match": "\\b(int|float64|string|bool|bigint|bigfloat|void)\\b",
+          "match": "\\b(byte|short|int|long|float|double|bool|char|string|map|fn|float64|bigint|bigfloat|void)\\b",
           "name": "support.type.primitive.karkain"
         }
       ]
     },
     "functionDefinition": {
-      "begin": "\\b(func)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
-      "beginCaptures": {
-        "1": { "name": "keyword.control.karkain" },
-        "2": { "name": "entity.name.function.karkain" }
-      },
-      "end": "(?=\\{)",
       "patterns": [
         {
-          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
-          "name": "meta.function.parameters.karkain"
+          "begin": "\\b(func)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.karkain" },
+            "2": { "name": "entity.name.function.karkain" }
+          },
+          "end": "(?=\\{)",
+          "patterns": [
+            {
+              "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+              "name": "meta.function.parameters.karkain"
+            }
+          ]
+        },
+        {
+          "begin": "\\b(byte|short|int|long|float|double|bool|char|string|void)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+          "beginCaptures": {
+            "1": { "name": "support.type.primitive.karkain" },
+            "2": { "name": "entity.name.function.karkain" }
+          },
+          "end": "(?=\\{)",
+          "patterns": [
+            {
+              "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+              "name": "meta.function.parameters.karkain"
+            }
+          ]
         }
       ]
     },
     "variableDeclaration": {
-      "begin": "\\b(let|var)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
-      "beginCaptures": {
-        "1": { "name": "keyword.control.karkain" },
-        "2": { "name": "variable.other.karkain" }
-      },
-      "end": "(?==|$|;)"
+      "patterns": [
+        {
+          "begin": "\\b(let|var)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.karkain" },
+            "2": { "name": "variable.other.karkain" }
+          },
+          "end": "(?==|$|;)"
+        },
+        {
+          "begin": "\\b(byte|short|int|long|float|double|bool|char|string|fn|map)\\b(?:\\[[^\\]]*\\])*\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+          "beginCaptures": {
+            "1": { "name": "support.type.primitive.karkain" },
+            "2": { "name": "variable.other.karkain" }
+          },
+          "end": "(?==|$|;)"
+        }
+      ]
     },
     "operator": {
       "match": "==|!=|<=|>=|&&|\\|\\||[+\\-*/%<>]|!|->|=>",

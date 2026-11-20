@@ -8,8 +8,8 @@
 // propagate both ways through the closure call.
 
 func main() {
-    var counter = 0
-    let bump = fn() int {
+    int counter = 0
+    fn bump = fn() int {
         counter = counter + 1
         return counter
     }

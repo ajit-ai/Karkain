@@ -19,9 +19,9 @@ func describe(c) {
 }
 
 func main() {
-    let a = Color.Red
-    let b = Color.Green
-    let d = Color.Blue
+    Color a = Color.Red
+    Color b = Color.Green
+    Color d = Color.Blue
     print(a == Color.Red)
     print(b == Color.Green)
     print(describe(a))

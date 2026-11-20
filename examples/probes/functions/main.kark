@@ -9,7 +9,7 @@ func bump(arr, idx) {
 }
 func main() {
     print(fib(10))
-    let xs = [1, 2, 3]
+    int[] xs = [1, 2, 3]
     bump(xs, 1)
     print(xs[1])
 }

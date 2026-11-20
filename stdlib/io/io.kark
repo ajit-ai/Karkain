@@ -21,7 +21,7 @@ func io_write_file(path, data) {
 // io_append_file appends data to path. Implemented as read-modify-write
 // because the runtime has no append-mode builtin. Returns 1 on success.
 func io_append_file(path, data) {
-    let existing = readFile(path)
+    string existing = readFile(path)
     return writeFile(path, existing + data)
 }
 
@@ -33,8 +33,8 @@ func io_create_file(path) {
 
 // io_file_exists returns true if path names an existing regular file that
 // can be opened for reading.
-func io_file_exists(path) {
-    let probe = openFile(path)
+bool io_file_exists(path) {
+    string probe = openFile(path)
     if probe == "" {
         return false
     }
@@ -42,8 +42,8 @@ func io_file_exists(path) {
 }
 
 // io_delete_file deletes the file at path. Returns true on success.
-func io_delete_file(path) {
-    let ok = removeFile(path)
+bool io_delete_file(path) {
+    int ok = removeFile(path)
     if ok != 0 {
         return true
     }
@@ -60,9 +60,9 @@ func io_read_line(path) {
 // io_read_lines reads every line from path into an array of strings.
 // Newlines and carriage returns are stripped.
 func io_read_lines(path) {
-    let lines = []
+    int[] lines = []
     while(true ) {
-        let r = readLineEOF(path)
+        int r = readLineEOF(path)
         if r[1] == true {
             break
         }

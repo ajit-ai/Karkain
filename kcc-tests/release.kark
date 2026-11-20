@@ -12,8 +12,8 @@ func fibonacci(n) {
 }
 
 func factorial(n) {
-    var result = 1
-    var i = 2
+    int result = 1
+    int i = 2
     while (i <= n) {
         result = result * i
         i = i + 1
@@ -50,8 +50,8 @@ func is_even(n) {
 }
 
 func count_even(arr) {
-    var count = 0
-    var i = 0
+    int count = 0
+    int i = 0
     while (i < len(arr)) {
         if (is_even(arr[i]) == 1) {
             count = count + 1
@@ -62,8 +62,8 @@ func count_even(arr) {
 }
 
 func array_sum(arr) {
-    var total = 0
-    var i = 0
+    int total = 0
+    int i = 0
     while (i < len(arr)) {
         total = total + arr[i]
         i = i + 1
@@ -73,7 +73,7 @@ func array_sum(arr) {
 
 func array_reverse(arr) {
     var result = []
-    var i = len(arr) - 1
+    int i = len(arr) - 1
     while (i >= 0) {
         push(result, arr[i])
         i = i - 1
@@ -82,8 +82,8 @@ func array_reverse(arr) {
 }
 
 func string_reverse(s) {
-    var result = ""
-    var i = len(s) - 1
+    string result = ""
+    int i = len(s) - 1
     while (i >= 0) {
         result = result + substr(s, i, 1)
         i = i - 1
@@ -97,19 +97,19 @@ func main() {
     print("")
 
     // Test 2: Basic arithmetic
-    let a = 42
-    let b = 58
-    let sum = a + b
-    let product = a * b
-    let diff = b - a
+    int a = 42
+    int b = 58
+    int sum = a + b
+    int product = a * b
+    int diff = b - a
     print("Arithmetic: " + str(a) + " + " + str(b) + " = " + str(sum))
     print("Arithmetic: " + str(a) + " * " + str(b) + " = " + str(product))
     print("Arithmetic: " + str(b) + " - " + str(a) + " = " + str(diff))
 
     // Test 3: Function calls
-    let fib10 = fibonacci(10)
-    let fib15 = fibonacci(15)
-    let fact6 = factorial(6)
+    int fib10 = fibonacci(10)
+    int fib15 = fibonacci(15)
+    int fact6 = factorial(6)
     print("fibonacci(10) = " + str(fib10))
     print("fibonacci(15) = " + str(fib15))
     print("factorial(6) = " + str(fact6))
@@ -117,42 +117,42 @@ func main() {
     // Test 4: Control flow
     let m = max(100, 200)
     let n = min(100, 200)
-    let ab = abs_value(-42)
+    int ab = abs_value(-42)
     print("max(100,200) = " + str(m))
     print("min(100,200) = " + str(n))
     print("abs(-42) = " + str(ab))
 
     // Test 5: Array operations
-    let arr = [10, 20, 30, 40, 50]
-    let total = array_sum(arr)
-    let evens = count_even(arr)
-    let reversed = array_reverse(arr)
+    int[] arr = [10, 20, 30, 40, 50]
+    int total = array_sum(arr)
+    int evens = count_even(arr)
+    int[] reversed = array_reverse(arr)
     print("array_sum([10,20,30,40,50]) = " + str(total))
     print("count_even([10,20,30,40,50]) = " + str(evens))
     print("array_reverse([10,20,30,40,50]) = " + str(reversed[0]) + "," + str(reversed[1]) + "," + str(reversed[2]))
 
     // Test 6: String operations
-    let greeting = "Hello"
-    let target = "World"
-    let message = greeting + ", " + target + "!"
-    let rev = string_reverse("Karkain")
+    string greeting = "Hello"
+    string target = "World"
+    string message = greeting + ", " + target + "!"
+    string rev = string_reverse("Karkain")
     print("String: " + message)
     print("Length: " + str(len(message)))
     print("Reverse('Karkain') = " + rev)
 
     // Test 7: Boolean logic
-    let check1 = is_even(42)
-    let check2 = is_even(7)
+    int check1 = is_even(42)
+    int check2 = is_even(7)
     print("42 is even: " + str(check1))
     print("7 is even: " + str(check2))
 
     // Test 8: Nested function calls
-    let nested = abs_value(max(-10, -20))
+    int nested = abs_value(max(-10, -20))
     print("abs(max(-10,-20)) = " + str(nested))
 
     // Test 9: Var vs let
-    var counter = 0
-    var i = 0
+    int counter = 0
+    int i = 0
     while (i < 10) {
         counter = counter + 1
         i = i + 1

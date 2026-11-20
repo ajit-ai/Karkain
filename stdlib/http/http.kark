@@ -57,12 +57,12 @@ func http_new_headers() {
 
 // http_find returns the index of the first occurrence of sub in text, or -1.
 func http_find(text, sub) {
-    let n = len(text)
-    let m = len(sub)
+    int n = len(text)
+    int m = len(sub)
     if m == 0 {
         return 0
     }
-    let i = 0
+    int i = 0
     while (i <= n - m) {
         if substr(text, i, m) == sub {
             return i
@@ -73,8 +73,8 @@ func http_find(text, sub) {
 }
 
 // http_join joins elements from index `from` with single spaces.
-func http_join(parts, from) {
-    let out = ""
+string http_join(parts, from) {
+    string out = ""
     let i = from
     while (i < len(parts)) {
         if i > from {
@@ -96,13 +96,13 @@ func http_join(parts, from) {
 func http_parse_headers(header_body) {
     let headers = {}
     let lines = split(header_body, "\n")
-    let i = 1
+    int i = 1
     while (i < len(lines)) {
-        let line = trim(lines[i])
-        let idx = http_find(line, ":")
+        string line = trim(lines[i])
+        int idx = http_find(line, ":")
         if idx > 0 {
-            let name = trim(substr(line, 0, idx))
-            let val = trim(substr(line, idx + 1, len(line) - idx - 1))
+            string name = trim(substr(line, 0, idx))
+            string val = trim(substr(line, idx + 1, len(line) - idx - 1))
             headers[name] = val
         }
         i = i + 1
@@ -114,9 +114,9 @@ func http_parse_headers(header_body) {
 // Returns a map { head, body }.
 func http_split_message(text) {
     let r = {}
-    let pos = http_find(text, "\r\n\r\n")
+    int pos = http_find(text, "\r\n\r\n")
     let head = text
-    let body = ""
+    string body = ""
     if pos >= 0 {
         head = substr(text, 0, pos)
         body = substr(text, pos + 4, len(text) - pos - 4)
@@ -135,7 +135,7 @@ func http_parse_response(text) {
         resp["error"] = "malformed response"
         return resp
     }
-    let status_line = trim(lines[0])
+    string status_line = trim(lines[0])
     let parts = split(status_line, " ")
     if len(parts) >= 2 {
         resp["status"] = int(parts[1])
@@ -157,7 +157,7 @@ func http_parse_request(text) {
         req["error"] = "malformed request"
         return req
     }
-    let request_line = trim(lines[0])
+    string request_line = trim(lines[0])
     let parts = split(request_line, " ")
     if len(parts) < 2 {
         req["error"] = "malformed request line"
@@ -176,9 +176,9 @@ func http_parse_request(text) {
 
 // http_read_all reads from an fd until the peer closes. Returns "" if the
 // connection ended before any bytes arrived.
-func http_read_all(fd, limit) {
-    let buf = ""
-    let total = 0
+string http_read_all(fd, limit) {
+    string buf = ""
+    int total = 0
     while (total < limit) {
         let chunk = net_read(fd, 4096)
         if len(chunk) == 0 {
@@ -192,9 +192,9 @@ func http_read_all(fd, limit) {
 
 // http_read_until reads from an fd until marker appears in the accumulated
 // buffer (or the peer closes, or limit bytes are read).
-func http_read_until(fd, marker, limit) {
-    let buf = ""
-    let total = 0
+string http_read_until(fd, marker, limit) {
+    string buf = ""
+    int total = 0
     while (total < limit) {
         if http_find(buf, marker) >= 0 {
             return buf
@@ -215,12 +215,12 @@ func http_read_until(fd, marker, limit) {
 
 // http_build_request renders a Request value into HTTP/1.1 request text.
 func http_build_request(method, host, port, path, headers, body) {
-    let eol = "\r\n"
+    string eol = "\r\n"
     let sb = method + " " + path + " HTTP/1.1" + eol
     sb = sb + "Host: " + host + eol
     sb = sb + "Connection: close" + eol
     let names = map_keys_of(headers)
-    let i = 0
+    int i = 0
     while (i < len(names)) {
         sb = sb + names[i] + ": " + headers[names[i]] + eol
         i = i + 1
@@ -234,11 +234,11 @@ func http_build_request(method, host, port, path, headers, body) {
 // http_build_response renders a status/reason/headers/body tuple into
 // HTTP/1.1 response text.
 func http_build_response(status, reason, headers, body) {
-    let eol = "\r\n"
-    let sb = "HTTP/1.1 " + str(status) + " " + reason + eol
+    string eol = "\r\n"
+    string sb = "HTTP/1.1 " + str(status) + " " + reason + eol
     sb = sb + "Connection: close" + eol
     let names = map_keys_of(headers)
-    let i = 0
+    int i = 0
     while (i < len(names)) {
         sb = sb + names[i] + ": " + headers[names[i]] + eol
         i = i + 1
@@ -269,7 +269,7 @@ func http_request_send(method, host, port, path, headers, body) {
         net_close(fd)
         return resp
     }
-    let text = http_read_all(fd, 262144)
+    string text = http_read_all(fd, 262144)
     net_close(fd)
     if len(text) == 0 {
         resp["error"] = "empty response"
@@ -308,7 +308,7 @@ func http_accept(listener) {
 // a Content-Length bounded body) and returns a parsed Request value.
 func http_read_request(conn, max) {
     let req = http_make_request("", "", {}, "")
-    let text = http_read_until(conn, "\r\n\r\n", max)
+    string text = http_read_until(conn, "\r\n\r\n", max)
     if len(text) == 0 {
         let err = net_last_error()
         if len(err) > 0 {
@@ -328,12 +328,12 @@ func http_read_request(conn, max) {
         return parsed
     }
     req = parsed
-    let cl = ""
+    string cl = ""
     if hasKey(req["headers"], "Content-Length") == 1 {
         cl = req["headers"]["Content-Length"]
     }
     if len(cl) > 0 {
-        let need = int(cl)
+        int need = int(cl)
         let got = msg["body"]
         while (len(got) < need) {
             let chunk = net_read(conn, 4096)
@@ -350,7 +350,7 @@ func http_read_request(conn, max) {
 // http_write_response writes a complete response and returns the number of
 // bytes sent, or -1 on failure.
 func http_write_response(conn, status, reason, body) {
-    let pkt = http_build_response(status, reason, {}, body)
+    string pkt = http_build_response(status, reason, {}, body)
     return net_write(conn, pkt)
 }
 

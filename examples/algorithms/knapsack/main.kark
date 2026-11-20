@@ -6,12 +6,12 @@ func max(a, b) {
 }
 
 func knapsack(weights, values, capacity) {
-    let n = len(weights)
-    let dp = []
-    let i = 0
+    int n = len(weights)
+    int[] dp = []
+    int i = 0
     while (i <= n) {
-        let row = []
-        let j = 0
+        int[] row = []
+        int j = 0
         while (j <= capacity) {
             push(row, 0)
             j = j + 1
@@ -21,11 +21,11 @@ func knapsack(weights, values, capacity) {
     }
     i = 1
     while (i <= n) {
-        let j = 0
+        int j = 0
         while (j <= capacity) {
-            let without = dp[i - 1][j]
+            int without = dp[i - 1][j]
             if (weights[i - 1] <= j) {
-                let withItem = dp[i - 1][j - weights[i - 1]] + values[i - 1]
+                int withItem = dp[i - 1][j - weights[i - 1]] + values[i - 1]
                 dp[i][j] = max(withItem, without)
             } else {
                 dp[i][j] = without
@@ -38,9 +38,9 @@ func knapsack(weights, values, capacity) {
 }
 
 func main() {
-    let weights = [1, 3, 4, 5]
-    let values = [1, 4, 5, 7]
-    let capacity = 7
+    int[] weights = [1, 3, 4, 5]
+    int[] values = [1, 4, 5, 7]
+    int capacity = 7
     print("0/1 Knapsack max value:")
     print(knapsack(weights, values, capacity))
 }

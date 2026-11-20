@@ -659,7 +659,7 @@ type natERefusal struct {
 	name string
 	src  string
 	// code is the diagnostic family that must fire. Most rows are the native
-	// driver's own K145; two are kcc's checker, which rejects the program
+	// driver's own K145; five are kcc's checker, which rejects the program
 	// before the driver sees it, and saying WHICH layer refuses is part of the
 	// evidence -- a K145 that should be a K101 would mean the driver ran on a
 	// program that does not type-check.
@@ -810,19 +810,32 @@ var natERefusals = []natERefusal{
 		// Every parameter is an int in this slice, so a non-int argument is
 		// refused at the CALL SITE by kind, naming both the parameter and the
 		// callee.
+		//
+		// CORRECTIVE CHANGE against the frozen NAT-CALL baseline. These three
+		// rows used to pin the native driver's K145 ("string argument for int
+		// parameter `n` (call to `f`)"). The type-first migration taught the
+		// kcc checker to compare a call argument against its parameter's
+		// declared type, so K112 now fires FIRST and names the argument, the
+		// callee and both types -- strictly more precise. The rows are pinned
+		// to the earlier layer rather than deleted or weakened: the property
+		// this table asserts is "a construct the driver cannot lower is refused
+		// with a diagnostic that names it and writes no image", and a table
+		// that quietly drops rows stops being evidence for that property. The
+		// driver's own K145 arm (native_value.kark) is unchanged and remains
+		// the second line of defence for any path the checker does not type.
 		name: "string_argument",
 		src:  "func f(n int) int { return n }\nfunc main() { print(f(\"hi\")) }\n",
-		code: "error[K145]", want: "string argument for int parameter `n` (call to `f`)",
+		code: "error[K112]", want: "argument 1 of 'f' has type 'string', expected 'int'",
 	},
 	{
 		name: "bool_argument",
 		src:  "func f(n int) int { return n }\nfunc main() { print(f(true)) }\n",
-		code: "error[K145]", want: "bool argument for int parameter `n` (call to `f`)",
+		code: "error[K112]", want: "argument 1 of 'f' has type 'bool', expected 'int'",
 	},
 	{
 		name: "float_argument",
 		src:  "func f(n int) int { return n }\nfunc main() { print(f(1.5)) }\n",
-		code: "error[K145]", want: "float argument for int parameter `n` (call to `f`)",
+		code: "error[K112]", want: "argument 1 of 'f' has type 'float', expected 'int'",
 	},
 	{
 		// The latent spill-clobber bound: an argument at index >= 1 that

@@ -9,7 +9,7 @@ func add(a, b) {
 }
 
 func add10(x) {
-    let y = 10
+    int y = 10
     return x + y
 }
 
@@ -46,7 +46,7 @@ func factorial(n) {
 }
 
 func test_param_mutation_through_array() {
-    let xs =[1, 2, 3]
+    int[] xs = [1, 2, 3]
     bump(xs, 1)
     assert_eq(xs[1], 12)
     bump(xs, 1)

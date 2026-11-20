@@ -18,7 +18,7 @@ func main() {
     db = db_execute(db, "insert into users values (3, carol, 95)")
 
     // full table
-    let q = db_query(db, "select * from users")
+    map[int]string q = db_query(db, "select * from users")
     println(q["count"])
     let r0 = q["rows"][0]
     let r1 = q["rows"][1]
@@ -35,12 +35,12 @@ func main() {
 
     // update one row
     db = db_execute(db, "update users set score = 100 where name = bob")
-    let upd = db_query(db, "select * from users")
+    map[int]string upd = db_query(db, "select * from users")
     let u = upd["rows"][1]
     println(u[2])
 
     // column subset
-    let sub = db_query(db, "select name from users")
+    map[int]string sub = db_query(db, "select name from users")
     println(sub["rows"][0][0])
     println(sub["rows"][2][0])
 

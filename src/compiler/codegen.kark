@@ -7,7 +7,7 @@
 // ============================================================
 
 func createCodegenState(target) {
-    let state = []
+    Value state = []
     state = appendArray(state, target)   // 0: target ("c23", "wgsl", "opencl", "spirv")
     state = appendArray(state, "")       // 1: output buffer
     state = appendArray(state, 0)        // 2: indent level
@@ -39,8 +39,8 @@ func createCodegenState(target) {
 func codegenLocalNames(state) { return state[16] }
 
 func codegenLocalNameHas(state, name) {
-    let names = codegenLocalNames(state)
-    let i = 0
+    Value names = codegenLocalNames(state)
+    int i = 0
     while (i < len(names)) {
         if (names[i] == name) { return 1 }
         i = i + 1
@@ -64,8 +64,8 @@ func concMarkUses(state) { state[17] = 1 }
 
 func concAddSpawn(state, name) {
     if (name == "") { return }
-    let order = concSpawnOrder(state)
-    let i = 0
+    Value order = concSpawnOrder(state)
+    int i = 0
     while (i < len(order)) {
         if (order[i] == name) { return }
         i = i + 1
@@ -75,8 +75,8 @@ func concAddSpawn(state, name) {
 
 func concAddHandler(state, name) {
     if (name == "") { return }
-    let order = concHandlerOrder(state)
-    let i = 0
+    Value order = concHandlerOrder(state)
+    int i = 0
     while (i < len(order)) {
         if (order[i] == name) { return }
         i = i + 1
@@ -119,16 +119,16 @@ func collectConcPrescan(state, stmts) {
 // armBodyAsStmts normalizes a match-arm body to a statement list: blocks
 // unwrap, single expressions become one-element lists, empties vanish.
 func armBodyAsStmts(arm) {
-    let body = armBody(arm)
+    int body = armBody(arm)
     if (getNodeType(body) == "Block") { return blockStmts(body) }
     if (len(body) < 1) { return [] }
-    let out = []
+    Value out = []
     out = appendArray(out, body)
     return out
 }
 
 func concScanStmts(state, list) {
-    let i = 0
+    int i = 0
     while (i < len(list)) {
         concScanStmt(state, list[i])
         i = i + 1
@@ -137,7 +137,7 @@ func concScanStmts(state, list) {
 
 func concScanStmt(state, s) {
     if (len(s) < 1) { return }
-    let t = getNodeType(s)
+    string t = getNodeType(s)
     if (t == "FuncDecl") { concScanStmts(state, funcBody(s)) return }
     if (t == "Block") { concScanStmts(state, blockStmts(s)) return }
     if (t == "VarDecl") { concScanExpr(state, varDeclValue(s)) return }
@@ -171,8 +171,8 @@ func concScanStmt(state, s) {
     }
     if (t == "Match") {
         concScanExpr(state, matchValue(s))
-        let arms = matchArms(s)
-        let a = 0
+        Value arms = matchArms(s)
+        int a = 0
         while (a < len(arms)) {
             concScanStmts(state, armBodyAsStmts(arms[a]))
             a = a + 1
@@ -184,12 +184,12 @@ func concScanStmt(state, s) {
 
 func concScanExpr(state, e) {
     if (len(e) < 1) { return }
-    let t = getNodeType(e)
+    string t = getNodeType(e)
     if (t == "Spawn") {
         concMarkUses(state)
         concAddSpawn(state, spawnFunc(e))
-        let args = spawnArgs(e)
-        let i = 0
+        int args = spawnArgs(e)
+        int i = 0
         while (i < len(args)) {
             concScanExpr(state, args[i])
             i = i + 1
@@ -202,16 +202,16 @@ func concScanExpr(state, e) {
         return
     }
     if (t == "Call") {
-        let fname = callFunc(e)
+        string fname = callFunc(e)
         if (concIsBuiltin(fname) == 1) { concMarkUses(state) }
         if (fname == "actor") {
-            let args = callArgs(e)
+            Value args = callArgs(e)
             if (len(args) > 0 && getNodeType(args[0]) == "StringLiteral") {
                 concAddHandler(state, literalValue(args[0]))
             }
         }
-        let cargs = callArgs(e)
-        let i = 0
+        Value cargs = callArgs(e)
+        int i = 0
         while (i < len(cargs)) {
             concScanExpr(state, cargs[i])
             i = i + 1
@@ -220,8 +220,8 @@ func concScanExpr(state, e) {
     }
     if (t == "IndirectCall") {
         concScanExpr(state, indirectTarget(e))
-        let args = indirectArgs(e)
-        let i = 0
+        int args = indirectArgs(e)
+        int i = 0
         while (i < len(args)) {
             concScanExpr(state, args[i])
             i = i + 1
@@ -244,8 +244,8 @@ func concScanExpr(state, e) {
     if (t == "Lambda") { concScanStmts(state, lambdaBody(e)) return }
     if (t == "Match") {
         concScanExpr(state, matchValue(e))
-        let arms = matchArms(e)
-        let a = 0
+        Value arms = matchArms(e)
+        int a = 0
         while (a < len(arms)) {
             concScanStmts(state, armBodyAsStmts(arms[a]))
             a = a + 1
@@ -265,8 +265,8 @@ func concScanExpr(state, e) {
     }
     if (t == "Member") { concScanExpr(state, memberObject(e)) return }
     if (t == "ArrayLiteral") {
-        let elems = arrayElements(e)
-        let i = 0
+        Value elems = arrayElements(e)
+        int i = 0
         while (i < len(elems)) {
             concScanExpr(state, elems[i])
             i = i + 1
@@ -274,14 +274,14 @@ func concScanExpr(state, e) {
         return
     }
     if (t == "MapLiteral") {
-        let keys = mapKeys(e)
-        let i = 0
+        int keys = mapKeys(e)
+        int i = 0
         while (i < len(keys)) {
             concScanExpr(state, keys[i])
             i = i + 1
         }
-        let vals = mapValues(e)
-        let j = 0
+        int vals = mapValues(e)
+        int j = 0
         while (j < len(vals)) {
             concScanExpr(state, vals[j])
             j = j + 1
@@ -289,8 +289,8 @@ func concScanExpr(state, e) {
         return
     }
     if (t == "StructLiteral") {
-        let fields = structLitFields(e)
-        let i = 0
+        int fields = structLitFields(e)
+        int i = 0
         while (i < len(fields)) {
             concScanExpr(state, fields[i])
             i = i + 1
@@ -306,8 +306,8 @@ func concScanExpr(state, e) {
 // concSpawnSiteIndex maps a spawned function name to its wrapper index
 // (karkain_run_<idx>), or -1 when absent (graceful mk_nil, like Go).
 func concSpawnSiteIndex(state, target) {
-    let order = concSpawnOrder(state)
-    let i = 0
+    Value order = concSpawnOrder(state)
+    int i = 0
     while (i < len(order)) {
         if (order[i] == target) { return i }
         i = i + 1
@@ -318,7 +318,7 @@ func concSpawnSiteIndex(state, target) {
 // concFuncArity returns the parameter count of a top-level user function,
 // or -1 when no such function exists (graceful mk_nil, like Go).
 func concFuncArity(stmts, name) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
         if (getNodeType(stmts[i]) == "FuncDecl" && funcName(stmts[i]) == name) {
             return len(funcParams(stmts[i]))
@@ -343,8 +343,8 @@ func emitConcWrappers(state, stmts) {
     emitLine(state, "    free(karkain_conc_m);")
     emitLine(state, "    karkain_actor_box_t* karkain_conc_b = (karkain_actor_box_t*)karkain_conc_a->udata;")
     emitLine(state, "    switch (karkain_conc_b->bid) {")
-    let handlers = concHandlerOrder(state)
-    let h = 0
+    Value handlers = concHandlerOrder(state)
+    int h = 0
     while (h < len(handlers)) {
         emitLine(state, "    case " + str(h) + ": {")
         emitLine(state, "        Value _ns = " + emitC11FuncSymbol(handlers[h]) + "(karkain_conc_b->state, karkain_conc_msg);")
@@ -358,16 +358,16 @@ func emitConcWrappers(state, stmts) {
     emitLine(state, "    }")
     emitLine(state, "}")
     emitNewline(state)
-    let order = concSpawnOrder(state)
-    let i = 0
+    Value order = concSpawnOrder(state)
+    int i = 0
     while (i < len(order)) {
         emitLine(state, "static void karkain_run_" + str(i) + "(karkain_task_t* karkain_conc_t, void* karkain_conc_ctx,")
         emitLine(state, "                         karkain_sched_t* karkain_conc_s) {")
         emitLine(state, "    (void)karkain_conc_s;")
         emitLine(state, "    Value* karkain_conc_args = (Value*)karkain_conc_ctx;")
-        let arity = concFuncArity(stmts, order[i])
-        let call = emitC11FuncSymbol(order[i]) + "("
-        let a = 0
+        int arity = concFuncArity(stmts, order[i])
+        string call = emitC11FuncSymbol(order[i]) + "("
+        int a = 0
         while (a < arity) {
             if (a > 0) { call = call + ", " }
             call = call + "karkain_conc_args[" + str(a) + "]"
@@ -486,9 +486,9 @@ func emitConcGlue(state) {
 // name is a string literal). Mirrors Go genConcCall exactly, including
 // the graceful mk_nil fallbacks.
 func emitConcCall(state, node) {
-    let fname = callFunc(node)
-    let args = callArgs(node)
-    let argc = len(args)
+    string fname = callFunc(node)
+    Value args = callArgs(node)
+    int argc = len(args)
     if (fname == "channel") {
         if (argc == 0) {
             emit(state, "karkain_conc_channel(make_int(-1))")
@@ -524,11 +524,11 @@ func emitConcCall(state, node) {
         return
     }
     if (fname == "actor") {
-        let idx = -1
+        int idx = -1
         if (argc > 0 && getNodeType(args[0]) == "StringLiteral") {
-            let want = literalValue(args[0])
-            let order = concHandlerOrder(state)
-            let i = 0
+            int want = literalValue(args[0])
+            Value order = concHandlerOrder(state)
+            int i = 0
             while (i < len(order)) {
                 if (order[i] == want) { idx = i }
                 i = i + 1
@@ -580,19 +580,19 @@ func emitConcCall(state, node) {
 // prescan spawn order; the argument values ride a heap array the runtime
 // frees. Mirrors Go genConcurrencySpawn, including graceful fallbacks.
 func emitConcSpawn(state, node) {
-    let target = spawnFunc(node)
-    let idx = concSpawnSiteIndex(state, target)
+    int target = spawnFunc(node)
+    int idx = concSpawnSiteIndex(state, target)
     if (idx < 0) {
         emit(state, "mk_nil() /* unknown spawn target */")
         return
     }
-    let args = spawnArgs(node)
+    int args = spawnArgs(node)
     if (len(args) == 0) {
         emit(state, "karkain_conc_mk_handle(karkain_sched_spawn(karkain_conc_sched_handle(), karkain_run_" + str(idx) + ", NULL))")
         return
     }
     emit(state, "({ Value _conc_sa[" + str(len(args)) + "] = {")
-    let i = 0
+    int i = 0
     while (i < len(args)) {
         if (i > 0) { emit(state, ", ") }
         emitC11Expr(state, args[i])
@@ -641,16 +641,16 @@ func registerEnumDecl(state, decl) { state[15] = appendArray(codegenEnumDecls(st
 // from the registered enum declarations (matching genEnumDecl's make_int(i+1)).
 func getEnumVariantIndex(state, enumName, variant) {
     let decls = codegenEnumDecls(state)
-    let d = 0
+    int d = 0
     while (d < len(decls)) {
         if (enumDeclName(decls[d]) == enumName) {
-            let vars = enumDeclVariants(decls[d])
-            let v = 0
+            int vars = enumDeclVariants(decls[d])
+            int v = 0
             while (v < len(vars)) {
                 // raw entries are "Name:" (unit) or "Name:payload"
-                let entry = vars[v]
+                Value entry = vars[v]
                 if (entry == variant) { return v + 1 }
-                let prefix = variant + ":"
+                string prefix = variant + ":"
                 if (len(entry) >= len(prefix) && substr(entry, 0, len(prefix)) == prefix) { return v + 1 }
                 v = v + 1
             }
@@ -666,8 +666,8 @@ func emit(state, text) {
 }
 
 func emitLine(state, text) {
-    let indentStr = ""
-    let i = 0
+    string indentStr = ""
+    int i = 0
     while (i < codegenIndent(state)) {
         indentStr = indentStr + "  "
         i = i + 1
@@ -1046,7 +1046,7 @@ func emitC11Type(varType) {
 }
 
 func emitC11Expr(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
 
     if (nt == "IntLiteral") { emit(state, "make_int(" + literalValue(node) + ")") }
     if (nt == "FloatLiteral") { emit(state, "make_float(" + literalValue(node) + ")") }
@@ -1058,7 +1058,7 @@ func emitC11Expr(state, node) {
         if (literalValue(node) == "false") { emit(state, "make_bool(0)") }
     }
     if (nt == "Ident") {
-        let nm = identName(node)
+        string nm = identName(node)
         if (capInList(codegenCurrentCaps(state), nm) == 1) {
             emit(state, "(*_env->" + nm + ")")
         } else {
@@ -1068,11 +1068,11 @@ func emitC11Expr(state, node) {
 
     if (nt == "BinaryExpr") {
         if (binaryOp(node) == "=") {
-            let lhs = binaryLeft(node)
-            let rv = binaryRight(node)
+            int lhs = binaryLeft(node)
+            int rv = binaryRight(node)
             if (getNodeType(lhs) == "Index") {
-                let il = indexLeft(lhs)
-                let ix = indexExpr(lhs)
+                int il = indexLeft(lhs)
+                int ix = indexExpr(lhs)
                 if (getNodeType(il) == "Ident") {
                     emit(state, "karkain_checked_set(&" + identName(il) + ", ")
                     emitC11Expr(state, ix)
@@ -1089,8 +1089,8 @@ func emitC11Expr(state, node) {
                     emit(state, ", \"" + codegenSourceName(state) + "\", " + binaryLine(node) + "); _iset_tgt; })")
                 }
             } else if (getNodeType(lhs) == "Member") {
-                let dl = dotLeft(lhs)
-                let dn = dotRight(lhs)
+                int dl = dotLeft(lhs)
+                int dn = dotRight(lhs)
                 if (getNodeType(dl) == "Ident") {
                     emit(state, "map_set(&" + identName(dl) + ", make_string(\"" + dn + "\"), ")
                     emitC11Expr(state, rv)
@@ -1110,7 +1110,7 @@ func emitC11Expr(state, node) {
                 emit(state, ")")
             }
         } else {
-            let bop = binaryOp(node)
+            int bop = binaryOp(node)
             if (bop == "/") {
                 emit(state, "karkain_checked_div(")
                 emitC11Expr(state, binaryLeft(node))
@@ -1159,7 +1159,7 @@ func emitC11Expr(state, node) {
     }
 
     if (nt == "UnaryExpr") {
-        let op = unaryOp(node)
+        int op = unaryOp(node)
         if (op == "!") {
             emit(state, "make_bool(!is_truthy(")
             emitC11Expr(state, unaryOperand(node))
@@ -1198,9 +1198,9 @@ func emitC11Expr(state, node) {
     }
 
     if (nt == "Call") {
-        let fname = callFunc(node)
-        let args = callArgs(node)
-        let argc = len(args)
+        string fname = callFunc(node)
+        Value args = callArgs(node)
+        int argc = len(args)
 
         if (fname == "getArgs") {
             emit(state, "_karkain_get_args()")
@@ -1222,11 +1222,11 @@ func emitC11Expr(state, node) {
                 emitIndirectTail(state, args, callLine(node))
             } else {
             let ccaps = codegenLocalFuncCapsFor(state, fname)
-            let au = 0
+            int au = 0
             emit(state, "karkain_user_" + fname + "(")
             if (len(ccaps) > 0) {
                 emit(state, "_genv_" + fname)
-                let src = 0
+                int src = 0
                 while (src < argc) {
                     emit(state, ", ")
                     emitC11Expr(state, args[src])
@@ -1243,7 +1243,7 @@ func emitC11Expr(state, node) {
             }
         } else if (hasUserFunc(state, fname)) {
             emit(state, "karkain_user_" + fname + "(")
-            let au = 0
+            int au = 0
             while (au < argc) {
                 if (au > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[au])
@@ -1273,7 +1273,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "substr") {
             emit(state, "karkain_substr(")
-            let a0 = 0
+            int a0 = 0
             while (a0 < argc) {
                 if (a0 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a0])
@@ -1294,7 +1294,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "writeFile") {
             emit(state, "karkain_writeFile(")
-            let a1 = 0
+            int a1 = 0
             while (a1 < argc) {
                 if (a1 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a1])
@@ -1307,7 +1307,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "contains") {
             emit(state, "karkain_contains(")
-            let a2 = 0
+            int a2 = 0
             while (a2 < argc) {
                 if (a2 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a2])
@@ -1316,7 +1316,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "split") {
             emit(state, "karkain_split(")
-            let a3 = 0
+            int a3 = 0
             while (a3 < argc) {
                 if (a3 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a3])
@@ -1349,7 +1349,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "writeToFile") {
             emit(state, "writeToFile(")
-            let a4 = 0
+            int a4 = 0
             while (a4 < argc) {
                 if (a4 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a4])
@@ -1358,7 +1358,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "hasKey") {
             emit(state, "karkain_hasKey(")
-            let a5 = 0
+            int a5 = 0
             while (a5 < argc) {
                 if (a5 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a5])
@@ -1392,11 +1392,11 @@ func emitC11Expr(state, node) {
             if (argc > 0) { emitC11Expr(state, args[0]) }
             emit(state, ")")
         } else if (fname == "assert" || fname == "assert_eq" || fname == "assert_ne") {
-            let albl = "assert(condition)"
+            string albl = "assert(condition)"
             if (fname == "assert_eq") { albl = "assert_eq(actual, expected)" }
             if (fname == "assert_ne") { albl = "assert_ne(actual, expected)" }
             emit(state, "karkain_" + fname + "(")
-            let ai = 0
+            int ai = 0
             while (ai < argc) {
                 if (ai > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[ai])
@@ -1405,7 +1405,7 @@ func emitC11Expr(state, node) {
             emit(state, ", \"" + albl + "\", \"\")")
         } else if (fname == "pow") {
             emit(state, "karkain_pow(")
-            let a6 = 0
+            int a6 = 0
             while (a6 < argc) {
                 if (a6 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a6])
@@ -1414,7 +1414,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "add_checked") {
             emit(state, "karkain_checked_add(")
-            let a7 = 0
+            int a7 = 0
             while (a7 < argc) {
                 if (a7 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a7])
@@ -1423,7 +1423,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "sub_checked") {
             emit(state, "karkain_checked_sub(")
-            let a8 = 0
+            int a8 = 0
             while (a8 < argc) {
                 if (a8 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a8])
@@ -1432,7 +1432,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "mul_checked") {
             emit(state, "karkain_checked_mul(")
-            let a9 = 0
+            int a9 = 0
             while (a9 < argc) {
                 if (a9 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[a9])
@@ -1473,7 +1473,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "net_connect") {
             emit(state, "karkain_net_connect(")
-            let bn0 = 0
+            int bn0 = 0
             while (bn0 < argc) {
                 if (bn0 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[bn0])
@@ -1482,7 +1482,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "net_listen") {
             emit(state, "karkain_net_listen(")
-            let bn1 = 0
+            int bn1 = 0
             while (bn1 < argc) {
                 if (bn1 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[bn1])
@@ -1495,7 +1495,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "net_read") {
             emit(state, "karkain_net_read(")
-            let bn2 = 0
+            int bn2 = 0
             while (bn2 < argc) {
                 if (bn2 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[bn2])
@@ -1504,7 +1504,7 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "net_write") {
             emit(state, "karkain_net_write(")
-            let bn3 = 0
+            int bn3 = 0
             while (bn3 < argc) {
                 if (bn3 > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[bn3])
@@ -1530,7 +1530,7 @@ func emitC11Expr(state, node) {
             emitIndirectTail(state, args, callLine(node))
         } else {
             emit(state, fname + "(")
-            let i = 0
+            int i = 0
             while (i < argc) {
                 if (i > 0) { emit(state, ", ") }
                 emitC11Expr(state, args[i])
@@ -1563,15 +1563,15 @@ func emitC11Expr(state, node) {
     // prescan under lambdaSynthName; here only the per-evaluation heap
     // env (statement expression keeps the temp scoped) plus the cell.
     if (nt == "Lambda") {
-        let nm = lambdaSynthName(node)
-        let lcaps = computeCaptures(lambdaParams(node), lambdaBody(node))
+        string nm = lambdaSynthName(node)
+        int lcaps = computeCaptures(lambdaParams(node), lambdaBody(node))
         if (len(lcaps) == 0) {
             emit(state, "make_fn(karkain_fncall_" + nm + ", 0)")
         } else {
             emit(state, "({ ClosureEnv_" + nm + "* _e = (ClosureEnv_" + nm + "*)malloc(sizeof(ClosureEnv_" + nm + ")); ")
-            let i = 0
+            int i = 0
             while (i < len(lcaps)) {
-                let c = lcaps[i]
+                Value c = lcaps[i]
                 if (capInList(codegenCurrentCaps(state), c) == 1) {
                     emit(state, "_e->" + c + " = &(*_env->" + c + "); ")
                 } else {
@@ -1587,14 +1587,14 @@ func emitC11Expr(state, node) {
         emit(state, "({ Value _match_val = ")
         emitC11Expr(state, matchValue(node))
         emit(state, "; Value _match_result = _match_val; ")
-        let arms = matchArms(node)
-        let narm = len(arms)
-        let ai = 0
+        Value arms = matchArms(node)
+        int narm = len(arms)
+        int ai = 0
         while (ai < narm) {
-            let arm = arms[ai]
+            Value arm = arms[ai]
             if (ai > 0) { emit(state, " else ") }
             emit(state, "if (")
-            let pt = armPatternType(arm)
+            int pt = armPatternType(arm)
             if (pt == "Some") { emit(state, "_match_val.type == TYPE_OPTION && _match_val.optVal.tag == 1") }
             else if (pt == "None") { emit(state, "_match_val.type == TYPE_OPTION && _match_val.optVal.tag == 0") }
             else if (pt == "Ok") { emit(state, "_match_val.type == TYPE_RESULT && _match_val.resVal.tag == 0") }
@@ -1602,17 +1602,17 @@ func emitC11Expr(state, node) {
             else if (pt == "enum_variant") {
                 // Phase 123: EnumName.Variant arm => compare the int tag.
                 // Binding form is "Enum.Variant" (parser strcat'd the two).
-                let bnd = armBinding(arm)
-                let paylen = len(bnd)
-                let col = -1
-                let cx = 0
+                int bnd = armBinding(arm)
+                int paylen = len(bnd)
+                int col = -1
+                int cx = 0
                 while (cx < paylen) {
                     if (substr(bnd, cx, 1) == ".") { col = cx }
                     cx = cx + 1
                 }
-                let enm = bnd
-                let varName = ""
-                let idx = -1
+                int enm = bnd
+                string varName = ""
+                int idx = -1
                 if (col >= 0) {
                     enm = substr(bnd, 0, col)
                     varName = substr(bnd, col + 1, paylen - col - 1)
@@ -1630,7 +1630,7 @@ func emitC11Expr(state, node) {
                 emit(state, "))")
             } else { emit(state, "1") }
             emit(state, ") { ")
-            let binding = armBinding(arm)
+            int binding = armBinding(arm)
             if (binding != "" && binding != "_") {
                 if (pt == "Some") { emit(state, "Value " + binding + " = *_match_val.optVal.inner; ") }
                 else if (pt == "Ok") { emit(state, "Value " + binding + " = *_match_val.resVal.okVal; ") }
@@ -1646,7 +1646,7 @@ func emitC11Expr(state, node) {
     }
 
     if (nt == "GlobalId") {
-        let dim = globalIdDim(node)
+        Value dim = globalIdDim(node)
         emit(state, "get_global_id(")
         emitC11Expr(state, dim)
         emit(state, ")")
@@ -1663,9 +1663,9 @@ func emitC11Expr(state, node) {
     // the #define'd int-tag constant; payload variants call the generated
     // Enum_make_Variant(payload) constructor.
     if (nt == "EnumVariantExpr") {
-        let en = enumVariantExprEnumName(node)
-        let varName = enumVariantExprVariant(node)
-        let val = enumVariantExprValue(node)
+        int en = enumVariantExprEnumName(node)
+        int varName = enumVariantExprVariant(node)
+        int val = enumVariantExprValue(node)
         if (val != []) {
             emit(state, en + "_make_" + varName + "(")
             emitC11Expr(state, val)
@@ -1707,9 +1707,9 @@ func emitC11Expr(state, node) {
     }
 
     if (nt == "ArrayLiteral") {
-        let elems = arrayElements(node)
+        Value elems = arrayElements(node)
         emit(state, "_karkain_array(" + str(len(elems)))
-        let i = 0
+        int i = 0
         while (i < len(elems)) {
             emit(state, ", ")
             emitC11Expr(state, elems[i])
@@ -1720,9 +1720,9 @@ func emitC11Expr(state, node) {
 
     if (nt == "MapLiteral") {
         emit(state, "({ Value _m = make_map(); ")
-        let ks = mapKeys(node)
-        let vs = mapValues(node)
-        let i = 0
+        int ks = mapKeys(node)
+        int vs = mapValues(node)
+        int i = 0
         while (i < len(ks)) {
             emit(state, "map_set(&_m, ")
             emitC11Expr(state, ks[i])
@@ -1736,12 +1736,12 @@ func emitC11Expr(state, node) {
 
     if (nt == "StructLiteral") {
         emit(state, "({ Value _s = make_map(); ")
-        let fs = structLitFields(node)
-        let i = 0
+        int fs = structLitFields(node)
+        int i = 0
         while (i < len(fs)) {
-            let f = fs[i]
+            Value f = fs[i]
             if (getNodeType(f) == "BinaryExpr") {
-                let fl = binaryLeft(f)
+                int fl = binaryLeft(f)
                 if (getNodeType(fl) == "Ident") {
                     emit(state, "map_set(&_s, make_string(\"" + identName(fl) + "\"), ")
                     emitC11Expr(state, binaryRight(f))
@@ -1755,11 +1755,11 @@ func emitC11Expr(state, node) {
 }
 
 func emitMatchArmBody(state, body) {
-    let bt = getNodeType(body)
+    string bt = getNodeType(body)
     if (bt == "Block") {
-        let stmts = blockStmts(body)
-        let i = 0
-        let bn = len(stmts)
+        Value stmts = blockStmts(body)
+        int i = 0
+        int bn = len(stmts)
         while (i < bn) {
             emitC11Stmt(state, stmts[i])
             if (i == bn - 1 && getNodeType(stmts[i]) == "ExprStmt") {
@@ -1785,7 +1785,7 @@ func emitMatchArmBody(state, body) {
 }
 
 func emitC11Stmt(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
 
     if (nt == "VarDecl") {
         if (getNodeType(varDeclValue(node)) == "FuncDecl") { emitClosureBinding(state, varDeclValue(node)); return }
@@ -1818,7 +1818,7 @@ func emitC11Stmt(state, node) {
             // Phase 101: evaluate the return value first so a raise inside the
             // expression still sees this frame on the stack, then pop and return.
             emit(state, "{ Value _karkain_fret = ")
-            let rv = returnExpr(node)
+            int rv = returnExpr(node)
             if (len(rv) == 0) { emit(state, "mk_nil()") } else { emitC11Expr(state, rv) }
             emitLine(state, "; karkain_frame_leave(); return _karkain_fret; }")
         }
@@ -1850,8 +1850,8 @@ func emitC11Stmt(state, node) {
         emit(state, "; int _len = (_iter.type == TYPE_ARRAY) ? _iter.length : 0; ")
         emit(state, "for (int _i = 0; _i < _len; _i++) { ")
         emit(state, "Value " + forInVar(node) + " = *_iter.items[_i];")
-        let fib = forInBody(node)
-        let fi = 0
+        int fib = forInBody(node)
+        int fi = 0
         while (fi < len(fib)) {
             emitC11Stmt(state, fib[fi])
             fi = fi + 1
@@ -1868,14 +1868,14 @@ func emitC11Stmt(state, node) {
         emitC11Expr(state, ifCondition(node))
         emit(state, ")) {")
         state[2] = codegenIndent(state) + 1
-        let thenB = ifThen(node)
-        let i = 0
+        Value thenB = ifThen(node)
+        int i = 0
         while (i < len(thenB)) {
             emitC11Stmt(state, thenB[i])
             i = i + 1
         }
         state[2] = codegenIndent(state) - 1
-        let elseB = ifElse(node)
+        Value elseB = ifElse(node)
         if (len(elseB) > 0) {
             emitLine(state, "} else {")
             state[2] = codegenIndent(state) + 1
@@ -1894,8 +1894,8 @@ func emitC11Stmt(state, node) {
         emitC11Expr(state, whileCondition(node))
         emit(state, ")) {")
         state[2] = codegenIndent(state) + 1
-        let body = whileBody(node)
-        let i = 0
+        Value body = whileBody(node)
+        int i = 0
         while (i < len(body)) {
             emitC11Stmt(state, body[i])
             i = i + 1
@@ -1906,7 +1906,7 @@ func emitC11Stmt(state, node) {
 
     if (nt == "For") {
         emit(state, "for (")
-        let iNode = forInit(node)
+        int iNode = forInit(node)
         if (iNode != []) {
             emitC11Stmt(state, iNode)
         } else {
@@ -1918,8 +1918,8 @@ func emitC11Stmt(state, node) {
         emitC11Expr(state, forPost(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = forBody(node)
-        let i = 0
+        int body = forBody(node)
+        int i = 0
         while (i < len(body)) {
             emitC11Stmt(state, body[i])
             i = i + 1
@@ -1936,9 +1936,9 @@ func emitC11Stmt(state, node) {
         // Phase 146C: generic templates are never emitted as C — only their
         // monomorphized specializations (plain FuncDecls) reach this branch.
         if (len(funcGenericParams(node)) > 0) { return }
-        let fnName = funcName(node)
-        let params = funcParams(node)
-        let trapTarget = funcTarget(node)
+        string fnName = funcName(node)
+        Value params = funcParams(node)
+        int trapTarget = funcTarget(node)
         state[8] = fnName
         if (trapTarget != "") {
             emitLine(state, "// @target(" + trapTarget + ")")
@@ -1948,9 +1948,9 @@ func emitC11Stmt(state, node) {
             state[2] = codegenIndent(state) + 1
             emitLine(state, "_karkain_gargc = _karkain_argc; _karkain_gargv = _karkain_argv;")
         } else {
-            let rtype = emitC11Type(funcReturnType(node))
+            string rtype = emitC11Type(funcReturnType(node))
             emit(state, rtype + " " + emitC11FuncSymbol(fnName) + "(")
-            let i = 0
+            int i = 0
             while (i < len(params)) {
                 if (i > 0) { emit(state, ", ") }
                 emit(state, "Value " + params[i])
@@ -1961,8 +1961,8 @@ func emitC11Stmt(state, node) {
         }
         emitLine(state, "karkain_frame_enter(\"" + fnName + "\", \"" + codegenSourceName(state) + "\");")
         emitLine(state, "karkain_set_line(" + funcLine(node) + ");")
-        let body = funcBody(node)
-        let i = 0
+        Value body = funcBody(node)
+        int i = 0
         while (i < len(body)) {
             emitC11Stmt(state, body[i])
             i = i + 1
@@ -1976,8 +1976,8 @@ func emitC11Stmt(state, node) {
 
     if (nt == "KernelDecl") {
         emit(state, "__kernel void " + kernelName(node) + "(")
-        let params = kernelParams(node)
-        let i = 0
+        int params = kernelParams(node)
+        int i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, emitC11Type("") + " " + params[i])
@@ -1985,7 +1985,7 @@ func emitC11Stmt(state, node) {
         }
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = kernelBody(node)
+        int body = kernelBody(node)
         i = 0
         while (i < len(body)) {
             emitC11Stmt(state, body[i])
@@ -2040,7 +2040,7 @@ func registerUserFunc(state, fnName) {
 
 func hasUserFunc(state, fname) {
     let funcs = codegenFunctions(state)
-    let i = 0
+    int i = 0
     while (i < len(funcs)) {
         if (funcs[i] == fname) {
             return 1
@@ -2062,9 +2062,9 @@ func codegenCurrentCaps(state)   { return state[13] }
 func setCodegenCurrentCaps(state, caps) { state[13] = caps }
 
 func codegenLocalFuncCapsFor(state, name) {
-    let names = codegenLocalFuncs(state)
-    let caps = state[11]
-    let i = 0
+    Value names = codegenLocalFuncs(state)
+    Value caps = state[11]
+    int i = 0
     while (i < len(names)) {
         if (names[i] == name) { return caps[i] }
         i = i + 1
@@ -2073,8 +2073,8 @@ func codegenLocalFuncCapsFor(state, name) {
 }
 
 func codegenLocalFuncHas(state, name) {
-    let names = codegenLocalFuncs(state)
-    let i = 0
+    Value names = codegenLocalFuncs(state)
+    int i = 0
     while (i < len(names)) {
         if (names[i] == name) { return 1 }
         i = i + 1
@@ -2090,7 +2090,7 @@ func registerLocalFunc(state, name, caps, node) {
 }
 
 func capInList(caps, name) {
-    let i = 0
+    int i = 0
     while (i < len(caps)) {
         if (caps[i] == name) { return 1 }
         i = i + 1
@@ -2103,7 +2103,7 @@ func capInList(caps, name) {
 // definitions for bare lambdas found in expression positions (arrays,
 // arguments, returns) so their defs emit with the closure defs.
 func collectPhase133Prescan(state, stmts) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
         collectPhase133Stmt(state, stmts[i])
         i = i + 1
@@ -2112,7 +2112,7 @@ func collectPhase133Prescan(state, stmts) {
 
 func collectPhase133Stmt(state, s) {
     if (len(s) < 1) { return }
-    let nt = getNodeType(s)
+    string nt = getNodeType(s)
     if (nt == "VarDecl") {
         registerLocalName(state, varDeclName(s))
         collectPhase133Expr(state, varDeclValue(s))
@@ -2123,8 +2123,8 @@ func collectPhase133Stmt(state, s) {
         registerLocalName(state, constDeclName(s))
         collectPhase133Expr(state, constDeclValue(s))
     } else if (nt == "FuncDecl") {
-        let params = funcParams(s)
-        let p = 0
+        Value params = funcParams(s)
+        int p = 0
         while (p < len(params)) {
             registerLocalName(state, params[p])
             p = p + 1
@@ -2152,43 +2152,43 @@ func collectPhase133Stmt(state, s) {
 
 func collectPhase133Expr(state, e) {
     if (len(e) < 1) { return }
-    let nt = getNodeType(e)
+    string nt = getNodeType(e)
     if (nt == "Lambda") {
         // Synthesize a top-level definition (idempotent: registerLocalFunc
         // skips names already registered, and the name derives from the
         // parse-order stamp, so repeated visits agree).
-        let nm = lambdaSynthName(e)
-        let caps = computeCaptures(lambdaParams(e), lambdaBody(e))
-        let fd = setFuncCaptures(makeFuncDecl(nm, lambdaParams(e), lambdaBody(e), lambdaLine(e), 0), caps)
+        string nm = lambdaSynthName(e)
+        int caps = computeCaptures(lambdaParams(e), lambdaBody(e))
+        int fd = setFuncCaptures(makeFuncDecl(nm, lambdaParams(e), lambdaBody(e), lambdaLine(e), 0), caps)
         registerLocalFunc(state, nm, caps, fd)
         collectPhase133Prescan(state, lambdaBody(e))
     } else if (nt == "FuncDecl") {
         collectPhase133Prescan(state, funcBody(e))
     } else if (nt == "ArrayLiteral") {
-        let elems = arrayElements(e)
-        let i = 0
+        Value elems = arrayElements(e)
+        int i = 0
         while (i < len(elems)) {
             collectPhase133Expr(state, elems[i])
             i = i + 1
         }
     } else if (nt == "MapLiteral") {
-        let ks = mapKeys(e)
-        let i = 0
+        int ks = mapKeys(e)
+        int i = 0
         while (i < len(ks)) {
             collectPhase133Expr(state, ks[i])
             i = i + 1
         }
-        let vs = mapValues(e)
-        let j = 0
+        int vs = mapValues(e)
+        int j = 0
         while (j < len(vs)) {
             collectPhase133Expr(state, vs[j])
             j = j + 1
         }
     } else if (nt == "StructLiteral") {
-        let fields = structLitFields(e)
-        let i = 0
+        int fields = structLitFields(e)
+        int i = 0
         while (i < len(fields)) {
-            let f = fields[i]
+            Value f = fields[i]
             if (getNodeType(f) == "BinaryExpr") {
                 collectPhase133Expr(state, binaryRight(f))
             } else {
@@ -2209,26 +2209,26 @@ func collectPhase133Expr(state, e) {
     } else if (nt == "Member") {
         collectPhase133Expr(state, dotLeft(e))
     } else if (nt == "Call") {
-        let args = callArgs(e)
-        let i = 0
+        Value args = callArgs(e)
+        int i = 0
         while (i < len(args)) {
             collectPhase133Expr(state, args[i])
             i = i + 1
         }
     } else if (nt == "IndirectCall") {
         collectPhase133Expr(state, indirectTarget(e))
-        let args = indirectArgs(e)
-        let i = 0
+        int args = indirectArgs(e)
+        int i = 0
         while (i < len(args)) {
             collectPhase133Expr(state, args[i])
             i = i + 1
         }
     } else if (nt == "Match") {
         collectPhase133Expr(state, matchValue(e))
-        let arms = matchArms(e)
-        let i = 0
+        Value arms = matchArms(e)
+        int i = 0
         while (i < len(arms)) {
-            let ab = armBody(arms[i])
+            int ab = armBody(arms[i])
             if (getNodeType(ab) == "Block") {
                 collectPhase133Prescan(state, blockStmts(ab))
             } else {
@@ -2242,11 +2242,11 @@ func collectPhase133Expr(state, e) {
 // collectLocalFuncsC11 walks statements (recursively through blocks and
 // function bodies) registering every let-bound lambda FuncDecl value.
 func collectLocalFuncsC11(state, stmts) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
-        let nt = getNodeType(stmts[i])
+        string nt = getNodeType(stmts[i])
         if (nt == "VarDecl" || nt == "LetDecl" || nt == "ConstDecl") {
-            let val = varDeclValue(stmts[i])
+            Value val = varDeclValue(stmts[i])
             if (nt == "LetDecl") { val = letDeclValue(stmts[i]) }
             if (nt == "ConstDecl") { val = constDeclValue(stmts[i]) }
             if (getNodeType(val) == "FuncDecl") {
@@ -2262,8 +2262,21 @@ func collectLocalFuncsC11(state, stmts) {
     }
 }
 
+// emitC11StaticInit returns a C file-scope initializer for literal values.
+func emitC11StaticInit(n) {
+    string t = getNodeType(n)
+    if (t == "IntLiteral") { return "{TYPE_INT, .intVal = " + intLitVal(n) + "}" }
+    if (t == "Float64Literal" || t == "FloatLiteral") { return "{TYPE_FLOAT64, .floatVal = " + floatLitVal(n) + "}" }
+    if (t == "BoolLiteral") {
+        if (boolLitVal(n) == "true" || boolLitVal(n) == 1) { return "{TYPE_BOOL, .intVal = 1}" }
+        return "{TYPE_BOOL, .intVal = 0}"
+    }
+    if (t == "StringLiteral") { return "{TYPE_STRING, .strVal = \"" + stringLitVal(n) + "\"}" }
+    return ""
+}
+
 func generateC11(ast, sourceName) {
-    let state = createCodegenState("c11")
+    Value state = createCodegenState("c11")
     setCodegenSourceName(state, sourceName)
     // Phase 146C: monomorphize the program before any emission, exactly like
     // the Go pipeline. Diagnostic gating already happened upstream (kcc
@@ -2271,7 +2284,7 @@ func generateC11(ast, sourceName) {
     // there), so any errors here are ignored — the generated C for a program
     // that reached codegen is always fully monomorphized.
     monomorphizeProgram(ast)
-    let stmts = programStatements(ast)
+    Value stmts = programStatements(ast)
     // Phase 137: concurrency prescan (uses-flag, spawn order, handler
     // order). Runs before any emission; the runtime text, wrappers and
     // glue below are all gated on it.
@@ -2285,7 +2298,7 @@ func generateC11(ast, sourceName) {
     // Phase 123: generate enum declarations (C int-tag constants / payload
     // constructors) before functions, mirroring the Go emitters
     // genEnumDecl / generator.enumDecls first pass.
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
         if (getNodeType(stmts[i]) == "EnumDecl") {
             registerEnumDecl(state, stmts[i])
@@ -2325,9 +2338,36 @@ func generateC11(ast, sourceName) {
     // definitions must NOT nest inside the enclosing function's body.
     emitClosureDefs(state)
 
+    // Type-first module constants/globals emit as static C initializers.
     i = 0
     while (i < len(stmts)) {
-        emitC11Stmt(state, stmts[i])
+        string nt = getNodeType(stmts[i])
+        string nm = ""
+        Value cv = []
+        if (nt == "ConstDecl") { nm = constDeclName(stmts[i]); cv = constDeclValue(stmts[i]) }
+        if (nt == "VarDecl") { nm = varDeclName(stmts[i]); cv = varDeclValue(stmts[i]) }
+        if (nt == "LetDecl") { nm = letDeclName(stmts[i]); cv = letDeclValue(stmts[i]) }
+        if (nm != "") {
+            string init = emitC11StaticInit(cv)
+            if (init != "") { emitLine(state, "static Value " + nm + " = " + init + ";") }
+        }
+        i = i + 1
+    }
+    emitNewline(state)
+
+    i = 0
+    while (i < len(stmts)) {
+        string nt = getNodeType(stmts[i])
+        // Module-level typed declarations were emitted above as C statics.
+        if (nt == "ConstDecl" || nt == "VarDecl" || nt == "LetDecl") {
+            Value dv = []
+            if (nt == "ConstDecl") { dv = constDeclValue(stmts[i]) }
+            if (nt == "VarDecl") { dv = varDeclValue(stmts[i]) }
+            if (nt == "LetDecl") { dv = letDeclValue(stmts[i]) }
+            if (emitC11StaticInit(dv) == "") { emitC11Stmt(state, stmts[i]) }
+        } else {
+            emitC11Stmt(state, stmts[i])
+        }
         i = i + 1
     }
 
@@ -2340,27 +2380,27 @@ func generateC11(ast, sourceName) {
 // become `Value Enum_make_Variant(Value payload) { (void)payload; return
 // make_int(i+1); }`. Variant raw entries are "Name:" (unit) or "Name:payload".
 func emitC11EnumDecl(state, node) {
-    let vars = enumDeclVariants(node)
-    let en = enumDeclName(node)
-    let v = 0
+    int vars = enumDeclVariants(node)
+    int en = enumDeclName(node)
+    int v = 0
     while (v < len(vars)) {
         // split "Name" / "Name:payload" at the first ':'
-        let entry = vars[v]
-        let plen = len(entry)
-        let colon = -1
-        let ci = 0
+        Value entry = vars[v]
+        int plen = len(entry)
+        int colon = -1
+        int ci = 0
         while (ci < plen) {
             if (substr(entry, ci, 1) == ":") { colon = ci }
             ci = ci + 1
         }
         let vname = entry
-        let hasPayload = 0
+        int hasPayload = 0
         if (colon >= 0) {
             vname = substr(entry, 0, colon)
-            let payloadTxt = substr(entry, colon + 1, plen - colon - 1)
+            string payloadTxt = substr(entry, colon + 1, plen - colon - 1)
             if (payloadTxt != "") { hasPayload = 1 }
         }
-        let tag = str(v + 1)
+        string tag = str(v + 1)
         if (hasPayload == 1) {
             emitLine(state, "Value " + en + "_make_" + vname + "(Value payload) {")
             emitLine(state, "  (void)payload;")
@@ -2378,17 +2418,17 @@ func emitC11EnumDecl(state, node) {
 // emit the closure-env typedef + holder and the forward prototype exactly once.
 func emitLocalFuncDecls(state, stmts) {
     collectLocalFuncsC11(state, stmts)
-    let names = codegenLocalFuncs(state)
-    let nodes = codegenLocalFuncNodes(state)
-    let i = 0
+    Value names = codegenLocalFuncs(state)
+    Value nodes = codegenLocalFuncNodes(state)
+    int i = 0
     while (i < len(names)) {
-        let nm = names[i]
+        Value nm = names[i]
         if (hasEmittedClosureEnv(state, nm) == 0) {
             markEmittedClosureEnv(state, nm)
-            let caps = funcCaptures(nodes[i])
+            int caps = funcCaptures(nodes[i])
             if (len(caps) > 0) {
                 emitLine(state, "typedef struct {")
-                let c = 0
+                int c = 0
                 while (c < len(caps)) {
                     emitLine(state, "  Value* " + caps[c] + ";")
                     c = c + 1
@@ -2398,14 +2438,14 @@ func emitLocalFuncDecls(state, stmts) {
                 emitNewline(state)
             }
             // Forward prototype (env param first when captures exist).
-            let params = funcParams(nodes[i])
+            Value params = funcParams(nodes[i])
             emit(state, "Value " + emitC11FuncSymbol(nm) + "(")
-            let pfirst = 1
+            int pfirst = 1
             if (len(caps) > 0) {
                 emit(state, "ClosureEnv_" + nm + "* _env")
                 pfirst = 0
             }
-            let p = 0
+            int p = 0
             while (p < len(params)) {
                 if (pfirst == 0) { emit(state, ", ") }
                 emit(state, "Value " + params[p])
@@ -2420,18 +2460,18 @@ func emitLocalFuncDecls(state, stmts) {
 
 // Phase 121: emit every registered let-bound lambda's top-level C body.
 func emitClosureDefs(state) {
-    let names = codegenLocalFuncs(state)
-    let nodes = codegenLocalFuncNodes(state)
+    Value names = codegenLocalFuncs(state)
+    Value nodes = codegenLocalFuncNodes(state)
     // Phase 133: wrapper prototypes first. Nested lambdas register after
     // their parents, so a def referencing an inner wrapper would otherwise
     // precede it (use before declaration). The uniform karkain_fn_t
     // signature needs no per-lambda type info.
-    let p = 0
+    int p = 0
     while (p < len(names)) {
         emitLine(state, "static Value karkain_fncall_" + names[p] + "(void*, int, Value*, const char*, long long);")
         p = p + 1
     }
-    let i = 0
+    int i = 0
     while (i < len(names)) {
         emitC11ClosureDef(state, nodes[i])
         i = i + 1
@@ -2439,19 +2479,19 @@ func emitClosureDefs(state) {
 }
 
 func emitC11ClosureDef(state, node) {
-    let fnName = funcName(node)
-    let params = funcParams(node)
-    let caps = funcCaptures(node)
+    string fnName = funcName(node)
+    Value params = funcParams(node)
+    int caps = funcCaptures(node)
     let savedCaps = codegenCurrentCaps(state)
     setCodegenCurrentCaps(state, caps)
     state[8] = fnName
     emit(state, "Value " + emitC11FuncSymbol(fnName) + "(")
-    let pfirst = 1
+    int pfirst = 1
     if (len(caps) > 0) {
         emit(state, "ClosureEnv_" + fnName + "* _env")
         pfirst = 0
     }
-    let i = 0
+    int i = 0
     while (i < len(params)) {
         if (pfirst == 0) { emit(state, ", ") }
         emit(state, "Value " + params[i])
@@ -2462,7 +2502,7 @@ func emitC11ClosureDef(state, node) {
     state[2] = codegenIndent(state) + 1
     emitLine(state, "karkain_frame_enter(\"" + fnName + "\", \"" + codegenSourceName(state) + "\");")
     emitLine(state, "karkain_set_line(" + funcLine(node) + ");")
-    let body = funcBody(node)
+    Value body = funcBody(node)
     i = 0
     while (i < len(body)) {
         emitC11Stmt(state, body[i])
@@ -2480,8 +2520,8 @@ func emitC11ClosureDef(state, node) {
 
 // Phase 121: track which closure env typedefs have been emitted.
 func hasEmittedClosureEnv(state, name) {
-    let envs = state[14]
-    let i = 0
+    Value envs = state[14]
+    int i = 0
     while (i < len(envs)) {
         if (envs[i] == name) { return 1 }
         i = i + 1
@@ -2496,8 +2536,8 @@ func markEmittedClosureEnv(state, name) {
 // Phase 121: binding-site env instance init `{ static ClosureEnv_x _e; ...caps;
 // _genv_x = &_e; }`. When the lambda captures nothing there is no env at all.
 func emitClosureBinding(state, node) {
-    let fnName = funcName(node)
-    let caps = funcCaptures(node)
+    string fnName = funcName(node)
+    int caps = funcCaptures(node)
     // Phase 133: every let-bound lambda also declares a first-class
     // function Value cell so the binding flows into arrays, params and
     // returns (static direct calls are untouched). Zero-capture cells
@@ -2510,9 +2550,9 @@ func emitClosureBinding(state, node) {
     // cells keep their own captures. The global holder still points at
     // the latest instance for static direct calls.
     emitLine(state, "ClosureEnv_" + fnName + "* _e_" + fnName + " = (ClosureEnv_" + fnName + "*)malloc(sizeof(ClosureEnv_" + fnName + "));")
-    let i = 0
+    int i = 0
     while (i < len(caps)) {
-        let c = caps[i]
+        Value c = caps[i]
         if (capInList(codegenCurrentCaps(state), c) == 1) {
             emitLine(state, "_e_" + fnName + "->" + c + " = &(*_env->" + c + ");")
         } else {
@@ -2543,7 +2583,7 @@ func emitIndirectTail(state, args, line) {
         emit(state, "NULL")
     } else {
         emit(state, "(Value[]){")
-        let i = 0
+        int i = 0
         while (i < len(args)) {
             if (i > 0) { emit(state, ", ") }
             emitC11Expr(state, args[i])
@@ -2558,22 +2598,22 @@ func emitIndirectTail(state, args, line) {
 // Knows its closure's exact static C type, so computed calls dispatch
 // without casts; arity is enforced with the file:line contract.
 func emitClosureWrapper(state, node) {
-    let fnName = funcName(node)
-    let params = funcParams(node)
-    let caps = funcCaptures(node)
-    let argc = len(params)
+    string fnName = funcName(node)
+    Value params = funcParams(node)
+    int caps = funcCaptures(node)
+    int argc = len(params)
     emit(state, "static Value karkain_fncall_" + fnName + "(void* env, int argc, Value* argv, const char* file, long long line) { ")
     emit(state, "if (argc != " + str(argc) + ") { karkain_runtime_error(\"wrong number of arguments for function '" + fnName + "'\", file, line); } ")
     emit(state, "return " + emitC11FuncSymbol(fnName) + "(")
     if (len(caps) > 0) {
         emit(state, "(ClosureEnv_" + fnName + "*)env")
-        let i = 0
+        int i = 0
         while (i < argc) {
             emit(state, ", argv[" + str(i) + "]")
             i = i + 1
         }
     } else {
-        let i = 0
+        int i = 0
         while (i < argc) {
             if (i > 0) { emit(state, ", ") }
             emit(state, "argv[" + str(i) + "]")
@@ -2586,16 +2626,16 @@ func emitClosureWrapper(state, node) {
 // Forward declaration so functions can call each other regardless of
 // definition order (mirrors the Go backend's Phase 40 pass).
 func emitC11ForwardDecl(state, node) {
-    let fnName = funcName(node)
+    string fnName = funcName(node)
     registerUserFunc(state, fnName)
     if (fnName == "main") {
         emitLine(state, "int main(int _karkain_argc, char** _karkain_argv);")
         return
     }
-    let rtype = emitC11Type(funcReturnType(node))
+    string rtype = emitC11Type(funcReturnType(node))
     emit(state, rtype + " " + emitC11FuncSymbol(fnName) + "(")
-    let params = funcParams(node)
-    let i = 0
+    Value params = funcParams(node)
+    int i = 0
     while (i < len(params)) {
         if (i > 0) { emit(state, ", ") }
         emit(state, "Value " + params[i])
@@ -2623,7 +2663,7 @@ func emitWGSLType(varType) {
 }
 
 func emitWGSLExpr(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
 
     if (nt == "IntLiteral") { emit(state, literalValue(node)) }
     if (nt == "FloatLiteral") { emit(state, literalValue(node)) }
@@ -2641,8 +2681,8 @@ func emitWGSLExpr(state, node) {
 
     if (nt == "Call") {
         emit(state, callFunc(node) + "(")
-        let args = callArgs(node)
-        let i = 0
+        Value args = callArgs(node)
+        int i = 0
         while (i < len(args)) {
             if (i > 0) { emit(state, ", ") }
             emitWGSLExpr(state, args[i])
@@ -2652,7 +2692,7 @@ func emitWGSLExpr(state, node) {
     }
 
     if (nt == "GlobalId") {
-        let dim = globalIdDim(node)
+        Value dim = globalIdDim(node)
         emit(state, "global_id.")
         if (dim == "0" || dim == 0) { emit(state, "x") }
         if (dim == "1" || dim == 1) { emit(state, "y") }
@@ -2673,8 +2713,8 @@ func emitWGSLExpr(state, node) {
 
     if (nt == "ArrayLiteral") {
         emit(state, "array(")
-        let elems = arrayElements(node)
-        let i = 0
+        Value elems = arrayElements(node)
+        int i = 0
         while (i < len(elems)) {
             if (i > 0) { emit(state, ", ") }
             emitWGSLExpr(state, elems[i])
@@ -2685,7 +2725,7 @@ func emitWGSLExpr(state, node) {
 }
 
 func emitWGSLStmt(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
 
     if (nt == "VarDecl") {
         let vtype = emitWGSLType(varDeclType(node))
@@ -2708,7 +2748,7 @@ func emitWGSLStmt(state, node) {
 
     if (nt == "Return") {
         emit(state, "return ")
-        let rv0 = returnExpr(node)
+        int rv0 = returnExpr(node)
         if (len(rv0) == 0) { emit(state, "mk_nil()") } else { emitWGSLExpr(state, rv0) }
         emitLine(state, ";")
     }
@@ -2728,8 +2768,8 @@ func emitWGSLStmt(state, node) {
         emitWGSLExpr(state, ifCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let thenB = ifThen(node)
-        let i = 0
+        Value thenB = ifThen(node)
+        int i = 0
         while (i < len(thenB)) {
             emitWGSLStmt(state, thenB[i])
             i = i + 1
@@ -2745,7 +2785,7 @@ func emitWGSLStmt(state, node) {
     if (nt == "KernelDecl") {
         emit(state, "@compute @workgroup_size(")
         let wg = kernelWorkgroup(node)
-        let i = 0
+        int i = 0
         while (i < len(wg)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, wg[i])
@@ -2753,7 +2793,7 @@ func emitWGSLStmt(state, node) {
         }
         emitLine(state, ")")
         emit(state, "fn " + kernelName(node) + "(")
-        let params = kernelParams(node)
+        int params = kernelParams(node)
         i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
@@ -2762,7 +2802,7 @@ func emitWGSLStmt(state, node) {
         }
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = kernelBody(node)
+        int body = kernelBody(node)
         i = 0
         while (i < len(body)) {
             emitWGSLStmt(state, body[i])
@@ -2775,8 +2815,8 @@ func emitWGSLStmt(state, node) {
 
     if (nt == "FuncDecl") {
         emit(state, "fn " + funcName(node) + "(")
-        let params = funcParams(node)
-        let i = 0
+        Value params = funcParams(node)
+        int i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, params[i] + ": " + emitWGSLType("int"))
@@ -2785,7 +2825,7 @@ func emitWGSLStmt(state, node) {
         emit(state, ") -> " + emitWGSLType(funcReturnType(node)))
         emitLine(state, " {")
         state[2] = codegenIndent(state) + 1
-        let body = funcBody(node)
+        Value body = funcBody(node)
         i = 0
         while (i < len(body)) {
             emitWGSLStmt(state, body[i])
@@ -2799,8 +2839,8 @@ func emitWGSLStmt(state, node) {
     if (nt == "StructDecl") {
         emitLine(state, "struct " + structName(node) + " {")
         state[2] = codegenIndent(state) + 1
-        let fields = structFields(node)
-        let i = 0
+        Value fields = structFields(node)
+        int i = 0
         while (i < len(fields)) {
             emitLine(state, fields[i][1] + ": " + emitWGSLType(fields[i][0]) + ",")
             i = i + 1
@@ -2816,8 +2856,8 @@ func emitWGSLStmt(state, node) {
         emit(state, "if (!")
         emitWGSLExpr(state, whileCondition(node))
         emitLine(state, ") { break; }")
-        let body = whileBody(node)
-        let i = 0
+        Value body = whileBody(node)
+        int i = 0
         while (i < len(body)) {
             emitWGSLStmt(state, body[i])
             i = i + 1
@@ -2835,8 +2875,8 @@ func emitWGSLStmt(state, node) {
         emit(state, "if (!")
         emitWGSLExpr(state, forCondition(node))
         emitLine(state, ") { break; }")
-        let body = forBody(node)
-        let i = 0
+        int body = forBody(node)
+        int i = 0
         while (i < len(body)) {
             emitWGSLStmt(state, body[i])
             i = i + 1
@@ -2852,11 +2892,11 @@ func emitWGSLStmt(state, node) {
 }
 
 func generateWGSL(ast) {
-    let state = createCodegenState("wgsl")
+    Value state = createCodegenState("wgsl")
     emitWGSLEpreamble(state)
 
-    let stmts = programStatements(ast)
-    let i = 0
+    Value stmts = programStatements(ast)
+    int i = 0
     while (i < len(stmts)) {
         emitWGSLStmt(state, stmts[i])
         i = i + 1
@@ -2885,7 +2925,7 @@ func emitOpenCLType(varType) {
 }
 
 func emitOpenCLExpr(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
 
     if (nt == "IntLiteral") { emit(state, literalValue(node)) }
     if (nt == "FloatLiteral") { emit(state, literalValue(node)) }
@@ -2906,8 +2946,8 @@ func emitOpenCLExpr(state, node) {
 
     if (nt == "Call") {
         emit(state, callFunc(node) + "(")
-        let args = callArgs(node)
-        let i = 0
+        Value args = callArgs(node)
+        int i = 0
         while (i < len(args)) {
             if (i > 0) { emit(state, ", ") }
             emitOpenCLExpr(state, args[i])
@@ -2917,7 +2957,7 @@ func emitOpenCLExpr(state, node) {
     }
 
     if (nt == "GlobalId") {
-        let dim = globalIdDim(node)
+        Value dim = globalIdDim(node)
         emit(state, "get_global_id(")
         emitOpenCLExpr(state, dim)
         emit(state, ")")
@@ -2937,7 +2977,7 @@ func emitOpenCLExpr(state, node) {
 }
 
 func emitOpenCLStmt(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
 
     if (nt == "VarDecl") {
         let vtype = emitOpenCLType(varDeclType(node))
@@ -2960,7 +3000,7 @@ func emitOpenCLStmt(state, node) {
 
     if (nt == "Return") {
         emit(state, "return ")
-        let rv1 = returnExpr(node)
+        int rv1 = returnExpr(node)
         if (len(rv1) == 0) { emit(state, "mk_nil()") } else { emitOpenCLExpr(state, rv1) }
         emitLine(state, ";")
     }
@@ -2981,14 +3021,14 @@ func emitOpenCLStmt(state, node) {
         emitOpenCLExpr(state, ifCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let thenB = ifThen(node)
-        let i = 0
+        Value thenB = ifThen(node)
+        int i = 0
         while (i < len(thenB)) {
             emitOpenCLStmt(state, thenB[i])
             i = i + 1
         }
         state[2] = codegenIndent(state) - 1
-        let elseB = ifElse(node)
+        Value elseB = ifElse(node)
         if (len(elseB) > 0) {
             emitLine(state, "} else {")
             state[2] = codegenIndent(state) + 1
@@ -3008,8 +3048,8 @@ func emitOpenCLStmt(state, node) {
 
     if (nt == "KernelDecl") {
         emit(state, "__kernel void " + kernelName(node) + "(")
-        let params = kernelParams(node)
-        let i = 0
+        int params = kernelParams(node)
+        int i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, "__global " + emitOpenCLType("int") + "* " + params[i])
@@ -3017,7 +3057,7 @@ func emitOpenCLStmt(state, node) {
         }
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = kernelBody(node)
+        int body = kernelBody(node)
         i = 0
         while (i < len(body)) {
             emitOpenCLStmt(state, body[i])
@@ -3031,8 +3071,8 @@ func emitOpenCLStmt(state, node) {
     if (nt == "FuncDecl") {
         let rtype = emitOpenCLType(funcReturnType(node))
         emit(state, rtype + " " + funcName(node) + "(")
-        let params = funcParams(node)
-        let i = 0
+        Value params = funcParams(node)
+        int i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, emitOpenCLType("int") + " " + params[i])
@@ -3040,7 +3080,7 @@ func emitOpenCLStmt(state, node) {
         }
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = funcBody(node)
+        Value body = funcBody(node)
         i = 0
         while (i < len(body)) {
             emitOpenCLStmt(state, body[i])
@@ -3054,8 +3094,8 @@ func emitOpenCLStmt(state, node) {
     if (nt == "StructDecl") {
         emitLine(state, "typedef struct " + structName(node) + " {")
         state[2] = codegenIndent(state) + 1
-        let fields = structFields(node)
-        let i = 0
+        Value fields = structFields(node)
+        int i = 0
         while (i < len(fields)) {
             emitLine(state, emitOpenCLType(fields[i][0]) + " " + fields[i][1] + ";")
             i = i + 1
@@ -3070,8 +3110,8 @@ func emitOpenCLStmt(state, node) {
         emitOpenCLExpr(state, whileCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = whileBody(node)
-        let i = 0
+        Value body = whileBody(node)
+        int i = 0
         while (i < len(body)) {
             emitOpenCLStmt(state, body[i])
             i = i + 1
@@ -3088,8 +3128,8 @@ func emitOpenCLStmt(state, node) {
         emitOpenCLExpr(state, forPost(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = forBody(node)
-        let i = 0
+        int body = forBody(node)
+        int i = 0
         while (i < len(body)) {
             emitOpenCLStmt(state, body[i])
             i = i + 1
@@ -3100,11 +3140,11 @@ func emitOpenCLStmt(state, node) {
 }
 
 func generateOpenCL(ast) {
-    let state = createCodegenState("opencl")
+    Value state = createCodegenState("opencl")
     emitOpenCLPreamble(state)
 
-    let stmts = programStatements(ast)
-    let i = 0
+    Value stmts = programStatements(ast)
+    int i = 0
     while (i < len(stmts)) {
         emitOpenCLStmt(state, stmts[i])
         i = i + 1
@@ -3126,7 +3166,7 @@ func generateSPIRV(ast) {
 // ============================================================
 
 func emitOpenQASMExpr(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "IntLiteral") { emit(state, literalValue(node)) }
     if (nt == "FloatLiteral") { emit(state, literalValue(node)) }
     if (nt == "StringLiteral") { emit(state, "\"" + literalValue(node) + "\"") }
@@ -3144,8 +3184,8 @@ func emitOpenQASMExpr(state, node) {
     }
     if (nt == "Call") {
         emit(state, callFunc(node) + "(")
-        let args = callArgs(node)
-        let i = 0
+        Value args = callArgs(node)
+        int i = 0
         while (i < len(args)) {
             if (i > 0) { emit(state, ", ") }
             emitOpenQASMExpr(state, args[i])
@@ -3166,7 +3206,7 @@ func emitOpenQASMExpr(state, node) {
 }
 
 func emitOpenQASMStmt(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "ExprStmt") {
         emitOpenQASMExpr(state, exprStmtExpr(node))
         emitLine(state, ";")
@@ -3176,8 +3216,8 @@ func emitOpenQASMStmt(state, node) {
         emitOpenQASMExpr(state, ifCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let thenB = ifThen(node)
-        let i = 0
+        Value thenB = ifThen(node)
+        int i = 0
         while (i < len(thenB)) {
             emitOpenQASMStmt(state, thenB[i])
             i = i + 1
@@ -3191,20 +3231,20 @@ func emitOpenQASMStmt(state, node) {
 }
 
 func generateOpenQASM(ast) {
-    let state = createCodegenState("openqasm")
+    Value state = createCodegenState("openqasm")
     emitLine(state, "// Generated by Karkain Compiler v1.2.0 (Stable Build) - OpenQASM 3.0")
     emitLine(state, "OPENQASM 3.0;")
     emitLine(state, "include \"stdgates.inc\";")
     emitNewline(state)
 
-    let stmts = programStatements(ast)
-    let i = 0
+    Value stmts = programStatements(ast)
+    int i = 0
     while (i < len(stmts)) {
-        let nt = getNodeType(stmts[i])
+        string nt = getNodeType(stmts[i])
         if (nt == "KernelDecl") {
             emit(state, "gate " + kernelName(stmts[i]) + "(")
-            let params = kernelParams(stmts[i])
-            let j = 0
+            int params = kernelParams(stmts[i])
+            int j = 0
             while (j < len(params)) {
                 if (j > 0) { emit(state, ", ") }
                 emit(state, params[j])
@@ -3212,7 +3252,7 @@ func generateOpenQASM(ast) {
             }
             emitLine(state, ") {")
             state[2] = codegenIndent(state) + 1
-            let body = kernelBody(stmts[i])
+            int body = kernelBody(stmts[i])
             j = 0
             while (j < len(body)) {
                 emitOpenQASMStmt(state, body[j])
@@ -3233,7 +3273,7 @@ func generateOpenQASM(ast) {
 // ============================================================
 
 func emitQIRExpr(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "IntLiteral") { emit(state, literalValue(node)) }
     if (nt == "FloatLiteral") { emit(state, literalValue(node)) }
     if (nt == "StringLiteral") { emit(state, "\"" + literalValue(node) + "\"") }
@@ -3251,8 +3291,8 @@ func emitQIRExpr(state, node) {
     }
     if (nt == "Call") {
         emit(state, "@__quantum__qis__" + callFunc(node) + "__body(")
-        let args = callArgs(node)
-        let i = 0
+        Value args = callArgs(node)
+        int i = 0
         while (i < len(args)) {
             if (i > 0) { emit(state, ", ") }
             emitQIRExpr(state, args[i])
@@ -3273,7 +3313,7 @@ func emitQIRExpr(state, node) {
 }
 
 func emitQIRStmt(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "ExprStmt") {
         emitQIRExpr(state, exprStmtExpr(node))
         emitLine(state, ";")
@@ -3283,8 +3323,8 @@ func emitQIRStmt(state, node) {
         emitQIRExpr(state, ifCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let thenB = ifThen(node)
-        let i = 0
+        Value thenB = ifThen(node)
+        int i = 0
         while (i < len(thenB)) {
             emitQIRStmt(state, thenB[i])
             i = i + 1
@@ -3298,13 +3338,13 @@ func emitQIRStmt(state, node) {
 }
 
 func generateQIR(ast) {
-    let state = createCodegenState("qir")
+    Value state = createCodegenState("qir")
     emitLine(state, "// Generated by Karkain Compiler v1.2.0 (Stable Build) - QIR")
     emitLine(state, "define void @main() {")
     state[2] = codegenIndent(state) + 1
 
-    let stmts = programStatements(ast)
-    let i = 0
+    Value stmts = programStatements(ast)
+    int i = 0
     while (i < len(stmts)) {
         emitQIRStmt(state, stmts[i])
         i = i + 1
@@ -3345,7 +3385,7 @@ func emitKBCPreamble(state) {
 }
 
 func emitKBCExpr(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "IntLiteral") { emitLine(state, "LOAD_INT " + literalValue(node)) }
     if (nt == "FloatLiteral") { emitLine(state, "LOAD_FLOAT " + literalValue(node)) }
     if (nt == "StringLiteral") { emitLine(state, "LOAD_STR \"" + literalValue(node) + "\"") }
@@ -3354,7 +3394,7 @@ func emitKBCExpr(state, node) {
     if (nt == "BinaryExpr") {
         emitKBCExpr(state, binaryLeft(node))
         emitKBCExpr(state, binaryRight(node))
-        let op = binaryOp(node)
+        int op = binaryOp(node)
         if (op == "+") { emitLine(state, "ADD") }
         if (op == "-") { emitLine(state, "SUB") }
         if (op == "*") { emitLine(state, "MUL") }
@@ -3365,8 +3405,8 @@ func emitKBCExpr(state, node) {
         if (op == ">") { emitLine(state, "GT") }
     }
     if (nt == "Call") {
-        let args = callArgs(node)
-        let i = len(args) - 1
+        Value args = callArgs(node)
+        int i = len(args) - 1
         while (i >= 0) {
             emitKBCExpr(state, args[i])
             i = i - 1
@@ -3376,7 +3416,7 @@ func emitKBCExpr(state, node) {
 }
 
 func emitKBCStmt(state, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "LetDecl") {
         emitKBCExpr(state, letDeclValue(node))
         emitLine(state, "STORE_VAR " + letDeclName(node))
@@ -3394,7 +3434,7 @@ func emitKBCStmt(state, node) {
         emitLine(state, "PRINT")
     }
     if (nt == "Return") {
-        let rv2 = returnExpr(node)
+        int rv2 = returnExpr(node)
         if (len(rv2) > 0) { emitKBCExpr(state, rv2) }
         emitLine(state, "RET")
     }
@@ -3407,8 +3447,8 @@ func emitKBCStmt(state, node) {
     }
     if (nt == "FuncDecl") {
         emitLine(state, "FUNC " + funcName(node))
-        let body = funcBody(node)
-        let i = 0
+        Value body = funcBody(node)
+        int i = 0
         while (i < len(body)) {
             emitKBCStmt(state, body[i])
             i = i + 1
@@ -3418,11 +3458,11 @@ func emitKBCStmt(state, node) {
 }
 
 func generateKBC(ast) {
-    let state = createCodegenState("kbc")
+    Value state = createCodegenState("kbc")
     emitKBCPreamble(state)
 
-    let stmts = programStatements(ast)
-    let i = 0
+    Value stmts = programStatements(ast)
+    int i = 0
     while (i < len(stmts)) {
         emitKBCStmt(state, stmts[i])
         i = i + 1
@@ -3437,15 +3477,15 @@ func generateKBC(ast) {
 // ============================================================
 
 func generateForwardDecls(ast) {
-    let result = ""
-    let stmts = programStatements(ast)
-    let i = 0
+    string result = ""
+    Value stmts = programStatements(ast)
+    int i = 0
     while (i < len(stmts)) {
-        let nt = getNodeType(stmts[i])
+        string nt = getNodeType(stmts[i])
         if (nt == "FuncDecl") {
             result = result + "Value* " + funcName(stmts[i]) + "("
-            let params = funcParams(stmts[i])
-            let j = 0
+            Value params = funcParams(stmts[i])
+            int j = 0
             while (j < len(params)) {
                 if (j > 0) { result = result + ", " }
                 result = result + "Value* " + params[j]
