@@ -385,6 +385,14 @@ func psPeekKind(state) {
     return tokenKind(tokens[pos])
 }
 
+// psPeekKind2 returns the token two positions ahead (used to detect `T[]`).
+func psPeekKind2(state) {
+    int pos = psPos(state) + 2
+    Value tokens = psTokens(state)
+    if (pos >= len(tokens)) { return TK_EOF() }
+    return tokenKind(tokens[pos])
+}
+
 func psCurToken(state) {
     int pos = psPos(state)
     Value tokens = psTokens(state)
@@ -1019,6 +1027,17 @@ func parseBlock(state) {
             psAdvance(state) // consume 'map'
             int tname = psParseMapTypeSpec(state)
             Value vd = parseTypeFirstDecl(state, tname)
+            if (vd != []) { stmts = appendArray(stmts, vd) }
+        } else if (kind == TK_IDENT() && psPeekKind(state) == TK_LBRACKET() && psPeekKind2(state) == TK_RBRACKET()) {
+            // Identifier-typed array declaration: `T[] xs = [...]`.
+            int tname = psCurLiteral(state)
+            psAdvance(state)
+            while (psCurKind(state) == TK_LBRACKET() && psPeekKind(state) == TK_RBRACKET()) {
+                tname = tname + "[]"
+                psAdvance(state)
+                psAdvance(state)
+            }
+            Value vd = parseTypeFirstTail(state, tname, psLine(state))
             if (vd != []) { stmts = appendArray(stmts, vd) }
         } else if (kind == TK_IDENT() && psPeekKind(state) == TK_IDENT()) {
             int tname = psCurLiteral(state)
