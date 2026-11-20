@@ -806,13 +806,21 @@ func (g *gen) scanUnsupported(prog *parser.Program, fnames map[string]bool, layo
 		errs = append(errs, fmt.Sprintf("error K108: feature '%s' is not supported for target wasm32-wasi", feature))
 	}
 	// allowType reports whether a type annotation is emittable: the MVP
-	// scalars plus any declared struct name (Phase 139 boxed-cell structs).
+	// scalars, the type-first array spelling of an emittable element type
+	// (`int[]`, `Point[]`), plus any declared struct name (Phase 139
+	// boxed-cell structs). Stripping the suffix and re-applying the scalar
+	// rule keeps unsupported elements rejected: `double[]` stays K108
+	// because the backend has no float representation at all.
 	allowType := func(t string) bool {
-		switch t {
+		base := t
+		for strings.HasSuffix(base, "[]") {
+			base = strings.TrimSuffix(base, "[]")
+		}
+		switch base {
 		case "", "int", "string", "array", "bool":
 			return true
 		}
-		return isStructTypeName(layouts, t)
+		return isStructTypeName(layouts, base)
 	}
 
 	checkCall := func(c *parser.CallExpr) {
