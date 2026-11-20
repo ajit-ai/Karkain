@@ -609,6 +609,102 @@ function calls use the `C.` prefix (`C.sqrt(...)`). FFI package
 
 ---
 
+## 16. Memory Safety Model (Draft — v1.3.0)
+
+> **Status:** Draft. This section defines the memory safety model that Karkain
+> will implement in v1.3.0. Until it reaches **Implemented & tested**, no memory
+> safety guarantees are provided by the language. See
+> `docs/architecture/V1.3-LANGUAGE-AND-COMPILER-CONTRACT.md` section 3 and
+> `docs/audit/KARKAIN-V1.3.0-ENGINEERING-REQUIREMENTS.md` objective 1.
+
+### 16.1 Ownership model (planned)
+
+Every allocated value has exactly one owner. Ownership transfers on assignment,
+function call, and return. The owner is responsible for deallocation.
+
+- **Owned values:** Heap-allocated values (`alloc`, containers, strings from
+  concatenation) have a single owner.
+- **Copy types:** Primitive types (`int`, `float`, `bool`) are implicitly
+  copied. Ownership does not transfer.
+- **Move types:** Allocated values move on assignment. The source becomes
+  invalid after the move.
+- **Borrowed values:** A borrow (`&T` shared, `&mut T` exclusive) grants
+  temporary access without transferring ownership.
+
+### 16.2 Borrow checking (planned)
+
+- **Shared borrow (`&T`):** Multiple concurrent shared borrows allowed.
+- **Exclusive borrow (`&mut T`):** Only one exclusive borrow at a time; no
+  concurrent shared borrows.
+- **Borrow scope:** A borrow must not outlive the data it references.
+- **Cross-function:** Borrows may be passed to functions; the callee's lifetime
+  is bounded by the caller's.
+- **Unsafe boundary:** `unsafe { ... }` blocks bypass borrow checking. The
+  programmer assumes responsibility for memory safety within unsafe blocks.
+
+### 16.3 Lifetime analysis (planned)
+
+- References cannot outlive their data.
+- Stack-allocated values are invalidated when their scope ends.
+- Heap-allocated values are invalidated on deallocation.
+- The compiler rejects programs where a reference could outlive its data
+  (compile-time where provable; runtime check otherwise).
+
+### 16.4 Bounds safety
+
+- **Array index:** Runtime check; out-of-bounds produces
+  `runtime error: index out of range at <file>:<line>` (C23 path) or `Int3`
+  trap (native target).
+- **String index:** Same as array index.
+- **Slice bounds:** Same as array index.
+- **Static proof:** Where the index is a compile-time constant, the compiler
+  may reject OOB access at compile time.
+
+### 16.5 Initialization safety (planned)
+
+- Reading an uninitialized variable is a compile-time error where provable.
+- Struct fields must be fully initialized before use.
+- Array elements must be initialized before read (or default-initialized).
+
+### 16.6 Type safety
+
+- **No invalid casts:** `int` → `float` and `float` → `int` are explicit;
+  no implicit narrowing.
+- **No layout violations:** Struct field access is bounds-checked against the
+  declared layout.
+- **No type confusion:** Tagged unions (where used) carry their tag; untagged
+  reinterpretation requires `unsafe`.
+
+### 16.7 Concurrency safety (planned)
+
+- Shared mutable state across tasks requires synchronization (channels, actors).
+- Data races in safe code are compile-time errors (planned).
+- `unsafe` blocks may bypass concurrency checks.
+
+### 16.8 Unsafe boundary
+
+- `unsafe { ... }` blocks may perform raw pointer arithmetic, unchecked
+  casts, and direct memory access.
+- Operations inside `unsafe` are not checked by the compiler.
+- The programmer assumes full responsibility for memory and concurrency safety.
+- `unsafe` code must be explicitly marked and auditable.
+
+### 16.9 Current status (v1.2.0)
+
+| Feature | Status |
+|---------|--------|
+| Bounds checking (array/string index) | Implemented & tested |
+| Checked arithmetic (div/mod by zero) | Implemented & tested |
+| Stack traces on runtime error | Implemented & tested |
+| Ownership model | Declared only |
+| Borrow checking | Declared only |
+| Lifetime analysis | Declared only |
+| Initialization safety | Declared only |
+| Concurrency safety (data races) | Declared only |
+| `unsafe` blocks | Declared only |
+
+---
+
 ## 13. Known Gaps & Non-conformances
 
 | Area | Gap | Tracking |
