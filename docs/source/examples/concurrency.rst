@@ -33,13 +33,13 @@ Parallel sum (excerpt)
 
    func main() {
        let tasks = []
-       let n = 0
+       let n: int = 0
        while (n < 10) {
            push(tasks, spawn(square, n))
            n = n + 1
        }
-       let total = 0
-       let i = 0
+       let total: int = 0
+       let i: int = 0
        while (i < len(tasks)) {
            total = total + join(tasks[i])
            i = i + 1

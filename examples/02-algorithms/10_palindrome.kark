@@ -8,8 +8,8 @@
 // Run:  karkain run examples/02-algorithms/10_palindrome.kark
 
 func reverse_string(s) {
-    let out = ""
-    let i = len(s) - 1
+    string out = ""
+    int i = len(s) - 1
     while (i >= 0) {
         out = out + s[i]
         i = i - 1

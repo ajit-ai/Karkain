@@ -9,8 +9,8 @@
 // Run:  karkain run examples/02-algorithms/12_queue.kark
 
 func main() {
-    var q = [10, 20, 30, 40]
-    var head = 0
+    int[] q = [10, 20, 30, 40]
+    int head = 0
 
     print(q[head])          // dequeue 10
     head = head + 1

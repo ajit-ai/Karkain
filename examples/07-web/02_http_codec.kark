@@ -24,7 +24,7 @@ func main() {
     println(len(req["body"]))
 
     // response round-trip
-    let rwire = http_build_response(201, "Created", {}, "ok")
+    string rwire = http_build_response(201, "Created", {}, "ok")
     let resp = http_parse_response(rwire)
     println(resp["status"])
     println(resp["reason"])

@@ -13,25 +13,25 @@
 // Run:  karkain run examples/01-fundamentals/15_closures.kark
 
 func main() {
-    let add = fn(a int, b int) int { return a + b }
+    fn add = fn(a int, b int) int { return a + b }
     println(add(20, 22))
 
-    let base = 7
-    let inc = fn(n int) int { return n + 1 }
-    let addBase = fn(n int) int { return n + base }
+    int base = 7
+    fn inc = fn(n int) int { return n + 1 }
+    fn addBase = fn(n int) int { return n + base }
     println(inc(41))
     println(addBase(35))
 
-    let x = 3
-    let y = 4
-    let captureBoth = fn(n int) int { return n + x + y }
-    let usesLocal = fn(n int) int {
-        let z = x * 2
+    int x = 3
+    int y = 4
+    fn captureBoth = fn(n int) int { return n + x + y }
+    fn usesLocal = fn(n int) int {
+        int z = x * 2
         return n + z
     }
     println(captureBoth(35))
     println(usesLocal(10))
 
-    let noArgs = fn() { println(1) }
+    fn noArgs = fn() { println(1) }
     noArgs()
 }

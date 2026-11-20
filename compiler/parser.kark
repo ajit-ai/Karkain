@@ -7,7 +7,7 @@
 // ============================================================
 
 func createParserState(tokens) {
-    let state = []
+    Value state = []
     state = appendArray(state, tokens)      // 0: token list
     state = appendArray(state, 0)           // 1: current index
     state = appendArray(state, [])          // 2: errors
@@ -22,8 +22,8 @@ func setParserPos(state, pos) { state[1] = pos }
 func addParserError(state, msg) { state[2] = appendArray(state[2], msg) }
 
 func currentToken(state) {
-    let pos = parserPos(state)
-    let tokens = parserTokens(state)
+    int pos = parserPos(state)
+    Value tokens = parserTokens(state)
     if (pos >= len(tokens)) { return createToken(TK_EOF(), "", createLocation(0, 0, 0)) }
     return tokens[pos]
 }
@@ -37,15 +37,15 @@ func peekTokenLiteral(state) {
 }
 
 func advanceToken(state) {
-    let tok = currentToken(state)
+    Value tok = currentToken(state)
     setParserPos(state, parserPos(state) + 1)
     return tok
 }
 
 func expectToken(state, kind) {
-    let tok = currentToken(state)
+    Value tok = currentToken(state)
     if (tokenKind(tok) != kind) {
-        let msg = "Line " + str(locLine(tokenLoc(tok))) + ": expected " + tokenKindName(kind) + " but got " + tokenKindName(tokenKind(tok)) + " '" + tokenLiteral(tok) + "'"
+        string msg = "Line " + str(locLine(tokenLoc(tok))) + ": expected " + tokenKindName(kind) + " but got " + tokenKindName(tokenKind(tok)) + " '" + tokenLiteral(tok) + "'"
         addParserError(state, msg)
         return createToken(kind, "", tokenLoc(tok))
     }
@@ -54,9 +54,9 @@ func expectToken(state, kind) {
 }
 
 func expectLiteral(state, expectedLiteral) {
-    let tok = currentToken(state)
+    Value tok = currentToken(state)
     if (tokenLiteral(tok) != expectedLiteral) {
-        let msg = "Line " + str(locLine(tokenLoc(tok))) + ": expected '" + expectedLiteral + "' but got '" + tokenLiteral(tok) + "'"
+        string msg = "Line " + str(locLine(tokenLoc(tok))) + ": expected '" + expectedLiteral + "' but got '" + tokenLiteral(tok) + "'"
         addParserError(state, msg)
     }
     advanceToken(state)
@@ -106,26 +106,26 @@ func infixIsLeftAssoc(kind) {
 }
 
 func parsePrefix(state) {
-    let kind = peekTokenKind(state)
-    let loc = tokenLoc(currentToken(state))
+    int kind = peekTokenKind(state)
+    int loc = tokenLoc(currentToken(state))
 
     // Integer literal
     if (kind == TK_INT_LIT()) {
-        let val = peekTokenLiteral(state)
+        int val = peekTokenLiteral(state)
         advanceToken(state)
         return createIntLiteralNode(val, loc)
     }
 
     // Float literal
     if (kind == TK_FLOAT_LIT()) {
-        let val = peekTokenLiteral(state)
+        int val = peekTokenLiteral(state)
         advanceToken(state)
         return createFloatLiteralNode(val, loc)
     }
 
     // String literal
     if (kind == TK_STRING_LIT()) {
-        let val = peekTokenLiteral(state)
+        int val = peekTokenLiteral(state)
         advanceToken(state)
         return createStringLiteralNode(val, loc)
     }
@@ -144,7 +144,7 @@ func parsePrefix(state) {
     if (kind == TK_GLOBAL_ID()) {
         advanceToken(state)
         expectToken(state, TK_LPAREN())
-        let dim = parseExpr(state, 0)
+        Value dim = parseExpr(state, 0)
         expectToken(state, TK_RPAREN())
         return createGlobalIdNode(dim, loc)
     }
@@ -159,7 +159,7 @@ func parsePrefix(state) {
 
     // Ident or function call
     if (kind == TK_IDENT()) {
-        let name = peekTokenLiteral(state)
+        int name = peekTokenLiteral(state)
         advanceToken(state)
 
         // Function call
@@ -179,7 +179,7 @@ func parsePrefix(state) {
     // Parenthesized expression
     if (kind == TK_LPAREN()) {
         advanceToken(state)
-        let expr = parseExpr(state, 0)
+        Value expr = parseExpr(state, 0)
         expectToken(state, TK_RPAREN())
         return expr
     }
@@ -199,61 +199,61 @@ func parsePrefix(state) {
     if (kind == TK_MATRIX()) {
         advanceToken(state)
         expectToken(state, TK_LPAREN())
-        let rowsExpr = parseExpr(state, 0)
+        Value rowsExpr = parseExpr(state, 0)
         expectToken(state, TK_COMMA())
-        let colsExpr = parseExpr(state, 0)
+        Value colsExpr = parseExpr(state, 0)
         expectToken(state, TK_RPAREN())
         return createMatrixDeclNode("", rowsExpr, colsExpr, "float64", loc)
     }
 
     // Unary operators
     if (kind == TK_MINUS() || kind == TK_NOT() || kind == TK_STAR() || kind == TK_ADDR() || kind == TK_DEREF()) {
-        let opTok = advanceToken(state)
-        let operand = parsePrefix(state)
+        int opTok = advanceToken(state)
+        int operand = parsePrefix(state)
         return createUnaryExprNode(tokenLiteral(opTok), operand, loc)
     }
 
-    let msg = "Line " + str(locLine(loc)) + ": unexpected token '" + tokenLiteral(currentToken(state)) + "' in expression"
+    string msg = "Line " + str(locLine(loc)) + ": unexpected token '" + tokenLiteral(currentToken(state)) + "' in expression"
     addParserError(state, msg)
     advanceToken(state)
     return createIntLiteralNode("0", loc)
 }
 
 func parseInfix(state, left, opTok) {
-    let kind = tokenKind(opTok)
-    let loc = tokenLoc(opTok)
+    int kind = tokenKind(opTok)
+    int loc = tokenLoc(opTok)
 
     // Assignment
     if (kind == TK_ASSIGN()) {
-        let right = parseExpr(state, 1)
+        Value right = parseExpr(state, 1)
         return createBinaryExprNode("=", left, right, loc)
     }
 
     // Member access: foo.bar
     if (kind == TK_DOT()) {
-        let member = advanceToken(state)
+        int member = advanceToken(state)
         return createMemberNode(left, tokenLiteral(member), loc)
     }
 
     // Index access: foo[i]
     if (kind == TK_LBRACKET()) {
         advanceToken(state) // skip [
-        let index = parseExpr(state, 0)
+        Value index = parseExpr(state, 0)
         expectToken(state, TK_RBRACKET())
         return createIndexNode(left, index, loc)
     }
 
     // Regular infix
-    let rbp = infixBindingPower(kind)
-    let right = parseExpr(state, rbp)
+    int rbp = infixBindingPower(kind)
+    Value right = parseExpr(state, rbp)
     return createBinaryExprNode(tokenLiteral(opTok), left, right, loc)
 }
 
 func parseExpr(state, rbp) {
-    let left = parsePrefix(state)
+    int left = parsePrefix(state)
 
     while (1) {
-        let kind = peekTokenKind(state)
+        int kind = peekTokenKind(state)
 
         // Stop conditions
         if (kind == TK_EOF()) { break }
@@ -264,28 +264,28 @@ func parseExpr(state, rbp) {
         if (kind == TK_COMMA()) { break }
 
         // Infix operators
-        let ibp = infixBindingPower(kind)
+        int ibp = infixBindingPower(kind)
         if (ibp > 0) {
             if (infixIsLeftAssoc(kind) == 1) {
                 if (ibp <= rbp) { break }
             } else {
                 if (ibp < rbp) { break }
             }
-            let opTok = advanceToken(state)
+            int opTok = advanceToken(state)
             left = parseInfix(state, left, opTok)
             continue
         }
 
         // Member access (dot)
         if (kind == TK_DOT()) {
-            let opTok = advanceToken(state)
+            int opTok = advanceToken(state)
             left = parseInfix(state, left, opTok)
             continue
         }
 
         // Index access
         if (kind == TK_LBRACKET()) {
-            let opTok = advanceToken(state)
+            int opTok = advanceToken(state)
             left = parseInfix(state, left, opTok)
             continue
         }
@@ -325,39 +325,39 @@ func parseBlock(state) {
 }
 
 func parseVarDeclStmt(state) {
-    let varTok = advanceToken(state) // var
-    let loc = tokenLoc(varTok)
+    int varTok = advanceToken(state) // var
+    int loc = tokenLoc(varTok)
 
-    let varType = peekTokenLiteral(state)
+    int varType = peekTokenLiteral(state)
     advanceToken(state) // type name
 
-    let name = peekTokenLiteral(state)
+    int name = peekTokenLiteral(state)
     advanceToken(state) // variable name
 
     expectToken(state, TK_ASSIGN())
-    let value = parseExpr(state, 0)
+    Value value = parseExpr(state, 0)
 
     return createVarDeclNode(varType, name, value, loc)
 }
 
 func parseLetDeclStmt(state) {
-    let letTok = advanceToken(state) // let
-    let loc = tokenLoc(letTok)
+    int letTok = advanceToken(state) // let
+    int loc = tokenLoc(letTok)
 
-    let name = peekTokenLiteral(state)
+    int name = peekTokenLiteral(state)
     advanceToken(state)
 
     expectToken(state, TK_ASSIGN())
-    let value = parseExpr(state, 0)
+    Value value = parseExpr(state, 0)
 
     return createLetDeclNode(name, value, loc)
 }
 
 func parseReturnStmt(state) {
-    let retTok = advanceToken(state) // return
-    let loc = tokenLoc(retTok)
+    int retTok = advanceToken(state) // return
+    int loc = tokenLoc(retTok)
 
-    let expr = createIntLiteralNode("0", loc)
+    int expr = createIntLiteralNode("0", loc)
     if (peekTokenKind(state) != TK_SEMICOLON() && peekTokenKind(state) != TK_RBRACE() && peekTokenKind(state) != TK_EOF()) {
         expr = parseExpr(state, 0)
     }
@@ -366,25 +366,25 @@ func parseReturnStmt(state) {
 }
 
 func parsePrintStmt(state) {
-    let printTok = advanceToken(state) // print
-    let loc = tokenLoc(printTok)
+    int printTok = advanceToken(state) // print
+    int loc = tokenLoc(printTok)
 
     expectToken(state, TK_LPAREN())
-    let expr = parseExpr(state, 0)
+    Value expr = parseExpr(state, 0)
     expectToken(state, TK_RPAREN())
 
     return createPrintNode(expr, loc)
 }
 
 func parseIfStmt(state) {
-    let ifTok = advanceToken(state) // if
-    let loc = tokenLoc(ifTok)
+    int ifTok = advanceToken(state) // if
+    int loc = tokenLoc(ifTok)
 
     expectToken(state, TK_LPAREN())
-    let condition = parseExpr(state, 0)
+    Value condition = parseExpr(state, 0)
     expectToken(state, TK_RPAREN())
 
-    let thenBranch = parseBlock(state)
+    Value thenBranch = parseBlock(state)
     let elseBranch = []
 
     if (peekTokenKind(state) == TK_ELSE()) {
@@ -400,25 +400,25 @@ func parseIfStmt(state) {
 }
 
 func parseWhileStmt(state) {
-    let whileTok = advanceToken(state) // while
-    let loc = tokenLoc(whileTok)
+    int whileTok = advanceToken(state) // while
+    int loc = tokenLoc(whileTok)
 
     expectToken(state, TK_LPAREN())
-    let condition = parseExpr(state, 0)
+    Value condition = parseExpr(state, 0)
     expectToken(state, TK_RPAREN())
 
-    let body = parseBlock(state)
+    Value body = parseBlock(state)
     return createWhileNode(condition, body, loc)
 }
 
 func parseForStmt(state) {
-    let forTok = advanceToken(state) // for
-    let loc = tokenLoc(forTok)
+    int forTok = advanceToken(state) // for
+    int loc = tokenLoc(forTok)
 
     expectToken(state, TK_LPAREN())
 
     // init
-    let initNode = createIntLiteralNode("0", loc)
+    int initNode = createIntLiteralNode("0", loc)
     if (peekTokenKind(state) == TK_VAR()) {
         initNode = parseVarDeclStmt(state)
     } else if (peekTokenKind(state) != TK_SEMICOLON()) {
@@ -426,40 +426,40 @@ func parseForStmt(state) {
     }
 
     // condition
-    let condition = createBoolLiteralNode("true", loc)
+    int condition = createBoolLiteralNode("true", loc)
     if (peekTokenKind(state) != TK_SEMICOLON()) {
         condition = parseExpr(state, 0)
     }
 
     // post
-    let post = createIntLiteralNode("0", loc)
+    int post = createIntLiteralNode("0", loc)
     if (peekTokenKind(state) != TK_RPAREN()) {
         post = parseExpr(state, 0)
     }
 
     expectToken(state, TK_RPAREN())
 
-    let body = parseBlock(state)
+    Value body = parseBlock(state)
     return createForNode(initNode, condition, post, body, loc)
 }
 
 func parseFuncDecl(state) {
-    let funcTok = advanceToken(state) // func
-    let loc = tokenLoc(funcTok)
+    int funcTok = advanceToken(state) // func
+    int loc = tokenLoc(funcTok)
 
-    let name = peekTokenLiteral(state)
+    int name = peekTokenLiteral(state)
     advanceToken(state)
 
     expectToken(state, TK_LPAREN())
-    let params = []
+    Value params = []
     if (peekTokenKind(state) != TK_RPAREN()) {
         // Parse: type name, type name, ...
         while (1) {
-            let paramType = peekTokenLiteral(state)
+            int paramType = peekTokenLiteral(state)
             advanceToken(state) // type
-            let paramName = peekTokenLiteral(state)
+            int paramName = peekTokenLiteral(state)
             advanceToken(state) // name
-            let param = []
+            Value param = []
             param = appendArray(param, paramType)
             param = appendArray(param, paramName)
             params = appendArray(params, param)
@@ -470,33 +470,33 @@ func parseFuncDecl(state) {
     expectToken(state, TK_RPAREN())
 
     // Return type: -> Type or nothing
-    let returnType = "void"
+    string returnType = "void"
     if (peekTokenKind(state) == TK_ARROW()) {
         advanceToken(state)
         returnType = peekTokenLiteral(state)
         advanceToken(state)
     }
 
-    let body = parseBlock(state)
+    Value body = parseBlock(state)
     return createFuncDeclNode(name, params, returnType, body, loc)
 }
 
 func parseStructDecl(state) {
-    let structTok = advanceToken(state) // struct
-    let loc = tokenLoc(structTok)
+    int structTok = advanceToken(state) // struct
+    int loc = tokenLoc(structTok)
 
-    let name = peekTokenLiteral(state)
+    int name = peekTokenLiteral(state)
     advanceToken(state)
 
     expectToken(state, TK_LBRACE())
-    let fields = []
+    Value fields = []
 
     while (peekTokenKind(state) != TK_RBRACE() && peekTokenKind(state) != TK_EOF()) {
-        let fieldType = peekTokenLiteral(state)
+        int fieldType = peekTokenLiteral(state)
         advanceToken(state) // type
-        let fieldName = peekTokenLiteral(state)
+        int fieldName = peekTokenLiteral(state)
         advanceToken(state) // name
-        let field = []
+        Value field = []
         field = appendArray(field, fieldType)
         field = appendArray(field, fieldName)
         fields = appendArray(fields, field)
@@ -507,21 +507,21 @@ func parseStructDecl(state) {
 }
 
 func parseKernelDecl(state) {
-    let kernelTok = advanceToken(state) // kernel
-    let loc = tokenLoc(kernelTok)
+    int kernelTok = advanceToken(state) // kernel
+    int loc = tokenLoc(kernelTok)
 
-    let name = peekTokenLiteral(state)
+    int name = peekTokenLiteral(state)
     advanceToken(state)
 
     expectToken(state, TK_LPAREN())
-    let params = []
+    Value params = []
     if (peekTokenKind(state) != TK_RPAREN()) {
         while (1) {
-            let paramType = peekTokenLiteral(state)
+            int paramType = peekTokenLiteral(state)
             advanceToken(state)
-            let paramName = peekTokenLiteral(state)
+            int paramName = peekTokenLiteral(state)
             advanceToken(state)
-            let param = []
+            Value param = []
             param = appendArray(param, paramType)
             param = appendArray(param, paramName)
             params = appendArray(params, param)
@@ -537,7 +537,7 @@ func parseKernelDecl(state) {
         advanceToken(state)
         workgroup = []
         while (peekTokenKind(state) != TK_RBRACKET()) {
-            let val = peekTokenLiteral(state)
+            int val = peekTokenLiteral(state)
             advanceToken(state)
             workgroup = appendArray(workgroup, val)
             if (peekTokenKind(state) == TK_COMMA()) { advanceToken(state) }
@@ -545,12 +545,12 @@ func parseKernelDecl(state) {
         expectToken(state, TK_RBRACKET())
     }
 
-    let body = parseBlock(state)
+    Value body = parseBlock(state)
     return createKernelDeclNode(name, params, body, workgroup, loc)
 }
 
 func parseStatement(state) {
-    let kind = peekTokenKind(state)
+    int kind = peekTokenKind(state)
 
     if (kind == TK_FUNC()) { return parseFuncDecl(state) }
     if (kind == TK_KERNEL()) { return parseKernelDecl(state) }
@@ -576,16 +576,16 @@ func parseStatement(state) {
     // Skip actor declarations for now
     if (kind == TK_ACTOR()) {
         advanceToken(state)
-        let name = peekTokenLiteral(state)
+        int name = peekTokenLiteral(state)
         advanceToken(state)
-        let body = parseBlock(state)
+        Value body = parseBlock(state)
         return createIntLiteralNode("0", tokenLoc(currentToken(state)))
     }
 
     // Skip spawn for now
     if (kind == TK_SPAWN()) {
         advanceToken(state)
-        let actorName = peekTokenLiteral(state)
+        int actorName = peekTokenLiteral(state)
         advanceToken(state)
         if (peekTokenKind(state) == TK_LPAREN()) {
             advanceToken(state)
@@ -612,7 +612,7 @@ func parseStatement(state) {
     }
 
     // Expression statement
-    let expr = parseExpr(state, 0)
+    Value expr = parseExpr(state, 0)
     return createExprStmtNode(expr, tokenLoc(currentToken(state)))
 }
 
@@ -621,7 +621,7 @@ func parseStatement(state) {
 // ============================================================
 
 func parse(tokens) {
-    let state = createParserState(tokens)
+    Value state = createParserState(tokens)
     let statements = []
 
     while (peekTokenKind(state) != TK_EOF()) {
@@ -640,8 +640,8 @@ func hasParserErrors(state) {
 }
 
 func printParserErrors(state) {
-    let errs = parserErrors(state)
-    let i = 0
+    int errs = parserErrors(state)
+    int i = 0
     while (i < len(errs)) {
         print("PARSE ERROR: " + errs[i])
         i = i + 1

@@ -1,7 +1,7 @@
 func merge(left, right) {
-    let result = []
-    let i = 0
-    let j = 0
+    int[] result = []
+    int i = 0
+    int j = 0
     while (i < len(left) && j < len(right)) {
         if (left[i] <= right[j]) {
             push(result, left[i])
@@ -23,20 +23,20 @@ func merge(left, right) {
 }
 
 func merge_sort(data) {
-    let n = len(data)
+    int n = len(data)
     if (n <= 1) {
         return data
     }
-    let mid = n / 2
-    let left = data[0:mid]
-    let right = data[mid:n]
-    let sl = merge_sort(left)
-    let sr = merge_sort(right)
+    int mid = n / 2
+    int left = data[0:mid]
+    int right = data[mid:n]
+    string sl = merge_sort(left)
+    string sr = merge_sort(right)
     return merge(sl, sr)
 }
 
 func print_array(a) {
-    let i = 0
+    int i = 0
     while (i < len(a)) {
         print(a[i])
         i = i + 1
@@ -44,8 +44,8 @@ func print_array(a) {
 }
 
 func main() {
-    let data = [38, 27, 43, 3, 9, 82, 10]
-    let sorted = merge_sort(data)
+    int[] data = [38, 27, 43, 3, 9, 82, 10]
+    string sorted = merge_sort(data)
     print("MergeSort result:")
     print_array(sorted)
 }

@@ -13,18 +13,18 @@ import "libc" {
 // GPU Device Types and Constants
 // ============================================================
 
-const GPU_DEVICE_CPU: int = 0
-const GPU_DEVICE_CUDA: int = 1
-const GPU_DEVICE_VULKAN: int = 2
-const GPU_DEVICE_WEBGPU: int = 3
-const GPU_DEVICE_OPENCL: int = 4
+const int GPU_DEVICE_CPU = 0
+const int GPU_DEVICE_CUDA = 1
+const int GPU_DEVICE_VULKAN = 2
+const int GPU_DEVICE_WEBGPU = 3
+const int GPU_DEVICE_OPENCL = 4
 
-const GPU_SUCCESS: int = 0
-const GPU_ERROR_DEVICE_NOT_FOUND: int = -1
-const GPU_ERROR_OUT_OF_MEMORY: int = -2
-const GPU_ERROR_INVALID_BUFFER: int = -3
-const GPU_ERROR_LAUNCH_FAILED: int = -4
-const GPU_ERROR_UNSUPPORTED: int = -5
+const int GPU_SUCCESS = 0
+const int GPU_ERROR_DEVICE_NOT_FOUND = -1
+const int GPU_ERROR_OUT_OF_MEMORY = -2
+const int GPU_ERROR_INVALID_BUFFER = -3
+const int GPU_ERROR_LAUNCH_FAILED = -4
+const int GPU_ERROR_UNSUPPORTED = -5
 
 // ============================================================
 // GPU Device Descriptor
@@ -256,7 +256,7 @@ func gpu_dispatch_add_arg(disp: KernelDispatch, arg: void*, arg_size: int) {
 // Launch a kernel with the given dispatch configuration (CPU fallback)
 func gpu_launch_kernel(disp: KernelDispatch) -> int {
     // CPU fallback: compute the number of work items
-    let total_items: int = disp.global_size[0] * disp.global_size[1] * disp.global_size[2]
+    int total_items = disp.global_size[0] * disp.global_size[1] * disp.global_size[2]
 
     // In CPU fallback mode, we just validate the dispatch
     if (disp.kernel_name == "") {
@@ -264,7 +264,7 @@ func gpu_launch_kernel(disp: KernelDispatch) -> int {
     }
 
     // Mark all attached buffers as synced
-    let i: int = 0
+    int i = 0
     while (i < len(disp.buffers)) {
         disp.buffers[i] = gpu_mark_synced(disp.buffers[i])
         i = i + 1
@@ -318,7 +318,7 @@ func gpu_sync_all() {
 
 // Discover available GPU devices
 func gpu_discover_devices() -> GPUDevice[] {
-    let devices: GPUDevice[] = []
+    GPUDevice[] devices = []
     devices = append(devices, gpu_cpu_device())
     return devices
 }
@@ -342,13 +342,13 @@ func gpu_print_device_info(dev: GPUDevice) {
 
 // Create a buffer from an int array
 func gpu_buffer_from_ints(data: int[]) -> GPUBuffer {
-    let n: int = len(data)
-    let buf: GPUBuffer = gpu_alloc_typed(n, 4)  // 4 bytes per int
-    let i: int = 0
+    int n = len(data)
+    GPUBuffer buf = gpu_alloc_typed(n, 4)  // 4 bytes per int
+    int i = 0
     while (i < n) {
         // Store int as raw bytes
-        let offset: int = i * 4
-        let val: int = data[i]
+        int offset = i * 4
+        int val = data[i]
         let ptr: void* = buf.data + offset
         ptr = val  // simplified: actual impl would use byte-level copy
         i = i + 1
@@ -359,17 +359,17 @@ func gpu_buffer_from_ints(data: int[]) -> GPUBuffer {
 
 // Create a buffer from a float64 array
 func gpu_buffer_from_floats(data: float64[]) -> GPUBuffer {
-    let n: int = len(data)
-    let buf: GPUBuffer = gpu_alloc_typed(n, 8)  // 8 bytes per float64
+    int n = len(data)
+    GPUBuffer buf = gpu_alloc_typed(n, 8)  // 8 bytes per float64
     buf.is_dirty = true
     return buf
 }
 
 // Read buffer contents as int array
 func gpu_buffer_to_ints(buf: GPUBuffer) -> int[] {
-    let n: int = buf.size / 4
-    let result: int[] = []
-    let i: int = 0
+    int n = buf.size / 4
+    int[] result = []
+    int i = 0
     while (i < n) {
         result = append(result, 0)
         i = i + 1
@@ -379,9 +379,9 @@ func gpu_buffer_to_ints(buf: GPUBuffer) -> int[] {
 
 // Read buffer contents as float64 array
 func gpu_buffer_to_floats(buf: GPUBuffer) -> float64[] {
-    let n: int = buf.size / 8
-    let result: float64[] = []
-    let i: int = 0
+    int n = buf.size / 8
+    float64[] result = []
+    int i = 0
     while (i < n) {
         result = append(result, 0.0)
         i = i + 1

@@ -148,17 +148,17 @@ func natFrFrame()  { return 6 }
 func natFrameLayout(localBytes, recArgBytes, usesStr, usesMap, maxExtra, isWindows) {
     let next = localBytes + recArgBytes
     next = next + natBinTempBytes()
-    let strTemp = 0
+    int strTemp = 0
     if (usesStr == 1) {
         strTemp = next
         next = next + natStrTempBytes()
     }
-    let mapStage = 0
+    int mapStage = 0
     if (usesMap == 1) {
         mapStage = next
         next = next + natMapStageBytes()
     }
-    let extrasBase = next
+    int extrasBase = next
     next = next + maxExtra * 8
     // Phase 149: Win64 calls fault on a misaligned stack, so the frame is
     // rounded to 16 on Windows. Linux never noticed, because syscalls do not
@@ -169,7 +169,7 @@ func natFrameLayout(localBytes, recArgBytes, usesStr, usesMap, maxExtra, isWindo
     }
     let frame = next + natArgSpillBytes()
 
-    let f = []
+    int[] f = []
     f = appendArray(f, localBytes)
     // binTemp is the region START, so an operand scratch slot is
     // binTemp + depth*8 and lands at localBytes+recArgBytes+depth*8. Recording
@@ -247,16 +247,16 @@ func natValueMain(nLocals) {
     // One int local per declaration; int is one unit each, so the locals
     // region is 8 bytes per local. Computed through natKindUnits rather
     // than hard-coded, so the layout cannot drift away from the kind model.
-    let localBytes = 8 * nLocals * natKindUnits(natKindInt())
+    int localBytes = 8 * nLocals * natKindUnits(natKindInt())
     // recArgBytes 0 (no record literal is passed to a call),
     // usesStr 0 and usesMap 0 (no string or map operation exists yet, so
     // those two regions are NOT reserved -- the oracle's own conditionals),
     // maxExtra 0 (no call site), isWindows 0 (the reference case is Linux,
     // which never rounds).
-    let f = natFrameLayout(localBytes, 0, 0, 0, 0, 0)
-    let frame = f[natFrFrame()]
+    int[] f = natFrameLayout(localBytes, 0, 0, 0, 0, 0)
+    Value frame = f[natFrFrame()]
 
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natSubRegImm32(s, natRegRSP(), frame)
     s = natMovImm64(s, natMovImm64Op(natRegRAX()), 42)
     s = natStoreStack(s, natRegRAX(), natLocalOff(0, natKindInt()))
@@ -279,12 +279,12 @@ func natValueMain(nLocals) {
 func natValueLayoutCorpus(which) {
     if (which == 0) {
         // one int local
-        let f = natFrameLayout(8, 0, 0, 0, 0, 0)
+        int[] f = natFrameLayout(8, 0, 0, 0, 0, 0)
         return "int1 units=" + natKindUnits(natKindInt()) + " frame=" + f[natFrFrame()] + " slot0=" + natLocalOff(0, natKindInt())
     }
     if (which == 1) {
         // two int locals
-        let f = natFrameLayout(16, 0, 0, 0, 0, 0)
+        int[] f = natFrameLayout(16, 0, 0, 0, 0, 0)
         return "int2 units=" + natKindUnits(natKindInt()) + " frame=" + f[natFrFrame()] + " slot0=" + natLocalOff(0, natKindInt()) + " slot1=" + natLocalOff(1, natKindInt())
     }
     if (which == 2) {
@@ -295,17 +295,17 @@ func natValueLayoutCorpus(which) {
         // the conditional regions: reserved for a string program, skipped for
         // an int program. The int case must report 0, because reserving
         // them unconditionally would grow every int image.
-        let fi = natFrameLayout(8, 0, 0, 0, 0, 0)
-        let fs = natFrameLayout(8, 0, 1, 0, 0, 0)
-        let fm = natFrameLayout(8, 0, 0, 1, 0, 0)
+        int[] fi = natFrameLayout(8, 0, 0, 0, 0, 0)
+        int[] fs = natFrameLayout(8, 0, 1, 0, 0, 0)
+        int[] fm = natFrameLayout(8, 0, 0, 1, 0, 0)
         return "cond int_strTemp=" + fi[natFrStrTemp()] + " int_mapStage=" + fi[natFrMapStage()] + " str_strTemp=" + fs[natFrStrTemp()] + " str_frame=" + fs[natFrFrame()] + " map_mapStage=" + fm[natFrMapStage()] + " map_frame=" + fm[natFrFrame()]
     }
     if (which == 4) {
         // Windows rounds the frame to 16; Linux does not. With maxExtra 2
         // (16 bytes) the unsized total is 8+512+16 = 536, which is 8 mod 16,
         // so Windows adds one unit and Linux does not.
-        let fw = natFrameLayout(8, 0, 0, 0, 2, 1)
-        let fl = natFrameLayout(8, 0, 0, 0, 2, 0)
+        int[] fw = natFrameLayout(8, 0, 0, 0, 2, 1)
+        int[] fl = natFrameLayout(8, 0, 0, 0, 2, 0)
         return "round win_frame=" + fw[natFrFrame()] + " linux_frame=" + fl[natFrFrame()]
     }
     return ""
@@ -329,7 +329,7 @@ func natValueCorpus(which) {
 //
 // The order here is the gate's order and must stay in step with it.
 func natValuePrim(which) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     if (which == 0) { s = natStoreStack(s, natRegRAX(), 0) }
     if (which == 1) { s = natLoadStack(s, natRegRAX(), 0) }
     if (which == 2) { s = natLoadStack(s, natRegRAX(), 8) }
@@ -454,7 +454,7 @@ func natSysExit(isMac) {
 // SEQUENCES, and natPrintIntCorpus arm 2 exists to pin the placeholder form
 // itself so it cannot be quietly changed into something that resolves locally.
 func natRodataRef(s, r) {
-    let p = natImm64Patch(s, natMovImm64Op(r))
+    Value p = natImm64Patch(s, natMovImm64Op(r))
     return p[0]
 }
 
@@ -466,7 +466,7 @@ func natRodataRef(s, r) {
 // through a helper that is itself named write is how the 148C replaceAll once
 // produced infinite self-recursion.
 func natWriteStdout(s) {
-    let isMac = 0
+    int isMac = 0
     if (natStTargetOS(s) == natOSMac()) { isMac = 1 }
     s = natMovRegImm32(s, natRegRAX(), natSysWrite(isMac))
     return natSyscall(s)
@@ -606,7 +606,7 @@ func natPrintCorpus(which) {
         return natToHex(natFinish(natPrintIntHelper()))
     }
     if (which == 1) {
-        let s = natNewEmitter(0)
+        Value s = natNewEmitter(0)
         s = natMark(s, "print_int_pos")
         s = natMovRegImm32(s, natRegRCX(), 10)
         s = natMark(s, "print_int_loop")
@@ -620,7 +620,7 @@ func natPrintCorpus(which) {
         return natToHex(natFinish(s))
     }
     if (which == 2) {
-        let s = natNewEmitter(0)
+        Value s = natNewEmitter(0)
         s = natRodataRef(s, natRegRSI())
         return natToHex(natFinish(s))
     }
@@ -711,14 +711,14 @@ if (which == 5) { return "error[K145]: unsupported return expression *parser.Pro
 // register allocator claimed; no reference program here qualifies, so it is
 // absent from BOTH sides -- a boundary, not an omission.
 func natIntBody(shape, nLocals) {
-    let f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
+    int[] f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
 
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMark(s, "karkain_main")
     s = natSubRegImm32(s, natRegRSP(), frame)
-    let returned = 0
+    int returned = 0
 
     // shape 0: let x = 42 ; return x   -- literal, store, load, return
     if (shape == 0) {
@@ -880,10 +880,10 @@ func natIntCond(s, op, falseLabel, bt) {
 // even though the jump to ifelse$1 appears before the jump to ifend$2. That
 // counter order is reproduced here, not tidied.
 func natIntIf(op) {
-    let f = natFrameLayout(8, 0, 0, 0, 0, 0)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let s = natNewEmitter(0)
+    int[] f = natFrameLayout(8, 0, 0, 0, 0, 0)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    Value s = natNewEmitter(0)
     s = natMark(s, "karkain_main")
     s = natSubRegImm32(s, natRegRSP(), frame)
     s = natIntCond(s, op, "ifelse$1", bt)
@@ -1074,14 +1074,14 @@ func natLoopEpilogue(s, frame, retSlot) {
 // locals: locals, binTemp, no strTemp, no mapStage, no extras, Linux (no
 // 16-byte rounding), plus the fixed arg spill.
 func natLoopFrame(nLocals) {
-    let f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0)
+    int[] f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0)
     return f
 }
 
 // natLoopPrologue emits Mark(karkain_main) + SubRsp(frame).
 func natLoopPrologue(nLocals) {
-    let f = natLoopFrame(nLocals)
-    let s = natNewEmitter(0)
+    int[] f = natLoopFrame(nLocals)
+    Value s = natNewEmitter(0)
     s = natMark(s, "karkain_main")
     s = natSubRegImm32(s, natRegRSP(), f[natFrFrame()])
     return s
@@ -1099,11 +1099,11 @@ func natLoopPrologue(nLocals) {
 // natLoopWhileSimple: let i = 0 ; while i < 5 { i = i + 1 } ; return i
 // Measured: frame 616 (1 local), while$1=199, whileend$2=274, $ret=283.
 func natLoopWhileSimple() {
-    let f = natLoopFrame(1)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let i0 = natLocalOff(0, natKindInt())
-    let s = natLoopPrologue(1)
+    int[] f = natLoopFrame(1)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int i0 = natLocalOff(0, natKindInt())
+    string s = natLoopPrologue(1)
     s = natLoopLet(s, i0, 0)
     s = natMark(s, "while$1")
     s = natLoopCondLocal(s, 2, "whileend$2", bt, i0, 5)
@@ -1117,12 +1117,12 @@ func natLoopWhileSimple() {
 //   while i < 5 { s = s + i ; i = i + 1 } ; return s
 // Measured: frame 624 (2 locals), while$1=214, whileend$2=319, $ret=329.
 func natLoopWhileArith() {
-    let f = natLoopFrame(2)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let i0 = natLocalOff(0, natKindInt())
-    let s0 = natLocalOff(1, natKindInt())
-    let s = natLoopPrologue(2)
+    int[] f = natLoopFrame(2)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int i0 = natLocalOff(0, natKindInt())
+    int s0 = natLocalOff(1, natKindInt())
+    string s = natLoopPrologue(2)
     s = natLoopLet(s, i0, 0)
     s = natLoopLet(s, s0, 0)
     s = natMark(s, "while$1")
@@ -1144,11 +1144,11 @@ func natLoopWhileArith() {
 // `if` allocates ifelse$3 and ifend$4 AFTER the while's own two labels,
 // because the shared counter is incremented at loop ENTRY.
 func natLoopWhileBreak() {
-    let f = natLoopFrame(1)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let i0 = natLocalOff(0, natKindInt())
-    let s = natLoopPrologue(1)
+    int[] f = natLoopFrame(1)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int i0 = natLocalOff(0, natKindInt())
+    string s = natLoopPrologue(1)
     s = natLoopLet(s, i0, 0)
     s = natMark(s, "while$1")
     s = natLoopCondLocal(s, 2, "whileend$2", bt, i0, 10)
@@ -1175,12 +1175,12 @@ func natLoopWhileBreak() {
 // The continue jumps back to while$1 -- the loop HEAD. Continuing to the end
 // label would exit the loop, so the two targets are not interchangeable.
 func natLoopWhileContinue() {
-    let f = natLoopFrame(2)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let i0 = natLocalOff(0, natKindInt())
-    let s0 = natLocalOff(1, natKindInt())
-    let s = natLoopPrologue(2)
+    int[] f = natLoopFrame(2)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int i0 = natLocalOff(0, natKindInt())
+    int s0 = natLocalOff(1, natKindInt())
+    string s = natLoopPrologue(2)
     s = natLoopLet(s, i0, 0)
     s = natLoopLet(s, s0, 0)
     s = natMark(s, "while$1")
@@ -1207,11 +1207,11 @@ func natLoopWhileContinue() {
 // an already-bound local, so it lowers exactly like Step 2b shape 5 and the
 // frame does NOT grow.
 func natLoopForSimple() {
-    let f = natLoopFrame(1)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let i0 = natLocalOff(0, natKindInt())
-    let s = natLoopPrologue(1)
+    int[] f = natLoopFrame(1)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int i0 = natLocalOff(0, natKindInt())
+    string s = natLoopPrologue(1)
     s = natLoopLet(s, i0, 0)
     // for init: i = 0
     s = natLoopLet(s, i0, 0)
@@ -1231,12 +1231,12 @@ func natLoopForSimple() {
 // s is slot 0 and i is slot 1, because `let s` is declared first and the
 // for-init's `let i` second.
 func natLoopForFull() {
-    let f = natLoopFrame(2)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let s0 = natLocalOff(0, natKindInt())
-    let i0 = natLocalOff(1, natKindInt())
-    let s = natLoopPrologue(2)
+    int[] f = natLoopFrame(2)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int s0 = natLocalOff(0, natKindInt())
+    int i0 = natLocalOff(1, natKindInt())
+    string s = natLoopPrologue(2)
     s = natLoopLet(s, s0, 0)
     // for init: let i = 0
     s = natLoopLet(s, i0, 0)
@@ -1261,11 +1261,11 @@ func natLoopForFull() {
 // offset 295: the if's consequence is a single break, the alternative is empty,
 // and the post label immediately follows the body.
 func natLoopForBreak() {
-    let f = natLoopFrame(1)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let i0 = natLocalOff(0, natKindInt())
-    let s = natLoopPrologue(1)
+    int[] f = natLoopFrame(1)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int i0 = natLocalOff(0, natKindInt())
+    string s = natLoopPrologue(1)
     s = natLoopLet(s, i0, 0)
     s = natLoopLet(s, i0, 0)
     s = natMark(s, "for$1")
@@ -1294,12 +1294,12 @@ func natLoopForBreak() {
 // pushes loopTgt{brk: endLabel, cont: postLabel}). Jumping to the head would
 // skip the increment and loop forever.
 func natLoopForContinue() {
-    let f = natLoopFrame(2)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let s0 = natLocalOff(0, natKindInt())
-    let i0 = natLocalOff(1, natKindInt())
-    let s = natLoopPrologue(2)
+    int[] f = natLoopFrame(2)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int s0 = natLocalOff(0, natKindInt())
+    int i0 = natLocalOff(1, natKindInt())
+    string s = natLoopPrologue(2)
     s = natLoopLet(s, s0, 0)
     s = natLoopLet(s, i0, 0)
     s = natMark(s, "for$1")
@@ -1331,13 +1331,13 @@ func natLoopForContinue() {
 // it is marked last, because fresh() allocated it when the outer loop was
 // entered. Nesting is what proves the counter is shared, not per-prefix.
 func natLoopNestedWhile() {
-    let f = natLoopFrame(3)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let i0 = natLocalOff(0, natKindInt())
-    let t0 = natLocalOff(1, natKindInt())
-    let j0 = natLocalOff(2, natKindInt())
-    let s = natLoopPrologue(3)
+    int[] f = natLoopFrame(3)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int i0 = natLocalOff(0, natKindInt())
+    int t0 = natLocalOff(1, natKindInt())
+    int j0 = natLocalOff(2, natKindInt())
+    string s = natLoopPrologue(3)
     s = natLoopLet(s, i0, 0)
     s = natLoopLet(s, t0, 0)
     s = natMark(s, "while$1")
@@ -1365,13 +1365,13 @@ func natLoopNestedWhile() {
 // counter rules at once: the for takes $1/$2/$3 and the while, entered later,
 // continues the same counter at $4/$5 rather than restarting.
 func natLoopNestedForWhile() {
-    let f = natLoopFrame(3)
-    let frame = f[natFrFrame()]
-    let bt = f[natFrBinTemp()]
-    let t0 = natLocalOff(0, natKindInt())
-    let i0 = natLocalOff(1, natKindInt())
-    let j0 = natLocalOff(2, natKindInt())
-    let s = natLoopPrologue(3)
+    int[] f = natLoopFrame(3)
+    Value frame = f[natFrFrame()]
+    Value bt = f[natFrBinTemp()]
+    int t0 = natLocalOff(0, natKindInt())
+    int i0 = natLocalOff(1, natKindInt())
+    int j0 = natLocalOff(2, natKindInt())
+    string s = natLoopPrologue(3)
     s = natLoopLet(s, t0, 0)
     s = natLoopLet(s, i0, 0)
     s = natMark(s, "for$1")
@@ -1480,11 +1480,11 @@ func natStartStub() {
 func natStartEntryOS(s, os) {
     s = natMark(s, "_start")
     s = natCall32(s)
-    let r = natRel32(s, "karkain_main")
+    Value r = natRel32(s, "karkain_main")
     s = r[0]
     s = natMovRegReg(s, natRegRDI(), natRegRAX())
     // The exit number follows the OS: 60 is Linux __NR_exit, 0x2000001 Darwin's.
-    let isMac = 0
+    int isMac = 0
     if (os == natOSMac()) { isMac = 1 }
     s = natMovRegImm32(s, natRegRAX(), natSysExit(isMac))
     return natSyscall(s)
@@ -1496,7 +1496,7 @@ func natStartEntryOS(s, os) {
 // the forward rel32 reference it contains; the whole-program driver uses
 // natStartEntryOS instead so `_start` can be emitted last.
 func natStartStubOS(os) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natSetTargetOS(s, os)
     s = natStartEntryOS(s, os)
     s = natMark(s, "karkain_main")
@@ -1509,11 +1509,11 @@ func natStartStubOS(os) {
 func natStartCorpus(which) {
     if (which == 0) { return natToHex(natFinish(natStartStub())) }
     if (which == 1) {
-        let s = natNewEmitter(0)
+        Value s = natNewEmitter(0)
         return natToHex(natFinish(natSyscall(s)))
     }
     if (which == 2) {
-        let s = natNewEmitter(0)
+        Value s = natNewEmitter(0)
         s = natMark(s, "_start")
         s = natMovRegReg(s, natRegRDI(), natRegRAX())
         s = natMovRegImm32(s, natRegRAX(), 60)
@@ -1733,7 +1733,7 @@ func natWinEntry(s) {
     s = natAndRspNeg16(s)
     s = natWinBootstrap(s)
     s = natCall32(s)
-    let r = natRel32(s, "karkain_main")
+    Value r = natRel32(s, "karkain_main")
     s = r[0]
     return natWinExitTail(s)
 }
@@ -1742,7 +1742,7 @@ func natWinEntry(s) {
 // frozen 151A Step 5/6 corpus (natWinCorpus shape 0) is gated on its exact
 // 982-byte bytes. The whole-program driver uses natWinEntry instead.
 func natWinStub() {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natWinEntry(s)
     s = natMark(s, "karkain_main")
     return s
@@ -1758,16 +1758,16 @@ func natWinStub() {
 func natWinCorpus(which) {
     if (which == 0) { return natToHex(natFinish(natWinStub())) }
     if (which == 1) {
-        let s = natNewEmitter(0)
+        Value s = natNewEmitter(0)
         return natToHex(natFinish(natAndRspNeg16(s)))
     }
     if (which == 2) {
-        let s = natNewEmitter(0)
+        Value s = natNewEmitter(0)
 s = natWinResolve(s, 30789, 29801, 29264, 25455, 29541, 115, "wx$loop$0", "wx$next$0", "wx$done$0", "wx$fail$0", 0)
         return natToHex(natFinish(s))
     }
     if (which == 3) {
-        let s = natNewEmitter(0)
+        Value s = natNewEmitter(0)
         s = natMovRegReg(s, natRegRCX(), natRegRAX())
         s = natSubRegImm32(s, natRegRSP(), 32)
         return natToHex(natFinish(s))
@@ -1806,20 +1806,20 @@ s = natWinResolve(s, 30789, 29801, 29264, 25455, 29541, 115, "wx$loop$0", "wx$ne
 // ExitProcess, GetStdHandle, WriteFile, then the exit call. natPELink takes
 // flat [pos, index] pairs, so those four become three apatches and one ipatch.
 func natWinExe(code) {
-    let s = natWinStub()
+    int s = natWinStub()
     // The synthetic main, emitted after the karkain_main label natWinStub left.
     s = natMovRegImm32(s, natRegRAX(), code)
     s = natRet(s)
-    let text = natFinish(s)
-    let p = natStImm64(s)
-    let ap = []
+    Value text = natFinish(s)
+    Value p = natStImm64(s)
+    Value ap = []
     ap = appendArray(ap, p[0])
     ap = appendArray(ap, natIatExitProcess())
     ap = appendArray(ap, p[1])
     ap = appendArray(ap, natIatGetStdHandle())
     ap = appendArray(ap, p[2])
     ap = appendArray(ap, natIatWriteFile())
-    let ip = []
+    Value ip = []
     ip = appendArray(ip, p[3])
     ip = appendArray(ip, natIatExitProcess())
     return natToHex(natPELink(text, [], [], [], ip, ap, [], natPETextOff(), natPETextOff()))
@@ -1840,7 +1840,7 @@ func natWinExe(code) {
 // 16) at main entry because _start aligned it and then called, so subtracting 40
 // puts it at 0 (mod 16) at the call site, and 32 of that is caller shadow.
 func natWinExeC() {
-    let s = natWinStub()
+    int s = natWinStub()
     s = natSubRegImm32(s, natRegRSP(), 40)
     // STD_OUTPUT_HANDLE is -11; MovRegImm32 writes it as the 32-bit constant the
     // oracle uses, which is what the kernel32 stub reads.
@@ -1850,16 +1850,16 @@ func natWinExeC() {
     s = natAddRegImm32(s, natRegRSP(), 40)
     s = natMovRegImm32(s, natRegRAX(), 0)
     s = natRet(s)
-    let text = natFinish(s)
-    let p = natStImm64(s)
-    let ap = []
+    Value text = natFinish(s)
+    Value p = natStImm64(s)
+    Value ap = []
     ap = appendArray(ap, p[0])
     ap = appendArray(ap, natIatExitProcess())
     ap = appendArray(ap, p[1])
     ap = appendArray(ap, natIatGetStdHandle())
     ap = appendArray(ap, p[2])
     ap = appendArray(ap, natIatWriteFile())
-    let ip = []
+    Value ip = []
     ip = appendArray(ip, p[3])
     ip = appendArray(ip, natIatExitProcess())
     ip = appendArray(ip, p[4])
@@ -1883,7 +1883,7 @@ func natWinExeC() {
 // internally, but kcc's Step-6 call sites emit natCallReg immediately after, and
 // that split is already byte-verified, so it is preserved rather than "fixed".
 func natIatCall(s, reg, slot) {
-    let p = natImm64Patch(s, natMovImm64Op(reg))
+    Value p = natImm64Patch(s, natMovImm64Op(reg))
     s = p[0]
     // Slot 5 is appended here as well as slot 11. natMovImm64 -- which is what
     // this used to call -- appends to slot 5, and the frozen Step 6 image builders
@@ -1923,7 +1923,7 @@ func natIatCall(s, reg, slot) {
 
 // natPrintFloatHelper emits the whole print_float helper.
 func natPrintFloatHelper() {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMark(s, "print_float")
     s = natSubRegImm32(s, natRegRSP(), 64)
     s = natMovRegReg(s, natRegRAX(), natRegRDI())
@@ -2135,7 +2135,7 @@ s = natMovRegImm64(s, natRegRCX(), 0 - 9223372036854775807 - 1)
 // verbatim: movabs rax, <bits>. No rounding and no sign-bit normalisation, so
 // the bits of 0.0 and -0.0 stay distinct.
 func natFloatLit(bits) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMovRegImm64(s, natRegRAX(), bits)
     return natToHex(natFinish(s))
 }
@@ -2143,7 +2143,7 @@ func natFloatLit(bits) {
 // natFloatLet mirrors emitLet's non-string path for a float binding: the value
 // arrives in RAX and is stored with the int path's single StoreStack.
 func natFloatLet(bits, off) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMovRegImm64(s, natRegRAX(), bits)
     s = natStoreStack(s, natRegRAX(), off)
     return natToHex(natFinish(s))
@@ -2154,7 +2154,7 @@ func natFloatLet(bits, off) {
 // carry both sides into xmm in a defined order and the right side is evaluated
 // second.
 func natFloatBinary(op, lbits, rbits, temp, depth) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMovRegImm64(s, natRegRAX(), lbits)
     s = natStoreStack(s, natRegRAX(), temp + depth * 8)
     s = natMovRegImm64(s, natRegRAX(), rbits)
@@ -2198,7 +2198,7 @@ func natFloatDiv(s, num, den) {
 // value, both zeros and NaN payloads keep their magnitude, so -0.0 stays -0.0
 // where a `0.0 - x` or an integer NegReg would silently destroy it.
 func natFloatNeg(bits) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMovRegImm64(s, natRegRCX(), 0 - 9223372036854775807 - 1)
     s = natMovXmmRegGp(s, 1, natRegRCX())
     s = natMovXmmRegGp(s, 0, natRegRAX())
@@ -2215,7 +2215,7 @@ func natFloatNeg(bits) {
 // and in whether the branch is jbe or jb, so they are one shape parameterised
 // by which side is compared and which branch is taken.
 func natFloatCond(op, lbits, rbits, temp, falseLabel) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMovRegImm64(s, natRegRAX(), lbits)
     s = natStoreStack(s, natRegRAX(), temp)
     s = natMovRegImm64(s, natRegRAX(), rbits)
@@ -2321,7 +2321,7 @@ func natFloatStmtCorpus(which, b1515, b225, temp) {
 // natFloatLocal mirrors emitFloat's identifier case: the stored 64-bit pattern
 // is reloaded unchanged, exactly as the int path reloads an int.
 func natFloatLocal(off) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natLoadStack(s, natRegRAX(), off)
     return natToHex(natFinish(s))
 }
@@ -2368,8 +2368,8 @@ func natArgTemp(i, frame) { return frame - natArgSpillBytes() + i * 16 }
 // natCallArgsN mirrors emitCallValue for N int arguments, units 0..N-1 all
 // within the register budget: stage every argument, then load every unit back.
 func natCallArgsN(vals, n, frame) {
-    let s = natNewEmitter(0)
-    let i = 0
+    Value s = natNewEmitter(0)
+    int i = 0
     while (i < n) {
         s = natMovRegImm64(s, natRegRAX(), vals[i])
         s = natStoreStack(s, natRegRAX(), natArgTemp(i, frame))
@@ -2381,7 +2381,7 @@ func natCallArgsN(vals, n, frame) {
         i = i + 1
     }
     s = natCall32(s)
-    let r = natRel32(s, "fn_f")
+    Value r = natRel32(s, "fn_f")
     s = natMark(r[0], "fn_f")
     return natToHex(natFinish(s))
 }
@@ -2391,8 +2391,8 @@ func natCallArgsN(vals, n, frame) {
 // (no spill slot), and R10 is loaded with the extras base so the callee can read
 // it.
 func natCallArgsExtras(vals, frame, extrasBase) {
-    let s = natNewEmitter(0)
-    let i = 0
+    Value s = natNewEmitter(0)
+    int i = 0
     while (i < 7) {
         s = natMovRegImm64(s, natRegRAX(), vals[i])
         if (i < 6) {
@@ -2409,7 +2409,7 @@ func natCallArgsExtras(vals, frame, extrasBase) {
     }
     s = natLeaRegStack(s, natRegR10(), extrasBase)
     s = natCall32(s)
-    let r = natRel32(s, "fn_f")
+    Value r = natRel32(s, "fn_f")
     s = natMark(r[0], "fn_f")
     return natToHex(natFinish(s))
 }
@@ -2418,9 +2418,9 @@ func natCallArgsExtras(vals, frame, extrasBase) {
 // the register budget: each parameter's slot is written from its argument
 // register, in parameter order.
 func natPrologueArgsN(n, frame, localsBytes) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natSubRegImm32(s, natRegRSP(), frame)
-    let i = 0
+    int i = 0
     while (i < n) {
         s = natStoreStack(s, natArgReg(i), localsBytes + i * 8)
         i = i + 1
@@ -2432,9 +2432,9 @@ func natPrologueArgsN(n, frame, localsBytes) {
 // past the register budget: it is read through R10 at (unit-6)*8 and stored.
 // The read happens at ENTRY, before R10 can be clobbered by anything else.
 func natPrologueExtras(n, frame, localsBytes) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natSubRegImm32(s, natRegRSP(), frame)
-    let i = 0
+    int i = 0
     while (i < n) {
         if (i < 6) {
             s = natStoreStack(s, natArgReg(i), localsBytes + i * 8)
@@ -2467,9 +2467,9 @@ func natArgReg(i) {
 // `frame` and `extrasBase` are passed in rather than computed here, so the test
 // states the oracle's real layout numbers and this file gains no magic numbers.
 func natCallCorpus(which, frame, extrasBase, localsBytes) {
-    let one = [7]
-    let three = [7, 11, 13]
-    let seven = [7, 11, 13, 17, 19, 23, 29]
+    Value one = [7]
+    Value three = [7, 11, 13]
+    Value seven = [7, 11, 13, 17, 19, 23, 29]
     if (which == 0) { return natCallArgsN(one, 1, frame) }
     if (which == 1) { return natCallArgsN([7, 11], 2, frame) }
     if (which == 2) { return natCallArgsN(three, 3, frame) }
@@ -2504,12 +2504,12 @@ func natCallCorpus(which, frame, extrasBase, localsBytes) {
 // The staging, the spill address, the RDI load and the call are all the same
 // emission; only the literal's bits differ.
 func natFloatArgCall(bits, frame) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMovRegImm64(s, natRegRAX(), bits)
     s = natStoreStack(s, natRegRAX(), natArgTemp(0, frame))
     s = natLoadStack(s, natRegRDI(), natArgTemp(0, frame))
     s = natCall32(s)
-    let r = natRel32(s, "fn_f")
+    Value r = natRel32(s, "fn_f")
     s = natMark(r[0], "fn_f")
     return natToHex(natFinish(s))
 }
@@ -2518,7 +2518,7 @@ func natFloatArgCall(bits, frame) {
 // parameter declared FLOAT. A float parameter is homed from RDI into its frame
 // slot exactly as an int is; there is no conversion and no separate area.
 func natFloatParamHome(frame, localsBytes) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natSubRegImm32(s, natRegRSP(), frame)
     s = natStoreStack(s, natRegRDI(), localsBytes)
     return natToHex(natFinish(s))
@@ -2539,7 +2539,7 @@ func natFloatParamHome(frame, localsBytes) {
 // file grew, which is the argument for finding a label by searching for it rather
 // than by following a remembered line number.
 func natFloatReturn(bits) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMovRegImm64(s, natRegRAX(), bits)
     s = natJmp(s, "$ret")
     s = natMark(s, "$ret")
@@ -2599,7 +2599,7 @@ func natFloatCallCorpus(which, b1515, b42, frame, extrasBase, localsBytes) {
 // frame slots at `loc` (ptr) and `loc+8` (len), matching the oracle's slot
 // layout for a two-unit kind.
 func natStringArgCall(frame, loc) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natLoadStack(s, natRegRDI(), loc)
     s = natLoadStack(s, natRegRSI(), loc + 8)
     s = natStoreStack(s, natRegRDI(), natArgTemp(0, frame))
@@ -2607,7 +2607,7 @@ func natStringArgCall(frame, loc) {
     s = natLoadStack(s, natRegRDI(), natArgTemp(0, frame))
     s = natLoadStack(s, natRegRSI(), natArgTemp(0, frame) + 8)
     s = natCall32(s)
-    let r = natRel32(s, "fn_f")
+    Value r = natRel32(s, "fn_f")
     s = natMark(r[0], "fn_f")
     return natToHex(natFinish(s))
 }
@@ -2618,7 +2618,7 @@ func natStringArgCall(frame, loc) {
 // indexes by (arg, k). A corpus that only ever passed a string first could not
 // tell the two conventions apart.
 func natIntStringArgCall(frame, loc) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     // arg 0: an int, staged from RAX
     s = natMovRegImm64(s, natRegRAX(), 7)
     s = natStoreStack(s, natRegRAX(), natArgTemp(0, frame))
@@ -2632,7 +2632,7 @@ func natIntStringArgCall(frame, loc) {
     s = natLoadStack(s, natRegRSI(), natArgTemp(1, frame))
     s = natLoadStack(s, natRegRDX(), natArgTemp(1, frame) + 8)
     s = natCall32(s)
-    let r = natRel32(s, "fn_f")
+    Value r = natRel32(s, "fn_f")
     s = natMark(r[0], "fn_f")
     return natToHex(natFinish(s))
 }
@@ -2642,7 +2642,7 @@ func natIntStringArgCall(frame, loc) {
 // conversion and no separate area -- a string is passed as two registers, exactly
 // as Phase 148 specifies.
 func natStringParamHome(frame, loc) {
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natSubRegImm32(s, natRegRSP(), frame)
     s = natStoreStack(s, natRegRDI(), loc)
     s = natStoreStack(s, natRegRSI(), loc + 8)
@@ -2653,12 +2653,12 @@ func natStringParamHome(frame, loc) {
 // exceed the register budget and travel in the caller's extras area. This is the
 // first case that puts the extras region AND the two-unit stride together.
 func natStringArgsExtras(frame, loc, extrasBase) {
-    let s = natNewEmitter(0)
-    let a = 0
+    Value s = natNewEmitter(0)
+    int a = 0
     while (a < 4) {
         s = natLoadStack(s, natRegRDI(), loc + a * 16)
         s = natLoadStack(s, natRegRSI(), loc + a * 16 + 8)
-        let unit = a * 2
+        int unit = a * 2
         if (unit < 6) {
             s = natStoreStack(s, natRegRDI(), natArgTemp(a, frame))
             s = natStoreStack(s, natRegRSI(), natArgTemp(a, frame) + 8)
@@ -2670,7 +2670,7 @@ func natStringArgsExtras(frame, loc, extrasBase) {
     }
     a = 0
     while (a < 4) {
-        let unit = a * 2
+        int unit = a * 2
         if (unit < 6) {
             s = natLoadStack(s, natArgReg(unit), natArgTemp(a, frame))
             s = natLoadStack(s, natArgReg(unit + 1), natArgTemp(a, frame) + 8)
@@ -2679,7 +2679,7 @@ func natStringArgsExtras(frame, loc, extrasBase) {
     }
     s = natLeaRegStack(s, natRegR10(), extrasBase)
     s = natCall32(s)
-    let r = natRel32(s, "fn_f")
+    Value r = natRel32(s, "fn_f")
     s = natMark(r[0], "fn_f")
     return natToHex(natFinish(s))
 }
@@ -2727,7 +2727,7 @@ func natStringCallCorpus(which, frame, loc, extrasBase) {
 // writer has chosen a layout -- an emitter that filled the address in would be
 // guessing a number the linker owns.
 func natRodataRefOff(s, r, roOff) {
-    let p = natImm64Patch(s, natMovImm64Op(r))
+    Value p = natImm64Patch(s, natMovImm64Op(r))
     s = p[0]
     s[6] = appendArray(s[6], p[1])
     s[7] = appendArray(s[7], roOff)
@@ -2744,13 +2744,13 @@ func natRodataRefOff(s, r, roOff) {
 // The return carries the offset of the FIRST string so the caller can record it
 // against the first site it emits without a second lookup.
 func natRodataSection(strs) {
-    let bytes = []
-    let offs = []
-    let i = 0
+    Value bytes = []
+    int[] offs = []
+    int i = 0
     while (i < len(strs)) {
         // linear scan for an existing interned copy
-        let found = -1
-        let j = 0
+        int found = -1
+        int j = 0
         while (j < len(strs)) {
             if (j < i) {
                 if (natStrEq(strs[j], strs[i])) { found = offs[j] }
@@ -2777,7 +2777,7 @@ func natRodataSection(strs) {
 // this uses.
 func natStrEq(a, b) {
     if (len(a) != len(b)) { return 0 }
-    let i = 0
+    int i = 0
     while (i < len(a)) {
         if (substr(a, i, 1) != substr(b, i, 1)) { return 0 }
         i = i + 1
@@ -2793,7 +2793,7 @@ func natStrEq(a, b) {
 // for the ASCII payloads the runtime emits, and is stated here so the limit is a
 // decision rather than an accident.
 func natAppendStr(dst, str) {
-    let i = 0
+    int i = 0
     while (i < len(str)) {
         dst = appendArray(dst, asciiVal(substr(str, i, 1)) & 255)
         i = i + 1
@@ -2808,17 +2808,17 @@ func natAppendStr(dst, str) {
 // come from the writer, not from here: this layer knows WHERE a site is and WHAT
 // it points at, and the writer knows what the image will actually be loaded at.
 func natResolveRodata(s, base, roRVA) {
-    let n = 0
-    let i = 0
+    int n = 0
+    int i = 0
     while (i < len(s[6])) {
-        let pos = s[6][i]
-        let off = s[7][i]
+        Value pos = s[6][i]
+        Value off = s[7][i]
         // The name avoids `addr`, which is a RESERVED WORD in this language (the
         // same class of trap as Step 8b's `raw` parameter): the parse error names
         // the token rather than the offending field, so a reserved word reads as a
         // malformed declaration.
         let av = base + roRVA + off
-        let code = natStCode(s)
+        Value code = natStCode(s)
         // little-endian, 8 bytes, written in place
         code[pos] = av & 255
         code[pos + 1] = (av >> 8) & 255
@@ -2851,12 +2851,12 @@ func natRodataSiteCount(s) { return len(s[6]) }
 // base 0x140000000 and roRVA 0x3000 -- the PE values Step 5/6 use -- so the
 // expected addresses are 0x140003000 and 0x140003002.
 func natRodataCorpus() {
-    let strs = ["-", "\n", "abc", "-"]
-    let sec = natRodataSection(strs)
-    let rodata = sec[0]
-    let offs = sec[1]
+    Value strs = ["-", "\n", "abc", "-"]
+    int sec = natRodataSection(strs)
+    Value rodata = sec[0]
+    Value offs = sec[1]
 
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natMark(s, "prog")
     s = natRodataRefOff(s, natRegRSI(), offs[0])
     s = natMovRegImm32(s, natRegRDI(), 1)
@@ -2999,7 +2999,7 @@ func natRuntimeErrorHelper(s, rt, winWrite) {
 // The map runtime: natMapFind, natMapSet and natMapGet, the byte-for-byte
 // counterparts of emitMapFind / emitMapSet / emitMapGet.
 //
-// WHY THESE EXIST ON kcc FOR A PROGRAM WITH NO MAP is the D5 baseline's §3.1
+// WHY THESE EXIST ON kcc FOR A PROGRAM WITH NO MAP is the D5 baseline's Ã‚Â§3.1
 // finding, and it is not a porting error to reproduce. The Go backend's
 // scanMapUsage decides "is this a map index" with:
 //
@@ -3024,15 +3024,15 @@ func natRuntimeErrorHelper(s, rt, winWrite) {
 // natMapFind scans the entries and returns the address of the one whose key
 // matches, or 0. RDI = map address, RSI = key. RAX = result.
 func natMapFind(s) {
-    let fa = natFresh(s, "mapfind")
+    Value fa = natFresh(s, "mapfind")
     s = fa[0]
-    let loop = fa[1]
-    let fb = natFresh(s, "mapfind$found")
+    Value loop = fa[1]
+    Value fb = natFresh(s, "mapfind$found")
     s = fb[0]
-    let found = fb[1]
-    let fc = natFresh(s, "mapfind$miss")
+    Value found = fb[1]
+    Value fc = natFresh(s, "mapfind$miss")
     s = fc[0]
-    let notFound = fc[1]
+    Value notFound = fc[1]
     s = natMark(s, "map_find")
     // R8 = map, RCX = index, R9 = count.
     s = natMovRegReg(s, natRegR8(), natRegRDI())
@@ -3065,18 +3065,18 @@ func natMapFind(s) {
 // helper frame first. That frame is entirely internal: the helper restores rsp
 // before every ret, so a caller never sees it.
 func natMapSet(s) {
-    let fa = natFresh(s, "mapset$full")
+    Value fa = natFresh(s, "mapset$full")
     s = fa[0]
-    let full = fa[1]
-    let fb = natFresh(s, "mapset$appended")
+    Value full = fa[1]
+    Value fb = natFresh(s, "mapset$appended")
     s = fb[0]
-    let appended = fb[1]
+    Value appended = fb[1]
     s = natMark(s, "map_set")
     s = natSubRegImm32(s, natRegRSP(), 16)
     s = natStoreStack(s, natRegRDX(), 0)
     s = natStoreStack(s, natRegRCX(), 8)
     s = natCall32(s)
-    let r = natRel32(s, "map_find")
+    Value r = natRel32(s, "map_find")
     s = r[0]
     s = natTestRegReg(s, natRegRAX(), natRegRAX())
     s = natJz(s, appended)
@@ -3121,15 +3121,15 @@ func natMapSet(s) {
 // natMapGet returns the value pair for a key. RDI = map, RSI = key.
 // RAX = value0, RDX = value1.
 func natMapGet(s) {
-    let fa = natFresh(s, "mapget$miss")
+    Value fa = natFresh(s, "mapget$miss")
     s = fa[0]
-    let miss = fa[1]
-    let fb = natFresh(s, "mapget$have")
+    Value miss = fa[1]
+    Value fb = natFresh(s, "mapget$have")
     s = fb[0]
-    let have = fb[1]
+    Value have = fb[1]
     s = natMark(s, "map_get")
     s = natCall32(s)
-    let r = natRel32(s, "map_find")
+    Value r = natRel32(s, "map_find")
     s = r[0]
     s = natTestRegReg(s, natRegRAX(), natRegRAX())
     s = natJz(s, miss)
@@ -3174,7 +3174,7 @@ func natMapVal1Off() { return 16 }
 // not disagree: a shape the gate misses is emitted with no map runtime, and a
 // shape it sees that the lowering refuses is dead weight.
 func natNativeUsesMap(stmts) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
         if (natStmtHasIndex(stmts[i]) == 1) { return 1 }
         i = i + 1
@@ -3200,7 +3200,7 @@ func natNativeUsesMap(stmts) {
 // function's layout -- which is what the oracle does.
 func natNativeProgramUsesMap(body, fns) {
     if (natNativeUsesMap(body) == 1) { return 1 }
-    let i = 0
+    int i = 0
     while (i < natNativeFuncCount(fns)) {
         if (natNativeUsesMap(natNativeFuncBodyAt(fns, i)) == 1) { return 1 }
         i = i + 1
@@ -3392,8 +3392,8 @@ func natWinWrite(s) {
 // a pair without knowing where each pair starts, and recomputing that per element
 // is exactly the kind of arithmetic a wrong assumption hides inside.
 func natFlatPairs(posArr, idxArr) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < len(posArr)) {
         out = appendArray(out, posArr[i])
         out = appendArray(out, idxArr[i])
@@ -3427,7 +3427,7 @@ func natPEMainBody(s) {
     s = natSubRegImm32(s, natRegRSP(), 40)
     s = natMovRegImm32(s, natRegRDI(), natPEPrintValue())
     s = natCall32(s)
-    let r = natRel32(s, "print_int")
+    Value r = natRel32(s, "print_int")
     s = r[0]
     s = natAddRegImm32(s, natRegRSP(), 40)
     s = natMovRegImm32(s, natRegRAX(), 0)
@@ -3447,12 +3447,12 @@ func natPEProgram() {
     // natWinStub emits _start, the alignment, the PEB bootstrap, the call to
     // karkain_main and the Win64 exit tail, then MARKS karkain_main -- so
     // everything appended by natPEMainBody lands inside main.
-    let s = natWinStub()
+    int s = natWinStub()
     s = natPEMainBody(s)
     // print_int, in the SAME state. winWrite = 1 selects the Windows write path
     // ported above; rodata offsets 0 ("-") and 1 ("\n").
     s = natPrintIntBody(s, 1, 0, 1)
-    let text = natFinish(s)
+    Value text = natFinish(s)
 
     // Resolve rodata against the REAL PE layout. pkg/native/pe.go lays .text out
     // as code followed by rodata, so a rodata byte at offset `off` is at
@@ -3460,7 +3460,7 @@ func natPEProgram() {
     // text and never assumed: a hard-coded length would resolve every address in a
     // program whose main body differed by even one byte, and every such program
     // would still LINK -- it would just read the wrong memory.
-    let ro = natRodataSection(["-", "\n"])
+    int ro = natRodataSection(["-", "\n"])
     // NOT `s = natResolveRodata(...)`: that function returns the NUMBER of sites
     // it resolved, not the state. Assigning it would overwrite the emitter with
     // an integer, and every subsequent natSt* accessor would read an int's "slot"
@@ -3490,7 +3490,7 @@ func natPEProgram() {
     // FILE, and the FILE is correct. Only running it could see this, which is why
     // the execution layer is not optional here, and why an assertion that trims
     // whitespace off stdout is not enough: the missing byte was the newline.
-    let rp = natFlatPairs(natStRodataPos(s), natStRodataOff(s))
+    int rp = natFlatPairs(natStRodataPos(s), natStRodataOff(s))
 
     // IAT patches come from the recorded per-kind lists, never from position.
     //   apatches: absolute STORES of resolved kernel32 addresses (the bootstrap)
@@ -3501,8 +3501,8 @@ func natPEProgram() {
     // and the exit tail one, on top of the bootstrap's three apatches. The sign
     // write is a third emitted site and adds two more, for 7 ipatches in total.
     // A positional reader would pair the wrong ones.
-    let ap = natFlatPairs(natStAbsPos(s), natStAbsIdx(s))
-    let ip = natFlatPairs(natStIatPos(s), natStIatIdx(s))
+    int ap = natFlatPairs(natStAbsPos(s), natStAbsIdx(s))
+    int ip = natFlatPairs(natStIatPos(s), natStIatIdx(s))
     return natPELink(text, ro[0], [], rp, ip, ap, [], natPETextOff(), natPETextOff())
 }
 
@@ -3534,11 +3534,11 @@ func natPECorpusProg(which) {
 // it would be testing a second emission, and a defect in the shared path would be
 // invisible to it.
 func natPEShape(which) {
-    let s = natWinStub()
+    int s = natWinStub()
     s = natPEMainBody(s)
     s = natPrintIntBody(s, 1, 0, 1)
-    let text = natFinish(s)
-    let ro = natRodataSection(["-", "\n"])
+    Value text = natFinish(s)
+    int ro = natRodataSection(["-", "\n"])
     natResolveRodata(s, natPEBaseAddr() + natPETextRVA() + len(text), 0)
     if (which == 1) { return text }
     if (which == 2) { return ro[0] }
@@ -3593,9 +3593,9 @@ func natPEShape(which) {
 // none. It is a NAME lookup, not a shape match: any function called `main` is the
 // entry point regardless of how many others exist.
 func natNativeFindMain(stmts) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
-        let n = stmts[i]
+        Value n = stmts[i]
         if (nodeType(n) == NODE_FUNC_DECL()) {
             if (funcName(n) == "main") { return n }
         }
@@ -3626,7 +3626,7 @@ func natNativeBodyStmts(mainFn) {
 // deliberately NOT a binding here: it is NODE_CONST_DECL and stays unsupported,
 // because a constant is not a frame slot.
 func natNativeIsDecl(n) {
-    let t = nodeType(n)
+    string t = nodeType(n)
     return t == NODE_LET_DECL() || t == NODE_VAR_DECL()
 }
 
@@ -3660,7 +3660,7 @@ func natNativeDeclLine(n) {
 // shadowing, which is a later slice, and silently using the last one would let
 // the frame and the value disagree.
 func natNativeSlotIndex(plan, name) {
-    let i = 0
+    int i = 0
     while (i < natNativePlanCount(plan)) {
         if (natNativeSlotName(plan, i) == name) { return i }
         i = i + 1
@@ -3727,13 +3727,13 @@ func natNativeSlotIndex(plan, name) {
 // descriptor and no per-field tag.
 
 func natFieldSpecName(spec) {
-  let c = indexOf(spec, ":")
+  int c = indexOf(spec, ":")
   if (c < 0) { return spec }
   return substr(spec, 0, c)
 }
 
 func natFieldSpecType(spec) {
-  let c = indexOf(spec, ":")
+  int c = indexOf(spec, ":")
   if (c < 0) { return "" }
   return substr(spec, c + 1, len(spec) - c - 1)
 }
@@ -3756,10 +3756,10 @@ func natKindUnsupported() { return 0 - 1 }
 // declaration order. Karkain has no reflection: this is the whole of the compile-time
 // record information the lowering needs.
 func natStructTable(stmts) {
-  let tbl = []
-  let i = 0
+  Value tbl = []
+  int i = 0
   while (i < len(stmts)) {
-    let n = stmts[i]
+    Value n = stmts[i]
     if (nodeType(n) == NODE_STRUCT_DECL()) { tbl = natStructPushDecl(tbl, n) }
     i = i + 1
   }
@@ -3767,13 +3767,13 @@ func natStructTable(stmts) {
 }
 
 func natStructPushDecl(tbl, d) {
-  let specs = structDeclFields(d)
-  let rec = []
-  let size = 0
-  let j = 0
+  int specs = structDeclFields(d)
+  Value rec = []
+  int size = 0
+  int j = 0
   while (j < len(specs)) {
-    let sp = specs[j]
-    let fk = natFieldSpecKind(natFieldSpecType(sp))
+    Value sp = specs[j]
+    int fk = natFieldSpecKind(natFieldSpecType(sp))
     rec = appendArray(rec, natFieldSpecName(sp))
     rec = appendArray(rec, size)
     rec = appendArray(rec, fk)
@@ -3783,7 +3783,7 @@ func natStructPushDecl(tbl, d) {
   tbl = appendArray(tbl, structDeclName(d))
   tbl = appendArray(tbl, size)
   tbl = appendArray(tbl, len(specs))
-  let r = 0
+  int r = 0
   while (r < len(rec)) { tbl = appendArray(tbl, rec[r]); r = r + 1 }
   return tbl
 }
@@ -3791,7 +3791,7 @@ func natStructPushDecl(tbl, d) {
 // natStructRecAt returns the index of a record's fieldCount entry, or -1 when the type
 // is unknown. Stepping to the next record is header(3) + 3 per field.
 func natStructRecAt(tbl, typeName) {
-  let i = 0
+  int i = 0
   while (i < len(tbl)) {
     if (tbl[i] == typeName) { return i + 2 }
     i = i + 3 + tbl[i + 2] * 3
@@ -3801,18 +3801,18 @@ func natStructRecAt(tbl, typeName) {
 
 // natStructSizeOf is the record's field-area size in BYTES, or -1 for an unknown type.
 func natStructSizeOf(tbl, typeName) {
-  let b = natStructRecAt(tbl, typeName)
+  int b = natStructRecAt(tbl, typeName)
   if (b < 0) { return -1 }
   return tbl[b - 1]
 }
 
 func natStructFieldOff(tbl, typeName, fieldName) {
-  let b = natStructRecAt(tbl, typeName)
+  int b = natStructRecAt(tbl, typeName)
   if (b < 0) { return -1 }
-  let cnt = tbl[b]
-  let j = 0
+  Value cnt = tbl[b]
+  int j = 0
   while (j < cnt) {
-    let p = b + 1 + j * 3
+    int p = b + 1 + j * 3
     if (tbl[p] == fieldName) { return tbl[p + 1] }
     j = j + 1
   }
@@ -3820,12 +3820,12 @@ func natStructFieldOff(tbl, typeName, fieldName) {
 }
 
 func natStructFieldKind(tbl, typeName, fieldName) {
-  let b = natStructRecAt(tbl, typeName)
+  int b = natStructRecAt(tbl, typeName)
   if (b < 0) { return -1 }
-  let cnt = tbl[b]
-  let j = 0
+  Value cnt = tbl[b]
+  int j = 0
   while (j < cnt) {
-    let p = b + 1 + j * 3
+    int p = b + 1 + j * 3
     if (tbl[p] == fieldName) { return tbl[p + 2] }
     j = j + 1
   }
@@ -3870,7 +3870,7 @@ func natRecordFieldAddr(s, base, off) {
 // return and no reference mechanism: the caller-owned rodata cursor must travel back
 // out with the emitter state.
 func natRecordStoreLiteral(s, lit, off, kind, roffs, sidx) {
-  let out = []
+  Value out = []
   if (kind == natKindString()) {
     s = natRodataRefOff(s, natRegRAX(), roffs[sidx])
     s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
@@ -3910,9 +3910,9 @@ func natNativePlan(stmts, tbl) {
 // declaration statement for a body walk to find. That widening is what lets the
 // scanner and the lowering share one lookup for parameters and locals.
 func natNativePlanFor(params, stmts, tbl) {
-    let plan = []
-    let next = 0
-    let pi = 0
+    int[] plan = []
+    int next = 0
+    int pi = 0
     while (pi < len(params)) {
   plan = appendArray(plan, next)
   plan = appendArray(plan, natKindInt())
@@ -3930,7 +3930,7 @@ func natNativePlanFor(params, stmts, tbl) {
   // reserved ZERO bytes: measured, `Point{x,y}` + `let n = 5` printed 5/4/5
   // (n aliased p.x) and every record frame was 624 regardless of field area.
   // The table must be the one natNativeProgram built from the program statements.
-  let r = natNativePlanDecls(plan, stmts, tbl, next)
+  int r = natNativePlanDecls(plan, stmts, tbl, next)
   return r[0]
   }
 
@@ -3952,13 +3952,13 @@ func natNativePlanFor(params, stmts, tbl) {
   // oracle produced an image for such a program and the self-hosted driver
   // refused it. The refusal is withdrawn and the driver matches the oracle.
   func natNativePlanDecls(plan, stmts, tbl, next) {
-  let i = 0
+  int i = 0
   while (i < len(stmts)) {
-  let n = stmts[i]
+  Value n = stmts[i]
   if (natNativeIsDecl(n)) {
-  let v = natNativeDeclValue(n)
-  let k = natKindInt()
-  let ne = 0
+  int v = natNativeDeclValue(n)
+  int k = natKindInt()
+  int ne = 0
   if (nodeType(v) == NODE_ARRAY_LIT()) {
   k = natKindArray()
   ne = len(arrayLitElems(v))
@@ -3989,10 +3989,10 @@ func natNativePlanFor(params, stmts, tbl) {
   if (k == natKindStruct()) { next = next + 8 * ne }
   }
   if (nodeType(n) == NODE_IF()) {
-  let rc = natNativePlanDecls(plan, ifCons(n), tbl, next)
+  int rc = natNativePlanDecls(plan, ifCons(n), tbl, next)
   plan = rc[0]
   next = rc[1]
-  let ra = natNativePlanDecls(plan, ifAlt(n), tbl, next)
+  int ra = natNativePlanDecls(plan, ifAlt(n), tbl, next)
   plan = ra[0]
   next = ra[1]
   }
@@ -4005,17 +4005,17 @@ func natNativePlanFor(params, stmts, tbl) {
   // different ORDER moves every frame displacement after it, so the whole
   // image differs.
   if (nodeType(n) == NODE_WHILE()) {
-  let rw = natNativePlanDecls(plan, whileBody(n), tbl, next)
+  int rw = natNativePlanDecls(plan, whileBody(n), tbl, next)
   plan = rw[0]
   next = rw[1]
   }
   if (nodeType(n) == NODE_FOR()) {
   if (len(forInit(n)) > 0) {
-  let ri = natNativePlanDecls(plan, appendArray([], forInit(n)), tbl, next)
+  int ri = natNativePlanDecls(plan, appendArray([], forInit(n)), tbl, next)
   plan = ri[0]
   next = ri[1]
   }
-  let rf = natNativePlanDecls(plan, forBody(n), tbl, next)
+  int rf = natNativePlanDecls(plan, forBody(n), tbl, next)
   plan = rf[0]
   next = rf[1]
   }
@@ -4046,7 +4046,7 @@ func natNativeSlotCount(plan) { return len(plan) / 5 }
 func natNativePlanBytes(plan) {
     if (len(plan) == 0) { return 0 }
     let last = natNativePlanCount(plan) - 1
-    let size = 8
+    int size = 8
     if (natKindUnits(natNativeSlotKind(plan, last)) == 2) { size = size + 8 }
 if (natNativeSlotKind(plan, last) == natKindArray()) {
   size = size + 8 * natNativeSlotElems(plan, last)
@@ -4115,18 +4115,18 @@ func natNativeRefuseNoLine(what) {
 // unsupported field kind are all loud refusals, so a mis-sized record can never reach
 // emission.
 func natNativeScanStructLit(tbl, lit, line) {
-let typeName = structLitName(lit)
+int typeName = structLitName(lit)
 if (natStructSizeOf(tbl, typeName) < 0) {
 return natNativeRefuse("unknown record type `" + typeName + "`", line)
 }
-let fields = structLitFields(lit)
-let i = 0
+int fields = structLitFields(lit)
+int i = 0
 while (i < len(fields)) {
-let fname = identName(binaryLeft(fields[i]))
+string fname = identName(binaryLeft(fields[i]))
 if (natStructFieldOff(tbl, typeName, fname) < 0) {
 return natNativeRefuse("record `" + typeName + "` has no field `" + fname + "`", line)
 }
-let fk = natStructFieldKind(tbl, typeName, fname)
+int fk = natStructFieldKind(tbl, typeName, fname)
 if (fk == natKindString()) {
 if (nodeType(binaryRight(fields[i])) != NODE_STRING_LIT()) {
 return natNativeRefuse("record field `" + fname + "` is a string; only a string " +
@@ -4168,12 +4168,12 @@ func natNativeStmtKindName(k) {
 }
 
 func natNativeScanFor(params, stmts, tbl, fns, isMain, useRegAlloc) {
-    let plan = natNativePlanFor(params, stmts, tbl)
+    int plan = natNativePlanFor(params, stmts, tbl)
     // NAT-REG: the allocation is per function and lives in the plan, so it is
     // computed here -- once, where the plan is complete -- and every access
     // site reads it back out of the plan.
     if (useRegAlloc == 1) { plan = natNativeRegAlloc(stmts, plan) }
-    let r = natNativeScanStmts(stmts, plan, tbl, fns, isMain, stmts, 0, 0)
+    int r = natNativeScanStmts(stmts, plan, tbl, fns, isMain, stmts, 0, 0)
     return [r[0], plan, r[1]]
 }
 
@@ -4193,13 +4193,13 @@ func natNativeScanFor(params, stmts, tbl, fns, isMain, useRegAlloc) {
 // validated by the SAME rules -- except for the loop depth, which is the one
 // thing that differs between them.
 func natNativeScanStmts(stmts, plan, tbl, fns, isMain, fnStmts, loopDepth, inBody) {
-    let hasReturn = 0
-    let i = 0
+    int hasReturn = 0
+    int i = 0
     while (i < len(stmts)) {
-        let n = stmts[i]
-        let k = nodeType(n)
+        Value n = stmts[i]
+        string k = nodeType(n)
         if (natNativeIsDecl(n)) {
-            let bad = ""
+            string bad = ""
             if (inBody == 1) {
                 // A binding in a NESTED body is INT-only: a string binding
                 // would need the rodata cursor, which this driver threads per
@@ -4222,7 +4222,7 @@ if (k == NODE_PRINT()) {
                 // "runtime error: array index out of range". Measured, not inferred:
                 // the fixture is in the NAT-CALL gate's refusal table. Refusing it
                 // here keeps the callee subset int-only by name instead of by crash.
-                let bad = ""
+                string bad = ""
                 if (inBody == 1) {
                     bad = natNativeScanIntExpr(printVal(n), plan, printLine(n), fns, 0)
                 } else {
@@ -4235,7 +4235,7 @@ if (k == NODE_PRINT()) {
                 if (bad != "") { return [bad, hasReturn] }
             } else {
                 if (k == NODE_RETURN()) {
-                    let bad = ""
+                    string bad = ""
                     if (inBody == 1) {
                         // A return in a NESTED body is INT-only, and it does
                         // NOT set the function's `returned` flag: the oracle's
@@ -4250,9 +4250,9 @@ if (k == NODE_PRINT()) {
                     if (bad != "") { return [bad, hasReturn] }
 } else {
   if (k == NODE_EXPR_STMT()) {
-  let e = exprStmtExpr(n)
+  int e = exprStmtExpr(n)
   if (natNativeIsAssignExpr(e)) {
-  let bad = ""
+  string bad = ""
   if (nodeType(binaryLeft(e)) == NODE_IDENT()) {
   // NAT-LOOP: a plain-local assignment -- `i = i + 1`, the loop counter's
   // form. It arrives as an ExprStmt (the parser wraps the expression), so the
@@ -4271,7 +4271,7 @@ if (k == NODE_PRINT()) {
   // natEmitIntCall lowers the call, and a void callee's implicit `xor rax,rax` is
   // simply never read.
   if (nodeType(e) == NODE_CALL()) {
-  let bad = natNativeScanCall(e, plan, exprStmtLine(n), fns)
+  int bad = natNativeScanCall(e, plan, exprStmtLine(n), fns)
   if (bad != "") { return [bad, hasReturn] }
   } else {
   return [natNativeRefuseNoLine("expression statement `" + getNodeType(e) +
@@ -4283,18 +4283,18 @@ if (k == NODE_PRINT()) {
   if (k == NODE_IF()) {
   // NAT-IF: a conditional branch. The condition is an integer comparison; the
   // branch bodies are int-only. natNativeScanIf says why.
-  let bad = natNativeScanIf(n, plan, tbl, fns, isMain, fnStmts, loopDepth)
+  int bad = natNativeScanIf(n, plan, tbl, fns, isMain, fnStmts, loopDepth)
   if (bad != "") { return [bad, hasReturn] }
   } else {
   if (k == NODE_WHILE()) {
   // NAT-LOOP: a `while` loop. The arena-using constructs are refused BEFORE
   // anything else is looked at, because a loop is where the compile-time arena
   // bound stops being provable.
-  let bad = natNativeScanLoopArena(whileBody(n), plan)
+  int bad = natNativeScanLoopArena(whileBody(n), plan)
   if (bad != "") { return [bad, hasReturn] }
-  let bad2 = natNativeScanCond(whileCond(n), plan, whileLine(n), fns)
+  int bad2 = natNativeScanCond(whileCond(n), plan, whileLine(n), fns)
   if (bad2 != "") { return [bad2, hasReturn] }
-  let bad3 = natNativeScanStmts(whileBody(n), plan, tbl, fns, isMain, fnStmts, loopDepth + 1, 1)
+  int bad3 = natNativeScanStmts(whileBody(n), plan, tbl, fns, isMain, fnStmts, loopDepth + 1, 1)
   if (bad3[0] != "") { return [bad3[0], hasReturn] }
   } else {
   if (k == NODE_FOR()) {
@@ -4302,15 +4302,15 @@ if (k == NODE_PRINT()) {
   // assignment), the CONDITION is an integer comparison, and the POST is an
   // assignment -- the oracle wraps a bare `=` post in an ExprStmt before
   // lowering it (program.go:5282-5285), which is what the driver does too.
-  let bad = natNativeScanLoopArena(forBody(n), plan)
+  int bad = natNativeScanLoopArena(forBody(n), plan)
   if (bad != "") { return [bad, hasReturn] }
-  let bad2 = natNativeScanForInit(forInit(n), plan, tbl, fns, isMain)
+  int bad2 = natNativeScanForInit(forInit(n), plan, tbl, fns, isMain)
   if (bad2 != "") { return [bad2, hasReturn] }
-  let bad3 = natNativeScanCond(forCond(n), plan, forLine(n), fns)
+  int bad3 = natNativeScanCond(forCond(n), plan, forLine(n), fns)
   if (bad3 != "") { return [bad3, hasReturn] }
-  let bad4 = natNativeScanForPost(forPost(n), plan, tbl, fns, isMain)
+  int bad4 = natNativeScanForPost(forPost(n), plan, tbl, fns, isMain)
   if (bad4 != "") { return [bad4, hasReturn] }
-  let bad5 = natNativeScanStmts(forBody(n), plan, tbl, fns, isMain, fnStmts, loopDepth + 1, 1)
+  int bad5 = natNativeScanStmts(forBody(n), plan, tbl, fns, isMain, fnStmts, loopDepth + 1, 1)
   if (bad5[0] != "") { return [bad5[0], hasReturn] }
   } else {
   if (k == NODE_BREAK()) {
@@ -4332,7 +4332,7 @@ if (k == NODE_PRINT()) {
   // INIT and POST arrive in -- program.go:5280 wraps the post into an ExprStmt
   // only when walking. It used to be refused by name (9h-2a) because the loop
   // was not lowered; now it is a supported statement.
-  let bad = natNativeScanAssignLocal(plan, fns, binaryLine(n), binaryLeft(n), binaryRight(n))
+  int bad = natNativeScanAssignLocal(plan, fns, binaryLine(n), binaryLeft(n), binaryRight(n))
   if (bad != "") { return [bad, hasReturn] }
   } else {
   return [natNativeRefuseNoLine(natNativeStmtKindName(k) +
@@ -4366,11 +4366,11 @@ if (k == NODE_PRINT()) {
 // lowered. Widening main's arm would have moved frozen bytes for no gain, and this
 // slice is scoped to calls, not to a general expression driver.
 func natNativeScanDecl(n, plan, tbl, fns, isMain) {
-    let v = natNativeDeclValue(n)
+    int v = natNativeDeclValue(n)
     if (isMain == 0) {
         return natNativeScanIntExpr(v, plan, natNativeDeclLine(n), fns, 0)
     }
-    let vt = nodeType(v)
+    string vt = nodeType(v)
     if (vt == NODE_ARRAY_LIT()) {
         return natNativeScanElems(arrayLitElems(v), natNativeDeclLine(n))
     }
@@ -4388,22 +4388,22 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
     }
     if (vt == NODE_CALL()) {
         if (callFunc(v) == "push") {
-            let args = callArgs(v)
+            int args = callArgs(v)
             if (len(args) != 2) {
                 return natNativeRefuse("push() takes exactly 2 arguments (got " + str(len(args)) + ")", natNativeDeclLine(n))
             }
             if (nodeType(args[0]) != NODE_IDENT()) {
                 return natNativeRefuse("push() requires an array variable (got " + getNodeType(args[0]) + ")", natNativeDeclLine(n))
             }
-            let srcName = identName(args[0])
-            let srcOrd = natNativeSlotIndex(plan, srcName)
+            string srcName = identName(args[0])
+            int srcOrd = natNativeSlotIndex(plan, srcName)
             if (srcOrd < 0) {
                 return natNativeRefuse("undeclared local `" + srcName + "`", natNativeDeclLine(n))
             }
             if (natNativeSlotKind(plan, srcOrd) != natKindArray()) {
                 return natNativeRefuse("push() requires an array receiver (got " + natKindName(natNativeSlotKind(plan, srcOrd)) + ")", natNativeDeclLine(n))
             }
-            let bad = natNativeScanIntExpr(args[1], plan, natNativeDeclLine(n), fns, 0)
+            int bad = natNativeScanIntExpr(args[1], plan, natNativeDeclLine(n), fns, 0)
             if (bad != "") { return bad }
             return ""
         }
@@ -4443,10 +4443,10 @@ func natNativeIsStrBinary(e, stmts, plan) {
 // `params` comes back exactly as the parser stored it: NAMES only. That is why
 // natNativePlanFor treats every parameter as a one-unit int -- see its header.
 func natNativeFuncs(stmts) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < len(stmts)) {
-        let n = stmts[i]
+        Value n = stmts[i]
         if (nodeType(n) == NODE_FUNC_DECL()) {
             out = appendArray(out, funcName(n))
             out = appendArray(out, funcParams(n))
@@ -4464,7 +4464,7 @@ func natNativeFuncBodyAt(fns, i) { return fns[i * 3 + 2] }
 
 // natNativeFuncIndex returns the descriptor index for `name`, or -1.
 func natNativeFuncIndex(fns, name) {
-    let i = 0
+    int i = 0
     while (i < natNativeFuncCount(fns)) {
         if (natNativeFuncNameAt(fns, i) == name) { return i }
         i = i + 1
@@ -4491,7 +4491,7 @@ func natNativeFuncLabel(name) {
 // An argument at index 0 is unaffected (its spill is written last), which is why the
 // check is conditioned on the index rather than applied to every argument.
 func natNativeExprHasCall(e) {
-    let t = nodeType(e)
+    string t = nodeType(e)
     if (t == NODE_CALL()) { return 1 }
     if (t == NODE_BINARY()) {
         return natNativeExprHasCall(binaryLeft(e)) + natNativeExprHasCall(binaryRight(e))
@@ -4509,12 +4509,12 @@ func natNativeExprHasCall(e) {
 // telling a user their call to a real builtin is "undefined" would be a worse
 // diagnostic than the true one.
 func natNativeScanCall(e, plan, line, fns) {
-    let fname = callFunc(e)
+    string fname = callFunc(e)
     if (fname == "len") {
         return natNativeRefuse("`len()` inside a called function is not lowered by the " +
             "native driver in this slice", line)
     }
-    let fi = natNativeFuncIndex(fns, fname)
+    int fi = natNativeFuncIndex(fns, fname)
     if (fi < 0) {
         // A callee that is not one of this program's functions is a BUILTIN in every
         // case that reaches here: kcc's checker already rejects a genuinely undefined
@@ -4530,13 +4530,13 @@ func natNativeScanCall(e, plan, line, fns) {
         }
         return natNativeRefuse("call to undefined function `" + fname + "`", line)
     }
-    let params = natNativeFuncParamsAt(fns, fi)
-    let args = callArgs(e)
+    int params = natNativeFuncParamsAt(fns, fi)
+    int args = callArgs(e)
     if (len(args) != len(params)) {
         return natNativeRefuse("call to `" + fname + "` has " + str(len(args)) +
             " argument(s) but `" + fname + "` declares " + str(len(params)), line)
     }
-    let i = 0
+    int i = 0
     while (i < len(args)) {
         if (i >= 1) {
             if (natNativeExprHasCall(args[i]) == 1) {
@@ -4552,12 +4552,12 @@ func natNativeScanCall(e, plan, line, fns) {
         // own diagnostic word for word -- measured: `error[K145]: string argument for
         // int parameter 'n' (call to 'f')` -- instead of falling through to the generic
         // "expression of kind 23", which names a node number nobody can act on.
-        let wk = natNativeArgKindName(args[i], plan)
+        int wk = natNativeArgKindName(args[i], plan)
         if (wk != "") {
             return natNativeRefuse(wk + " argument for int parameter `" +
                 params[i] + "` (call to `" + fname + "`)", line)
         }
-        let bad = natNativeScanIntExpr(args[i], plan, line, fns, 0)
+        int bad = natNativeScanIntExpr(args[i], plan, line, fns, 0)
         if (bad != "") { return bad }
         i = i + 1
     }
@@ -4569,14 +4569,14 @@ func natNativeScanCall(e, plan, line, fns) {
 // should decide. It exists to make the diagnostic specific: the scan below would
 // otherwise report a node NUMBER.
 func natNativeArgKindName(e, plan) {
-    let t = nodeType(e)
+    string t = nodeType(e)
     if (t == NODE_STRING_LIT()) { return "string" }
     if (t == NODE_FLOAT_LIT()) { return "float" }
     if (t == NODE_BOOL_LIT()) { return "bool" }
     if (t == NODE_IDENT()) {
-        let ord = natNativeSlotIndex(plan, identName(e))
+        int ord = natNativeSlotIndex(plan, identName(e))
         if (ord >= 0) {
-            let k = natNativeSlotKind(plan, ord)
+            int k = natNativeSlotKind(plan, ord)
             if (k != natKindInt()) { return natKindName(k) }
         }
     }
@@ -4626,7 +4626,7 @@ func natNativeScanCond(cond, plan, line, fns) {
     }
     // The oracle evaluates the operands at depth 1 (program.go:5135/5140), so a
     // nested binary operand stages at the same offsets.
-    let bad = natNativeScanIntExpr(binaryLeft(cond), plan, line, fns, 1)
+    int bad = natNativeScanIntExpr(binaryLeft(cond), plan, line, fns, 1)
     if (bad != "") { return bad }
     return natNativeScanIntExpr(binaryRight(cond), plan, line, fns, 1)
 }
@@ -4639,7 +4639,7 @@ func natNativeScanCond(cond, plan, line, fns) {
 // record-type lookup needs, because a record bound at the top level is still
 // that record when a field inside a branch is assigned.
 func natNativeScanIf(n, plan, tbl, fns, isMain, fnStmts, loopDepth) {
-    let bad = natNativeScanCond(ifCond(n), plan, ifLine(n), fns)
+    int bad = natNativeScanCond(ifCond(n), plan, ifLine(n), fns)
     if (bad != "") { return bad }
     bad = natNativeScanStmts(ifCons(n), plan, tbl, fns, isMain, fnStmts, loopDepth, 1)[0]
     if (bad != "") { return bad }
@@ -4678,7 +4678,7 @@ func natNativeScanIf(n, plan, tbl, fns, isMain, fnStmts, loopDepth) {
 // run-time allocations in this driver are the arena ones listed above, and
 // they are exactly the ones refused here.
 func natNativeScanLoopArena(stmts, plan) {
-    let kind = natNativeArenaKindInStmts(stmts, plan)
+    int kind = natNativeArenaKindInStmts(stmts, plan)
     if (kind == 1) {
         return "string concatenation inside a loop is not supported on the native target (the heap arena is sized at compile time, so a repeated concatenation cannot be bounded)"
     }
@@ -4697,10 +4697,10 @@ func natNativeScanLoopArena(stmts, plan) {
 // It returns 1 for a string concatenation, 2 for a push(), 3 for a map
 // insertion, and 0 when there is none.
 func natNativeArenaKindInStmts(stmts, plan) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
-        let st = stmts[i]
-        let k = 0
+        Value st = stmts[i]
+        int k = 0
         if (natNativeIsDecl(st)) {
             k = natNativeArenaKindIn(natNativeDeclValue(st), plan)
         }
@@ -4711,14 +4711,14 @@ func natNativeArenaKindInStmts(stmts, plan) {
             k = natNativeArenaKindIn(retVal(st), plan)
         }
         if (k == 0 && nodeType(st) == NODE_EXPR_STMT()) {
-            let e = exprStmtExpr(st)
+            int e = exprStmtExpr(st)
             // A map INSERTION is `m[k] = v`: an assignment whose target is an
             // index into a MAP local. An index into an ARRAY is not an
             // insertion, so the local's kind decides -- the oracle makes the
             // same distinction (program.go:791).
             if (natNativeIsAssignExpr(e) && nodeType(binaryLeft(e)) == NODE_INDEX()) {
-                let lidx = binaryLeft(e)
-                let ordm = natNativeSlotIndex(plan, identName(indexLeft(lidx)))
+                int lidx = binaryLeft(e)
+                int ordm = natNativeSlotIndex(plan, identName(indexLeft(lidx)))
                 if (ordm >= 0 && natNativeSlotKind(plan, ordm) == natKindMap()) { k = 3 }
             }
             if (k == 0) { k = natNativeArenaKindIn(e, plan) }
@@ -4750,20 +4750,20 @@ func natNativeArenaKindInStmts(stmts, plan) {
 // through the PLAN; its `stmts` argument is unused, which is why an empty
 // list is passed here.
 func natNativeArenaKindIn(e, plan) {
-    let t = nodeType(e)
+    string t = nodeType(e)
     if (t == NODE_BINARY()) {
         if (binaryOp(e) == "+") {
             if (natNativeIsStrBinary(e, [], plan) == 1) { return 1 }
         }
-        let k = natNativeArenaKindIn(binaryLeft(e), plan)
+        int k = natNativeArenaKindIn(binaryLeft(e), plan)
         if (k != 0) { return k }
         return natNativeArenaKindIn(binaryRight(e), plan)
     }
     if (t == NODE_CALL()) {
         if (callFunc(e) == "push") { return 2 }
-        let i = 0
+        int i = 0
         while (i < len(callArgs(e))) {
-            let k = natNativeArenaKindIn(callArgs(e)[i], plan)
+            int k = natNativeArenaKindIn(callArgs(e)[i], plan)
             if (k != 0) { return k }
             i = i + 1
         }
@@ -4824,11 +4824,11 @@ func natNativeScanAssignLocal(plan, fns, line, lhs, rhs) {
     if (nodeType(lhs) != NODE_IDENT()) {
         return natNativeRefuse("assignment target must be a variable", line)
     }
-    let ord = natNativeSlotIndex(plan, identName(lhs))
+    int ord = natNativeSlotIndex(plan, identName(lhs))
     if (ord < 0) {
         return natNativeRefuse("undefined identifier '" + identName(lhs) + "'", line)
     }
-    let k = natNativeSlotKind(plan, ord)
+    int k = natNativeSlotKind(plan, ord)
     if (k != natKindInt()) {
         if (k == natKindString() || k == natKindArray()) {
             return natNativeRefuse("cannot reassign " + natKindName(k) + " '" + identName(lhs) +
@@ -4851,14 +4851,14 @@ func natNativeScanAssignLocal(plan, fns, line, lhs, rhs) {
 // BEFORE the depth guard, and both operands are emitted at depth+1. Unary `-` passes
 // the SAME depth (program.go:5944), which is why `-a + b` and `a + b` nest alike.
 func natNativeScanIntExpr(e, plan, line, fns, depth) {
-    let t = nodeType(e)
+    string t = nodeType(e)
     if (t == NODE_INT_LIT()) { return "" }
     if (t == NODE_IDENT()) {
-        let ord = natNativeSlotIndex(plan, identName(e))
+        int ord = natNativeSlotIndex(plan, identName(e))
         if (ord < 0) {
             return natNativeRefuse("undeclared local `" + identName(e) + "`", line)
         }
-        let k = natNativeSlotKind(plan, ord)
+        int k = natNativeSlotKind(plan, ord)
         if (k != natKindInt()) {
             return natNativeRefuse("`" + identName(e) + "` is " + natKindName(k) +
                 "; only an int may appear in an arithmetic expression or be passed to a " +
@@ -4892,11 +4892,11 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
         if (nodeType(indexLeft(e)) != NODE_IDENT()) {
             return natNativeRefuse("array index target must be a variable", line)
         }
-        let ord = natNativeSlotIndex(plan, identName(indexLeft(e)))
+        int ord = natNativeSlotIndex(plan, identName(indexLeft(e)))
         if (ord < 0) {
             return natNativeRefuse("undefined identifier '" + identName(indexLeft(e)) + "'", line)
         }
-        let k = natNativeSlotKind(plan, ord)
+        int k = natNativeSlotKind(plan, ord)
         if (k != natKindArray()) {
             return natNativeRefuse("index target must be an array (got " + natKindName(k) +
                 " '" + identName(indexLeft(e)) + "')", line)
@@ -4906,7 +4906,7 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
         return natNativeScanIntExpr(indexExpr(e), plan, line, fns, depth + 1)
     }
     if (t == NODE_BINARY()) {
-        let op = binaryOp(e)
+        int op = binaryOp(e)
         if (op != "+" && op != "-" && op != "*") {
             return natNativeRefuse("unsupported operator '" + op + "' (want +, - or *)", line)
         }
@@ -4914,7 +4914,7 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
             return natNativeRefuse("expression nesting exceeds " + str(natMaxBinDepth()) +
                 " binary levels", line)
         }
-        let bad = natNativeScanIntExpr(binaryLeft(e), plan, line, fns, depth + 1)
+        int bad = natNativeScanIntExpr(binaryLeft(e), plan, line, fns, depth + 1)
         if (bad != "") { return bad }
         return natNativeScanIntExpr(binaryRight(e), plan, line, fns, depth + 1)
     }
@@ -4932,20 +4932,20 @@ func natNativeScanIntExpr(e, plan, line, fns, depth) {
 // reserved in the CALLER's frame, so one function's deep call must not enlarge
 // another's frame.
 func natNativeMaxExtras(stmts) {
-    let best = 0
-    let i = 0
+    int best = 0
+    int i = 0
     while (i < len(stmts)) {
-        let n = stmts[i]
+        Value n = stmts[i]
         if (natNativeIsDecl(n)) {
-            let m = natNativeMaxExtrasExpr(natNativeDeclValue(n))
+            int m = natNativeMaxExtrasExpr(natNativeDeclValue(n))
             if (m > best) { best = m }
         }
         if (nodeType(n) == NODE_PRINT()) {
-            let m = natNativeMaxExtrasExpr(printVal(n))
+            int m = natNativeMaxExtrasExpr(printVal(n))
             if (m > best) { best = m }
         }
         if (nodeType(n) == NODE_RETURN()) {
-            let m = natNativeMaxExtrasExpr(retVal(n))
+            int m = natNativeMaxExtrasExpr(retVal(n))
             if (m > best) { best = m }
         }
         // NAT-CALL: a bare call statement carries its arguments in exactly the same
@@ -4955,7 +4955,7 @@ func natNativeMaxExtras(stmts) {
         // caught by the other arms either: `show(1,2,3,4,5,6,7)` as a statement is
         // not a decl, not a print and not a return.
         if (nodeType(n) == NODE_EXPR_STMT()) {
-            let m = natNativeMaxExtrasExpr(exprStmtExpr(n))
+            int m = natNativeMaxExtrasExpr(exprStmtExpr(n))
             if (m > best) { best = m }
         }
         i = i + 1
@@ -4964,16 +4964,16 @@ func natNativeMaxExtras(stmts) {
 }
 
 func natNativeMaxExtrasExpr(e) {
-    let t = nodeType(e)
+    string t = nodeType(e)
     if (t == NODE_BINARY()) {
-        let l = natNativeMaxExtrasExpr(binaryLeft(e))
-        let r = natNativeMaxExtrasExpr(binaryRight(e))
+        int l = natNativeMaxExtrasExpr(binaryLeft(e))
+        int r = natNativeMaxExtrasExpr(binaryRight(e))
         if (l > r) { return l }
         return r
     }
     if (t == NODE_UNARY()) { return natNativeMaxExtrasExpr(unaryOperand(e)) }
     if (t == NODE_CALL()) {
-        let args = callArgs(e)
+        int args = callArgs(e)
         // UNITS BEYOND THE SIX REGISTER ARGUMENTS, not the total. The oracle floors at
         // zero and subtracts `len(argRegs)` (program.go:4512-4514:
         // `if e := units - len(argRegs); e > max`). Returning the TOTAL here reserved
@@ -4983,13 +4983,13 @@ func natNativeMaxExtrasExpr(e) {
         //
         // Every argument in this subset is ONE unit; a string argument would be two,
         // and the scan refuses one at a call site, so `len(args)` is exact here.
-        let units = len(args)
-        let best = 0
+        int units = len(args)
+        int best = 0
         if (units > 6) { best = units - 6 }
-        let inner = 0
-        let i = 0
+        int inner = 0
+        int i = 0
         while (i < len(args)) {
-            let m = natNativeMaxExtrasExpr(args[i])
+            int m = natNativeMaxExtrasExpr(args[i])
             if (m > inner) { inner = m }
             i = i + 1
         }
@@ -5016,7 +5016,7 @@ func natArrayValue(s, off, elems) {
     s = natStoreStack(s, natRegRBX(), off)
     s = natMovRegImm64(s, natRegRAX(), len(elems))
     s = natStoreStack(s, natRegRAX(), off + 8)
-    let i = 0
+    int i = 0
     while (i < len(elems)) {
         s = natMovRegImm64(s, natRegRAX(), int(intLitVal(elems[i])))
         s = natLoadStack(s, natRegRBX(), off)
@@ -5102,12 +5102,12 @@ func natArrayValue(s, off, elems) {
 // `line` is the index expression's own line, so the diagnostic points at the
 // index and not at the statement that contains it.
 func natArrayIndex(s, off, roffsKind, srcOff, srcLen, line) {
-    let fa = natFresh(s, "idxbad")
+    Value fa = natFresh(s, "idxbad")
     s = fa[0]
-    let badLbl = fa[1]
-    let fb = natFresh(s, "idxok")
+    Value badLbl = fa[1]
+    Value fb = natFresh(s, "idxok")
     s = fb[0]
-    let doneLbl = fb[1]
+    Value doneLbl = fb[1]
     s = natLoadStack(s, natRegRBX(), off)
     s = natLoadStack(s, natRegRAX(), off + 8)
     // Bounds: 0 <= i < len, else the Phase-100 runtime error. Both arms jump to
@@ -5137,7 +5137,7 @@ func natArrayIndex(s, off, roffsKind, srcOff, srcLen, line) {
     s = natMovRegImm32(s, natRegRCX(), srcLen)
     s = natMovRegImm32(s, natRegR8(), line)
     s = natCall32(s)
-    let cr = natRel32(s, "karkain_runtime_error")
+    Value cr = natRel32(s, "karkain_runtime_error")
     s = cr[0]
     // The reporter ends in exit(1) and does not return, but the emitter does
     // not assume that: mark the join so the success path can never fall into
@@ -5153,7 +5153,7 @@ func natArrayIndex(s, off, roffsKind, srcOff, srcLen, line) {
 // be int" rather than failing later inside the int path with a message about
 // expression shape.
 func natNativeScanElems(elems, line) {
-    let i = 0
+    int i = 0
     while (i < len(elems)) {
         if (nodeType(elems[i]) != NODE_INT_LIT()) {
             return natNativeRefuse("array element " + str(i) +
@@ -5174,7 +5174,7 @@ func natNativeScanLen(call, stmts, plan, line) {
         return natNativeRefuse("call to `" + callFunc(call) + "` is not lowered by the " +
             "native driver", line)
     }
-    let args = callArgs(call)
+    int args = callArgs(call)
     if (len(args) != 1) {
         return natNativeRefuse("len() takes exactly 1 argument, got " + str(len(args)), line)
     }
@@ -5182,11 +5182,11 @@ func natNativeScanLen(call, stmts, plan, line) {
         return natNativeRefuse("len() requires an array or string variable, not an " +
             "expression", line)
     }
-    let ord = natNativeSlotIndex(plan, identName(args[0]))
+    int ord = natNativeSlotIndex(plan, identName(args[0]))
     if (ord < 0) {
         return natNativeRefuse("len() of undeclared local `" + identName(args[0]) + "`", line)
     }
-    let k = natNativeSlotKind(plan, ord)
+    int k = natNativeSlotKind(plan, ord)
     // A STRING is accepted for free, and deliberately so: a string's two frame units
     // are (ptr, len), so its length is at exactly the offset an array's COUNT is, and
     // the same single load returns both. Refusing it would have been an arbitrary
@@ -5243,7 +5243,7 @@ func natCallPrintInt(s) {
         s = natSubRegImm32(s, natRegRSP(), 8)
     }
     s = natCall32(s)
-    let r = natRel32(s, "print_int")
+    Value r = natRel32(s, "print_int")
     s = r[0]
     if (natStTargetOS(s) == natOSWindows()) {
         s = natAddRegImm32(s, natRegRSP(), 8)
@@ -5256,7 +5256,7 @@ func natCallPrintStr(s) {
         s = natSubRegImm32(s, natRegRSP(), 8)
     }
     s = natCall32(s)
-    let r = natRel32(s, "print_str")
+    Value r = natRel32(s, "print_str")
     s = r[0]
     if (natStTargetOS(s) == natOSWindows()) {
         s = natAddRegImm32(s, natRegRSP(), 8)
@@ -5342,7 +5342,7 @@ func natPrintStrBody(s, winWrite, offNewline) {
 // the "the gate and the lowering cannot disagree" rule the original comment
 // stated, applied to the shapes that now exist.
 func natNativeUsesRuntimeError(stmts) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
         if (natStmtHasIndex(stmts[i]) == 1) { return 1 }
         i = i + 1
@@ -5356,7 +5356,7 @@ func natNativeUsesRuntimeError(stmts) {
 // into nested bodies: a branch inside a loop, a loop inside a branch, and a
 // loop inside a loop all carry their statements' indexes.
 func natStmtHasIndex(n) {
-    let k = nodeType(n)
+    string k = nodeType(n)
     if (k == NODE_INDEX()) { return 1 }
     if (k == NODE_PRINT()) { return natExprHasIndex(printVal(n)) }
     if (k == NODE_RETURN()) { return natExprHasIndex(retVal(n)) }
@@ -5390,7 +5390,7 @@ func natStmtHasIndex(n) {
 
 // natStmtHasIndexIn is the statement-list form of natStmtHasIndex.
 func natStmtHasIndexIn(stmts) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
         if (natStmtHasIndex(stmts[i]) == 1) { return 1 }
         i = i + 1
@@ -5408,7 +5408,7 @@ func natStmtHasIndexIn(stmts) {
 // is asked in several places, and one copy that is later extended without the
 // other is how the two drift apart.
 func natExprHasIndex(e) {
-    let t = nodeType(e)
+    string t = nodeType(e)
     if (t == NODE_INDEX()) { return 1 }
     if (t == NODE_BINARY()) {
         if (natExprHasIndex(binaryLeft(e)) == 1) { return 1 }
@@ -5416,7 +5416,7 @@ func natExprHasIndex(e) {
     }
     if (t == NODE_UNARY()) { return natExprHasIndex(unaryOperand(e)) }
     if (t == NODE_CALL()) {
-        let i = 0
+        int i = 0
         while (i < len(callArgs(e))) {
             if (natExprHasIndex(callArgs(e)[i]) == 1) { return 1 }
             i = i + 1
@@ -5428,9 +5428,9 @@ func natExprHasIndex(e) {
 }
 
 func natNativeRodataList(stmts) {
-    let lits = natNativeStrLiterals(stmts)
-    let strs = ["-", "\n"]
-    let i = 0
+    int lits = natNativeStrLiterals(stmts)
+    Value strs = ["-", "\n"]
+    int i = 0
     while (i < len(lits)) {
         strs = appendArray(strs, lits[i])
         i = i + 1
@@ -5459,10 +5459,10 @@ func natNativeRodataList(stmts) {
 // same order and handle the decl before the print within each statement, so the two
 // walks agree by construction rather than by convention.
 func natNativeStrLiterals(stmts) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < len(stmts)) {
-        let n = stmts[i]
+        Value n = stmts[i]
         if (natNativeIsDecl(n)) {
             out = natNativeStrLitAppend(out, natNativeDeclValue(n))
         }
@@ -5473,7 +5473,7 @@ if (nodeType(n) == NODE_PRINT()) {
   // roffs entry, so natNativeLowerAssign reads `roffs[sidx]` past the end -- the same
   // collector/emitter desynchronisation 9h-1 fixed for record literals.
   if (nodeType(n) == NODE_EXPR_STMT()) {
-  let ae = exprStmtExpr(n)
+  int ae = exprStmtExpr(n)
   if (natNativeIsAssignExpr(ae)) {
   out = natNativeStrLitAppend(out, binaryRight(ae))
   }
@@ -5532,8 +5532,8 @@ if (nodeType(e) == NODE_BINARY() && binaryOp(e) == "+") {
   // defect 9g fixed when the concat descent was added: one more place where the accepted
   // and recorded shapes can drift apart.
   if (nodeType(e) == NODE_STRUCT_LIT()) {
-  let sf = structLitFields(e)
-  let j = 0
+  int sf = structLitFields(e)
+  int j = 0
   while (j < len(sf)) {
   out = natNativeStrLitAppend(out, binaryRight(sf[j]))
   j = j + 1
@@ -5566,12 +5566,12 @@ func natNativeUsesString(stmts) {
 // consumer indexes positionally, so the type is resolved here from the SAME AST the
 // construction path used. Construction and read therefore cannot disagree.
 func natRecordTypeOfLocal(stmts, name) {
-  let i = 0
+  int i = 0
   while (i < len(stmts)) {
-  let n = stmts[i]
+  Value n = stmts[i]
   if (natNativeIsDecl(n)) {
   if (natNativeDeclName(n) == name) {
-  let v = natNativeDeclValue(n)
+  int v = natNativeDeclValue(n)
   if (nodeType(v) == NODE_STRUCT_LIT()) { return structLitName(v) }
   return ""
   }
@@ -5585,7 +5585,7 @@ func natRecordTypeOfLocal(stmts, name) {
 // The base is ALWAYS reloaded from the frame rather than carried in a register across a
 // field expression -- the rule natArrayValue already follows for an array element base.
 func natRecordBase(s, stmts, plan, name, reg) {
-  let ord = natNativeSlotIndex(plan, name)
+  int ord = natNativeSlotIndex(plan, name)
   return natLoadStack(s, reg, natNativeSlotOff(plan, ord))
 }
 
@@ -5594,8 +5594,8 @@ func natRecordBase(s, stmts, plan, name, reg) {
 // mem[base + off] is loaded with index = RCX = 0 and disp = off, which is the same
 // addressing natRecordStoreLiteral writes with, so read and write cannot disagree.
 func natRecordFieldLoadInt(s, stmts, plan, tbl, recName, fieldName) {
-  let tname = natRecordTypeOfLocal(stmts, recName)
-  let off = natStructFieldOff(tbl, tname, fieldName)
+  int tname = natRecordTypeOfLocal(stmts, recName)
+  int off = natStructFieldOff(tbl, tname, fieldName)
   s = natRecordBase(s, stmts, plan, recName, natRegRBX())
   s = natMovRegImm32(s, natRegRCX(), 0)
   return natLoadScaled64(s, natRegRAX(), natRegRBX(), natRegRCX(), 1, off)
@@ -5604,8 +5604,8 @@ func natRecordFieldLoadInt(s, stmts, plan, tbl, recName, fieldName) {
 // natRecordFieldLoadStr loads a string field's TWO units into (RDI, RSI), which is the
 // established native string result convention.
 func natRecordFieldLoadStr(s, stmts, plan, tbl, recName, fieldName) {
-  let tname = natRecordTypeOfLocal(stmts, recName)
-  let off = natStructFieldOff(tbl, tname, fieldName)
+  int tname = natRecordTypeOfLocal(stmts, recName)
+  int off = natStructFieldOff(tbl, tname, fieldName)
   s = natRecordBase(s, stmts, plan, recName, natRegRBX())
   s = natMovRegImm32(s, natRegRCX(), 0)
   s = natLoadScaled64(s, natRegRDI(), natRegRBX(), natRegRCX(), 1, off)
@@ -5624,20 +5624,20 @@ func natNativeScanField(expr, stmts, plan, line, tbl, allowStr) {
   return natNativeRefuse("record field read is only lowered on a local record in " +
   "151A Step 9h-1", line)
   }
-  let recName = identName(dotLeft(expr))
+  string recName = identName(dotLeft(expr))
   if (natNativeSlotIndex(plan, recName) < 0) {
   return natNativeRefuse("undeclared local `" + recName + "` in a field read", line)
   }
-    let tname = natRecordTypeOfLocal(stmts, recName)
+    int tname = natRecordTypeOfLocal(stmts, recName)
   if (tname == "") {
   return natNativeRefuse("`" + recName + "` is not a record bound from a record " +
   "literal, so `" + memberField(expr) + "` cannot be resolved", line)
   }
-  let fname = memberField(expr)
+  int fname = memberField(expr)
   if (natStructFieldOff(tbl, tname, fname) < 0) {
   return natNativeRefuse("record `" + tname + "` has no field `" + fname + "`", line)
   }
-  let fk = natStructFieldKind(tbl, tname, fname)
+  int fk = natStructFieldKind(tbl, tname, fname)
   if (fk == natKindInt() || fk == natKindFloat()) { return "" }
   // Step 9h-1: a string field is accepted ONLY in direct print position.
   //
@@ -5677,25 +5677,25 @@ func natNativeScanAssign(tbl, stmts, plan, line, lhs, rhs) {
     return natNativeRefuse("assignment target `" + memberField(lhs) + "` must be a field " +
     "of a local record", line)
   }
-  let recName = identName(dotLeft(lhs))
+  string recName = identName(dotLeft(lhs))
   if (natNativeSlotIndex(plan, recName) < 0) {
     return natNativeRefuse("undeclared local `" + recName + "` in a field assignment", line)
   }
-  let tname = natRecordTypeOfLocal(stmts, recName)
+  int tname = natRecordTypeOfLocal(stmts, recName)
   if (tname == "") {
     return natNativeRefuse("`" + recName + "` is not a record bound from a record " +
     "literal, so `" + memberField(lhs) + "` cannot be assigned", line)
   }
-  let fname = memberField(lhs)
+  int fname = memberField(lhs)
   if (natStructFieldOff(tbl, tname, fname) < 0) {
     return natNativeRefuse("record `" + tname + "` has no field `" + fname + "`", line)
   }
-  let fk = natStructFieldKind(tbl, tname, fname)
-  let rt = nodeType(rhs)
+  int fk = natStructFieldKind(tbl, tname, fname)
+  string rt = nodeType(rhs)
   if (fk == natKindInt() || fk == natKindFloat()) {
     if (rt == NODE_INT_LIT()) { return "" }
     if (rt == NODE_IDENT()) {
-      let ord = natNativeSlotIndex(plan, identName(rhs))
+      int ord = natNativeSlotIndex(plan, identName(rhs))
       if (ord < 0) {
         return natNativeRefuse("undeclared local `" + identName(rhs) + "` in a field " +
         "assignment", line)
@@ -5737,11 +5737,11 @@ func natNativeScanAssign(tbl, stmts, plan, line, lhs, rhs) {
 // Returns [newState, newSidx]: a string assignment consumes one rodata entry, so the
 // caller-owned cursor must travel back out, exactly as natRecordStoreLiteral does.
 func natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx, lhs, rhs) {
-  let recName = identName(dotLeft(lhs))
-  let fname = memberField(lhs)
-  let tname = natRecordTypeOfLocal(stmts, recName)
-  let off = natStructFieldOff(tbl, tname, fname)
-  let fk = natStructFieldKind(tbl, tname, fname)
+  string recName = identName(dotLeft(lhs))
+  int fname = memberField(lhs)
+  int tname = natRecordTypeOfLocal(stmts, recName)
+  int off = natStructFieldOff(tbl, tname, fname)
+  int fk = natStructFieldKind(tbl, tname, fname)
   s = natRecordBase(s, stmts, plan, recName, natRegRBX())
   if (fk == natKindString()) {
     s = natRodataRefOff(s, natRegRAX(), roffs[sidx])
@@ -5751,7 +5751,7 @@ func natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx, lhs, rhs) {
     return [s, sidx + 1]
   }
   if (nodeType(rhs) == NODE_IDENT()) {
-    let ord = natNativeSlotIndex(plan, identName(rhs))
+    int ord = natNativeSlotIndex(plan, identName(rhs))
     s = natLoadStack(s, natRegRAX(), natNativeSlotOff(plan, ord))
     s = natStoreBaseOff(s, natRegRAX(), natRegRBX(), off)
     return [s, sidx]
@@ -5762,15 +5762,15 @@ func natNativeLowerAssign(s, stmts, plan, tbl, roffs, sidx, lhs, rhs) {
 }
 
 func natNativeScanValue(expr, stmts, plan, line, tbl, allowStr, fns) {
-    let t = nodeType(expr)
+    string t = nodeType(expr)
     if (t == NODE_INT_LIT()) { return "" }
     if (t == NODE_STRING_LIT()) { return "" }
     if (t == NODE_IDENT()) {
-        let ord = natNativeSlotIndex(plan, identName(expr))
+        int ord = natNativeSlotIndex(plan, identName(expr))
         if (ord < 0) {
             return natNativeRefuse("undeclared local `" + identName(expr) + "`", line)
         }
-        let k = natNativeSlotKind(plan, ord)
+        int k = natNativeSlotKind(plan, ord)
         // A STRING is printable as itself: its value is already the (ptr, len) pair
         // print_str wants. An ARRAY is not printable as itself.
         if (k == natKindInt() || k == natKindString()) { return "" }
@@ -5843,10 +5843,10 @@ func natNativeScanReturn(expr, stmts, plan, line, tbl, fns) {
         return natNativeRefuse("`return` of a string is not supported; a return value " +
             "becomes the process exit status and must be an int", line)
     }
-    let bad = natNativeScanValue(expr, stmts, plan, line, tbl, 0, fns)
+    int bad = natNativeScanValue(expr, stmts, plan, line, tbl, 0, fns)
     if (bad != "") { return bad }
 if (nodeType(expr) == NODE_IDENT()) {
-  let k = natNativeSlotKind(plan, natNativeSlotIndex(plan, identName(expr)))
+  int k = natNativeSlotKind(plan, natNativeSlotIndex(plan, identName(expr)))
   if (k != natKindInt()) {
   return natNativeRefuse("`return` of a " + natKindName(k) + " is not " +
   "supported; a return value becomes the process exit status and must be " +
@@ -5894,12 +5894,12 @@ if (nodeType(expr) == NODE_IDENT()) {
 // does. Anything else falls through to the CALL arm, which is the only other integer
 // producer in this slice.
 func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
-    let t = nodeType(e)
+    string t = nodeType(e)
     if (t == NODE_INT_LIT()) {
         return natMovRegImm64(s, natRegRAX(), int(intLitVal(e)))
     }
     if (t == NODE_IDENT()) {
-        let ord = natNativeSlotIndex(plan, identName(e))
+        int ord = natNativeSlotIndex(plan, identName(e))
         // NAT-REG: an allocated local lives in a callee-saved register; the
         // frame slot is the fallback for everything else.
         return natNativeLoadLocal(s, plan, ord, natRegRAX())
@@ -5913,7 +5913,7 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
         // The index is evaluated BEFORE the base is loaded, which matters: the
         // index expression may itself read a local, and the base and the
         // length are loaded into RBX and RAX afterwards.
-        let ord = natNativeSlotIndex(plan, identName(indexLeft(e)))
+        int ord = natNativeSlotIndex(plan, identName(indexLeft(e)))
         s = natEmitIntExpr(s, indexExpr(e), plan, fns, binTemp, extrasBase, frame, depth + 1, rctx)
         s = natMovRegReg(s, natRegRCX(), natRegRAX())
         return natArrayIndex(s, natNativeSlotOff(plan, ord), rctx[0], rctx[1], rctx[2], indexLine(e))
@@ -5928,7 +5928,7 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
         s = natEmitIntExpr(s, binaryRight(e), plan, fns, binTemp, extrasBase, frame, depth + 1, rctx)
         s = natMovRegReg(s, natRegRCX(), natRegRAX())
         s = natLoadStack(s, natRegRAX(), binTemp + depth * 8)
-        let op = binaryOp(e)
+        int op = binaryOp(e)
         if (op == "+") { return natAddRegReg(s, natRegRAX(), natRegRCX()) }
         if (op == "-") { return natSubRegReg(s, natRegRAX(), natRegRCX()) }
         return natMulRegReg(s, natRegRAX(), natRegRCX())
@@ -5957,7 +5957,7 @@ func natEmitIntExpr(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
 // The jump opcode per operator is natNativeCondOp's mapping, and it is the
 // oracle's: the condition FALLS THROUGH when the comparison holds.
 func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, rctx) {
-    let op = natNativeCondOp(binaryOp(cond))
+    int op = natNativeCondOp(binaryOp(cond))
     s = natEmitIntExpr(s, binaryLeft(cond), plan, fns, binTemp, extrasBase, frame, 1, rctx)
     s = natStoreStack(s, natRegRAX(), binTemp)
     s = natEmitIntExpr(s, binaryRight(cond), plan, fns, binTemp, extrasBase, frame, 1, rctx)
@@ -6001,11 +6001,11 @@ func natEmitIntCond(s, cond, plan, fns, binTemp, extrasBase, frame, falseLabel, 
 // already differs from the oracle's bytes (its whole entry and stdout path do), so
 // correctness there costs nothing that parity was measuring.
 func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
-    let fname = callFunc(e)
-    let args = callArgs(e)
-    let isWin = 0
+    string fname = callFunc(e)
+    int args = callArgs(e)
+    int isWin = 0
     if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
-    let i = 0
+    int i = 0
     while (i < len(args)) {
         s = natEmitIntExpr(s, args[i], plan, fns, binTemp, extrasBase, frame, depth, rctx)
         if (i < 6) {
@@ -6015,7 +6015,7 @@ func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
         }
         i = i + 1
     }
-    let k = 0
+    int k = 0
     while (k < len(args)) {
         if (k < 6) {
             s = natLoadStack(s, natArgReg(k), natArgTemp(k, frame))
@@ -6032,7 +6032,7 @@ func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
     // reads a slot (natCallPrintInt reads natStTargetOS) fails with an array-index
     // error far from here. Step 8d's corpus always destructured the pair; this is the
     // production copy and it has to as well.
-    let rr = natRel32(s, natNativeFuncLabel(fname))
+    Value rr = natRel32(s, natNativeFuncLabel(fname))
     s = rr[0]
     if (isWin == 1) { s = natAddRegImm32(s, natRegRSP(), 8) }
     return s
@@ -6046,18 +6046,18 @@ func natEmitIntCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx) {
 // destroys it. The oracle's own emitFunc says the same thing (program.go:4832-4836)
 // and homes parameters at the top of the prologue for exactly that reason.
 func natNativeHomeParams(s, params, plan) {
-    let unit = 0
-    let i = 0
+    int unit = 0
+    int i = 0
     while (i < len(params)) {
-        let ord = natNativeSlotIndex(plan, params[i])
-        let units = natKindUnits(natNativeSlotKind(plan, ord))
-        let k = 0
+        int ord = natNativeSlotIndex(plan, params[i])
+        int units = natKindUnits(natNativeSlotKind(plan, ord))
+        int k = 0
         while (k < units) {
             if (unit < 6) {
                 // NAT-REG: an allocated parameter is homed straight into its
                 // register. Only an INT parameter is ever allocated, so it is
                 // one unit and the "+ k * 8" offset does not apply.
-                let preg = natNativeSlotReg(plan, ord)
+                int preg = natNativeSlotReg(plan, ord)
                 if (preg >= 0) {
                     s = natMovRegReg(s, preg, natArgReg(unit))
                 } else {
@@ -6094,10 +6094,10 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
     // number is decided, and a function's binTemp must be ITS binTemp -- a callee
     // with a different locals region has a different scratch offset, and reusing
     // main's would stage operands over the callee's own locals.
-    let binTemp = lay[1]
-    let strTemp = lay[2]
-    let extrasBase = lay[4]
-    let frame = lay[6]
+    Value binTemp = lay[1]
+    int strTemp = lay[2]
+    Value extrasBase = lay[4]
+    Value frame = lay[6]
     // NAT-IDX: the runtime-error REPORTER's context, bundled so it can travel
     // through the shared expression walker as ONE argument.
     //
@@ -6109,7 +6109,7 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
     // It is an explicit parameter and not global state: two functions in one
     // image have different basenames, and a global would have to be saved and
     // restored around every call.
-    let rctx = [rtKindSlot, srcOff, srcLen]
+    Value rctx = [rtKindSlot, srcOff, srcLen]
     // sidx walks the LITERALS' offset list in lockstep with the literals the
     // program binds. Lockstep is what makes a literal's recorded offset agree
     // with the list the linker interns; recomputing an offset from the
@@ -6121,13 +6121,13 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
     // 2, which tied the cursor's start to how many non-literal entries came
     // before the literals -- so the interning order and the cursor were the
     // same fact, and moving the reporter's strings moved the cursor too.
-    let sidx = 0
+    int sidx = 0
     // Concat-site counter; used only to make the byte-copy labels unique.
-    let site = 0
-    let i = 0
+    int site = 0
+    int i = 0
     while (i < len(stmts)) {
-        let n = stmts[i]
-        let k = nodeType(n)
+        Value n = stmts[i]
+        string k = nodeType(n)
         if (natNativeIsDecl(n)) {
             // The slot index is resolved by NAME against the plan rather than carried
             // as a running counter, because a function's first bindings are its
@@ -6135,8 +6135,8 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
             // would make `func add(a, b)` put its first `let` in the slot a parameter
             // already owns. natNativeSlotIndex searches the plan, whose first slots are
             // the parameters, so both kinds of binding resolve through one lookup.
-            let idx = natNativeSlotIndex(plan, natNativeDeclName(n))
-            let v = natNativeDeclValue(n)
+            int idx = natNativeSlotIndex(plan, natNativeDeclName(n))
+            int v = natNativeDeclValue(n)
             if (nodeType(v) == NODE_ARRAY_LIT()) {
                 s = natArrayValue(s, natNativeSlotOff(plan, idx), arrayLitElems(v))
             } else {
@@ -6144,19 +6144,19 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
       // Step 9h-1: the field area sits at slotOff+8; natRecordArea LEA's it and stores
       // that ADDRESS into the record's value slot.
       s = natRecordArea(s, natNativeSlotOff(plan, idx))
-      let rtype = structLitName(v)
-      let rfields = structLitFields(v)
-      let f = 0
+      int rtype = structLitName(v)
+      int rfields = structLitFields(v)
+      int f = 0
       while (f < len(rfields)) {
-        let fd = rfields[f]
-        let fname = identName(binaryLeft(fd))
-        let foff = natStructFieldOff(tbl, rtype, fname)
-        let fk = natStructFieldKind(tbl, rtype, fname)
-        let fv = binaryRight(fd)
+        Value fd = rfields[f]
+        string fname = identName(binaryLeft(fd))
+        int foff = natStructFieldOff(tbl, rtype, fname)
+        int fk = natStructFieldKind(tbl, rtype, fname)
+        int fv = binaryRight(fd)
         // Reload the base from the record's frame slot immediately before each store,
         // so no field expression is evaluated between the reload and the store.
         s = natLoadStack(s, natRegRBX(), natNativeSlotOff(plan, idx))
-        let rr = natRecordStoreLiteral(s, fv, foff, fk, roffs, sidx)
+        int rr = natRecordStoreLiteral(s, fv, foff, fk, roffs, sidx)
         s = rr[0]
         sidx = rr[1]
         f = f + 1
@@ -6176,11 +6176,11 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                 if (nodeType(v) == NODE_CALL() && callFunc(v) == "push") {
                     // push: alloc a new array, copy old elements, append v.
                     // Ported from pkg/native/program.go emitPush.
-                    let args = callArgs(v)
-                    let srcName = identName(args[0])
-                    let srcOrd = natNativeSlotIndex(plan, srcName)
-                    let srcOff = natNativeSlotOff(plan, srcOrd)
-                    let stage = strTemp
+                    int args = callArgs(v)
+                    string srcName = identName(args[0])
+                    int srcOrd = natNativeSlotIndex(plan, srcName)
+                    int srcOff = natNativeSlotOff(plan, srcOrd)
+                    int stage = strTemp
                     // value
                     s = natEmitIntExpr(s, args[1], plan, fns, binTemp, extrasBase, frame, 0, rctx)
                     s = natStoreStack(s, natRegRAX(), stage)
@@ -6199,8 +6199,8 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
                     s = natLoadStack(s, natRegR8(), stage + 8)
                     s = natLoadStack(s, natRegR9(), stage + 16)
                     s = natLoadStack(s, natRegR10(), stage + 24)
-                    let loopLbl = "push$cp" + str(i)
-                    let doneLbl = "push$done" + str(i)
+                    string loopLbl = "push$cp" + str(i)
+                    string doneLbl = "push$done" + str(i)
                     s = natXorRegReg(s, natRegRDX())
                     s = natMark(s, loopLbl)
                     s = natCmpRegReg(s, natRegRDX(), natRegR9())
@@ -6228,7 +6228,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
 }
 }
         if (k == NODE_PRINT()) {
-            let pv = printVal(n)
+            int pv = printVal(n)
             // The argument is loaded BEFORE the alignment adjustment, and that
             // ordering is load-bearing rather than cosmetic.
             //
@@ -6268,7 +6268,7 @@ if (nodeType(v) == NODE_STRUCT_LIT()) {
             // `print(a + b)` into natStrConcat, whose operands are resolved as string
             // slots. Unary `-` is included for the same reason: the scan accepts it, so
             // the lowering must reach it.
-            let isIntExpr = 0
+            int isIntExpr = 0
             if (nodeType(pv) == NODE_BINARY()) {
                 if (natNativeIsStrBinary(pv, stmts, plan) == 0) { isIntExpr = 1 }
             }
@@ -6310,8 +6310,8 @@ stmts, plan, roffs, tbl)
                         s = natCallPrintInt(s)
 } else {
 if (nodeType(pv) == NODE_DOT()) {
-let drec = identName(dotLeft(pv))
-let dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(fnStmts, drec), memberField(pv))
+string drec = identName(dotLeft(pv))
+int dkn = natStructFieldKind(tbl, natRecordTypeOfLocal(fnStmts, drec), memberField(pv))
 if (dkn == natKindString()) {
 s = natEmitStrValue(s, pv, stmts, plan, roffs, tbl)
 s = natCallPrintStr(s)
@@ -6325,7 +6325,7 @@ if (nodeType(pv) == NODE_CALL()) {
 // `len` lowers in place; a call to a USER function goes through the
 // call ABI. They share the print_int tail and nothing else.
 if (callFunc(pv) == "len") {
-let ordl = natNativeSlotIndex(plan,
+int ordl = natNativeSlotIndex(plan,
 identName(callArgs(pv)[0]))
                             s = natArrayLen(s, natNativeSlotOff(plan, ordl))
                         } else {
@@ -6334,7 +6334,7 @@ identName(callArgs(pv)[0]))
                             s = natMovRegReg(s, natRegRDI(), natRegRAX())
                             s = natCallPrintInt(s)
                         } else {
-                            let ordp = natNativeSlotIndex(plan, identName(pv))
+                            int ordp = natNativeSlotIndex(plan, identName(pv))
                             if (natNativeSlotKind(plan, ordp) == natKindString()) {
                                 s = natLoadStack(s, natRegRDI(),
                                     natNativeSlotOff(plan, ordp))
@@ -6362,14 +6362,14 @@ identName(callArgs(pv)[0]))
         }
         }
         if (k == NODE_EXPR_STMT()) {
-        let ae = exprStmtExpr(n)
+        int ae = exprStmtExpr(n)
         if (natNativeIsAssignExpr(ae)) {
         if (nodeType(binaryLeft(ae)) == NODE_IDENT()) {
         // NAT-LOOP: a plain-local assignment -- `i = i + 1`. The
         // record-field form is the other arm.
         s = natEmitAssignLocal(s, plan, binaryLeft(ae), binaryRight(ae), fns, binTemp, extrasBase, frame, rctx)
         } else {
-        let rr = natNativeLowerAssign(s, fnStmts, plan, tbl, roffs, sidx,
+        int rr = natNativeLowerAssign(s, fnStmts, plan, tbl, roffs, sidx,
         binaryLeft(ae), binaryRight(ae))
         s = rr[0]
         sidx = rr[1]
@@ -6383,7 +6383,7 @@ identName(callArgs(pv)[0]))
         }
         } else {
         if (k == NODE_RETURN()) {
-            let rv = retVal(n)
+            int rv = retVal(n)
             // The dispatch is by NODE TYPE only where the type alone is decisive.
             // `a[i]` and `len(a)` are their own lowerings; everything else that is
             // an INT belongs to the shared integer expression walker. That walker's
@@ -6395,13 +6395,13 @@ identName(callArgs(pv)[0]))
                 // shared integer expression walker.
                 s = natEmitIntExpr(s, rv, plan, fns, binTemp, extrasBase, frame, 0, rctx)
             } else {
-                let handledLen = 0
+                int handledLen = 0
                 if (nodeType(rv) == NODE_CALL()) {
                     // `len` is a driver builtin rather than a user function, so it is
                     // NOT routed through natEmitIntCall: that function lowers the call
                     // ABI, and `len` has no callee to call.
                     if (callFunc(rv) == "len") {
-                        let ordl = natNativeSlotIndex(plan, identName(callArgs(rv)[0]))
+                        int ordl = natNativeSlotIndex(plan, identName(callArgs(rv)[0]))
                         s = natArrayLen(s, natNativeSlotOff(plan, ordl))
                         handledLen = 1
                     }
@@ -6451,9 +6451,9 @@ identName(callArgs(pv)[0]))
         // position in the enclosing list, so a nested `if` cannot collide with
         // its parent. (The push() labels have the same hazard and are safe only
         // because a push is a `let`, which a branch cannot contain.)
-        let sp = listPath + "." + str(i)
-        let elseLabel = "nat$ifelse$" + tag + "$" + sp
-        let endLabel = "nat$ifend$" + tag + "$" + sp
+        string sp = listPath + "." + str(i)
+        string elseLabel = "nat$ifelse$" + tag + "$" + sp
+        string endLabel = "nat$ifend$" + tag + "$" + sp
         s = natEmitIntCond(s, ifCond(n), plan, fns, binTemp, extrasBase, frame, elseLabel, rctx)
         s = natNativeLower(s, ifCons(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
         s = natJmp(s, endLabel)
@@ -6477,9 +6477,9 @@ identName(callArgs(pv)[0]))
         // the condition. That is the oracle's choice (program.go:5238) and it
         // is why a `continue` in a C-style `for` behaves differently -- there
         // the continue target is the POST label.
-        let sp = listPath + "." + str(i)
-        let loopLabel = "nat$while$" + tag + "$" + sp
-        let endLabel = "nat$whileend$" + tag + "$" + sp
+        string sp = listPath + "." + str(i)
+        string loopLabel = "nat$while$" + tag + "$" + sp
+        string endLabel = "nat$whileend$" + tag + "$" + sp
         s = natMark(s, loopLabel)
         s = natLoopPush(s, endLabel, loopLabel)
         s = natEmitIntCond(s, whileCond(n), plan, fns, binTemp, extrasBase, frame, endLabel, rctx)
@@ -6510,13 +6510,13 @@ identName(callArgs(pv)[0]))
         //    asymmetry with `while`, and it is the oracle's (program.go:5266).
         //  * The CONTINUE target of a `for` is the post label, NOT the head, so
         //    a `continue` skips the body but not the update.
-        let sp = listPath + "." + str(i)
-        let loopLabel = "nat$for$" + tag + "$" + sp
-        let postLabel = "nat$forpost$" + tag + "$" + sp
-        let endLabel = "nat$forend$" + tag + "$" + sp
+        string sp = listPath + "." + str(i)
+        string loopLabel = "nat$for$" + tag + "$" + sp
+        string postLabel = "nat$forpost$" + tag + "$" + sp
+        string endLabel = "nat$forend$" + tag + "$" + sp
         if (len(forInit(n)) > 0) {
         if (natNativeIsDecl(forInit(n))) {
-        let idx = natNativeSlotIndex(plan, natNativeDeclName(forInit(n)))
+        int idx = natNativeSlotIndex(plan, natNativeDeclName(forInit(n)))
         s = natEmitIntExpr(s, natNativeDeclValue(forInit(n)), plan, fns, binTemp, extrasBase, frame, 0, rctx)
         s = natNativeStoreLocal(s, plan, idx, natRegRAX())
         } else {
@@ -6581,7 +6581,7 @@ identName(callArgs(pv)[0]))
 // to the slot. The right-hand side is evaluated at depth 0, which is what
 // makes the operands stage in the same scratch slots the oracle's do.
 func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame, rctx) {
-    let ord = natNativeSlotIndex(plan, identName(lhs))
+    int ord = natNativeSlotIndex(plan, identName(lhs))
     s = natEmitIntExpr(s, rhs, plan, fns, binTemp, extrasBase, frame, 0, rctx)
     // NAT-REG: an allocated local is reassigned in its register; everything
     // else is stored to the frame slot, which is the pre-existing path.
@@ -6622,16 +6622,16 @@ func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, 
     // b.usesStrField` is a set of program-wide flags (program.go:4454) and its
     // layout reserves the area in every function, so a per-function flag made
     // every callee's frame short by natStrTempBytes().
-    let usesStr = usesStrProg
+    int usesStr = usesStrProg
     // NAT-FRAME: the map-stage slot is reserved when the PROGRAM uses a map,
     // not when this function does. The oracle's `b.usesMap` is program-wide
     // and its layout reserves the slot in every function, so a per-function
     // flag would make a callee's frame 8 bytes short whenever main indexed
     // something.
-    let lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, usesMapProg, natNativeMaxExtras(body), isWin)
-    let frame = lay[6]
-    let label = natNativeFuncLabel(name)
-    let retLabel = label + "$ret"
+    int[] lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, usesMapProg, natNativeMaxExtras(body), isWin)
+    Value frame = lay[6]
+    int label = natNativeFuncLabel(name)
+    int retLabel = label + "$ret"
     s = natMark(s, label)
     // NAT-REG: save the claimed callee-saved registers BEFORE the frame is
     // taken, so the frame's rsp-relative displacements stay unchanged, and
@@ -6702,30 +6702,30 @@ func natNativeProgram(ast, useRegAlloc) {
 // produce a PE under a Linux target NAME. That is a miscompile, so the container
 // choice is made once, here, by the same targetOS that chose the stub.
 func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
-    let stmts = ast[1]
-    let mainFn = natNativeFindMain(stmts)
+    Value stmts = ast[1]
+    int mainFn = natNativeFindMain(stmts)
     if (mainFn == 0) {
         return [natNativeRefuseNoLine("no `func main`; the native entry stub calls " +
             "karkain_main, so a `main` is required"), []]
     }
-    let body = natNativeBodyStmts(mainFn)
+    int body = natNativeBodyStmts(mainFn)
   // Step 9h-1: record declarations live at PROGRAM top level, not in main's body, so
   // the layout table is built ONCE from the top-level statements and threaded into
   // the planner, the scanner and the lowering. Building it from the body found no
   // declarations at all and refused every record as an unknown type.
-  let tbl = natStructTable(stmts)
+  int tbl = natStructTable(stmts)
     // NAT-CALL: the program is no longer one function. `fns` is every top-level
     // function declaration in SOURCE ORDER, which is the order the oracle emits them
     // in and therefore the order their labels must be assigned in -- `fresh()`
     // numbering is global, so emitting a helper for one function before another moves
     // every subsequent label displacement and breaks byte-identity.
-    let fns = natNativeFuncs(stmts)
-    let mainIdx = natNativeFuncIndex(fns, "main")
+    int fns = natNativeFuncs(stmts)
+    int mainIdx = natNativeFuncIndex(fns, "main")
     if (mainIdx < 0) {
         return [natNativeRefuseNoLine("no `func main`; the native entry stub calls " +
             "karkain_main, so a `main` is required"), []]
     }
-    let mainParams = natNativeFuncParamsAt(fns, mainIdx)
+    int mainParams = natNativeFuncParamsAt(fns, mainIdx)
     // A parameterised main has no caller to pass arguments, so the entry stub would
     // hand it whatever the kernel left in the argument registers. Refused by name
     // rather than mis-homed.
@@ -6733,10 +6733,10 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         return [natNativeRefuseNoLine("`main` must take no parameters on the native " +
             "target: the entry stub calls it with none"), []]
     }
-    let scan = natNativeScanFor(mainParams, body, tbl, fns, 1, useRegAlloc)
+    int scan = natNativeScanFor(mainParams, body, tbl, fns, 1, useRegAlloc)
     if (scan[0] != "") { return [scan[0], []] }
-    let plan = scan[1]
-    let mainHasReturn = scan[2]
+    int plan = scan[1]
+    Value mainHasReturn = scan[2]
 
     // The frame is DERIVED from the program's own bindings through the value model's
     // own layout pass, so a program with two locals gets a different frame from one
@@ -6764,7 +6764,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // Linux and macOS identically -- neither pads the frame, and both reach the
     // kernel through a raw syscall whose NUMBER comes from the emitter state
     // (slot 15), not from here.
-    let isWin = 0
+    int isWin = 0
     if (targetOS == natOSWindows()) { isWin = 1 }
 
     // Phase D5: the runtime-error reporter and its rodata.
@@ -6806,12 +6806,12 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // is the D5 baseline's stated rule (PHASE-D5-BASELINE.md section 8.3) and
     // the only thing that can be correct when a duplicate is interned: a LIST
     // POSITION is not an OFFSET.
-    let usesRtErr = 0
+    int usesRtErr = 0
     if (natNativeUsesRuntimeError(body) == 1) { usesRtErr = 1 }
-    let lits = natNativeStrLiterals(body)
-    let strs = ["-", "\n"]
+    int lits = natNativeStrLiterals(body)
+    Value strs = ["-", "\n"]
     // litBase is the list position of the first literal.
-    let litBase = 2
+    int litBase = 2
     if (usesRtErr == 1) {
         strs = appendArray(strs, "runtime error: ")
         strs = appendArray(strs, " at ")
@@ -6819,17 +6819,17 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         strs = appendArray(strs, "\n")
         litBase = 6
     }
-    let li = 0
+    int li = 0
     while (li < len(lits)) {
         strs = appendArray(strs, lits[li])
         li = li + 1
     }
     // callBase is the list position of the call site's first string.
-    let callBase = litBase + len(lits)
-    let rtKindSlot = 0
-    let srcOff = 0
-    let srcLen = 0
-    let rtErr = []
+    int callBase = litBase + len(lits)
+    int rtKindSlot = 0
+    int srcOff = 0
+    int srcLen = 0
+    Value rtErr = []
     if (usesRtErr == 1) {
         strs = appendArray(strs, "array index out of range")
         // The source basename goes through the SAME interning list rather than
@@ -6838,7 +6838,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         strs = appendArray(strs, sourceBase)
         srcLen = len(sourceBase)
     }
-    let ro = natRodataSection(strs)
+    int ro = natRodataSection(strs)
     // The reporter's OWN four strings, read back OUT of the section's offset
     // array rather than assumed -- the D5 baseline's section 8.3 risk. rtErr[k]
     // is the offset of the k-th reporter string in the interned section.
@@ -6853,7 +6853,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // addresses in the image therefore differed from the oracle's by 16 and 39
     // bytes, and the NAT-FRAME record read that as an ORDER difference.
     if (usesRtErr == 1) {
-        let rk = 0
+        int rk = 0
         while (rk < 4) {
             rtErr = appendArray(rtErr, ro[1][2 + rk])
             rk = rk + 1
@@ -6872,8 +6872,8 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // offset. Handing the emitter exactly that decouples them, so the interning
     // order can follow the oracle's without the lowering knowing anything
     // about it.
-    let roffs = []
-    let ok = 0
+    Value roffs = []
+    int ok = 0
     while (ok < len(lits)) {
         roffs = appendArray(roffs, ro[1][litBase + ok])
         ok = ok + 1
@@ -6908,21 +6908,21 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // them first for the same reason. rel32 fixups resolve against label offsets
     // in natFinish, so order is free at emission time and costs nothing: only the
     // final byte layout is affected.
-    let s = natNewEmitter(0)
+    Value s = natNewEmitter(0)
     s = natSetTargetOS(s, targetOS)
     // NAT-FRAME: the map-stage flag is a property of the WHOLE PROGRAM, as it
     // is in the oracle (`b.usesMap` comes from scanMapUsage over the program,
     // program.go:1571), and the oracle's per-function layout reserves the slot
     // in EVERY function when it is set. Computing it here, once, and threading
     // it into every function's layout is what reproduces that.
-    let usesMapProg = natNativeProgramUsesMap(body, fns)
+    int usesMapProg = natNativeProgramUsesMap(body, fns)
     // NAT-STR-STAGE: the string flag is a program-wide property for the same
     // reason the map flag is. The oracle's five string flags (program.go:4454)
     // are all properties of the WHOLE program, and its layout reserves the
     // staging area in every function when any of them is set. So the flag is
     // computed once, over every function, and threaded into every function's
     // layout -- exactly as the map flag is.
-    let usesStrProg = natNativeProgramUsesStr(fns, tbl)
+    int usesStrProg = natNativeProgramUsesStr(fns, tbl)
     // helpers first: print_int, then print_str when the program can produce a
     // string, then the arena allocator when it allocates.
     s = natPrintIntBody(s, isWin, 0, 1)
@@ -6937,12 +6937,12 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // print_str. So the gate was optimizing against an invented baseline rather
     // than the one parity is measured against.
     s = natPrintStrBody(s, isWin, 1)
-    let arenaLen = natNativeArenaBytes(body, plan)
+    int arenaLen = natNativeArenaBytes(body, plan)
     if (arenaLen > 0) {
         s = natAllocHelper(s, arenaLen)
     }
     // The map runtime, on the oracle's syntactic predicate rather than on the
-    // program's actual needs -- see natMapFind's header and the D5 baseline §3.1.
+    // program's actual needs -- see natMapFind's header and the D5 baseline Ã‚Â§3.1.
     // Order matters: emitHelpers runs print_int, print_str, [print_float],
     // [alloc], map, runtime_error (program.go:2497-2520), and the map helpers
     // call alloc, so they must come after it.
@@ -6980,20 +6980,20 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // MAIN IS NOT SPECIAL-CASED ANY MORE: it is emitted by the same call, which is
     // what keeps its shape -- and therefore its bytes -- identical to the oracle's
     // emitFunc rather than a second implementation that happens to agree.
-    let fi = 0
+    int fi = 0
     while (fi < natNativeFuncCount(fns)) {
-        let fname = natNativeFuncNameAt(fns, fi)
-        let fparams = natNativeFuncParamsAt(fns, fi)
-        let fbody = natNativeFuncBodyAt(fns, fi)
-        let fplan = plan
+        int fname = natNativeFuncNameAt(fns, fi)
+        int fparams = natNativeFuncParamsAt(fns, fi)
+        int fbody = natNativeFuncBodyAt(fns, fi)
+        int fplan = plan
         let fhasReturn = mainHasReturn
-        let fisMain = 0
+        int fisMain = 0
         if (fname == "main") { fisMain = 1 }
         if (fisMain == 0) {
             // A callee's own plan and return flag. A refusal here aborts the WHOLE
             // program: a half-emitted image is not a build with a warning, it is an
             // image whose missing function is a link-time surprise.
-            let fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0, useRegAlloc)
+            int fscan = natNativeScanFor(fparams, fbody, tbl, fns, 0, useRegAlloc)
             if (fscan[0] != "") { return [fscan[0], []] }
             fplan = fscan[1]
             fhasReturn = fscan[2]
@@ -7013,23 +7013,23 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // after it is marked. It must be read AFTER the entry sequence is emitted,
     // because that is what fixes the label's offset -- reading it before would
     // capture a placeholder.
-    let entryOff = natLabelOff(s, "_start")
-    let text = natFinish(s)
+    Value entryOff = natLabelOff(s, "_start")
+    Value text = natFinish(s)
 
     // The rodata patch list is what makes the linker resolve the immediates AND
     // give each one a DIR64 entry. Passing an empty list is the Step 9b defect
     // this slice inherits: the immediates keep the preferred base on a rebasing
     // host and the print silently loses its newline.
-    let rp = natFlatPairs(natStRodataPos(s), natStRodataOff(s))
-    let ap = natFlatPairs(natStAbsPos(s), natStAbsIdx(s))
-    let ip = natFlatPairs(natStIatPos(s), natStIatIdx(s))
+    int rp = natFlatPairs(natStRodataPos(s), natStRodataOff(s))
+    int ap = natFlatPairs(natStAbsPos(s), natStAbsIdx(s))
+    int ip = natFlatPairs(natStIatPos(s), natStIatIdx(s))
     // The arena rides inside .idata via the 151C3 plumbing: it is the heap argument
     // and absolute arena pointers are flat [pos, off] hpatches pairs -- the SAME
     // mechanism, not a second one. Both stay EMPTY for a program that does not
     // allocate, which is what keeps every string-free image byte-identical.
-    let heap = []
+    Value heap = []
     if (arenaLen > 0) { heap = natNativeArenaBytes0(arenaLen) }
-    let hp = natFlatPairs(natStHeapPos(s), natStHeapOff(s))
+    int hp = natFlatPairs(natStHeapPos(s), natStHeapOff(s))
 
     if (targetOS == natOSWindows()) {
         // The PE entry follows the same rule as ELF and Mach-O: it is the
@@ -7070,20 +7070,20 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
 // for the reason its comment gives: a hand-kept inventory of "the places we bake
 // an address" is a second source of truth that can silently miss one.
 func natNativeLinkMac(s, text, rodata, heap, rp, hp, entryOff) {
-    let hasData = false
+    bool hasData = false
     if (len(heap) > 0) { hasData = true }
-    let textOff = natMachoTextOffset(hasData)
-    let base = natMachoBase()
+    string textOff = natMachoTextOffset(hasData)
+    string base = natMachoBase()
     // Same base arithmetic as ELF, read from the oracle: rodata follows .text,
     // and the arena's absolute address is machoAddr(MachoDataOffset(bodyEnd)),
     // i.e. MachoBase + the page-aligned offset -- the +natMachoBase() is what
     // makes it an ADDRESS rather than a file offset, and dropping it would bake
     // an offset where dyld expects an address.
     natResolveRodata(s, base, textOff + len(text))
-    let bodyEnd = textOff + len(text) + len(rodata)
+    string bodyEnd = textOff + len(text) + len(rodata)
     natResolveArena(s, base + natMachoDataOffset(bodyEnd))
     // The rebase sites are the union of both patch lists' positions.
-    let sites = natFlatPositions(rp, hp)
+    int sites = natFlatPositions(rp, hp)
     // The entry is `_start`'s real offset within .text, not textOff, for the
     // same reason the ELF arm uses entryOff: the entry sequence is emitted
     // LAST, matching the oracle's order.
@@ -7097,8 +7097,8 @@ func natNativeLinkMac(s, text, rodata, heap, rp, hp, entryOff) {
 // own inventory, so a site cannot be added to the patch lists and forgotten
 // here. The rebase stream addresses every one of these by dyld.
 func natFlatPositions(rp, hp) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < len(rp)) {
         if (i % 2 == 0) { out = appendArray(out, rp[i]) }
         i = i + 1
@@ -7134,15 +7134,15 @@ func natFlatPositions(rp, hp) {
 // arena. That is the same rule natELFLink enforces, so the two are computed from
 // one expression rather than restated.
 func natNativeLinkLinux(s, text, rodata, heap, entryOff) {
-    let phnum = 1
+    int phnum = 1
     if (len(heap) > 0) { phnum = 2 }
-    let textOff = natEhSize() + natPhSize() * phnum
+    string textOff = natEhSize() + natPhSize() * phnum
     // The rodata sites are resolved first because natResolveRodata writes into
     // the emitter's own byte buffer in place; the heap sites then need the SAME
     // buffer, so both must run before natFinish copies it out.
     natResolveRodata(s, natBaseAddr(), textOff + len(text))
-    let bodyEnd = textOff + len(text) + len(rodata)
-    let heapBase = natBaseAddr() + natAlignUp(bodyEnd, natPage())
+    string bodyEnd = textOff + len(text) + len(rodata)
+    string heapBase = natBaseAddr() + natAlignUp(bodyEnd, natPage())
     natResolveArena(s, heapBase)
     // natELFLink returns a diagnostic STRING on its one failure condition -- a
     // textOffset it does not expect -- and a byte array otherwise. That refusal
@@ -7172,13 +7172,13 @@ func natNativeLinkLinux(s, text, rodata, heap, entryOff) {
 // and threading that difference through one routine would mean passing both slot
 // numbers into it -- which is how the two lists get crossed.
 func natResolveArena(s, base) {
-    let n = 0
-    let i = 0
+    int n = 0
+    int i = 0
     while (i < len(s[13])) {
-        let pos = s[13][i]
-        let off = s[14][i]
+        Value pos = s[13][i]
+        Value off = s[14][i]
         let av = base + off
-        let code = natStCode(s)
+        Value code = natStCode(s)
         code[pos] = av & 255
         code[pos + 1] = (av >> 8) & 255
         code[pos + 2] = (av >> 16) & 255
@@ -7218,8 +7218,8 @@ func natHeapRef(s, r, heapOff) {
     if (natRegExt(r) == 1) { rex = rex | natMask(16) }   // REX.B for r8-r15
     s = natByte(s, rex)
     s = natByte(s, natMask(11) + (r & natMask(72)))     // 0xB8 + (rd & 7)
-    let pos = natLen(s)
-    let i = 0
+    Value pos = natLen(s)
+    int i = 0
     while (i < 8) {
         s = natByte(s, 0)
         i = i + 1
@@ -7275,8 +7275,8 @@ func natAllocHelper(s, heapLimitOff) {
 // kcc has no fresh() counter, so two copies of one label would be Marked twice and
 // natFinish refuses a duplicate label.
 func natByteCopy(s, dst, src, n, tag) {
-    let loopLbl = "cp" + str(tag) + "$loop"
-    let doneLbl = "cp" + str(tag) + "$done"
+    string loopLbl = "cp" + str(tag) + "$loop"
+    string doneLbl = "cp" + str(tag) + "$done"
     s = natXorRegReg(s, natRegRDX())
     s = natMark(s, loopLbl)
     s = natCmpRegReg(s, natRegRDX(), n)
@@ -7299,7 +7299,7 @@ func natCallAlloc(s) {
         s = natSubRegImm32(s, natRegRSP(), 8)
     }
     s = natCall32(s)
-    let r = natRel32(s, "alloc")
+    Value r = natRel32(s, "alloc")
     s = r[0]
     if (natStTargetOS(s) == natOSWindows()) {
         s = natAddRegImm32(s, natRegRSP(), 8)
@@ -7317,8 +7317,8 @@ func natCallAlloc(s) {
 // interning order: the literals' positions depended on how many non-literal
 // entries came before them.
 func natRodataOffsetFor(val, stmts, roffs) {
-    let lits = natNativeStrLiterals(stmts)
-    let i = 0
+    int lits = natNativeStrLiterals(stmts)
+    int i = 0
     while (i < len(lits)) {
         if (lits[i] == val) { return roffs[i] }
         i = i + 1
@@ -7337,7 +7337,7 @@ func natEmitStrValue(s, expr, stmts, plan, roffs, tbl) {
             natRodataOffsetFor(stringLitVal(expr), stmts, roffs))
         return natMovRegImm32(s, natRegRSI(), len(stringLitVal(expr)))
     }
-let off = natNativeSlotOff(plan, natNativeSlotIndex(plan, identName(expr)))
+int off = natNativeSlotOff(plan, natNativeSlotIndex(plan, identName(expr)))
   s = natLoadStack(s, natRegRDI(), off)
   return natLoadStack(s, natRegRSI(), off + 8)
   }
@@ -7357,7 +7357,7 @@ let off = natNativeSlotOff(plan, natNativeSlotIndex(plan, identName(expr)))
 // offset in the SIB displacement -- which cannot hold it. That is why the copy loop
 // exists in this shape.
 func natStrConcat(s, left, right, depth, site, strTemp, stmts, plan, roffs, tbl) {
-    let base = strTemp + depth * 5 * 8
+    int base = strTemp + depth * 5 * 8
     s = natEmitStrValue(s, left, stmts, plan, roffs, tbl)
     s = natStoreStack(s, natRegRDI(), base)
     s = natStoreStack(s, natRegRSI(), base + 8)
@@ -7397,7 +7397,7 @@ func natNativeStrKind(e, stmts, plan) {
         return 0 - 2
     }
     if (nodeType(e) == NODE_IDENT()) {
-        let ord = natNativeSlotIndex(plan, identName(e))
+        int ord = natNativeSlotIndex(plan, identName(e))
         if (ord < 0) { return 0 - 2 }
         if (natNativeSlotKind(plan, ord) == natKindString()) { return 1 }
         return 0 - 1
@@ -7443,10 +7443,10 @@ func natNativeScanConcat(e, stmts, plan, line) {
 }
 
 func natNativeConcatSites(stmts, plan) {
-    let n = 0
-    let i = 0
+    int n = 0
+    int i = 0
     while (i < len(stmts)) {
-        let st = stmts[i]
+        Value st = stmts[i]
         if (nodeType(st) == NODE_PRINT()) { n = n + natNativeConcatIn(printVal(st), stmts, plan) }
         if (natNativeIsDecl(st)) { n = n + natNativeConcatIn(natNativeDeclValue(st), stmts, plan) }
         i = i + 1
@@ -7459,10 +7459,10 @@ func natNativeConcatSites(stmts, plan) {
 // because the driver refuses loops before reaching this scan, so the count is
 // a flat site count.
 func natNativePushCount(stmts) {
-    let n = 0
-    let i = 0
+    int n = 0
+    int i = 0
     while (i < len(stmts)) {
-        let st = stmts[i]
+        Value st = stmts[i]
         if (nodeType(st) == NODE_PRINT()) {
             n = n + natNativePushIn(printVal(st))
         }
@@ -7533,18 +7533,18 @@ func natNativeConcatIn(e, stmts, plan) {
 // floored arena 1024 bytes instead of 16 + 1024, so the header must be added
 // after the floor has already been applied to the data size.
 func natNativeArenaBytes(stmts, plan) {
-    let pushSites = natNativePushCount(stmts)
+    int pushSites = natNativePushCount(stmts)
     if (pushSites > 0) {
         // Arena bound for pushes: site i sees at most (largest literal length + i)
         // elements. Since the driver refuses loops, no site runs more than once.
         // Simplified: pushSites * (pushSites + 1) * 8, floored at 1024.
-        let pushBytes = pushSites * (pushSites + 1) * 8
+        int pushBytes = pushSites * (pushSites + 1) * 8
         if (pushBytes < natArenaMinSize()) { pushBytes = natArenaMinSize() }
         return pushBytes + natArenaHeaderLen()
     }
-    let sites = natNativeConcatSites(stmts, plan)
+    int sites = natNativeConcatSites(stmts, plan)
     if (sites == 0) { return 0 }
-    let dataBytes = sites * natNativeStrTotalBytes(stmts)
+    int dataBytes = sites * natNativeStrTotalBytes(stmts)
     if (dataBytes < natArenaMinSize()) { dataBytes = natArenaMinSize() }
     return dataBytes + natArenaHeaderLen()
 }
@@ -7558,9 +7558,9 @@ func natArenaHeaderLen() { return 16 }
 func natArenaMinSize() { return 1024 }
 
 func natNativeStrTotalBytes(stmts) {
-    let total = 0
-    let lits = natNativeStrLiterals(stmts)
-    let j = 0
+    int total = 0
+    int lits = natNativeStrLiterals(stmts)
+    int j = 0
     while (j < len(lits)) {
         total = total + len(lits[j])
         j = j + 1
@@ -7585,10 +7585,10 @@ func natNativeStrTotalBytes(stmts) {
 // threshold there is nothing to relieve, and in a straight-line body a
 // push/pop pair would cost more than the load it removes.
 func natNativeHasControlFlow(stmts) {
-    let found = 0
-    let i = 0
+    int found = 0
+    int i = 0
     while (i < len(stmts)) {
-        let k = nodeType(stmts[i])
+        string k = nodeType(stmts[i])
         if (k == NODE_IF() || k == NODE_WHILE() || k == NODE_FOR() || k == NODE_FOR_IN()) { found = 1 }
         i = i + 1
     }
@@ -7602,18 +7602,18 @@ func natNativeHasControlFlow(stmts) {
 // locals must be at least five (raMinLive = allocRegCount + 1).
 func natNativeRegAlloc(stmts, plan) {
     if (natNativeHasControlFlow(stmts) == 0) { return plan }
-    let n = natNativeSlotCount(plan)
+    int n = natNativeSlotCount(plan)
     if (n < 5) { return plan }
     // The live ranges: two entries per slot, the first and the last position
     // at which the slot is touched, or -1 when it never is.
-    let ranges = []
-    let i = 0
+    int[] ranges = []
+    int i = 0
     while (i < n) {
         ranges = appendArray(ranges, -1)
         ranges = appendArray(ranges, -1)
         i = i + 1
     }
-    let w = natNativeLiveWalk(stmts, plan, ranges, [], 0)
+    int w = natNativeLiveWalk(stmts, plan, ranges, [], 0)
     ranges = natNativeRegWiden(w[0], n, w[1])
     if (natNativeRegPeak(ranges, n) < 5) { return plan }
     return natNativeRegScan(plan, n, ranges)
@@ -7626,14 +7626,14 @@ func natNativeRegAlloc(stmts, plan) {
 // iteration. Widening is conservative in the safe direction -- it can only
 // cause an extra spill, never a wrong answer.
 func natNativeRegWiden(ranges, n, loops) {
-    let li = 0
+    int li = 0
     while (li < len(loops)) {
-        let s = loops[li]
-        let e = loops[li + 1]
-        let i = 0
+        Value s = loops[li]
+        Value e = loops[li + 1]
+        int i = 0
         while (i < n) {
-            let f = ranges[i * 2]
-            let l = ranges[i * 2 + 1]
+            Value f = ranges[i * 2]
+            Value l = ranges[i * 2 + 1]
             if (f >= 0 && f <= e && l >= s) {
                 if (s < f) { ranges[i * 2] = s }
                 if (e > l) { ranges[i * 2 + 1] = e }
@@ -7650,16 +7650,16 @@ func natNativeRegWiden(ranges, n, loops) {
 // The coverage only changes at a range's endpoints, so evaluating it at
 // every range's start is enough.
 func natNativeRegPeak(ranges, n) {
-    let peak = 0
-    let i = 0
+    int peak = 0
+    int i = 0
     while (i < n) {
-        let f = ranges[i * 2]
+        Value f = ranges[i * 2]
         if (f >= 0) {
-            let c = 0
-            let j = 0
+            int c = 0
+            int j = 0
             while (j < n) {
-                let f2 = ranges[j * 2]
-                let l2 = ranges[j * 2 + 1]
+                Value f2 = ranges[j * 2]
+                Value l2 = ranges[j * 2 + 1]
                 if (f2 >= 0 && f2 <= f && l2 >= f) { c = c + 1 }
                 j = j + 1
             }
@@ -7681,14 +7681,14 @@ func natNativeRegPeak(ranges, n) {
 // function of the program.
 func natNativeRegScan(plan, n, ranges) {
     // held[r] is the last position of the range holding register r, or -1.
-    let held = [-1, -1, -1, -1]
-    let i = 0
+    Value held = [-1, -1, -1, -1]
+    int i = 0
     while (i < n) {
-        let f = ranges[i * 2]
-        let l = ranges[i * 2 + 1]
+        Value f = ranges[i * 2]
+        Value l = ranges[i * 2 + 1]
         if (f >= 0) {
-            let r = -1
-            let k = 0
+            int r = -1
+            int k = 0
             while (k < 4) {
                 if (held[k] < 0 || held[k] < f) {
                     r = k
@@ -7718,9 +7718,9 @@ func natNativeRegScan(plan, n, ranges) {
 // The walk is POINT ORDERED: every statement and every expression advances
 // the counter, so a local's range runs from its first touch to its last.
 func natNativeLiveWalk(stmts, plan, ranges, loops, pos) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
-        let w = natNativeLiveStmt(stmts[i], plan, ranges, loops, pos)
+        int w = natNativeLiveStmt(stmts[i], plan, ranges, loops, pos)
         ranges = w[0]
         loops = w[1]
         pos = w[2]
@@ -7736,69 +7736,69 @@ func natNativeLiveWalk(stmts, plan, ranges, loops, pos) {
 // the post and the body as four separate fields) -- which is why they are
 // handled here and not by natNativeLiveWalk.
 func natNativeLiveStmt(n, plan, ranges, loops, pos) {
-    let k = nodeType(n)
+    string k = nodeType(n)
     if (natNativeIsDecl(n)) {
         pos = pos + 1
-        let r = natNativeLiveTouch(ranges, plan, natNativeDeclName(n), pos, 1)
+        int r = natNativeLiveTouch(ranges, plan, natNativeDeclName(n), pos, 1)
         ranges = r[0]
-        let w = natNativeLiveExpr(natNativeDeclValue(n), plan, ranges, pos + 1)
+        int[] w = natNativeLiveExpr(natNativeDeclValue(n), plan, ranges, pos + 1)
         ranges = w[0]
         pos = w[1]
     }
     if (k == NODE_PRINT()) {
-        let w = natNativeLiveExpr(printVal(n), plan, ranges, pos + 1)
+        int[] w = natNativeLiveExpr(printVal(n), plan, ranges, pos + 1)
         ranges = w[0]
         pos = w[1]
     }
     if (k == NODE_RETURN()) {
-        let w = natNativeLiveExpr(retVal(n), plan, ranges, pos + 1)
+        int[] w = natNativeLiveExpr(retVal(n), plan, ranges, pos + 1)
         ranges = w[0]
         pos = w[1]
     }
     if (k == NODE_EXPR_STMT()) {
-        let e = exprStmtExpr(n)
-        let isAssign = 0
+        int e = exprStmtExpr(n)
+        int isAssign = 0
         if (natNativeIsAssignExpr(e)) { isAssign = 1 }
         if (isAssign == 1) {
-            let lhs = binaryLeft(e)
+            int lhs = binaryLeft(e)
             if (nodeType(lhs) == NODE_IDENT()) {
                 // `x = v` defines x and uses v.
                 pos = pos + 1
-                let r = natNativeLiveTouch(ranges, plan, identName(lhs), pos, 1)
+                int r = natNativeLiveTouch(ranges, plan, identName(lhs), pos, 1)
                 ranges = r[0]
-                let w = natNativeLiveExpr(binaryRight(e), plan, ranges, pos + 1)
+                int[] w = natNativeLiveExpr(binaryRight(e), plan, ranges, pos + 1)
                 ranges = w[0]
                 pos = w[1]
             } else {
-                let w = natNativeLiveExpr(e, plan, ranges, pos + 1)
+                int[] w = natNativeLiveExpr(e, plan, ranges, pos + 1)
                 ranges = w[0]
                 pos = w[1]
             }
         } else {
-            let w = natNativeLiveExpr(e, plan, ranges, pos + 1)
+            int[] w = natNativeLiveExpr(e, plan, ranges, pos + 1)
             ranges = w[0]
             pos = w[1]
         }
     }
     if (k == NODE_IF()) {
-        let w = natNativeLiveExpr(ifCond(n), plan, ranges, pos + 1)
+        int[] w = natNativeLiveExpr(ifCond(n), plan, ranges, pos + 1)
         ranges = w[0]
         pos = w[1]
-        let c = natNativeLiveWalk(ifCons(n), plan, ranges, loops, pos + 1)
+        int c = natNativeLiveWalk(ifCons(n), plan, ranges, loops, pos + 1)
         ranges = c[0]
         loops = c[1]
         pos = c[2]
-        let a = natNativeLiveWalk(ifAlt(n), plan, ranges, loops, pos + 1)
+        int a = natNativeLiveWalk(ifAlt(n), plan, ranges, loops, pos + 1)
         ranges = a[0]
         loops = a[1]
         pos = a[2]
     }
     if (k == NODE_WHILE()) {
         let lstart = pos
-        let w = natNativeLiveExpr(whileCond(n), plan, ranges, pos + 1)
+        int[] w = natNativeLiveExpr(whileCond(n), plan, ranges, pos + 1)
         ranges = w[0]
         pos = w[1]
-        let b = natNativeLiveWalk(whileBody(n), plan, ranges, loops, pos + 1)
+        int b = natNativeLiveWalk(whileBody(n), plan, ranges, loops, pos + 1)
         ranges = b[0]
         loops = b[1]
         pos = b[2]
@@ -7807,23 +7807,23 @@ func natNativeLiveStmt(n, plan, ranges, loops, pos) {
     }
     if (k == NODE_FOR()) {
         let lstart = pos
-        let fi = forInit(n)
+        int fi = forInit(n)
         if (len(fi) > 0) {
-            let w = natNativeLiveStmt(fi, plan, ranges, loops, pos + 1)
+            int w = natNativeLiveStmt(fi, plan, ranges, loops, pos + 1)
             ranges = w[0]
             loops = w[1]
             pos = w[2]
         }
-        let w = natNativeLiveExpr(forCond(n), plan, ranges, pos + 1)
+        int[] w = natNativeLiveExpr(forCond(n), plan, ranges, pos + 1)
         ranges = w[0]
         pos = w[1]
-        let b = natNativeLiveWalk(forBody(n), plan, ranges, loops, pos + 1)
+        int b = natNativeLiveWalk(forBody(n), plan, ranges, loops, pos + 1)
         ranges = b[0]
         loops = b[1]
         pos = b[2]
-        let fp = forPost(n)
+        int fp = forPost(n)
         if (len(fp) > 0) {
-            let w = natNativeLiveStmt(fp, plan, ranges, loops, pos + 1)
+            int w = natNativeLiveStmt(fp, plan, ranges, loops, pos + 1)
             ranges = w[0]
             loops = w[1]
             pos = w[2]
@@ -7838,11 +7838,11 @@ func natNativeLiveStmt(n, plan, ranges, loops, pos) {
 // Only INT locals are candidates: a string or an array is two units and is
 // never promoted.
 func natNativeLiveTouch(ranges, plan, name, pos, isDef) {
-    let ord = natNativeSlotIndex(plan, name)
+    int ord = natNativeSlotIndex(plan, name)
     if (ord < 0) { return [ranges, 0] }
     if (natNativeSlotKind(plan, ord) != natKindInt()) { return [ranges, 0] }
-    let f = ranges[ord * 2]
-    let l = ranges[ord * 2 + 1]
+    Value f = ranges[ord * 2]
+    Value l = ranges[ord * 2 + 1]
     if (f < 0) { f = pos }
     if (isDef == 1 && pos < f) { f = pos }
     if (pos > l) { l = pos }
@@ -7853,53 +7853,53 @@ func natNativeLiveTouch(ranges, plan, name, pos, isDef) {
 
 // natNativeLiveExpr walks an expression for the identifiers it touches.
 func natNativeLiveExpr(e, plan, ranges, pos) {
-    let k = nodeType(e)
+    string k = nodeType(e)
     if (k == NODE_IDENT()) {
-        let r = natNativeLiveTouch(ranges, plan, identName(e), pos, 0)
+        int r = natNativeLiveTouch(ranges, plan, identName(e), pos, 0)
         return [r[0], pos + 1]
     }
     if (k == NODE_BINARY()) {
-        let l = natNativeLiveExpr(binaryLeft(e), plan, ranges, pos + 1)
-        let r = natNativeLiveExpr(binaryRight(e), plan, l[0], l[1])
+        int[] l = natNativeLiveExpr(binaryLeft(e), plan, ranges, pos + 1)
+        int[] r = natNativeLiveExpr(binaryRight(e), plan, l[0], l[1])
         return [r[0], r[1]]
     }
     if (k == NODE_UNARY()) {
-        let r = natNativeLiveExpr(unaryOperand(e), plan, ranges, pos + 1)
+        int[] r = natNativeLiveExpr(unaryOperand(e), plan, ranges, pos + 1)
         return [r[0], r[1]]
     }
     if (k == NODE_INDEX()) {
-        let l = natNativeLiveExpr(indexLeft(e), plan, ranges, pos + 1)
-        let r = natNativeLiveExpr(e[2], plan, l[0], l[1])
+        int[] l = natNativeLiveExpr(indexLeft(e), plan, ranges, pos + 1)
+        int[] r = natNativeLiveExpr(e[2], plan, l[0], l[1])
         return [r[0], r[1]]
     }
     if (k == NODE_CALL()) {
-        let args = callArgs(e)
-        let rr = [ranges, pos + 1]
-        let i = 0
+        int args = callArgs(e)
+        Value rr = [ranges, pos + 1]
+        int i = 0
         while (i < len(args)) {
-            let w = natNativeLiveExpr(args[i], plan, rr[0], rr[1])
+            int[] w = natNativeLiveExpr(args[i], plan, rr[0], rr[1])
             rr = [w[0], w[1]]
             i = i + 1
         }
         return [rr[0], rr[1]]
     }
     if (k == NODE_ARRAY_LIT()) {
-        let elems = arrayLitElems(e)
-        let rr = [ranges, pos + 1]
-        let i = 0
+        int elems = arrayLitElems(e)
+        Value rr = [ranges, pos + 1]
+        int i = 0
         while (i < len(elems)) {
-            let w = natNativeLiveExpr(elems[i], plan, rr[0], rr[1])
+            int[] w = natNativeLiveExpr(elems[i], plan, rr[0], rr[1])
             rr = [w[0], w[1]]
             i = i + 1
         }
         return [rr[0], rr[1]]
     }
     if (k == NODE_STRUCT_LIT()) {
-        let sf = structLitFields(e)
-        let rr = [ranges, pos + 1]
-        let i = 0
+        int sf = structLitFields(e)
+        Value rr = [ranges, pos + 1]
+        int i = 0
         while (i < len(sf)) {
-            let w = natNativeLiveExpr(binaryRight(sf[i]), plan, rr[0], rr[1])
+            int[] w = natNativeLiveExpr(binaryRight(sf[i]), plan, rr[0], rr[1])
             rr = [w[0], w[1]]
             i = i + 1
         }
@@ -7914,12 +7914,12 @@ func natNativeLiveExpr(e, plan, ranges, pos) {
 // sequence is a pure function of the allocation and never of the order the
 // slots happen to be declared in.
 func natNativeRegList(plan) {
-    let out = []
-    let r = 12
+    Value out = []
+    int r = 12
     while (r < 16) {
-        let i = 0
-        let n = natNativeSlotCount(plan)
-        let found = 0
+        int i = 0
+        int n = natNativeSlotCount(plan)
+        int found = 0
         while (i < n) {
             if (natNativeSlotReg(plan, i) == r) { found = 1 }
             i = i + 1
@@ -7935,8 +7935,8 @@ func natNativeRegList(plan) {
 // They are pushed BEFORE the frame is taken, so the frame's rsp-relative
 // displacements below stay unchanged.
 func natNativeRegPush(s, plan) {
-    let regs = natNativeRegList(plan)
-    let i = 0
+    int regs = natNativeRegList(plan)
+    int i = 0
     while (i < len(regs)) {
         s = natPushReg(s, regs[i])
         i = i + 1
@@ -7946,8 +7946,8 @@ func natNativeRegPush(s, plan) {
 
 // natNativeRegPop restores them, in exact reverse order.
 func natNativeRegPop(s, plan) {
-    let regs = natNativeRegList(plan)
-    let i = len(regs) - 1
+    int regs = natNativeRegList(plan)
+    int i = len(regs) - 1
     while (i >= 0) {
         s = natPopReg(s, regs[i])
         i = i - 1
@@ -7958,7 +7958,7 @@ func natNativeRegPop(s, plan) {
 // natNativeStoreLocal stores an int local's value: in its allocated register
 // when it has one, and in its frame slot otherwise.
 func natNativeStoreLocal(s, plan, ord, valueReg) {
-    let reg = natNativeSlotReg(plan, ord)
+    int reg = natNativeSlotReg(plan, ord)
     if (reg >= 0) { return natMovRegReg(s, reg, valueReg) }
     return natStoreStack(s, valueReg, natNativeSlotOff(plan, ord))
 }
@@ -7966,7 +7966,7 @@ func natNativeStoreLocal(s, plan, ord, valueReg) {
 // natNativeLoadLocal reads an int local into a register: from its allocated
 // register when it has one, and from its frame slot otherwise.
 func natNativeLoadLocal(s, plan, ord, dstReg) {
-    let reg = natNativeSlotReg(plan, ord)
+    int reg = natNativeSlotReg(plan, ord)
     if (reg >= 0) { return natMovRegReg(s, dstReg, reg) }
     return natLoadStack(s, dstReg, natNativeSlotOff(plan, ord))
 }
@@ -7976,8 +7976,8 @@ func natNativeLoadLocal(s, plan, ord, dstReg) {
 // natAllocHelper materialises the arena END from the link-time patch -- so no
 // initialisation step is needed at all.
 func natNativeArenaBytes0(n) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < n) {
         out = appendArray(out, 0)
         i = i + 1
@@ -8027,11 +8027,11 @@ func natNativeArenaBytes0(n) {
 // up the property that loop was built for: a refusal aborts the program
 // before anything is emitted.
 func natNativeProgramUsesStr(fns, tbl) {
-    let fi = 0
+    int fi = 0
     while (fi < natNativeFuncCount(fns)) {
-        let fparams = natNativeFuncParamsAt(fns, fi)
-        let fbody = natNativeFuncBodyAt(fns, fi)
-        let fplan = natNativePlanFor(fparams, fbody, tbl)
+        int fparams = natNativeFuncParamsAt(fns, fi)
+        int fbody = natNativeFuncBodyAt(fns, fi)
+        int fplan = natNativePlanFor(fparams, fbody, tbl)
         if (natNativeStrOpIn(fbody, fplan) == 1) { return 1 }
         fi = fi + 1
     }
@@ -8091,10 +8091,10 @@ func natNativeStrOpIn(stmts, plan) {
 // today -- a string equality is refused by name -- so this is a difference in
 // an unreachable arm, and it is recorded rather than papered over.
 func natNativeStrEqSites(stmts, plan) {
-    let n = 0
-    let i = 0
+    int n = 0
+    int i = 0
     while (i < len(stmts)) {
-        let st = stmts[i]
+        Value st = stmts[i]
         if (nodeType(st) == NODE_PRINT()) { n = n + natNativeStrEqIn(printVal(st), plan) }
         if (natNativeIsDecl(st)) { n = n + natNativeStrEqIn(natNativeDeclValue(st), plan) }
         if (nodeType(st) == NODE_RETURN()) { n = n + natNativeStrEqIn(retVal(st), plan) }
@@ -8109,7 +8109,7 @@ func natNativeStrEqSites(stmts, plan) {
 // expression, because the equality may sit anywhere in the tree.
 func natNativeStrEqIn(e, plan) {
     if (nodeType(e) == NODE_BINARY()) {
-        let op = binaryOp(e)
+        int op = binaryOp(e)
         if (op == "==" || op == "!=") {
             if (natNativeStrKind(binaryLeft(e), 0, plan) == 1) {
                 if (natNativeStrKind(binaryRight(e), 0, plan) == 1) { return 1 }
@@ -8119,8 +8119,8 @@ func natNativeStrEqIn(e, plan) {
     }
     if (nodeType(e) == NODE_UNARY()) { return natNativeStrEqIn(unaryOperand(e), plan) }
     if (nodeType(e) == NODE_CALL()) {
-        let n = 0
-        let i = 0
+        int n = 0
+        int i = 0
         while (i < len(callArgs(e))) {
             n = n + natNativeStrEqIn(callArgs(e)[i], plan)
             i = i + 1
@@ -8137,10 +8137,10 @@ func natNativeStrEqIn(e, plan) {
 // a SliceExpr whose target is a string). This one is kind-based and
 // per-function, for the same reason the equality arm is.
 func natNativeStrSliceSites(stmts, plan) {
-    let n = 0
-    let i = 0
+    int n = 0
+    int i = 0
     while (i < len(stmts)) {
-        let st = stmts[i]
+        Value st = stmts[i]
         if (nodeType(st) == NODE_PRINT()) { n = n + natNativeStrSliceIn(printVal(st), plan) }
         if (natNativeIsDecl(st)) { n = n + natNativeStrSliceIn(natNativeDeclValue(st), plan) }
         if (nodeType(st) == NODE_RETURN()) { n = n + natNativeStrSliceIn(retVal(st), plan) }
@@ -8160,8 +8160,8 @@ func natNativeStrSliceIn(e, plan) {
     }
     if (nodeType(e) == NODE_UNARY()) { return natNativeStrSliceIn(unaryOperand(e), plan) }
     if (nodeType(e) == NODE_CALL()) {
-        let n = 0
-        let i = 0
+        int n = 0
+        int i = 0
         while (i < len(callArgs(e))) {
             n = n + natNativeStrSliceIn(callArgs(e)[i], plan)
             i = i + 1
@@ -8187,12 +8187,12 @@ func natNativeStrSliceIn(e, plan) {
 // the driver does not duplicate the oracle's staging implementation, it only
 // reserves the region the oracle reserves.
 func natNativeStrFieldSites(stmts) {
-    let n = 0
-    let i = 0
+    int n = 0
+    int i = 0
     while (i < len(stmts)) {
-        let st = stmts[i]
+        Value st = stmts[i]
         if (nodeType(st) == NODE_EXPR_STMT()) {
-            let e = exprStmtExpr(st)
+            int e = exprStmtExpr(st)
             if (natNativeIsAssignExpr(e)) {
                 if (nodeType(binaryLeft(e)) == NODE_DOT()) {
                     if (natNativeStrLitIn(binaryRight(e)) == 1) { n = n + 1 }

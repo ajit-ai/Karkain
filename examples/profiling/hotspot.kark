@@ -7,8 +7,8 @@ func isOdd(n) {
 }
 
 func countOdds(limit) {
-    let c = 0
-    let i = 0
+    int c = 0
+    int i = 0
     while (i < limit) {
         if isOdd(i) {
             c = c + 1

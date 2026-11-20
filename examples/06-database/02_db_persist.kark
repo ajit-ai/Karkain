@@ -10,16 +10,16 @@
 import std.db
 
 func main() {
-    let path = "demo.db.txt"
+    string path = "demo.db.txt"
     let db = db_open(path)
     db = db_execute(db, "create table notes (id, body)")
     db = db_execute(db, "insert into notes values (1, alpha)")
     db = db_execute(db, "insert into notes values (2, beta)")
-    let saved = db_save(db)
+    bool saved = db_save(db)
     println(saved)
 
     let db2 = db_open(path)
-    let q = db_query(db2, "select * from notes")
+    map[int]string q = db_query(db2, "select * from notes")
     println(q["count"])
     let r0 = q["rows"][0]
     let r1 = q["rows"][1]

@@ -46,7 +46,7 @@ Create ``count.kark``:
 .. code-block:: karkain
 
     func count_to(n) {
-        let i = 1
+        let i: int = 1
         while(i <= n) {
             println(i)
             i = i + 1

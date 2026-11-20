@@ -6,12 +6,12 @@
 // Model: slope = (n*Sxy - Sx*Sy) / (n*Sxx - Sx^2), intercept = (Sy - m*Sx)/n
 
 func fit(xs, ys) {
-    let n = len(xs)
-    let sx = 0
-    let sy = 0
-    let sxy = 0
-    let sxx = 0
-    let i = 0
+    int n = len(xs)
+    int sx = 0
+    int sy = 0
+    int sxy = 0
+    int sxx = 0
+    int i = 0
     while (i < n) {
         sx = sx + xs[i]
         sy = sy + ys[i]
@@ -19,9 +19,9 @@ func fit(xs, ys) {
         sxx = sxx + xs[i] * xs[i]
         i = i + 1
     }
-    let denom = (n * sxx) - (sx * sx)
-    let slope = (((n * sxy) - (sx * sy)) * 1.0) / (denom * 1.0)
-    let intercept = ((sy * 1.0) - (slope * (sx * 1.0))) / (n * 1.0)
+    int denom = (n * sxx) - (sx * sx)
+    int slope = (((n * sxy) - (sx * sy)) * 1.0) / (denom * 1.0)
+    int intercept = ((sy * 1.0) - (slope * (sx * 1.0))) / (n * 1.0)
     return [slope, intercept]
 }
 
@@ -31,8 +31,8 @@ func predict(model, x) {
 
 func main() {
     // y = 2x + 1 for x = 0..4 - a perfect line, so the fit is exact.
-    let xs = [0, 1, 2, 3, 4]
-    let ys = [1, 3, 5, 7, 9]
+    int[] xs = [0, 1, 2, 3, 4]
+    int[] ys = [1, 3, 5, 7, 9]
 
     let model = fit(xs, ys)
     print("slope=" + str(model[0]))          // 2

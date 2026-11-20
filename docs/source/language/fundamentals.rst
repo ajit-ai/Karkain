@@ -24,7 +24,7 @@ Comments
 .. code-block:: kark
 
    // this is a line comment
-   let x = 1  // inline comment
+   let x: int = 1  // inline comment
 
 **Block comments** use ``/* … */``:
 
@@ -55,5 +55,5 @@ A program is a sequence of top-level statements:
 
 .. code-block:: kark
 
-   let greeting = "hello"
+   let greeting: string = "hello"
    print(greeting)

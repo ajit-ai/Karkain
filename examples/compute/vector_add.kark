@@ -11,7 +11,7 @@
 
 func add(a, b) {
     let out = []
-    let i = 0
+    int i = 0
     while (i < len(a)) {
         out = appendArray(out, a[i] + b[i])
         i = i + 1
@@ -20,10 +20,10 @@ func add(a, b) {
 }
 
 func main() {
-    let a = [3, 1, 4]
-    let b = [1, 5, 9]
-    let c = add(a, b)
-    let i = 0
+    int[] a = [3, 1, 4]
+    int[] b = [1, 5, 9]
+    int c = add(a, b)
+    int i = 0
     while (i < len(c)) {
         print(c[i])
         i = i + 1

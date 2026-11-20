@@ -28,8 +28,8 @@ func main() {
     print(grade(60))
     print(grade(42))
 
-    let x = 10
-    let parity = "odd"
+    int x = 10
+    string parity = "odd"
     if (x % 2 == 0) {
         parity = "even"
     }

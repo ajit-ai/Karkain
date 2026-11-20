@@ -1,5 +1,5 @@
 func test_if_else() {
-    let x = 3
+    int x = 3
     if x < 5 {
         assert(true)
     } else {
@@ -39,8 +39,8 @@ func test_else_if_classify() {
 }
 
 func test_while_loop() {
-    let i = 0
-    let total = 0
+    int i = 0
+    int total = 0
     while(i < 10) {
         total = total + i
         i = i + 1
@@ -49,10 +49,10 @@ func test_while_loop() {
 }
 
 func test_nested_loops() {
-    let total = 0
-    let i = 0
+    int total = 0
+    int i = 0
     while(i < 3) {
-        let j = 0
+        int j = 0
         while(j < 4) {
             total = total + 1
             j = j + 1
@@ -63,15 +63,15 @@ func test_nested_loops() {
 }
 
 func test_boolean_operators() {
-    let x = 5
+    int x = 5
     assert(x > 0 && x < 10)
     assert(x > 10 || x == 5)
     assert(!(x == 99))
 }
 
 func test_loop_break_continue() {
-    let i = 0
-    let sum = 0
+    int i = 0
+    int sum = 0
     while(i < 100) {
         i = i + 1
         if i % 2 == 0 {

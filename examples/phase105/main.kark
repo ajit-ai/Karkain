@@ -14,7 +14,7 @@ import math
 import strings
 
 func main() {
-    let sum = math.add(40, 1)
+    math sum = math.add(40, 1)
     print(sum)
     print(math.twice(21))
     print(strings.greeting("karkain"))

@@ -3,15 +3,15 @@
 // Imports: compiler/ast.kark, compiler/lexer.kark, compiler/parser.kark, compiler/codegen.kark
 
 func main() {
-    let args = getArgs()
-    let argc = len(args)
+    string[] args = getArgs()
+    int argc = len(args)
 
     if (argc < 2) {
         printUsage()
         return
     }
 
-    let command = args[1]
+    string command = args[1]
 
     if (command == "--help" || command == "-h") {
         printUsage()
@@ -37,7 +37,7 @@ func main() {
             print("Usage: karkain build <file.kark> [--target c11|wgsl|opencl]")
             return
         }
-        let target = "c11"
+        string target = "c11"
         if (argc >= 5 && args[3] == "--target") {
             target = args[4]
         }
@@ -77,14 +77,14 @@ func printUsage() {
 func readFile(path) {
     // Read entire file contents
     // This is a placeholder - actual I/O depends on runtime support
-    let f = openFile(path)
+    string f = openFile(path)
     if (f == "") {
         print("Error: cannot open file " + path)
         return ""
     }
-    let content = ""
+    string content = ""
     while (1) {
-        let line = readLine(f)
+        string line = readLine(f)
         if (line == "") { break }
         content = content + line + "\n"
     }
@@ -93,15 +93,15 @@ func readFile(path) {
 }
 
 func checkFile(path) {
-    let source = readFile(path)
+    string source = readFile(path)
     if (source == "") { return }
 
     // Tokenize
-    let tokens = tokenize(source)
+    Value tokens = tokenize(source)
 
     // Parse
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    Value state = createParserState(tokens)
+    int ast = parse(tokens)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -113,15 +113,15 @@ func checkFile(path) {
 }
 
 func buildFile(path, target) {
-    let source = readFile(path)
+    string source = readFile(path)
     if (source == "") { return }
 
     // Tokenize
-    let tokens = tokenize(source)
+    Value tokens = tokenize(source)
 
     // Parse
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    Value state = createParserState(tokens)
+    int ast = parse(tokens)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -133,7 +133,7 @@ func buildFile(path, target) {
     let output = generate(ast, target)
 
     // Output result
-    let outPath = replaceExtension(path, "." + target)
+    string outPath = replaceExtension(path, "." + target)
     let f = createFile(outPath)
     writeToFile(f, output)
     closeFile(f)
@@ -142,15 +142,15 @@ func buildFile(path, target) {
 }
 
 func runFile(path) {
-    let source = readFile(path)
+    string source = readFile(path)
     if (source == "") { return }
 
     // Tokenize
-    let tokens = tokenize(source)
+    Value tokens = tokenize(source)
 
     // Parse
-    let state = createParserState(tokens)
-    let ast = parse(tokens)
+    Value state = createParserState(tokens)
+    int ast = parse(tokens)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -162,13 +162,13 @@ func runFile(path) {
     let cCode = generate(ast, "c11")
 
     // Write to temp file
-    let tempPath = "karkain_temp.c"
+    string tempPath = "karkain_temp.c"
     let f = createFile(tempPath)
     writeToFile(f, cCode)
     closeFile(f)
 
     // Compile with gcc
-    let compileCmd = "gcc -o karkain_temp " + tempPath + " -lm"
+    string compileCmd = "gcc -o karkain_temp " + tempPath + " -lm"
     print("Compiling: " + compileCmd)
     system(compileCmd)
 
@@ -182,10 +182,10 @@ func runFile(path) {
 }
 
 func replaceExtension(path, newExt) {
-    let lastDot = -1
-    let i = len(path) - 1
+    int lastDot = -1
+    int i = len(path) - 1
     while (i >= 0) {
-        let ch = substr(path, i, 1)
+        string ch = substr(path, i, 1)
         if (ch == ".") {
             lastDot = i
             break

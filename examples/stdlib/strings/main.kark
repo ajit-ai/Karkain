@@ -29,9 +29,9 @@ func main() {
     print(str_from_int(7))                 // 7
     print(str_count("ababab", "ab"))       // 3
     print(str_is_empty("x"))               // 0 (false)
-    let parts = str_split("a,b,c", ",")
+    string[] parts = str_split("a,b,c", ",")
     print(len(parts))                      // 3
-    let i = 0
+    int i = 0
     while(i < len(parts)) {
         print(parts[i])                    // a b c
         i = i + 1

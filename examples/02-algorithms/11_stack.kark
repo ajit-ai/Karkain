@@ -10,8 +10,8 @@
 // Run:  karkain run examples/02-algorithms/11_stack.kark
 
 func main() {
-    let stack = [10, 20, 30]
-    var top = len(stack) - 1
+    int[] stack = [10, 20, 30]
+    int top = len(stack) - 1
 
     print(len(stack))          // 3 items pushed
     print(stack[top])          // top of stack = 30

@@ -152,6 +152,57 @@ func (p *Parser) ParseProgram() *Program {
 				p.addError(fmt.Sprintf("expected module name or \"C\" after 'import', got '%s'", p.peekToken.Literal(p.src)))
 				p.nextToken()
 			}
+		} else if p.curToken.Type == lexer.TokenConst {
+			progressed = true
+			line := int(p.curToken.Line)
+			p.nextToken() // consume 'const'
+			t := ""
+			if isTypeStartToken(p.curToken.Type) {
+				t = typeKeywordName(p.curToken.Type)
+			} else if p.curToken.Type == lexer.TokenIdent {
+				t = p.curToken.Literal(p.src)
+			}
+			if t == "" {
+				p.addError("expected type after 'const'")
+				p.nextToken()
+			} else {
+				p.nextToken()
+				for p.curToken.Type == lexer.TokenLBracket && p.peekToken.Type == lexer.TokenRBracket {
+					t += "[]"
+					p.nextToken()
+					p.nextToken()
+				}
+				if node := p.parseTypeFirstDeclFrom(t, line, int(p.curToken.Col)); node != nil {
+					node.Const = true
+					prog.Statements = append(prog.Statements, node)
+				}
+				if p.curToken.Type == lexer.TokenSemicolon {
+					p.nextToken()
+				}
+			}
+		} else if isTypeStartToken(p.curToken.Type) || p.curToken.Type == lexer.TokenIdent {
+			progressed = true
+			line := int(p.curToken.Line)
+			t := typeKeywordName(p.curToken.Type)
+			if t == "" {
+				t = p.curToken.Literal(p.src)
+			}
+			p.nextToken()
+			for p.curToken.Type == lexer.TokenLBracket && p.peekToken.Type == lexer.TokenRBracket {
+				t += "[]"
+				p.nextToken()
+				p.nextToken()
+			}
+			if p.curToken.Type == lexer.TokenIdent && p.peekToken.Type == lexer.TokenLParen {
+				if fn := p.parseTypeFirstFunc(t, line, int(p.curToken.Col)); fn != nil {
+					prog.Statements = append(prog.Statements, fn)
+				}
+			} else if node := p.parseTypeFirstDeclFrom(t, line, int(p.curToken.Col)); node != nil {
+				prog.Statements = append(prog.Statements, node)
+			}
+			if p.curToken.Type == lexer.TokenSemicolon {
+				p.nextToken()
+			}
 		} else {
 			p.addError(fmt.Sprintf("unexpected token '%s' at top level", p.curToken.Literal(p.src)))
 			p.nextToken()
@@ -417,7 +468,9 @@ func (p *Parser) parseFunc() *FuncDecl {
 	// function body".
 	switch p.curToken.Type {
 	case lexer.TokenIdent, lexer.TokenFn, lexer.TokenBool, lexer.TokenInt,
-		lexer.TokenFloat64, lexer.TokenString, lexer.TokenBigInt, lexer.TokenBigFloat:
+		lexer.TokenFloat64, lexer.TokenString, lexer.TokenBigInt, lexer.TokenBigFloat,
+		lexer.TokenValue:
+		fn.ReturnType = p.curToken.Literal(p.src)
 		p.nextToken() // consume the return type (incl. Phase 133 `fn` and the type keywords)
 	}
 	p.nextToken() // consume '{'
@@ -435,6 +488,196 @@ func (p *Parser) parseFunc() *FuncDecl {
 	// Phase 49: Escape analysis — mark variables that escape the function scope
 	MarkVarEscaping(fn.Body)
 
+	return fn
+}
+
+// Type-first declarations: `int x = 42`, `int[] xs = [1,2]`.
+func isTypeStartToken(t lexer.TokenType) bool {
+	switch t {
+	case lexer.TokenBool, lexer.TokenByte, lexer.TokenShort, lexer.TokenLong,
+		lexer.TokenFloat, lexer.TokenDouble, lexer.TokenFloat64, lexer.TokenChar,
+		lexer.TokenString, lexer.TokenBigInt, lexer.TokenBigFloat, lexer.TokenFn,
+		lexer.TokenValue:
+		return true
+	}
+	return false
+}
+
+func typeKeywordName(t lexer.TokenType) string {
+	switch t {
+	case lexer.TokenBool:
+		return "bool"
+	case lexer.TokenByte:
+		return "byte"
+	case lexer.TokenShort:
+		return "short"
+	case lexer.TokenLong:
+		return "long"
+	case lexer.TokenFloat:
+		return "float"
+	case lexer.TokenDouble:
+		return "double"
+	case lexer.TokenFloat64:
+		return "float64"
+	case lexer.TokenChar:
+		return "char"
+	case lexer.TokenString:
+		return "string"
+	case lexer.TokenBigInt:
+		return "bigint"
+	case lexer.TokenBigFloat:
+		return "bigfloat"
+	case lexer.TokenFn:
+		return "fn"
+	case lexer.TokenValue:
+		return "Value"
+	}
+	return ""
+}
+
+// parseTypeFirstDeclFrom parses the tail of a type-first declaration: the
+// declared name and '=' are at the current/peek token; typeName is known.
+func (p *Parser) parseTypeFirstDeclFrom(typeName string, line, col int) *VarDeclStmt {
+	if p.curToken.Type != lexer.TokenIdent && p.curToken.Type != lexer.TokenMatrix {
+		p.addError("expected variable name after type '" + typeName + "'")
+		return nil
+	}
+	name := p.curToken.Literal(p.src)
+	nameCol := int(p.curToken.Col)
+	p.nextToken()
+	if p.curToken.Type != lexer.TokenAssign {
+		p.addError("expected '=' after type-first declaration '" + typeName + " " + name + "'")
+		return nil
+	}
+	p.nextToken()
+	value := p.parseExpr()
+	return &VarDeclStmt{Name: name, Value: value, Type: typeName, Line: line, Col: nameCol, EndCol: nameCol + len(name)}
+}
+
+// parseTypeFirstDecl parses `T name = expr` at statement position (T is cur).
+func (p *Parser) parseTypeFirstDecl() *VarDeclStmt {
+	line := int(p.curToken.Line)
+	col := int(p.curToken.Col)
+	t := typeKeywordName(p.curToken.Type)
+	if t == "" {
+		t = p.curToken.Literal(p.src)
+	}
+	p.nextToken()
+	for p.curToken.Type == lexer.TokenLBracket && p.peekToken.Type == lexer.TokenRBracket {
+		t += "[]"
+		p.nextToken()
+		p.nextToken()
+	}
+	return p.parseTypeFirstDeclFrom(t, line, col)
+}
+
+// parseMapTypeSpec consumes `map[K]V` after the `map` identifier and returns
+// the canonical type string. Map literals already exist in the runtime; this
+// adds the explicit type surface to declarations.
+func (p *Parser) parseMapTypeSpec() string {
+	t := "map"
+	if p.curToken.Type != lexer.TokenLBracket {
+		return t
+	}
+	p.nextToken() // consume '['
+	key := p.curToken.Literal(p.src)
+	p.nextToken()
+	if p.curToken.Type == lexer.TokenRBracket {
+		p.nextToken() // consume ']'
+	}
+	val := p.curToken.Literal(p.src)
+	if p.curToken.Type != lexer.TokenEOF {
+		p.nextToken()
+	}
+	return t + "[" + key + "]" + val
+}
+
+func isKnownTypeName(s string) bool {
+	switch s {
+	case "int", "string", "bool", "byte", "short", "long", "float", "double",
+		"char", "float64", "bigint", "bigfloat", "fn":
+		return true
+	}
+	return false
+}
+
+// parseTypeFirstFunc parses `T name(T2 p2, ...) { ... }` after the return
+// type has been consumed by the top-level dispatcher.
+func (p *Parser) parseTypeFirstFunc(retType string, line, col int) *FuncDecl {
+	if p.curToken.Type != lexer.TokenIdent {
+		p.addError("expected function name after return type '" + retType + "'")
+		return nil
+	}
+	fn := p.arena.AllocFuncDecl(p.curToken.Literal(p.src), nil, nil, nil)
+	fn.Line = line
+	fn.Col = col
+	fn.EndCol = col + len(retType)
+	fn.ReturnType = retType
+	fn.Params = []string{}
+	fn.ParamTypes = []string{}
+	p.nextToken() // consume function name
+	fn.GenericParams = p.parseGenericParams()
+	if p.curToken.Type != lexer.TokenLParen {
+		p.addError("expected '(' after function name")
+		return nil
+	}
+	p.nextToken() // consume '('
+	for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+		start := p.curToken.Start
+		first := p.curToken.Literal(p.src)
+		firstType := isTypeStartToken(p.curToken.Type) || isKnownTypeName(first)
+		p.nextToken()
+		if firstType {
+			t := first
+			for p.curToken.Type == lexer.TokenLBracket && p.peekToken.Type == lexer.TokenRBracket {
+				t += "[]"
+				p.nextToken()
+				p.nextToken()
+			}
+			if p.curToken.Type == lexer.TokenIdent {
+				fn.Params = append(fn.Params, p.curToken.Literal(p.src))
+				fn.ParamTypes = append(fn.ParamTypes, t)
+				p.nextToken()
+			} else {
+				fn.ParamTypes = append(fn.ParamTypes, "")
+				p.addError("expected parameter name after type '" + t + "'")
+			}
+		} else {
+			// Legacy name-first parameter (`a int`).
+			fn.Params = append(fn.Params, first)
+			if p.curToken.Type == lexer.TokenIdent || isTypeStartToken(p.curToken.Type) {
+				fn.ParamTypes = append(fn.ParamTypes, p.curToken.Literal(p.src))
+				p.nextToken()
+			} else {
+				fn.ParamTypes = append(fn.ParamTypes, "")
+			}
+		}
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken()
+		}
+		p.advanceIfStalled(start, "type-first function parameters")
+	}
+	p.nextToken() // consume ')'
+	// Legacy trailing return type annotation is consumed (return type is the
+	// type-first prefix and takes precedence).
+	if isTypeStartToken(p.curToken.Type) {
+		p.nextToken()
+		for p.curToken.Type == lexer.TokenLBracket && p.peekToken.Type == lexer.TokenRBracket {
+			p.nextToken()
+			p.nextToken()
+		}
+	}
+	if p.curToken.Type != lexer.TokenLBrace {
+		p.addError("expected '{' to open type-first function body")
+		return nil
+	}
+	p.nextToken()
+	fn.Body = p.parseBlock()
+	if p.curToken.Type != lexer.TokenRBrace {
+		p.addError("expected '}' to close type-first function body")
+	}
+	p.nextToken()
+	MarkVarEscaping(fn.Body)
 	return fn
 }
 
@@ -495,6 +738,9 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 		// `let g fn = ...` annotation is silently dropped.
 		typeName = "fn"
 		p.nextToken() // consume 'fn' type
+	} else if p.curToken.Type == lexer.TokenValue {
+		typeName = "Value"
+		p.nextToken() // consume 'Value' type
 	} else if p.curToken.Type == lexer.TokenBool {
 		typeName = p.curToken.Literal(p.src)
 		p.nextToken() // consume bool type
@@ -543,10 +789,26 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 		case p.curToken.Type == lexer.TokenFloat64:
 			typeName = p.curToken.Literal(p.src)
 			p.nextToken()
+		case p.curToken.Type == lexer.TokenValue:
+			typeName = "Value"
+			p.nextToken()
 		default:
 			typeName = p.curToken.Literal(p.src)
 			p.nextToken()
 		}
+	}
+
+	// Explicit map annotation: `let m: map[string]int = {...}`.
+	if typeName == "map" && p.curToken.Type == lexer.TokenLBracket {
+		typeName = p.parseMapTypeSpec()
+	}
+
+	// Explicit array annotation: `int[]`, `string[]`, ... Recorded in
+	// VarDeclStmt.Type; element semantics stay inferred from the initializer.
+	for p.curToken.Type == lexer.TokenLBracket && p.peekToken.Type == lexer.TokenRBracket {
+		typeName += "[]"
+		p.nextToken()
+		p.nextToken()
 	}
 
 	align := 0
@@ -760,7 +1022,27 @@ func (p *Parser) parseStatement() Node {
 	p.arena.SetLine(int(p.curToken.Line))
 	line := int(p.curToken.Line)
 	switch p.curToken.Type {
-	case lexer.TokenLet, lexer.TokenVar, lexer.TokenConst:
+	case lexer.TokenLet, lexer.TokenVar:
+		return p.parseVarDecl()
+	case lexer.TokenConst:
+		if isTypeStartToken(p.peekToken.Type) || isKnownTypeName(p.peekToken.Literal(p.src)) {
+			p.nextToken() // consume 'const'
+			t := typeKeywordName(p.curToken.Type)
+			if t == "" {
+				t = p.curToken.Literal(p.src)
+			}
+			p.nextToken()
+			for p.curToken.Type == lexer.TokenLBracket && p.peekToken.Type == lexer.TokenRBracket {
+				t += "[]"
+				p.nextToken()
+				p.nextToken()
+			}
+			node := p.parseTypeFirstDeclFrom(t, line, int(p.curToken.Col))
+			if node != nil {
+				node.Const = true
+			}
+			return node
+		}
 		return p.parseVarDecl()
 	case lexer.TokenPrint:
 		return p.parsePrint()
@@ -813,9 +1095,35 @@ func (p *Parser) parseStatement() Node {
 		p.nextToken() // consume 'continue'
 		return p.arena.AllocContinueStmt()
 	case lexer.TokenFn:
+		if p.peekToken.Type == lexer.TokenIdent {
+			node := p.parseTypeFirstDecl()
+			if node != nil {
+				return node
+			}
+			return nil
+		}
 		node := &ExprStmt{Expression: p.parseLambda()}
 		setNodeLine(node, line)
 		return node
+	case lexer.TokenBool, lexer.TokenByte, lexer.TokenShort, lexer.TokenLong,
+		lexer.TokenFloat, lexer.TokenDouble, lexer.TokenFloat64, lexer.TokenChar,
+		lexer.TokenString, lexer.TokenBigInt, lexer.TokenBigFloat, lexer.TokenValue:
+		if p.peekToken.Type != lexer.TokenIdent && p.peekToken.Type != lexer.TokenMatrix {
+			// A literal/expression in statement position (e.g. a match arm
+			// body starting with a string) is not a type-first declaration.
+			expr := p.parseExpr()
+			if expr != nil {
+				node := &ExprStmt{Expression: expr}
+				setNodeLine(node, line)
+				return node
+			}
+			return nil
+		}
+		node := p.parseTypeFirstDecl()
+		if node != nil {
+			return node
+		}
+		return nil
 	case lexer.TokenIdent:
 		return p.parseIdentStatement()
 	case lexer.TokenImport:
@@ -848,7 +1156,7 @@ func (p *Parser) parseStatement() Node {
 		stmts := p.parseBlock()
 		p.nextToken() // consume '}'
 		return &BlockStmt{Statements: stmts}
-	case lexer.TokenInt, lexer.TokenFloat64, lexer.TokenString, lexer.TokenBigInt, lexer.TokenBigFloat,
+	case lexer.TokenInt,
 		lexer.TokenSome, lexer.TokenNone, lexer.TokenOk, lexer.TokenErr,
 		lexer.TokenLParen, lexer.TokenLBracket,
 		lexer.TokenTrue, lexer.TokenFalse:
@@ -1109,6 +1417,32 @@ func (p *Parser) parseIdentStatement() Node {
 	ident := p.curToken.Literal(p.src)
 	identCol := int(p.curToken.Col)
 	p.nextToken() // consume identifier
+
+	// Type-first declarations with an identifier type name (`int x = 42`,
+	// `int[] xs = [1]`, `Employee e = ...`). Previously these were silently
+	// parsed as an unused expression plus an implicit assignment, discarding
+	// the declared type entirely.
+	tfType := ident
+	tfBrackets := false
+	if ident == "map" && p.curToken.Type == lexer.TokenLBracket {
+		tfType = p.parseMapTypeSpec()
+		if p.curToken.Type == lexer.TokenIdent && p.peekToken.Type == lexer.TokenAssign {
+			return p.parseTypeFirstDeclFrom(tfType, line, identCol)
+		}
+	}
+	for p.curToken.Type == lexer.TokenLBracket && p.peekToken.Type == lexer.TokenRBracket {
+		tfType += "[]"
+		p.nextToken()
+		p.nextToken()
+		tfBrackets = true
+	}
+	if p.curToken.Type == lexer.TokenIdent || p.curToken.Type == lexer.TokenMatrix {
+		return p.parseTypeFirstDeclFrom(tfType, line, identCol)
+	}
+	if tfBrackets {
+		p.addError("expected variable name after type '" + tfType + "'")
+		return nil
+	}
 
 	// Phase 14: Bare quantum gate syntax — H qr[0], CNOT qr[0], qr[1]
 	// A known gate name in statement position followed by an operand (identifier or int)
@@ -1602,7 +1936,33 @@ func (p *Parser) parsePrimaryExpr() Node {
 		val := p.curToken.Literal(p.src)
 		p.nextToken()
 		return p.arena.AllocBigFloatLiteral(val)
-	case lexer.TokenIdent:
+	case lexer.TokenCharLit:
+		lit := p.curToken.Literal(p.src)
+		charLine := int(p.curToken.Line)
+		code := 0
+		if len(lit) >= 2 && lit[0] == '\\' {
+			switch lit[1] {
+			case 'n':
+				code = '\n'
+			case 't':
+				code = '\t'
+			case 'r':
+				code = '\r'
+			case '0':
+				code = 0
+			case '\\':
+				code = '\\'
+			case '\'':
+				code = '\''
+			default:
+				code = int(lit[1])
+			}
+		} else if len(lit) > 0 {
+			code = int(lit[0])
+		}
+		p.nextToken()
+		return &IntLiteral{Value: strconv.Itoa(code), Line: charLine}
+	case lexer.TokenIdent, lexer.TokenMatrix:
 		return p.parseIdentExpr()
 	case lexer.TokenLParen:
 		// Phase 81: clear the unparenthesized-if flag inside '(' groups so

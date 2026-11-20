@@ -1,10 +1,10 @@
 // Phase 88: Variables and assignments
 // Tests: var/let declarations, assignment, variable references
 func main() {
-    var x = 10
-    let y = 20
+    int x = 10
+    int y = 20
     x = x + y
-    let z = x * 2
+    int z = x * 2
     print(x)
     print(y)
     print(z)

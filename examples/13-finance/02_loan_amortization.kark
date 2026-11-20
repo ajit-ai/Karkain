@@ -9,8 +9,8 @@
 // Run:  karkain run examples/13-finance/02_loan_amortization.kark
 
 func payment(principal, years, rate) {
-    let factor = 1.0
-    let i = 0
+    float64 factor = 1.0
+    int i = 0
     while (i < years) {
         factor = factor / (1 + rate)
         i = i + 1

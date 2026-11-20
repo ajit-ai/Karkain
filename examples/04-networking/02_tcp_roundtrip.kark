@@ -12,7 +12,7 @@
 import std.net
 
 func main() {
-    let ep = net_endpoint("127.0.0.1", 49051)
+    bool ep = net_endpoint("127.0.0.1", 49051)
     let srv = net_listen(ep["host"], ep["port"])
     let cli = net_connect(ep["host"], ep["port"])
     let conn = net_accept(srv)

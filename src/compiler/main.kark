@@ -3,15 +3,15 @@
 // Imports: ast.kark, lexer.kark, parser.kark, sema.kark, codegen.kark
 
 func main() {
-    let args = getArgs()
-    let argc = len(args)
+    string[] args = getArgs()
+    int argc = len(args)
 
     if (argc < 2) {
         printUsage()
         return
     }
 
-    let command = args[1]
+    string command = args[1]
 
     if (command == "--help" || command == "-h") {
         printUsage()
@@ -37,7 +37,7 @@ func main() {
             print("Usage: karkain build <file.kark> [--target c23|wgsl|opencl|openqasm|qir|kbc|native-x86_64-linux|native-x86_64-windows|native-x86_64-macos]")
             return
         }
-        let target = "c23"
+        string target = "c23"
         if (argc >= 5 && args[3] == "--target") {
             target = args[4]
         }
@@ -71,7 +71,7 @@ func main() {
             print("Usage: karkain test <path> [filter]")
             return
         }
-        let filter = ""
+        string filter = ""
         if (argc >= 4) { filter = args[3] }
         runTests(args[2], filter)
         return
@@ -93,8 +93,8 @@ func main() {
     // so the encoder can be proven byte-identical before any value model
     // is layered on top of it.
     if (command == "native-encode") {
-        let names = ["imm64", "loop", "multi", "undef", "dup"]
-        let i = 0
+        Value names = ["imm64", "loop", "multi", "undef", "dup"]
+        int i = 0
         while (i < 5) {
             print(names[i] + " " + natEncodeCorpus(i))
             i = i + 1
@@ -108,8 +108,8 @@ func main() {
 	// like 151B's native-encode: the cases are compiled into kcc and the gate
 	// compares them against pkg/native's Link.
 	if (command == "native-elf") {
-        let enames = ["text", "arena", "rodata", "refuse"]
-        let e = 0
+        Value enames = ["text", "arena", "rodata", "refuse"]
+        int e = 0
         while (e < 4) {
             print(natELFCorpus(e))
             e = e + 1
@@ -122,8 +122,8 @@ func main() {
 	// compiled into kcc and the gate compares the images against
 	// pkg/native's LinkMachO.
 	if (command == "native-macho") {
-        let mnames = ["single", "arena", "nosite", "adjacent", "refuse"]
-        let m = 0
+        Value mnames = ["single", "arena", "nosite", "adjacent", "refuse"]
+        int m = 0
         while (m < 5) {
             print(natMachoCorpus(m))
             m = m + 1
@@ -136,8 +136,8 @@ func main() {
 	// compiled into kcc and the gate compares the images against
 	// pkg/native's LinkPE.
 	if (command == "native-pe") {
-        let pnames = ["bare", "text", "arena", "refuse"]
-        let p = 0
+        Value pnames = ["bare", "text", "arena", "refuse"]
+        int p = 0
         while (p < 4) {
             print(natPECorpus(p))
             p = p + 1
@@ -151,7 +151,7 @@ func main() {
 	// Same measurement contract as native-pe: no input file, no Go fallback, and
 	// a Go-side link producing the same bytes would prove nothing about kcc.
 	if (command == "native-pe-prog") {
-        let bp = 0
+        int bp = 0
         while (bp < 4) {
             print(natPECorpusProg(bp))
             bp = bp + 1
@@ -175,28 +175,28 @@ if (command == "native-ast") {
             print("Usage: karkain native-ast <file.kark>")
             return
         }
-        let src = assembleProject(args[2])
+        int src = assembleProject(args[2])
         if (src == "") {
             print("error[K002]: could not assemble " + args[2])
             return
         }
-        let ntok = tokenize(src)
-        let pstate = createParserState(ntok, src)
-        let ast9c = parseWithState(pstate)
+        Value ntok = tokenize(src)
+        int pstate = createParserState(ntok, src)
+        int ast9c = parseWithState(pstate)
         if (hasParserErrors(pstate)) {
             printParserErrors(pstate)
             return
         }
-        let terrs = typeCheckProgram(ast9c)
+        int terrs = typeCheckProgram(ast9c)
         if (len(terrs) > 0) {
-            let te = 0
+            int te = 0
             while (te < len(terrs)) {
                 print(terrs[te])
                 te = te + 1
             }
             return
         }
-        let res9c = natNativeProgram(ast9c, natHasFlag(args, "--regalloc"))
+        int res9c = natNativeProgram(ast9c, natHasFlag(args, "--regalloc"))
         if (res9c[0] != "") {
             print(res9c[0])
             return
@@ -213,8 +213,8 @@ if (command == "native-ast") {
     // comparison while proving nothing about kcc, which is the exact dishonesty
     // 151 was opened to remove.
     if (command == "native-value-start") {
-        let snames = ["start", "syscall", "tail"]
-        let sn = 0
+        Value snames = ["start", "syscall", "tail"]
+        int sn = 0
         while (sn < 3) {
             print(natStartCorpus(sn))
             sn = sn + 1
@@ -229,7 +229,7 @@ if (command == "native-ast") {
     // encoder producing the same bytes would pass the comparison while proving
     // nothing about kcc, which is the exact dishonesty 151 was opened to remove.
     if (command == "native-value-win") {
-        let wn = 0
+        int wn = 0
         while (wn < 7) {
             if (wn == 4) { print(natWinExe(0)) }
             if (wn == 5) { print(natWinExe(3)) }
@@ -244,7 +244,7 @@ if (command == "native-ast") {
     // above -- the three shapes are compiled into kcc and the gate compares them
     // against the real pkg/native Emitter. NO INPUT FILE and no Go fallback.
     if (command == "native-value-print") {
-        let pn = 0
+        int pn = 0
         while (pn < 3) {
             print(natPrintCorpus(pn))
             pn = pn + 1
@@ -255,7 +255,7 @@ if (command == "native-ast") {
     // these are instruction encodings, not a program, so there is nothing here
     // to execute and no execution evidence is claimed.
     if (command == "native-value-float") {
-        let fn8 = 0
+        int fn8 = 0
         while (fn8 < 5) {
             print(natFloatCorpus(fn8))
             fn8 = fn8 + 1
@@ -271,7 +271,7 @@ if (command == "native-ast") {
     // The two IEEE-754 patterns are passed in rather than written here, so the
     // constants live in one place and this file gains no new magic numbers.
     if (command == "native-value-floatstmt") {
-        let fc = 0
+        int fc = 0
         while (fc < 13) {
             print(natFloatStmtCorpus(fc, 4609434218613702656, 4612248968380809216, 8))
             fc = fc + 1
@@ -287,7 +287,7 @@ if (command == "native-ast") {
     // a one-local frame (locals 8 + binTemp 512 + argSpill 96), passed in so the
     // test states them and this file gains no magic numbers.
     if (command == "native-value-call") {
-        let cc = 0
+        int cc = 0
         while (cc < 7) {
             print(natCallCorpus(cc, 616, 608, 8))
             cc = cc + 1
@@ -305,7 +305,7 @@ if (command == "native-ast") {
     // two must be IDENTICAL. That is a stronger claim than "the float shape looks
     // right" -- it says the float path adds no ABI emission at all.
     if (command == "native-value-floatcall") {
-        let fq = 0
+        int fq = 0
         while (fq < 4) {
             print(natFloatCallCorpus(fq, 4609434218613702656, 42, 616, 608, 8))
             fq = fq + 1
@@ -318,7 +318,7 @@ if (command == "native-ast") {
     // index (arm 1 passes an int first) and still line up -- because the
     // load-back indexes by (arg, k) rather than by global unit.
     if (command == "native-value-stringcall") {
-        let st = 0
+        int st = 0
         while (st < 4) {
             print(natStringCallCorpus(st, 616, 8, 608))
             st = st + 1
@@ -341,7 +341,7 @@ if (command == "native-ast") {
 	// can pin the layout numbers themselves and not only the bytes they
 	// produced.
 	if (command == "native-value") {
-        let v = 0
+        int v = 0
         while (v < 2) {
             print(natValueCorpus(v))
             v = v + 1
@@ -349,7 +349,7 @@ if (command == "native-ast") {
         return
     }
     if (command == "native-value-layout") {
-        let l = 0
+        int l = 0
         while (l < 5) {
             print(natValueLayoutCorpus(l))
             l = l + 1
@@ -357,7 +357,7 @@ if (command == "native-ast") {
         return
     }
     if (command == "native-value-prims") {
-        let p = 0
+        int p = 0
         while (p < 15) {
             print(natValuePrim(p))
             p = p + 1
@@ -375,7 +375,7 @@ if (command == "native-ast") {
         return
     }
     if (command == "native-value-cmp") {
-        let c = 0
+        int c = 0
         while (c < 6) {
             print(natIntIfCorpus(c))
             c = c + 1
@@ -383,7 +383,7 @@ if (command == "native-ast") {
         return
     }
     if (command == "native-value-refuse") {
-        let r = 0
+        int r = 0
         while (r < 6) {
             print(natIntRefusal(r))
             r = r + 1
@@ -398,7 +398,7 @@ if (command == "native-ast") {
 	// produce a coincidentally equal stream -- so the names are reported as
 	// their own surface and gated as data.
 	if (command == "native-value-loop") {
-        let q = 0
+        int q = 0
         while (q < 10) {
             print(natLoopCorpus(q))
             q = q + 1
@@ -406,7 +406,7 @@ if (command == "native-ast") {
         return
     }
     if (command == "native-value-loop-labels") {
-        let n = 0
+        int n = 0
         while (n < 10) {
             print(natLoopLabels(n))
             n = n + 1
@@ -454,15 +454,15 @@ func printUsage() {
 }
 
 func checkFile(path) {
-    let source = assembleProject(path)
+    string source = assembleProject(path)
     if (source == "") { return }
 
     // Tokenize
-    let tokens = tokenize(source)
+    Value tokens = tokenize(source)
 
     // Parse (pass source for zero-copy token literal access)
-    let state = createParserState(tokens, source)
-    let ast = parseWithState(state)
+    int state = createParserState(tokens, source)
+    int ast = parseWithState(state)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -473,9 +473,9 @@ func checkFile(path) {
     // Phase 99: run the two-pass type checker. Its error[K1XX] diagnostics are
     // the semantic gate for `karkain check` — when any are present the file is
     // NOT reported as `[ok]`, so the CLI maps the result to ExitCompile.
-    let typeErrs = typeCheckProgram(ast)
+    int typeErrs = typeCheckProgram(ast)
     if (len(typeErrs) > 0) {
-        let ei = 0
+        int ei = 0
         while (ei < len(typeErrs)) {
             print(typeErrs[ei])
             ei = ei + 1
@@ -487,11 +487,11 @@ func checkFile(path) {
     // The self-hosted emitter must round-trip its own v1 contract on every
     // accepted file; failures print error[K121] and skip the [ok] verdict so
     // the CLI maps it to ExitCompile. Success is silent.
-    let kirLines = kirEmit(ast, path)
-    let kirProbs = kirVerify(kirLines, path)
+    Value kirLines = kirEmit(ast, path)
+    Value kirProbs = kirVerify(kirLines, path)
     if (len(kirProbs) > 0) {
         print("error[K121]: KIR structural verification failed for " + path)
-        let pi = 0
+        int pi = 0
         while (pi < len(kirProbs)) {
             print(kirProbs[pi])
             pi = pi + 1
@@ -508,20 +508,20 @@ func checkFile(path) {
 // success prints the KIR v1 text lines followed by a path-less
 // confirmation line (so repeated runs are byte-identical).
 func kirFile(path) {
-    let source = assembleProject(path)
+    string source = assembleProject(path)
     if (source == "") { return }
 
-    let tokens = tokenize(source)
-    let state = createParserState(tokens, source)
-    let ast = parseWithState(state)
+    Value tokens = tokenize(source)
+    int state = createParserState(tokens, source)
+    int ast = parseWithState(state)
 
     if (hasParserErrors(state)) {
         printParserErrors(state)
         return
     }
 
-    let lines = kirEmit(ast, path)
-    let li = 0
+    Value lines = kirEmit(ast, path)
+    int li = 0
     while (li < len(lines)) {
         print(lines[li])
         li = li + 1
@@ -534,23 +534,23 @@ func kirFile(path) {
 // the deterministic count markers; failures print error[K121] problem lines
 // and no [ok] (so the CLI maps them to ExitCompile).
 func verifyFile(path) {
-    let source = assembleProject(path)
+    string source = assembleProject(path)
     if (source == "") { return }
 
-    let tokens = tokenize(source)
-    let state = createParserState(tokens, source)
-    let ast = parseWithState(state)
+    Value tokens = tokenize(source)
+    int state = createParserState(tokens, source)
+    int ast = parseWithState(state)
 
     if (hasParserErrors(state)) {
         printParserErrors(state)
         return
     }
 
-    let lines = kirEmit(ast, path)
-    let problems = kirVerify(lines, path)
+    Value lines = kirEmit(ast, path)
+    Value problems = kirVerify(lines, path)
     if (len(problems) > 0) {
         print("error[K121]: KIR structural verification failed for " + path)
-        let pi = 0
+        int pi = 0
         while (pi < len(problems)) {
             print(problems[pi])
             pi = pi + 1
@@ -584,7 +584,7 @@ func nativeTargetOS(target) {
 // The flag is scanned across ALL the arguments rather than at a fixed
 // position, so the caller does not have to know where the flag sits.
 func natHasFlag(args, name) {
-    let i = 0
+    int i = 0
     while (i < len(args)) {
         if (args[i] == name) { return 1 }
         i = i + 1
@@ -607,12 +607,12 @@ func natHasFlag(args, name) {
 // increment exists to end. Real emission is increments 151A/B/C; see
 // docs/audit/PHASE-151A-BASELINE.md.
 func buildNativeFile(path, target, useRegAlloc) {
-    let source = assembleProject(path)
+    string source = assembleProject(path)
     if (source == "") { return }
 
-    let tokens = tokenize(source)
-    let state = createParserState(tokens, source)
-    let ast = parseWithState(state)
+    Value tokens = tokenize(source)
+    int state = createParserState(tokens, source)
+    int ast = parseWithState(state)
 
     if (hasParserErrors(state)) {
         printParserErrors(state)
@@ -624,9 +624,9 @@ func buildNativeFile(path, target, useRegAlloc) {
     // say so rather than be told it lacks a backend. typeCheckProgram returns
     // the diagnostic list (an array), so len() is the error count -- the same
     // shape `checkFile` uses at line 147.
-    let typeErrs = typeCheckProgram(ast)
+    int typeErrs = typeCheckProgram(ast)
     if (len(typeErrs) > 0) {
-        let ei = 0
+        int ei = 0
         while (ei < len(typeErrs)) {
             print(typeErrs[ei])
             ei = ei + 1
@@ -668,7 +668,7 @@ func buildNativeFile(path, target, useRegAlloc) {
         // It is derived once here so each target name is compared in exactly
         // one place per file, rather than re-tested inside the driver where
         // three copies could drift.
-        let nos = 0
+        int nos = 0
         if (target == "native-x86_64-windows") { nos = 1 }
         if (target == "native-x86_64-macos") { nos = 2 }
         // The source basename goes in as a THIRD argument because the Phase-100 runtime
@@ -677,7 +677,7 @@ func buildNativeFile(path, target, useRegAlloc) {
         // typed. A path would make the diagnostic differ from the Go engine's on the
         // same program, which is a divergence rather than extra detail. fileBaseName
         // already exists for exactly this and is defined above in this file.
-        let nres = natNativeProgramOS(ast, nos, fileBaseName(path), useRegAlloc)
+        int nres = natNativeProgramOS(ast, nos, fileBaseName(path), useRegAlloc)
         if (nres[0] != "") {
           print(nres[0])
           return
@@ -693,15 +693,15 @@ func buildNativeFile(path, target, useRegAlloc) {
 }
 
 func buildFile(path, target) {
-    let source = assembleProject(path)
+    string source = assembleProject(path)
     if (source == "") { return }
 
     // Tokenize
-    let tokens = tokenize(source)
+    Value tokens = tokenize(source)
 
     // Parse (pass source for zero-copy token literal access)
-    let state = createParserState(tokens, source)
-    let ast = parseWithState(state)
+    int state = createParserState(tokens, source)
+    int ast = parseWithState(state)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -713,7 +713,7 @@ func buildFile(path, target) {
     let output = generate(ast, target, fileBaseName(path))
 
     // Output result
-    let outPath = replaceExtension(path, "." + target)
+    string outPath = replaceExtension(path, "." + target)
     let f = createFile(outPath)
     writeToFile(f, output)
     closeFile(f)
@@ -722,15 +722,15 @@ func buildFile(path, target) {
 }
 
 func runFile(path) {
-    let source = assembleProject(path)
+    string source = assembleProject(path)
     if (source == "") { return }
 
     // Tokenize
-    let tokens = tokenize(source)
+    Value tokens = tokenize(source)
 
     // Parse (pass source for zero-copy token literal access)
-    let state = createParserState(tokens, source)
-    let ast = parseWithState(state)
+    int state = createParserState(tokens, source)
+    int ast = parseWithState(state)
 
     // Check for errors
     if (hasParserErrors(state)) {
@@ -742,14 +742,14 @@ func runFile(path) {
     let cCode = generate(ast, "c23", fileBaseName(path))
 
     // Write to temp file
-    let tempPath = "karkain_temp.c"
+    string tempPath = "karkain_temp.c"
     let f = createFile(tempPath)
     writeToFile(f, cCode)
     closeFile(f)
 
     // Compile with gcc (C2X like the Go reference backend: the embedded
     // concurrency runtime needs C11 atomics).
-    let compileCmd = "gcc -std=c2x -o karkain_temp " + tempPath + " -D_POSIX_C_SOURCE=200809L -Wno-psabi -lm"
+    string compileCmd = "gcc -std=c2x -o karkain_temp " + tempPath + " -D_POSIX_C_SOURCE=200809L -Wno-psabi -lm"
     print("Compiling: " + compileCmd)
     let cc = system(compileCmd)
     if (cc != 0) {
@@ -759,7 +759,7 @@ func runFile(path) {
 
     // Run
     print("--- Output ---")
-    let exe = "karkain_temp"
+    string exe = "karkain_temp"
     if (openFile("karkain_temp.exe") != "") { exe = "karkain_temp.exe" }
     // Windows cmd does not accept a "./" prefix; bare names run from the
     // current working directory, whereas POSIX shells need "./" to execute
@@ -780,10 +780,10 @@ func runFile(path) {
 // and "\" separators) returning just the file name, e.g. "prog.kark". Runtime
 // error diagnostics embed this base name so every engine reports the same file.
 func fileBaseName(path) {
-    let i = len(path) - 1
-    let slash = -1
+    int i = len(path) - 1
+    int slash = -1
     while (i >= 0) {
-        let ch = substr(path, i, 1)
+        string ch = substr(path, i, 1)
         if (ch == "/" || ch == "\\") {
             slash = i
             break
@@ -795,10 +795,10 @@ func fileBaseName(path) {
 }
 
 func replaceExtension(path, newExt) {
-    let lastDot = -1
-    let i = len(path) - 1
+    int lastDot = -1
+    int i = len(path) - 1
     while (i >= 0) {
-        let ch = substr(path, i, 1)
+        string ch = substr(path, i, 1)
         if (ch == ".") {
             lastDot = i
             break
@@ -813,9 +813,9 @@ func replaceExtension(path, newExt) {
 
 // Return the directory portion of a path (up to the last '/' or '\').
 func dirName(path) {
-    let i = len(path) - 1
+    int i = len(path) - 1
     while (i >= 0) {
-        let ch = substr(path, i, 1)
+        string ch = substr(path, i, 1)
         if (ch == "/" || ch == "\\") {
             return substr(path, 0, i)
         }
@@ -826,9 +826,9 @@ func dirName(path) {
 
 // Return the basename of a path (after the last '/' or '\').
 func baseName(path) {
-    let i = len(path) - 1
+    int i = len(path) - 1
     while (i >= 0) {
-        let ch = substr(path, i, 1)
+        string ch = substr(path, i, 1)
         if (ch == "/" || ch == "\\") {
             return substr(path, i + 1, len(path) - i - 1)
         }
@@ -838,8 +838,8 @@ func baseName(path) {
 }
 
 func endsWith(s, suffix) {
-    let sl = len(s)
-    let ol = len(suffix)
+    int sl = len(s)
+    int ol = len(suffix)
     if (ol > sl) { return false }
     return substr(s, sl - ol, ol) == suffix
 }
@@ -864,13 +864,13 @@ func endsWith(s, suffix) {
 // byte-for-byte. Unlike the split builtin (which collapses empty runs), this
 // preserves blank lines and therefore exact line numbering.
 func sourceLines(text) {
-    let out = []
-    let pos = 0
-    let n = len(text)
+    Value out = []
+    int pos = 0
+    int n = len(text)
     while (pos < n) {
-        let start = pos
+        int start = pos
         while (pos < n && text[pos] != "\n") { pos = pos + 1 }
-        let end = pos + 1
+        int end = pos + 1
         if (end > n) { end = n }
         out = appendArray(out, substr(text, start, end - start))
         pos = end
@@ -888,19 +888,19 @@ func stripLineEnd(line) {
 // when the line is not exactly `import <name>` (surrounding whitespace and a
 // trailing CR are allowed). C import blocks ("import \"C\"") return "".
 func importNameOf(line) {
-    let t = trim(stripLineEnd(line))
+    string t = trim(stripLineEnd(line))
     if (len(t) < 7) { return "" }
     if (substr(t, 0, 7) != "import ") { return "" }
-    let rest = trim(substr(t, 7, len(t) - 7))
+    string rest = trim(substr(t, 7, len(t) - 7))
     if (len(rest) == 0) { return "" }
-    let c0 = substr(rest, 0, 1)
+    string c0 = substr(rest, 0, 1)
     if (c0 == "\"" || c0 == ".") { return "" }
-    let name = ""
-    let i = 0
-    let stop = 0
-    let alpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_."
+    string name = ""
+    int i = 0
+    int stop = 0
+    string alpha = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_."
     while (i < len(rest) && stop == 0) {
-        let c = substr(rest, i, 1)
+        string c = substr(rest, i, 1)
         if (indexOf(alpha, c) >= 0) {
             name = name + c
             i = i + 1
@@ -921,7 +921,7 @@ func isImportLine(line) {
 
 // arrHas reports whether array arr contains value x.
 func arrHas(arr, x) {
-    let i = 0
+    int i = 0
     while (i < len(arr)) {
         if (arr[i] == x) { return 1 }
         i = i + 1
@@ -932,11 +932,11 @@ func arrHas(arr, x) {
 // moduleImportNames returns the distinct module import names declared in a
 // source text, in declaration order.
 func moduleImportNames(source) {
-    let lines = sourceLines(source)
-    let names = []
-    let i = 0
+    int lines = sourceLines(source)
+    int[] names = []
+    int i = 0
     while (i < len(lines)) {
-        let name = importNameOf(lines[i])
+        int name = importNameOf(lines[i])
         if (name != "") {
             if (arrHas(names, name) == 0) {
                 names = appendArray(names, name)
@@ -951,14 +951,14 @@ func moduleImportNames(source) {
 // newline so the assembled text preserves the original line numbering exactly
 // (mirrors the Go assembler's dotted-import line strip).
 func stripModuleImports(text) {
-    let lines = sourceLines(text)
-    let out = ""
-    let pos = 0
-    let runStart = -1
-    let i = 0
+    int lines = sourceLines(text)
+    string out = ""
+    int pos = 0
+    int runStart = -1
+    int i = 0
     while (i < len(lines)) {
-        let line = lines[i]
-        let ll = len(line)
+        Value line = lines[i]
+        int ll = len(line)
         if (isImportLine(line) == 1) {
             if (runStart >= 0) {
                 out = out + substr(text, runStart, pos - runStart)
@@ -979,10 +979,10 @@ func stripModuleImports(text) {
 // (empty for a missing/non-directory path), excluding exclude.
 func collectKarkFiles(dir, exclude) {
     let entries = listFiles(dir)
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < len(entries)) {
-        let name = entries[i]
+        Value name = entries[i]
         if (endsWith(name, ".kark") == true && name != exclude) {
             out = appendArray(out, name)
         }
@@ -995,15 +995,15 @@ func collectKarkFiles(dir, exclude) {
 // order, falling back to a single-file module (<dirPath>.kark). Returns "" when
 // the module is absent.
 func moduleDirSource(dirPath) {
-    let names = collectKarkFiles(dirPath, "")
-    let content = ""
-    let i = 0
+    int names = collectKarkFiles(dirPath, "")
+    string content = ""
+    int i = 0
     while (i < len(names)) {
         content = content + readFile(dirPath + "/" + names[i]) + "\n\n"
         i = i + 1
     }
     if (content == "") {
-        let single = readFile(dirPath + ".kark")
+        string single = readFile(dirPath + ".kark")
         if (single != "") { content = single + "\n\n" }
     }
     return content
@@ -1015,14 +1015,14 @@ func moduleDirSource(dirPath) {
 // canonical std.string module (so unrelated directories named `stdlib`, such
 // as examples/stdlib, are never mistaken for the library).
 func findStdlibRoot(rootDir) {
-    let libRoot = rootDir + "/lib"
+    string libRoot = rootDir + "/lib"
     if (moduleDirSource(libRoot + "/string") != "") { return libRoot }
     let probe = rootDir
-    let up = 0
+    int up = 0
     while (up < 14) {
-        let cand = probe + "/stdlib"
+        string cand = probe + "/stdlib"
         if (moduleDirSource(cand + "/string") != "") { return cand }
-        let parent = dirName(probe)
+        int parent = dirName(probe)
         if (parent == probe) { return "" }
         probe = parent
         up = up + 1
@@ -1033,7 +1033,7 @@ func findStdlibRoot(rootDir) {
 // resolveStdlibModule returns a std.X module's source from the effective
 // standard-library root, or "" when no stdlib is found.
 func resolveStdlibModule(sub, rootDir) {
-    let root = findStdlibRoot(rootDir)
+    int root = findStdlibRoot(rootDir)
     if (root == "") { return "" }
     return moduleDirSource(root + "/" + sub)
 }
@@ -1047,11 +1047,11 @@ func resolveUserModule(name, dir) {
 // siblingContent joins the root's same-directory sibling .kark modules
 // (excluding the target and any file declaring its own main), sorted.
 func siblingContent(dir, target) {
-    let names = collectKarkFiles(dir, target)
-    let content = ""
-    let i = 0
+    int names = collectKarkFiles(dir, target)
+    string content = ""
+    int i = 0
     while (i < len(names)) {
-        let src = readFile(dir + "/" + names[i])
+        string src = readFile(dir + "/" + names[i])
         if (contains(src, "func main(") == 0) {
             content = content + src + "\n\n"
         }
@@ -1073,16 +1073,16 @@ func siblingContent(dir, target) {
 
 // pmSplitFirst splits s on the first sep occurrence: flat [head, tail].
 func pmSplitFirst(s, sep) {
-    let i = indexOf(s, sep)
+    int i = indexOf(s, sep)
     if (i < 0) { return [s, ""] }
     return [substr(s, 0, i), substr(s, i + len(sep), len(s))]
 }
 
 // pmStripQuotes removes one matching outer quote pair ("" or '').
 func pmStripQuotes(s) {
-    let t = trim(s)
+    string t = trim(s)
     if (len(t) >= 2) {
-        let first = substr(t, 0, 1)
+        string first = substr(t, 0, 1)
         let last = substr(t, len(t) - 1, 1)
         if ((first == "\"" && last == "\"") || (first == "'" && last == "'")) {
             return substr(t, 1, len(t) - 2)
@@ -1094,12 +1094,12 @@ func pmStripQuotes(s) {
 // pmSplitTopLevel splits s on commas outside any {}[]() nesting (mirrors
 // Go splitTopLevel; quoted commas split in both — parity by construction).
 func pmSplitTopLevel(s) {
-    let out = []
-    let cur = ""
-    let depth = 0
-    let i = 0
+    Value out = []
+    string cur = ""
+    int depth = 0
+    int i = 0
     while (i < len(s)) {
-        let c = substr(s, i, 1)
+        string c = substr(s, i, 1)
         if (c == "{" || c == "[" || c == "(") { depth = depth + 1 }
         if (c == "}" || c == "]" || c == ")") { depth = depth - 1 }
         if (c == "," && depth == 0) {
@@ -1120,15 +1120,15 @@ func pmParseDepValue(val) {
     let version = "*"
     let source = "registry"
     let url = ""
-    let t = trim(val)
+    string t = trim(val)
     if (len(t) >= 2 && substr(t, 0, 1) == "{" && substr(t, len(t) - 1, 1) == "}") {
-        let inner = substr(t, 1, len(t) - 2)
-        let pairs = pmSplitTopLevel(inner)
-        let i = 0
+        string inner = substr(t, 1, len(t) - 2)
+        int pairs = pmSplitTopLevel(inner)
+        int i = 0
         while (i < len(pairs)) {
-            let kv = pmSplitFirst(pairs[i], "=")
-            let k = trim(kv[0])
-            let v = pmStripQuotes(kv[1])
+            int kv = pmSplitFirst(pairs[i], "=")
+            string k = trim(kv[0])
+            int v = pmStripQuotes(kv[1])
             if (k == "version") { version = v }
             if (k == "source") { source = v }
             if (k == "url") { url = v }
@@ -1143,12 +1143,12 @@ func pmParseDepValue(val) {
 // manifestDepRecords parses [dependencies] (never dev-dependencies) into
 // flat records [name, version, source, url] * 4.
 func manifestDepRecords(text) {
-    let out = []
-    let lines = sourceLines(text)
-    let inDeps = 0
-    let i = 0
+    Value out = []
+    int lines = sourceLines(text)
+    int inDeps = 0
+    int i = 0
     while (i < len(lines)) {
-        let line = trim(stripLineEnd(lines[i]))
+        string line = trim(stripLineEnd(lines[i]))
         if (line == "" || substr(line, 0, 1) == "#") {
             i = i + 1
         } else {
@@ -1157,10 +1157,10 @@ func manifestDepRecords(text) {
                 i = i + 1
             } else {
                 if (inDeps == 1) {
-                    let kv = pmSplitFirst(line, "=")
+                    int kv = pmSplitFirst(line, "=")
                     if (trim(kv[0]) != "" && trim(kv[1]) != "") {
-                        let name = trim(kv[0])
-                        let val = pmParseDepValue(kv[1])
+                        string name = trim(kv[0])
+                        int val = pmParseDepValue(kv[1])
                         out = appendArray(out, name)
                         out = appendArray(out, val[1])
                         out = appendArray(out, val[2])
@@ -1178,12 +1178,12 @@ func manifestDepRecords(text) {
 // (both "" when absent).
 func lockLookup(text, name) {
     let version = ""
-    let rev = ""
-    let lines = sourceLines(text)
-    let inBlock = 0
-    let i = 0
+    string rev = ""
+    int lines = sourceLines(text)
+    int inBlock = 0
+    int i = 0
     while (i < len(lines)) {
-        let line = trim(stripLineEnd(lines[i]))
+        string line = trim(stripLineEnd(lines[i]))
         if (line == "[[package]]") {
             inBlock = 0
         } else {
@@ -1191,15 +1191,15 @@ func lockLookup(text, name) {
                 inBlock = 0
             } else {
                 if (inBlock == 0 && hasPrefix(line, "name")) {
-                    let kv = pmSplitFirst(line, "=")
+                    int kv = pmSplitFirst(line, "=")
                     if (pmStripQuotes(kv[1]) == name) { inBlock = 1 }
                 } else {
                     if (inBlock == 1 && hasPrefix(line, "version")) {
-                        let kv = pmSplitFirst(line, "=")
+                        int kv = pmSplitFirst(line, "=")
                         version = pmStripQuotes(kv[1])
                     }
                     if (inBlock == 1 && hasPrefix(line, "rev")) {
-                        let kv = pmSplitFirst(line, "=")
+                        int kv = pmSplitFirst(line, "=")
                         rev = pmStripQuotes(kv[1])
                     }
                 }
@@ -1221,11 +1221,11 @@ func pmIsAbs(p) {
 // sanitizeCacheComponent mirrors Go SanitizeCacheComponent exactly:
 // [A-Za-z0-9-_.] kept, every other char becomes _.
 func sanitizeCacheComponent(s) {
-    let allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
-    let out = ""
-    let i = 0
+    string allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+    string out = ""
+    int i = 0
     while (i < len(s)) {
-        let c = substr(s, i, 1)
+        string c = substr(s, i, 1)
         if (indexOf(allowed, c) >= 0) {
             out = out + c
         } else {
@@ -1239,7 +1239,7 @@ func sanitizeCacheComponent(s) {
 // normalizeSourceURL mirrors Go normalizeSourceURL: trim + drop one
 // trailing ".git".
 func normalizeSourceURL(u) {
-    let t = trim(u)
+    string t = trim(u)
     if (endsWith(t, ".git") == 1) {
         return substr(t, 0, len(t) - 4)
     }
@@ -1254,7 +1254,7 @@ func depCacheName(name, version, rev, source, url) {
         return sanitizeCacheComponent(name)
     }
     if (source == "git") {
-        let id = rev
+        string id = rev
         if (id == "") {
             id = version
             if (id == "") { id = "head" }
@@ -1264,7 +1264,7 @@ func depCacheName(name, version, rev, source, url) {
     if (url == "") {
         return sanitizeCacheComponent(name) + "@" + sanitizeCacheComponent(version)
     }
-    let resolved = version
+    string resolved = version
     if (source == "git" && rev != "") { resolved = rev }
     return sanitizeCacheComponent(name) + "@" + sanitizeCacheComponent(resolved) + "+" + sanitizeCacheComponent(source) + "+" + sanitizeCacheComponent(normalizeSourceURL(url))
 }
@@ -1275,11 +1275,11 @@ func depCacheName(name, version, rev, source, url) {
 // Presence is probed with openFile (regular files); directories are never
 // probed for existence at all (see depSourceDir).
 func findProjectRoot(dir) {
-    let probe = dir
-    let up = 0
+    int probe = dir
+    int up = 0
     while (up < 14) {
         if (openFile(probe + "/karkain.toml") != "") { return probe }
-        let parent = dirName(probe)
+        int parent = dirName(probe)
         if (parent == probe) { return "" }
         probe = parent
         up = up + 1
@@ -1289,11 +1289,11 @@ func findProjectRoot(dir) {
 
 // findWorkspaceRoot walks up for karkain.workspace.json.
 func findWorkspaceRoot(dir) {
-    let probe = dir
-    let up = 0
+    int probe = dir
+    int up = 0
     while (up < 14) {
         if (openFile(probe + "/karkain.workspace.json") != "") { return probe }
-        let parent = dirName(probe)
+        int parent = dirName(probe)
         if (parent == probe) { return "" }
         probe = parent
         up = up + 1
@@ -1310,7 +1310,7 @@ func findWorkspaceRoot(dir) {
 // contribute nothing on either engine). Unknown sources yield "".
 func depSourceDir(projectDir, wsRoot, name, source, url, version, rev) {
     if (source == "workspace") {
-        let base = url
+        string base = url
         if (base == "") { base = "deps/" + name }
         if (pmIsAbs(base) == 0) {
             if (wsRoot != "") {
@@ -1321,13 +1321,13 @@ func depSourceDir(projectDir, wsRoot, name, source, url, version, rev) {
         return base
     }
     if (source == "local" || source == "") {
-        let base = url
+        string base = url
         if (base == "") { base = "deps/" + name }
         if (pmIsAbs(base) == 0) { return projectDir + "/" + base }
         return base
     }
     if (source == "registry" || source == "git") {
-        let ver = version
+        string ver = version
         if (source == "registry" && ver == "") { ver = rev }
         return projectDir + "/.karkain/cache/" + depCacheName(name, ver, rev, source, url)
     }
@@ -1339,13 +1339,13 @@ func depSourceDir(projectDir, wsRoot, name, source, url, version, rev) {
 // (main-skip, dedup, root-exclusion) happen once in projectDepSources:
 // Karkain arrays are values, so per-dir joins can not share a dedup set.
 func depDirPaths(dir) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < 2) {
-        let d = dir
+        int d = dir
         if (i == 1) { d = dir + "/src" }
-        let names = collectKarkFiles(d, "")
-        let j = 0
+        int names = collectKarkFiles(d, "")
+        int j = 0
         while (j < len(names)) {
             out = appendArray(out, d + "/" + names[j])
             j = j + 1
@@ -1358,7 +1358,7 @@ func depDirPaths(dir) {
 // pmPathSeen reports membership in the joined-path set (dedup can not use
 // a map: Karkain has none — dep counts are tiny).
 func pmPathSeen(seen, p) {
-    let i = 0
+    int i = 0
     while (i < len(seen)) {
         if (seen[i] == p) { return 1 }
         i = i + 1
@@ -1372,38 +1372,38 @@ func pmPathSeen(seen, p) {
 // skipped (Go check/build/run parity), joined paths deduped, the root file
 // itself excluded.
 func projectDepSources(path) {
-    let dir = dirName(path)
-    let projectDir = findProjectRoot(dir)
+    int dir = dirName(path)
+    int projectDir = findProjectRoot(dir)
     if (projectDir == "") { return "" }
-    let manifest = readFile(projectDir + "/karkain.toml")
+    string manifest = readFile(projectDir + "/karkain.toml")
     if (manifest == "") { return "" }
-    let lockText = readFile(projectDir + "/karkain.lock")
-    let wsRoot = findWorkspaceRoot(dir)
-    let recs = manifestDepRecords(manifest)
-    let names = []
-    let i = 0
+    string lockText = readFile(projectDir + "/karkain.lock")
+    int wsRoot = findWorkspaceRoot(dir)
+    int recs = manifestDepRecords(manifest)
+    int[] names = []
+    int i = 0
     while (i < len(recs)) {
         names = appendArray(names, recs[i])
         i = i + 4
     }
     names = sortStrings(names)
-    let files = []
+    Value files = []
     i = 0
     while (i < len(names)) {
-        let j = 0
+        int j = 0
         while (j < len(recs)) {
             if (recs[j] == names[i]) {
-                let ver = recs[j + 3]
-                let src = recs[j + 1]
-                let url = recs[j + 2]
-                let lk = lockLookup(lockText, names[i])
+                Value ver = recs[j + 3]
+                Value src = recs[j + 1]
+                Value url = recs[j + 2]
+                int lk = lockLookup(lockText, names[i])
                 if (src == "registry" && ver == "") { ver = lk[0] }
-                let rv = ""
+                string rv = ""
                 if (src == "git") { rv = lk[1] }
-                let d = depSourceDir(projectDir, wsRoot, names[i], src, url, ver, rv)
+                int d = depSourceDir(projectDir, wsRoot, names[i], src, url, ver, rv)
                 if (d != "") {
-                    let ps = depDirPaths(d)
-                    let k = 0
+                    int ps = depDirPaths(d)
+                    int k = 0
                     while (k < len(ps)) {
                         files = appendArray(files, ps[k])
                         k = k + 1
@@ -1414,15 +1414,15 @@ func projectDepSources(path) {
         }
         i = i + 1
     }
-    let seen = []
-    let content = ""
+    int[] seen = []
+    string content = ""
     i = 0
     while (i < len(files)) {
-        let p = files[i]
+        Value p = files[i]
         if (p == path || pmPathSeen(seen, p) == 1) {
             i = i + 1
         } else {
-            let src = readFile(p)
+            string src = readFile(p)
             if (contains(src, "func main(") == 0) {
                 content = content + src + "\n\n"
                 seen = appendArray(seen, p)
@@ -1440,19 +1440,19 @@ func projectDepSources(path) {
 // (upstream, mirroring Go projectSourceFiles); the sibling/import content
 // follows; the root file is always last.
 func assembleProject(path) {
-    let rootSrc = readFile(path)
+    string rootSrc = readFile(path)
     if (rootSrc == "") { return "" }
-    let dir = dirName(path)
-    let base = baseName(path)
-    let names = moduleImportNames(rootSrc)
-    let content = projectDepSources(path)
+    int dir = dirName(path)
+    int base = baseName(path)
+    int names = moduleImportNames(rootSrc)
+    int content = projectDepSources(path)
     if (len(names) == 0) {
         content = content + siblingContent(dir, base)
     } else {
-        let i = 0
+        int i = 0
         while (i < len(names)) {
-            let name = names[i]
-            let m = ""
+            Value name = names[i]
+            string m = ""
             if (hasPrefix(name, "std.") == 1) {
                 m = resolveStdlibModule(trimPrefix(name, "std."), dir)
             } else {
@@ -1485,44 +1485,44 @@ func assembleProject(path) {
 // ============================================================
 
 func runTests(testPath, filter) {
-    let files = collectTestFiles(testPath)
+    int files = collectTestFiles(testPath)
     if (len(files) == 0) {
         print("No test files found.")
         return
     }
-    let total = 0
-    let passed = 0
-    let failed = 0
-    let fi = 0
+    int total = 0
+    int passed = 0
+    int failed = 0
+    int fi = 0
     while (fi < len(files)) {
-        let file = files[fi]
+        Value file = files[fi]
         print("=== Running tests in " + file + " ===")
-        let source = readFile(file)
+        string source = readFile(file)
         if (source == "") {
             print("  error reading " + file)
             fi = fi + 1
             continue
         }
-        let tokens = tokenize(source)
-        let state = createParserState(tokens, source)
-        let ast = parseWithState(state)
+        Value tokens = tokenize(source)
+        int state = createParserState(tokens, source)
+        int ast = parseWithState(state)
         if (hasParserErrors(state)) {
             printParserErrors(state)
             fi = fi + 1
             continue
         }
-        let tests = applyFilter(collectTestNames(ast), filter)
-        let tn = len(tests)
+        int tests = applyFilter(collectTestNames(ast), filter)
+        int tn = len(tests)
         if (tn == 0) {
             fi = fi + 1
             continue
         }
         // Fast path: one driver calling every selected test. A clean exit
         // means all passed; a nonzero exit isolates the failing tests.
-        let allDriver = source + "\nfunc main() {\n" + buildCallList(tests) + "}\n"
-        let allCode = compileRunDriver(allDriver)
+        string allDriver = source + "\nfunc main() {\n" + buildCallList(tests) + "}\n"
+        int allCode = compileRunDriver(allDriver)
         if (allCode == 0) {
-            let ti = 0
+            int ti = 0
             while (ti < tn) {
                 print("  PASS " + tests[ti])
                 passed = passed + 1
@@ -1530,11 +1530,11 @@ func runTests(testPath, filter) {
                 ti = ti + 1
             }
         } else {
-            let ti = 0
+            int ti = 0
             while (ti < tn) {
-                let tname = tests[ti]
-                let driver = source + "\nfunc main() {\n    " + tname + "()\n}\n"
-                let code = compileRunDriver(driver)
+                Value tname = tests[ti]
+                string driver = source + "\nfunc main() {\n    " + tname + "()\n}\n"
+                int code = compileRunDriver(driver)
                 if (code == 0) {
                     print("  PASS " + tname)
                     passed = passed + 1
@@ -1557,13 +1557,13 @@ func runTests(testPath, filter) {
 // Discover *_test.kark files under a directory or accept a single file path
 // directly (mirrors findTestFiles / TestCommandFiltered semantics).
 func collectTestFiles(testPath) {
-    let files = []
+    Value files = []
     let entries = listFiles(testPath)
     if (len(entries) > 0) {
-        let n = len(entries)
-        let i = 0
+        int n = len(entries)
+        int i = 0
         while (i < n) {
-            let name = entries[i]
+            Value name = entries[i]
             if (endsWith(name, "_test.kark")) {
                 files = appendArray(files, testPath + "/" + name)
             }
@@ -1574,7 +1574,7 @@ func collectTestFiles(testPath) {
         // top-level listing is empty. Adopt the path as a single file when it
         // looks like a test file or reads back as source (a directory yields
         // "" on Windows fopen, and listFiles already returned nothing).
-        let isTestFile = endsWith(testPath, "_test.kark")
+        bool isTestFile = endsWith(testPath, "_test.kark")
         if (isTestFile) {
             files = appendArray(files, testPath)
         } else if (readFile(testPath) != "") {
@@ -1586,15 +1586,15 @@ func collectTestFiles(testPath) {
 
 // Collect every top-level test_* function name from a parsed program.
 func collectTestNames(ast) {
-    let names = []
-    let stmts = programStatements(ast)
-    let n = len(stmts)
-    let i = 0
+    int[] names = []
+    int stmts = programStatements(ast)
+    int n = len(stmts)
+    int i = 0
     while (i < n) {
-        let stmt = stmts[i]
+        Value stmt = stmts[i]
         if (getNodeType(stmt) == "FuncDecl") {
-            let fname = funcName(stmt)
-            let pl = len(fname)
+            string fname = funcName(stmt)
+            int pl = len(fname)
             if (pl >= 5) {
                 if (substr(fname, 0, 5) == "test_") {
                     names = appendArray(names, fname)
@@ -1609,8 +1609,8 @@ func collectTestNames(ast) {
 // Substring filter over the test name, matching pkg/testing.Filter.
 func applyFilter(names, filter) {
     if (len(filter) == 0) { return names }
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < len(names)) {
         if (contains(names[i], filter) == 1) {
             out = appendArray(out, names[i])
@@ -1622,8 +1622,8 @@ func applyFilter(names, filter) {
 
 // Build the body of a synthesized main that invokes every listed test.
 func buildCallList(names) {
-    let s = ""
-    let i = 0
+    string s = ""
+    int i = 0
     while (i < len(names)) {
         s = s + "    " + names[i] + "()\n"
         i = i + 1
@@ -1634,19 +1634,19 @@ func buildCallList(names) {
 // Tokenize/parse/generate/compile/run one synthesized test driver. Returns the
 // driver's exit code (0 = all assertions held); cleanup is always performed.
 func compileRunDriver(driver) {
-    let tokens = tokenize(driver)
-    let state = createParserState(tokens, driver)
-    let ast = parseWithState(state)
+    Value tokens = tokenize(driver)
+    int state = createParserState(tokens, driver)
+    int ast = parseWithState(state)
     if (hasParserErrors(state)) {
         printParserErrors(state)
         return 1
     }
     let cCode = generate(ast, "c23", "karkain_test.c")
-    let tempPath = "karkain_test.c"
+    string tempPath = "karkain_test.c"
     let f = createFile(tempPath)
     writeToFile(f, cCode)
     closeFile(f)
-    let compileCmd = "gcc -std=c2x -x c -D_POSIX_C_SOURCE=200809L -Wno-psabi -o karkain_test " + tempPath + " -lgmp -lm"
+    string compileCmd = "gcc -std=c2x -x c -D_POSIX_C_SOURCE=200809L -Wno-psabi -o karkain_test " + tempPath + " -lgmp -lm"
     let cc = system(compileCmd)
     if (cc != 0) {
         // Phase 125A: the networking preamble emits Winsock references
@@ -1660,12 +1660,12 @@ func compileRunDriver(driver) {
         }
     }
     // gcc adds .exe on Windows; resolve the actual artifact name.
-    let exe = "karkain_test"
+    string exe = "karkain_test"
     if (openFile("karkain_test.exe") != "") { exe = "karkain_test.exe" }
     // Windows cmd does not accept a "./" prefix; bare names run from the
     // current working directory, whereas POSIX shells need "./" to execute
     // a file that is not on PATH.
-    let code = 0
+    int code = 0
     if (endsWith(exe, ".exe")) {
         code = system(exe)
     } else {
@@ -1681,11 +1681,11 @@ func compileRunDriver(driver) {
 // self-hosted runtime lacks a built-in sort, but string < / > comparisons are
 // supported through binary_op, and index assignment through index_set.
 func sortStrings(arr) {
-    let n = len(arr)
-    let i = 1
+    int n = len(arr)
+    int i = 1
     while (i < n) {
-        let key = arr[i]
-        let j = i - 1
+        Value key = arr[i]
+        int j = i - 1
         while (j >= 0) {
             let gt = arr[j] > key
             if (gt == 0) { break }

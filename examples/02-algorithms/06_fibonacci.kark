@@ -13,11 +13,11 @@ func fib(n) {
     if (n == 1) {
         return 1
     }
-    let a = 0
-    let b = 1
-    let i = 2
+    int a = 0
+    int b = 1
+    int i = 2
     while (i <= n) {
-        let next = a + b
+        int next = a + b
         a = b
         b = next
         i = i + 1

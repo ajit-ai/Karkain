@@ -12,9 +12,9 @@ import std.collections
 
 func count_occurrences(xs) {
     let counts = {}
-    let i = 0
+    int i = 0
     while (i < len(xs)) {
-        let key = str(xs[i])
+        string key = str(xs[i])
         if (map_contains_key(counts, key)) {
             counts[key] = counts[key] + 1
         } else {
@@ -26,7 +26,7 @@ func count_occurrences(xs) {
 }
 
 func main() {
-    let data = [4, 1, 4, 2, 4, 3, 2, 1, 1, 4]
+    int[] data = [4, 1, 4, 2, 4, 3, 2, 1, 1, 4]
     let counts = count_occurrences(data)
     print(counts["1"])
     print(counts["2"])

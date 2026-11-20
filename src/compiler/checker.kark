@@ -164,7 +164,7 @@ func checkerBuiltinArity(name) {
 // ============================================================
 
 func createCheckerTab() {
-    let tab = []
+    Value tab = []
     tab = appendArray(tab, [])  // 0: global symbol names
     tab = appendArray(tab, [])  // 1: global symbol kinds ("func", "struct", "enum", ...)
     tab = appendArray(tab, [])  // 2: global symbol arities
@@ -176,6 +176,7 @@ func createCheckerTab() {
     tab = appendArray(tab, [])  // 7: generic function templates (name -> funcDecl)
     tab = appendArray(tab, [])  // 8: generic struct templates (name -> structDecl)
     tab = appendArray(tab, [])  // 9: instantiated specialization names (to avoid duplicates)
+    tab = appendArray(tab, [])  // 10: function parameter types (name -> [types])
     return tab
 }
 
@@ -186,7 +187,7 @@ func ckConsts(tab)  { return tab[5] }
 // strFindChar returns the index of the first occurrence of `c` in `s`,
 // or -1 when absent. (Self-hosted builtins include substr/len but no indexOf.)
 func strFindChar(s, c) {
-    let i = 0
+    int i = 0
     while (i < len(s)) {
         if (substr(s, i, 1) == c) { return i }
         i = i + 1
@@ -200,13 +201,34 @@ func ckConstAdd(tab, name) {
 }
 
 func ckConstHas(tab, name) {
-    let consts = tab[5]
-    let i = 0
+    Value consts = tab[5]
+    int i = 0
     while (i < len(consts)) {
         if (consts[i] == name) { return 1 }
         i = i + 1
     }
     return 0
+}
+
+func ckSetParamTypes(tab, name, types) {
+    if (name == "") { return }
+    Value tbl = tab[10]
+    int i = 0
+    while (i < len(tbl)) {
+        if (tbl[i][0] == name) { tbl[i] = [name, types]; tab[10] = tbl; return }
+        i = i + 1
+    }
+    tab[10] = appendArray(tbl, [name, types])
+}
+
+func ckGetParamTypes(tab, name) {
+    Value tbl = tab[10]
+    int i = 0
+    while (i < len(tbl)) {
+        if (tbl[i][0] == name) { return tbl[i][1] }
+        i = i + 1
+    }
+    return []
 }
 
 func ckDeclare(tab, name, kind, count) {
@@ -221,9 +243,9 @@ func ckDeclare(tab, name, kind, count) {
 // Rebuilds the parallel variants table (top-level writes only: nested element
 // assignment is not relied upon by the self-hosted compiler).
 func ckSetEnumVariants(tab, name, variants) {
-    let names = tab[0]
-    let rebuilt = []
-    let i = 0
+    Value names = tab[0]
+    Value rebuilt = []
+    int i = 0
     while (i < len(names)) {
         if (names[i] == name) {
             rebuilt = appendArray(rebuilt, variants)
@@ -239,20 +261,20 @@ func ckSetEnumVariants(tab, name, variants) {
 // Raw entries are "Name:" (unit) or "Name:payload"; match on the leading
 // variant name (which is followed by ':' or is the whole entry).
 func ckEnumHasVariant(tab, name, v) {
-    let names = tab[0]
-    let kinds = tab[1]
-    let vari = tab[6]
-    let i = 0
+    Value names = tab[0]
+    Value kinds = tab[1]
+    Value vari = tab[6]
+    int i = 0
     while (i < len(names)) {
         if (names[i] == name && kinds[i] == "enum") {
-            let vs = vari[i]
-            let j = 0
+            Value vs = vari[i]
+            int j = 0
             while (j < len(vs)) {
-                let entry = vs[j]
+                Value entry = vs[j]
                 if (entry == v) { return 1 }
                 // entry's variant name is the longest prefix before ':'
-                let prefix = v + ":"
-                let pl = len(prefix)
+                string prefix = v + ":"
+                int pl = len(prefix)
                 if (len(entry) >= pl && substr(entry, 0, pl) == prefix) { return 1 }
                 j = j + 1
             }
@@ -263,9 +285,9 @@ func ckEnumHasVariant(tab, name, v) {
 }
 
 func ckKind(tab, name) {
-    let names = tab[0]
-    let kinds = tab[1]
-    let i = 0
+    Value names = tab[0]
+    Value kinds = tab[1]
+    int i = 0
     while (i < len(names)) {
         if (names[i] == name) {
             return kinds[i]
@@ -276,9 +298,9 @@ func ckKind(tab, name) {
 }
 
 func ckCount(tab, name) {
-    let names = tab[0]
-    let counts = tab[2]
-    let i = 0
+    Value names = tab[0]
+    Value counts = tab[2]
+    int i = 0
     while (i < len(names)) {
         if (names[i] == name) {
             return counts[i]
@@ -289,8 +311,8 @@ func ckCount(tab, name) {
 }
 
 func ckLocalHas(tab, name) {
-    let locals = ckLocals(tab)
-    let i = 0
+    int locals = ckLocals(tab)
+    int i = 0
     while (i < len(locals)) {
         if (locals[i] == name) {
             return 1
@@ -314,17 +336,18 @@ func ckAddError(tab, code, line, msg) {
 // ============================================================
 
 func collectDecls(tab, stmts) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
-        let s = stmts[i]
-        let nt = getNodeType(s)
+        Value s = stmts[i]
+        string nt = getNodeType(s)
         if (nt == "FuncDecl") {
-            let name = funcName(s)
-            let gp = funcGenericParams(s)
+            string name = funcName(s)
+            int gp = funcGenericParams(s)
             if (name != "" && ckKind(tab, name) != "") {
                 ckAddError(tab, "K107", funcLine(s), "duplicate function definition '" + name + "'")
             } else {
                 ckDeclare(tab, name, "func", len(funcParams(s)))
+                ckSetParamTypes(tab, name, funcParamTypes(s))
                 // Phase 146: register generic function template
                 if (len(gp) > 0) {
                     tab[7] = appendArray(tab[7], name)
@@ -332,8 +355,17 @@ func collectDecls(tab, stmts) {
                 }
             }
         }
+        if (nt == "ConstDecl") {
+            int nm = constDeclName(s)
+            if (nm != "") { ckConstAdd(tab, nm) }
+        }
+        if (nt == "VarDecl" || nt == "LetDecl") {
+            string nm = varDeclName(s)
+            if (nm == "") { nm = letDeclName(s) }
+            if (nm != "") { ckDeclare(tab, nm, "var", 0) }
+        }
         if (nt == "KernelDecl") {
-            let name = kernelName(s)
+            int name = kernelName(s)
             if (name != "" && ckKind(tab, name) != "") {
                 ckAddError(tab, "K107", kernelLine(s), "duplicate function definition '" + name + "'")
             } else {
@@ -341,8 +373,8 @@ func collectDecls(tab, stmts) {
             }
         }
         if (nt == "StructDecl") {
-            let name = structDeclName(s)
-            let gp = structDeclGenericParams(s)
+            string name = structDeclName(s)
+            int gp = structDeclGenericParams(s)
             if (name != "" && ckKind(tab, name) != "") {
                 ckAddError(tab, "K107", structDeclLine(s), "duplicate type definition '" + name + "'")
             } else {
@@ -355,7 +387,7 @@ func collectDecls(tab, stmts) {
             }
         }
         if (nt == "EnumDecl") {
-            let name = enumDeclName(s)
+            int name = enumDeclName(s)
             if (name != "" && ckKind(tab, name) != "") {
                 ckAddError(tab, "K107", enumDeclLine(s), "duplicate type definition '" + name + "'")
             } else {
@@ -375,16 +407,16 @@ func collectDecls(tab, stmts) {
 // own scopes and are deliberately skipped here.
 
 func collectLocals(tab, list) {
-    let i = 0
+    int i = 0
     while (i < len(list)) {
-        let s = list[i]
-        let nt = getNodeType(s)
+        Value s = list[i]
+        string nt = getNodeType(s)
         if (nt == "VarDecl" || nt == "LetDecl") {
-            let nm = varDeclName(s)
+            string nm = varDeclName(s)
             if (nm == "") { nm = letDeclName(s) }
             ckLocalAdd(tab, nm)
         } else if (nt == "ConstDecl") {
-            let nm = constDeclName(s)
+            int nm = constDeclName(s)
             ckLocalAdd(tab, nm)
             ckConstAdd(tab, nm)
         }
@@ -403,9 +435,9 @@ func collectLocals(tab, list) {
             collectLocals(tab, whileBody(s))
         }
         if (nt == "For") {
-            let initNode = forInit(s)
+            int initNode = forInit(s)
             if (initNode != []) {
-                let it = getNodeType(initNode)
+                string it = getNodeType(initNode)
                 if (it == "VarDecl" || it == "LetDecl") {
                     ckLocalAdd(tab, varDeclName(initNode))
                 }
@@ -420,6 +452,68 @@ func collectLocals(tab, list) {
 // Pass 2: function bodies
 // ============================================================
 
+// checkTypeFirstAnno validates explicit array element types and numeric
+// widths on type-first declarations (the scalar case is covered by the
+// existing annotationMismatch/K112 path).
+func checkTypeFirstAnno(tab, anno, val, line) {
+    if (anno == "") { return }
+    int alen = len(anno)
+    if (alen < 2) { return }
+    if (substr(anno, 0, 4) == "map[") {
+        int close = 0
+        int ci = 4
+        while (ci < alen) {
+            if (substr(anno, ci, 1) == "]") { close = ci }
+            ci = ci + 1
+        }
+        if (close == 0) { return }
+        string keyType = substr(anno, 4, close - 4)
+        string valType = substr(anno, close + 1, alen - close - 1)
+        if (getNodeType(val) != "MapLiteral") { return }
+        Value keys = mapKeys(val)
+        Value vals = mapValues(val)
+        int mi = 0
+        while (mi < len(keys) && mi < len(vals)) {
+            string kt = primitiveTag(inferType(keys[mi]))
+            string kw = primitiveTag(keyType)
+            if (kt != "" && kw != "" && kt != kw) {
+                ckAddError(tab, "K112", mapLitLine(val), "map key type '" + kt + "' is not compatible with declared key type '" + kw + "'")
+                return
+            }
+            string vt = primitiveTag(inferType(vals[mi]))
+            string vw = primitiveTag(valType)
+            if (vt != "" && vw != "" && vt != vw) {
+                ckAddError(tab, "K112", mapLitLine(val), "map value type '" + vt + "' is not compatible with declared value type '" + vw + "'")
+                return
+            }
+            mi = mi + 1
+        }
+        return
+    }
+    if (substr(anno, alen - 2, 2) == "[]") {
+        string elemType = substr(anno, 0, alen - 2)
+        if (getNodeType(val) != "ArrayLiteral") { return }
+        int elems = arrayElements(val)
+        int i = 0
+        while (i < len(elems)) {
+            Value e = elems[i]
+            string actual = primitiveTag(inferType(e))
+            string want = primitiveTag(elemType)
+            if (actual != "" && want != "" && actual != want) {
+                ckAddError(tab, "K112", arrayLitLine(val), "array element has type '" + actual + "' but declared element type is '" + want + "'")
+                return
+            }
+            if (getNodeType(e) == "IntLiteral") {
+                int n = int(intLitVal(e))
+                if (want == "byte" && (n < 0 || n > 255)) { ckAddError(tab, "K112", arrayLitLine(val), "integer literal outside the range of byte"); return }
+                if (want == "short" && (n < -32768 || n > 32767)) { ckAddError(tab, "K112", arrayLitLine(val), "integer literal outside the range of short"); return }
+                if (want == "char" && (n < 0 || n > 65535)) { ckAddError(tab, "K112", arrayLitLine(val), "integer literal outside the range of char"); return }
+            }
+            i = i + 1
+        }
+    }
+}
+
 func checkFuncDecl(tab, node, inherit) {
     // Phase 133 UAF fix: `saved` aliases the caller's locals array, and
     // appendArray may REALLOCATE on append — so the caller's buffer must
@@ -430,22 +524,37 @@ func checkFuncDecl(tab, node, inherit) {
     // Nested functions and let-bound lambdas inherit the enclosing scope
     // (mirrors the Go resolver) so captures resolve instead of K101/K102.
     // Only top-level declarations skip the copy (their lets must not leak).
-    let saved = ckLocals(tab)
+    int saved = ckLocals(tab)
     tab[4] = []
     if (inherit == 1) {
-        let si = 0
+        int si = 0
         while (si < len(saved)) {
             ckLocalAdd(tab, saved[si])
             si = si + 1
         }
     }
-    let params = funcParams(node)
-    let i = 0
+    Value params = funcParams(node)
+    int i = 0
     while (i < len(params)) {
         ckLocalAdd(tab, params[i])
         i = i + 1
     }
     collectLocals(tab, funcBody(node))
+    int rtype = tfFuncReturnType(node)
+    if (rtype != "") {
+        string want = primitiveTag(rtype)
+        int ri = 0
+        while (ri < len(funcBody(node))) {
+            Value rs = funcBody(node)[ri]
+            if (getNodeType(rs) == "Return" && want != "") {
+                string actual = primitiveTag(inferType(retVal(rs)))
+                if (actual != "" && actual != want) {
+                    ckAddError(tab, "K112", retLine(rs), "return type '" + actual + "' is not compatible with declared return type '" + want + "'")
+                }
+            }
+            ri = ri + 1
+        }
+    }
     checkStmts(tab, funcBody(node), 0)
     // Phase 133: reject returns of closures capturing locals (K114).
     ckCheckEscapeUnit(tab, funcBody(node))
@@ -457,7 +566,7 @@ checkFuncDecl(tab, node, 0)
 }
 
 func checkStmts(tab, list, loop) {
-    let i = 0
+    int i = 0
     while (i < len(list)) {
         checkStmt(tab, list[i], loop)
         i = i + 1
@@ -483,14 +592,14 @@ func checkStmts(tab, list, loop) {
 // matched value itself. enum_variant carries "Enum.Variant" as a *pattern*,
 // never as a variable; literal and wildcard bind nothing.
 func ckCheckArmBody(tab, arm, loop) {
-    let pt = armPatternType(arm)
-    let b = armBinding(arm)
-    let binds = 0
+    int pt = armPatternType(arm)
+    int b = armBinding(arm)
+    int binds = 0
     if (b != "" && b != "_") {
         if (pt == "Some" || pt == "Ok" || pt == "Err" || pt == "binding") { binds = 1 }
     }
 
-    let saved = ckLocals(tab)
+    int saved = ckLocals(tab)
     // Reset tab[4] to a FRESH array before copying. ckLocalAdd appends to
     // tab[4], and `saved` still references the old array -- copying without
     // this reset appends into the very array being iterated, so len(saved)
@@ -499,7 +608,7 @@ func ckCheckArmBody(tab, arm, loop) {
     // ANY program containing a match. This is the same discipline the function
     // scope above uses.
     tab[4] = []
-    let i = 0
+    int i = 0
     while (i < len(saved)) {
         ckLocalAdd(tab, saved[i])
         i = i + 1
@@ -524,8 +633,8 @@ func ckCheckArmBody(tab, arm, loop) {
     // gate: an expression arm can neither declare a `let` nor contain a
     // `return`, so for those two passes the restriction is correct. Only
     // identifier resolution needs the wider set of shapes.
-    let body = armBody(arm)
-    let bt = getNodeType(body)
+    int body = armBody(arm)
+    string bt = getNodeType(body)
     if (bt == "Block") { checkStmts(tab, blockStmts(body), loop) }
     else if (bt == "ExprStmt" || bt == "Print") { checkStmt(tab, body, loop) }
 
@@ -537,7 +646,7 @@ func checkStmt(tab, s, loop) {
     // realize (e.g. a bare `return` yields an empty value node). They carry no
     // semantics to check, so skip them instead of dereferencing node[kind].
     if (len(s) < 1) { return }
-    let nt = getNodeType(s)
+    string nt = getNodeType(s)
 
     if (nt == "FuncDecl") {
         checkFuncDecl(tab, s, 1)
@@ -549,10 +658,10 @@ func checkStmt(tab, s, loop) {
     }
 
     if (nt == "VarDecl" || nt == "LetDecl") {
-        let nm = varDeclName(s)
-        let anno = varDeclType(s)
-        let val = varDeclValue(s)
-        let line = varDeclLine(s)
+        string nm = varDeclName(s)
+        int anno = varDeclType(s)
+        Value val = varDeclValue(s)
+        int line = varDeclLine(s)
         if (nt == "LetDecl") {
             nm = letDeclName(s)
             anno = letDeclType(s)
@@ -560,6 +669,7 @@ func checkStmt(tab, s, loop) {
             line = letDeclLine(s)
         }
         ckLocalAdd(tab, nm)
+        checkTypeFirstAnno(tab, anno, val, line)
         if (annotationMismatch(anno, val) == 1) {
             ckAddError(tab, "K112", line, "variable '" + nm + "' declared as type '" + primitiveTag(anno) + "' but initialized with a " + typeDescription(inferType(val)))
         }
@@ -568,12 +678,13 @@ func checkStmt(tab, s, loop) {
     }
 
     if (nt == "ConstDecl") {
-        let nm = constDeclName(s)
-        let anno = constDeclType(s)
-        let val = constDeclValue(s)
-        let line = constDeclLine(s)
+        int nm = constDeclName(s)
+        int anno = constDeclType(s)
+        int val = constDeclValue(s)
+        int line = constDeclLine(s)
         ckLocalAdd(tab, nm)
         ckConstAdd(tab, nm)
+        checkTypeFirstAnno(tab, anno, val, line)
         if (annotationMismatch(anno, val) == 1) {
             ckAddError(tab, "K112", line, "variable '" + nm + "' declared as type '" + primitiveTag(anno) + "' but initialized with a " + typeDescription(inferType(val)))
         }
@@ -591,12 +702,12 @@ func checkStmt(tab, s, loop) {
     }
 
     if (nt == "ExprStmt") {
-        let e = exprStmtExpr(s)
+        int e = exprStmtExpr(s)
         // Phase 51 semantics: a bare `x = v` statement implicitly declares x.
         if (getNodeType(e) == "BinaryExpr" && binaryOp(e) == "=") {
-            let lhs = binaryLeft(e)
+            int lhs = binaryLeft(e)
             if (getNodeType(lhs) == "Ident") {
-                let nm = identName(lhs)
+                string nm = identName(lhs)
                 if (nm != "" && ckConstHas(tab, nm) == 1) {
                     ckAddError(tab, "K113", identLine(lhs), "cannot reassign constant '" + nm + "'")
                 }
@@ -623,14 +734,14 @@ func checkStmt(tab, s, loop) {
     }
 
     if (nt == "For") {
-        let initNode = forInit(s)
+        int initNode = forInit(s)
         if (initNode != []) {
-            let it = getNodeType(initNode)
+            string it = getNodeType(initNode)
             if (it == "VarDecl" || it == "LetDecl") {
-                let iname = varDeclName(initNode)
-                let ianno = varDeclType(initNode)
-                let ival = varDeclValue(initNode)
-                let iline = varDeclLine(initNode)
+                string iname = varDeclName(initNode)
+                int ianno = varDeclType(initNode)
+                Value ival = varDeclValue(initNode)
+                int iline = varDeclLine(initNode)
                 if (it == "LetDecl") {
                     iname = letDeclName(initNode)
                     ianno = letDeclType(initNode)
@@ -676,16 +787,16 @@ func checkStmt(tab, s, loop) {
         checkExpr(tab, matchValue(s), loop)
         // Phase 123: validate enum_variant arms against declared enums and
         // walk each arm's pattern value and body. Binding form is "Enum.Variant".
-        let arms = matchArms(s)
-        let a = 0
+        Value arms = matchArms(s)
+        int a = 0
         while (a < len(arms)) {
-            let arm = arms[a]
+            Value arm = arms[a]
             if (armPatternType(arm) == "enum_variant") {
-                let b = armBinding(arm)
-                let sep = strFindChar(b, ".")
+                int b = armBinding(arm)
+                int sep = strFindChar(b, ".")
                 if (sep >= 0) {
-                    let en = substr(b, 0, sep)
-                    let vr = substr(b, sep + 1, len(b) - sep - 1)
+                    string en = substr(b, 0, sep)
+                    string vr = substr(b, sep + 1, len(b) - sep - 1)
                     if (ckKind(tab, en) == "") {
                         ckAddError(tab, "K106", armLine(arm), "use of undefined enum type '" + en + "' in match arm")
                     } else if (ckEnumHasVariant(tab, en, vr) == 0) {
@@ -709,7 +820,7 @@ func checkExpr(tab, e, loop) {
     // Same tolerance as checkStmt: an empty expression node (bare `return`,
     // unparseable primary) has nothing to check.
     if (len(e) < 1) { return }
-    let nt = getNodeType(e)
+    string nt = getNodeType(e)
 
     if (nt == "Ident") {
         checkIdent(tab, e)
@@ -726,8 +837,8 @@ func checkExpr(tab, e, loop) {
     // expression and the arguments for undefined names.
     if (nt == "IndirectCall") {
         checkExpr(tab, indirectTarget(e), loop)
-        let iargs = indirectArgs(e)
-        let i = 0
+        int iargs = indirectArgs(e)
+        int i = 0
         while (i < len(iargs)) {
             checkExpr(tab, iargs[i], loop)
             i = i + 1
@@ -758,16 +869,16 @@ func checkExpr(tab, e, loop) {
     // type existing and the variant being a member; payloads are value reads.
     if (nt == "Match") {
         checkExpr(tab, matchValue(e), loop)
-        let arms = matchArms(e)
-        let a = 0
+        Value arms = matchArms(e)
+        int a = 0
         while (a < len(arms)) {
-            let arm = arms[a]
+            Value arm = arms[a]
             if (armPatternType(arm) == "enum_variant") {
-                let b = armBinding(arm)
-                let sep = strFindChar(b, ".")
+                int b = armBinding(arm)
+                int sep = strFindChar(b, ".")
                 if (sep >= 0) {
-                    let en = substr(b, 0, sep)
-                    let vr = substr(b, sep + 1, len(b) - sep - 1)
+                    string en = substr(b, 0, sep)
+                    string vr = substr(b, sep + 1, len(b) - sep - 1)
                     if (ckKind(tab, en) == "") {
                         ckAddError(tab, "K106", armLine(arm), "use of undefined enum type '" + en + "' in match arm")
                     } else if (ckEnumHasVariant(tab, en, vr) == 0) {
@@ -783,7 +894,7 @@ func checkExpr(tab, e, loop) {
     }
 
     if (nt == "EnumVariantExpr") {
-        let en = enumVariantExprEnumName(e)
+        int en = enumVariantExprEnumName(e)
         if (en != "") {
             if (ckKind(tab, en) == "") {
                 ckAddError(tab, "K106", enumVariantExprLine(e), "use of undefined enum type '" + en + "'")
@@ -791,7 +902,7 @@ func checkExpr(tab, e, loop) {
                 ckAddError(tab, "K113", enumVariantExprLine(e), "unknown enum variant '" + en + "." + enumVariantExprVariant(e) + "'")
             }
         }
-        let val = enumVariantExprValue(e)
+        int val = enumVariantExprValue(e)
         if (val != []) { checkExpr(tab, val, loop) }
         return
     }
@@ -828,8 +939,8 @@ func checkExpr(tab, e, loop) {
     }
 
     if (nt == "ArrayLiteral") {
-        let elems = arrayElements(e)
-        let i = 0
+        int elems = arrayElements(e)
+        int i = 0
         while (i < len(elems)) {
             checkExpr(tab, elems[i], loop)
             i = i + 1
@@ -840,8 +951,8 @@ func checkExpr(tab, e, loop) {
     if (nt == "MapLiteral") {
         // Map keys are conservatively treated as labels (mirrors the Go
         // resolver); only values are value-position reads.
-        let vals = mapValues(e)
-        let i = 0
+        int vals = mapValues(e)
+        int i = 0
         while (i < len(vals)) {
             checkExpr(tab, vals[i], loop)
             i = i + 1
@@ -850,17 +961,17 @@ func checkExpr(tab, e, loop) {
     }
 
     if (nt == "StructLiteral") {
-        let tn = structLitName(e)
+        int tn = structLitName(e)
         if (tn != "") {
-            let k = ckKind(tab, tn)
+            int k = ckKind(tab, tn)
             if (k != "struct" && k != "enum") {
                 ckAddError(tab, "K106", structLitLine(e), "use of undefined type '" + tn + "' in struct literal")
             }
         }
-        let fields = structLitFields(e)
-        let i = 0
+        int fields = structLitFields(e)
+        int i = 0
         while (i < len(fields)) {
-            let f = fields[i]
+            Value f = fields[i]
             // Phase 133: the tag test must read "BinaryExpr" (getNodeType
             // spelling). The old "Binary" never matched, so fields fell
             // into the else below and — once checkExpr learned BinaryExpr
@@ -877,15 +988,15 @@ func checkExpr(tab, e, loop) {
     }
 
     if (nt == "Lambda") {
-        let outer = ckLocals(tab)
+        int outer = ckLocals(tab)
         tab[4] = []
-        let j = 0
+        int j = 0
         while (j < len(outer)) {
             ckLocalAdd(tab, outer[j])
             j = j + 1
         }
-        let params = lambdaParams(e)
-        let k = 0
+        int params = lambdaParams(e)
+        int k = 0
         while (k < len(params)) {
             ckLocalAdd(tab, params[k])
             k = k + 1
@@ -918,8 +1029,8 @@ func checkExpr(tab, e, loop) {
     // a value read (mirrors the Go resolver, which never K102s it);
     // argument expressions resolve normally.
     if (nt == "Spawn") {
-        let sargs = spawnArgs(e)
-        let i = 0
+        int sargs = spawnArgs(e)
+        int i = 0
         while (i < len(sargs)) {
             checkExpr(tab, sargs[i], loop)
             i = i + 1
@@ -939,22 +1050,24 @@ func checkExpr(tab, e, loop) {
 // ============================================================
 
 func checkIdent(tab, e) {
-    let name = identName(e)
+    string name = identName(e)
     if (name == "") { return }
     if (name == "true" || name == "false" || name == "nil" || name == "THIS" || name == "self") { return }
+
     if (ckLocalHas(tab, name) == 1) { return }
+    if (ckConstHas(tab, name) == 1) { return }
     if (ckKind(tab, name) != "") { return }
     if (isCheckerBuiltin(name) == 1) { return }
     ckAddError(tab, "K102", identLine(e), "undefined identifier '" + name + "'")
 }
 
 func checkCall(tab, e, loop) {
-    let name = callFunc(e)
-    let args = callArgs(e)
-    let argc = len(args)
+    string name = callFunc(e)
+    Value args = callArgs(e)
+    int argc = len(args)
 
     // Always inspect arguments (mirrors the Go resolver's recursion).
-    let a = 0
+    int a = 0
     while (a < len(args)) {
         checkExpr(tab, args[a], loop)
         a = a + 1
@@ -964,7 +1077,7 @@ func checkCall(tab, e, loop) {
     if (contains(name, ".") == 1) { return }
 
     if (isCheckerBuiltin(name) == 1) {
-        let want = checkerBuiltinArity(name)
+        int want = checkerBuiltinArity(name)
         if (want >= 0 && want != argc) {
             ckAddError(tab, "K104", callLine(e), "builtin '" + name + "' expects " + str(want) + " arguments but got " + str(argc))
         }
@@ -973,12 +1086,24 @@ func checkCall(tab, e, loop) {
 
     if (ckLocalHas(tab, name) == 1) { return }
 
-    let kind = ckKind(tab, name)
+    int kind = ckKind(tab, name)
     if (kind != "") {
         if (kind == "func" || kind == "kernel") {
-            let want = ckCount(tab, name)
+            int want = ckCount(tab, name)
             if (want >= 0 && want != argc) {
                 ckAddError(tab, "K103", callLine(e), "function '" + name + "' expects " + str(want) + " arguments but got " + str(argc))
+            }
+            Value pts = ckGetParamTypes(tab, name)
+            int pi = 0
+            while (pi < len(pts) && pi < argc) {
+                if (pts[pi] != "") {
+                    string wantTag = primitiveTag(pts[pi])
+                    string gotTag = primitiveTag(inferType(args[pi]))
+                    if (wantTag != "" && gotTag != "" && wantTag != gotTag) {
+                        ckAddError(tab, "K112", callLine(e), "argument " + str(pi + 1) + " of '" + name + "' has type '" + gotTag + "', expected '" + wantTag + "'")
+                    }
+                }
+                pi = pi + 1
             }
         } else {
             ckAddError(tab, "K109", callLine(e), "cannot call type '" + name + "' as a function")
@@ -999,7 +1124,7 @@ func checkCall(tab, e, loop) {
 // ============================================================
 
 func ckTaintedHas(tainted, name) {
-    let i = 0
+    int i = 0
     while (i < len(tainted)) {
         if (tainted[i] == name) { return 1 }
         i = i + 1
@@ -1016,20 +1141,20 @@ func ckTaintedAdd(tainted, name) {
 // function-local state (1) or not (0).
 func ckValueCaptures(e, tainted) {
     if (len(e) < 1) { return 0 }
-    let nt = getNodeType(e)
+    string nt = getNodeType(e)
     if (nt == "FuncDecl") {
         if (len(funcCaptures(e)) > 0) { return 1 }
         return 0
     }
     if (nt == "Lambda") {
-        let caps = computeCaptures(lambdaParams(e), lambdaBody(e))
+        int caps = computeCaptures(lambdaParams(e), lambdaBody(e))
         if (len(caps) > 0) { return 1 }
         return 0
     }
     if (nt == "Ident") { return ckTaintedHas(tainted, identName(e)) }
     if (nt == "ArrayLiteral") {
-        let elems = arrayElements(e)
-        let i = 0
+        int elems = arrayElements(e)
+        int i = 0
         while (i < len(elems)) {
             if (ckValueCaptures(elems[i], tainted) == 1) { return 1 }
             i = i + 1
@@ -1037,14 +1162,14 @@ func ckValueCaptures(e, tainted) {
         return 0
     }
     if (nt == "MapLiteral") {
-        let ks = mapKeys(e)
-        let i = 0
+        int ks = mapKeys(e)
+        int i = 0
         while (i < len(ks)) {
             if (ckValueCaptures(ks[i], tainted) == 1) { return 1 }
             i = i + 1
         }
-        let vs = mapValues(e)
-        let j = 0
+        int vs = mapValues(e)
+        int j = 0
         while (j < len(vs)) {
             if (ckValueCaptures(vs[j], tainted) == 1) { return 1 }
             j = j + 1
@@ -1052,10 +1177,10 @@ func ckValueCaptures(e, tainted) {
         return 0
     }
     if (nt == "StructLiteral") {
-        let fields = structLitFields(e)
-        let i = 0
+        int fields = structLitFields(e)
+        int i = 0
         while (i < len(fields)) {
-            let f = fields[i]
+            Value f = fields[i]
             if (getNodeType(f) == "BinaryExpr") {
                 if (ckValueCaptures(binaryRight(f), tainted) == 1) { return 1 }
             } else {
@@ -1088,8 +1213,8 @@ func ckValueCaptures(e, tainted) {
     }
     if (nt == "Match") {
         if (ckValueCaptures(matchValue(e), tainted) == 1) { return 1 }
-        let arms = matchArms(e)
-        let i = 0
+        Value arms = matchArms(e)
+        int i = 0
         while (i < len(arms)) {
             if (ckValueCaptures(armBody(arms[i]), tainted) == 1) { return 1 }
             i = i + 1
@@ -1103,12 +1228,12 @@ func ckValueCaptures(e, tainted) {
 // function-local state. Blocks share the unit; nested function bodies are
 // separate units (checked via checkFuncDecl / the Lambda branch).
 func ckCollectTainted(stmts, tainted) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
-        let s = stmts[i]
+        Value s = stmts[i]
         if (len(s) < 1) { i = i + 1 }
         else {
-            let nt = getNodeType(s)
+            string nt = getNodeType(s)
             if (nt == "VarDecl") {
                 if (ckValueCaptures(varDeclValue(s), tainted) == 1) {
                     tainted = ckTaintedAdd(tainted, varDeclName(s))
@@ -1135,12 +1260,12 @@ func ckCollectTainted(stmts, tainted) {
             } else if (nt == "ExprStmt") {
                 // A match in statement position may declare lets inside
                 // arm blocks; collect those (expression arms declare nothing).
-                let me = exprStmtExpr(s)
+                int me = exprStmtExpr(s)
                 if (getNodeType(me) == "Match") {
-                    let arms = matchArms(me)
-                    let a = 0
+                    Value arms = matchArms(me)
+                    int a = 0
                     while (a < len(arms)) {
-                        let ab = armBody(arms[a])
+                        int ab = armBody(arms[a])
                         if (getNodeType(ab) == "Block") {
                             tainted = ckCollectTainted(blockStmts(ab), tainted)
                         }
@@ -1157,10 +1282,10 @@ func ckCollectTainted(stmts, tainted) {
 // ckCheckEscapeUnit checks one function-like body: fixpoint-taint every
 // local binding, then reject returns of tainted values.
 func ckCheckEscapeUnit(tab, stmts) {
-    let tainted = []
-    let k = 0
+    Value tainted = []
+    int k = 0
     while (k < 8) {
-        let n0 = len(tainted)
+        int n0 = len(tainted)
         tainted = ckCollectTainted(stmts, tainted)
         if (len(tainted) == n0) { break }
         k = k + 1
@@ -1172,12 +1297,12 @@ func ckCheckEscapeUnit(tab, stmts) {
 // blocks (same frame). Nested named functions are skipped (own units via
 // checkFuncDecl); bare lambdas are hooked at checkExpr's Lambda branch.
 func ckCheckReturns(tab, stmts, tainted) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
-        let s = stmts[i]
+        Value s = stmts[i]
         if (len(s) < 1) { i = i + 1 }
         else {
-            let nt = getNodeType(s)
+            string nt = getNodeType(s)
             if (nt == "Return") {
                 if (ckValueCaptures(retVal(s), tainted) == 1) {
                     ckAddError(tab, "K114", retLine(s), "cannot return closure capturing function-local state (captures are by-ref into the dying frame)")
@@ -1197,12 +1322,12 @@ func ckCheckReturns(tab, stmts, tainted) {
                 // A match in statement position may return directly from
                 // an arm block; check those (bare-expression arms hold no
                 // returns by grammar).
-                let me = exprStmtExpr(s)
+                int me = exprStmtExpr(s)
                 if (getNodeType(me) == "Match") {
-                    let arms = matchArms(me)
-                    let a = 0
+                    Value arms = matchArms(me)
+                    int a = 0
                     while (a < len(arms)) {
-                        let ab = armBody(arms[a])
+                        int ab = armBody(arms[a])
                         if (getNodeType(ab) == "Block") {
                             ckCheckReturns(tab, blockStmts(ab), tainted)
                         }
@@ -1242,13 +1367,13 @@ func ckCheckReturns(tab, stmts, tainted) {
 func monoGpName(gp) {
     // Generic params parse as "T" or "T:Constraint"; the constraint is
     // stored but unchecked in v1, so name matching strips it.
-    let ci = strFindChar(gp, ":")
+    int ci = strFindChar(gp, ":")
     if (ci >= 0) { return substr(gp, 0, ci) }
     return gp
 }
 
 func monoCreateCtx() {
-    let ctx = []
+    Value ctx = []
     ctx = appendArray(ctx, [])  // 0: generic FuncDecl templates
     ctx = appendArray(ctx, [])  // 1: generic StructDecl templates
     ctx = appendArray(ctx, [])  // 2: pending specializations (drained to stmts)
@@ -1262,10 +1387,10 @@ func monoAddError(ctx, line, msg) {
 }
 
 func monoCollect(ctx, stmts) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
-        let s = stmts[i]
-        let nt = getNodeType(s)
+        Value s = stmts[i]
+        string nt = getNodeType(s)
         if (nt == "FuncDecl" && len(funcGenericParams(s)) > 0) {
             ctx[0] = appendArray(ctx[0], s)
         }
@@ -1277,8 +1402,8 @@ func monoCollect(ctx, stmts) {
 }
 
 func monoFindFuncTmpl(ctx, name) {
-    let list = ctx[0]
-    let i = 0
+    Value list = ctx[0]
+    int i = 0
     while (i < len(list)) {
         if (funcName(list[i]) == name) { return list[i] }
         i = i + 1
@@ -1287,8 +1412,8 @@ func monoFindFuncTmpl(ctx, name) {
 }
 
 func monoFindStructTmpl(ctx, name) {
-    let list = ctx[1]
-    let i = 0
+    Value list = ctx[1]
+    int i = 0
     while (i < len(list)) {
         if (structDeclName(list[i]) == name) { return list[i] }
         i = i + 1
@@ -1298,7 +1423,7 @@ func monoFindStructTmpl(ctx, name) {
 
 func monoMangle(base, targs) {
     let result = base
-    let i = 0
+    int i = 0
     while (i < len(targs)) {
         result = result + "_" + targs[i]
         i = i + 1
@@ -1308,13 +1433,13 @@ func monoMangle(base, targs) {
 
 func monoFuncPublic(n) {
     // funcPublic returns a bool/string mix; read the raw slot instead.
-    let s = ""
+    string s = ""
     if (len(n) > 8) { s = n[8] }
     return s == "1"
 }
 
 func monoSubstTypeStr(typeStr, gps, targs) {
-    let i = 0
+    int i = 0
     while (i < len(gps)) {
         if (monoGpName(gps[i]) == typeStr) { return targs[i] }
         i = i + 1
@@ -1325,11 +1450,12 @@ func monoSubstTypeStr(typeStr, gps, targs) {
     if (len(typeStr) > 2 && hasPrefix(typeStr, "[]")) {
         return "[]" + monoSubstTypeStr(substr(typeStr, 2, len(typeStr) - 2), gps, targs)
     }
+
     return typeStr
 }
 
 func monoSubstTarg(t, gps, targs) {
-    let i = 0
+    int i = 0
     while (i < len(gps)) {
         if (monoGpName(gps[i]) == t) { return targs[i] }
         i = i + 1
@@ -1344,22 +1470,22 @@ func monoSubstTarg(t, gps, targs) {
 // nested generics. Unhandled node kinds share the original (read-only —
 // never mutated by the rewriter afterward), exactly like Go's default.
 func monoSubstNode(node, gps, targs) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "VarDecl") {
-        let v = varDeclValue(node)
-        let nv = []
+        Value v = varDeclValue(node)
+        Value nv = []
         if (v != []) { nv = monoSubstNode(v, gps, targs) }
         return makeVarDecl(varDeclName(node), nv, monoSubstTypeStr(varDeclType(node), gps, targs), varDeclLine(node))
     }
     if (nt == "LetDecl") {
-        let v = letDeclValue(node)
-        let nv = []
+        int v = letDeclValue(node)
+        Value nv = []
         if (v != []) { nv = monoSubstNode(v, gps, targs) }
         return makeLetDecl(letDeclName(node), nv, monoSubstTypeStr(letDeclType(node), gps, targs), letDeclLine(node))
     }
     if (nt == "ConstDecl") {
-        let v = constDeclValue(node)
-        let nv = []
+        int v = constDeclValue(node)
+        Value nv = []
         if (v != []) { nv = monoSubstNode(v, gps, targs) }
         return makeConstDecl(constDeclName(node), nv, monoSubstTypeStr(constDeclType(node), gps, targs), constDeclLine(node))
     }
@@ -1376,8 +1502,8 @@ func monoSubstNode(node, gps, targs) {
         return makeExprStmt(monoSubstNode(exprStmtExpr(node), gps, targs), exprStmtLine(node))
     }
     if (nt == "Return") {
-        let v = retVal(node)
-        let nv = []
+        int v = retVal(node)
+        Value nv = []
         if (v != []) { nv = monoSubstNode(v, gps, targs) }
         return makeReturn(nv, retLine(node))
     }
@@ -1388,9 +1514,9 @@ func monoSubstNode(node, gps, targs) {
         return makeWhile(monoSubstNode(whileCond(node), gps, targs), monoSubstStmts(whileBody(node), gps, targs), whileLine(node))
     }
     if (nt == "For") {
-        let ninit = []
-        let ncond = []
-        let npost = []
+        Value ninit = []
+        Value ncond = []
+        Value npost = []
         if (forInit(node) != []) { ninit = monoSubstNode(forInit(node), gps, targs) }
         if (forCond(node) != []) { ncond = monoSubstNode(forCond(node), gps, targs) }
         if (forPost(node) != []) { npost = monoSubstNode(forPost(node), gps, targs) }
@@ -1403,10 +1529,10 @@ func monoSubstNode(node, gps, targs) {
         return makePrint(monoSubstNode(printVal(node), gps, targs), printLine(node))
     }
     if (nt == "Call") {
-        let call = makeCall(callFunc(node), monoSubstStmts(callArgs(node), gps, targs), callLine(node), callCol(node))
-        let ta = callTypeArgs(node)
-        let nta = []
-        let i = 0
+        int call = makeCall(callFunc(node), monoSubstStmts(callArgs(node), gps, targs), callLine(node), callCol(node))
+        Value ta = callTypeArgs(node)
+        Value nta = []
+        int i = 0
         while (i < len(ta)) {
             nta = appendArray(nta, monoSubstTarg(ta[i], gps, targs))
             i = i + 1
@@ -1418,10 +1544,10 @@ func monoSubstNode(node, gps, targs) {
         return makeIndirectCall(monoSubstNode(indirectTarget(node), gps, targs), monoSubstStmts(indirectArgs(node), gps, targs), indirectLine(node))
     }
     if (nt == "StructLiteral") {
-        let lit = makeStructLit(monoSubstTarg(structLitName(node), gps, targs), monoSubstStmts(structLitFields(node), gps, targs), structLitLine(node))
-        let ta = structLitTypeArgs(node)
-        let nta = []
-        let i = 0
+        int lit = makeStructLit(monoSubstTarg(structLitName(node), gps, targs), monoSubstStmts(structLitFields(node), gps, targs), structLitLine(node))
+        int ta = structLitTypeArgs(node)
+        Value nta = []
+        int i = 0
         while (i < len(ta)) {
             nta = appendArray(nta, monoSubstTarg(ta[i], gps, targs))
             i = i + 1
@@ -1442,8 +1568,8 @@ func monoSubstNode(node, gps, targs) {
 }
 
 func monoSubstStmts(list, gps, targs) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < len(list)) {
         out = appendArray(out, monoSubstNode(list[i], gps, targs))
         i = i + 1
@@ -1452,23 +1578,23 @@ func monoSubstStmts(list, gps, targs) {
 }
 
 func monoInstantiateFunc(tmpl, gps, targs) {
-    let spec = makeFuncDecl(monoMangle(funcName(tmpl), targs), funcParams(tmpl), monoSubstStmts(funcBody(tmpl), gps, targs), funcLine(tmpl), funcCol(tmpl))
-    let tg = funcTarget(tmpl)
+    int spec = makeFuncDecl(monoMangle(funcName(tmpl), targs), funcParams(tmpl), monoSubstStmts(funcBody(tmpl), gps, targs), funcLine(tmpl), funcCol(tmpl))
+    int tg = funcTarget(tmpl)
     if (tg != "") { spec = setFuncTarget(spec, tg) }
     if (monoFuncPublic(tmpl) == 1) { spec = setFuncPublic(spec) }
     return spec
 }
 
 func monoInstantiateStruct(tmpl, gps, targs) {
-    let fields = structDeclFields(tmpl)
-    let newFields = []
-    let i = 0
+    int fields = structDeclFields(tmpl)
+    Value newFields = []
+    int i = 0
     while (i < len(fields)) {
-        let f = fields[i]
-        let ci = strFindChar(f, ":")
+        Value f = fields[i]
+        int ci = strFindChar(f, ":")
         if (ci >= 0) {
-            let fname = substr(f, 0, ci)
-            let ftype = substr(f, ci + 1, len(f) - ci - 1)
+            string fname = substr(f, 0, ci)
+            string ftype = substr(f, ci + 1, len(f) - ci - 1)
             newFields = appendArray(newFields, fname + ":" + monoSubstTypeStr(ftype, gps, targs))
         } else {
             newFields = appendArray(newFields, f)
@@ -1479,11 +1605,11 @@ func monoInstantiateStruct(tmpl, gps, targs) {
 }
 
 func monoAddSpec(ctx, spec) {
-    let specName = ""
+    string specName = ""
     if (getNodeType(spec) == "FuncDecl") { specName = funcName(spec) }
     if (getNodeType(spec) == "StructDecl") { specName = structDeclName(spec) }
     if (specName == "") { return }
-    let i = 0
+    int i = 0
     while (i < len(ctx[3])) {
         if (ctx[3][i] == specName) { return }
         i = i + 1
@@ -1498,7 +1624,7 @@ func monoAddSpec(ctx, spec) {
 // nodes. Lambda bodies are descended so generic calls inside closures also
 // instantiate.
 func monoRewriteNode(ctx, node) {
-    let nt = getNodeType(node)
+    string nt = getNodeType(node)
     if (nt == "ExprStmt") {
         node[1] = monoRewriteNode(ctx, exprStmtExpr(node))
         return node
@@ -1561,8 +1687,8 @@ func monoRewriteNode(ctx, node) {
         return node
     }
     if (nt == "ArrayLiteral") {
-        let elems = arrayLitElems(node)
-        let i = 0
+        int elems = arrayLitElems(node)
+        int i = 0
         while (i < len(elems)) {
             elems[i] = monoRewriteNode(ctx, elems[i])
             i = i + 1
@@ -1571,11 +1697,11 @@ func monoRewriteNode(ctx, node) {
         return node
     }
     if (nt == "MapLiteral") {
-        let ks = mapKeys(node)
-        let vs = mapValues(node)
-        let i = 0
+        int ks = mapKeys(node)
+        int vs = mapValues(node)
+        int i = 0
         while (i < len(ks)) { ks[i] = monoRewriteNode(ctx, ks[i]); i = i + 1 }
-        let j = 0
+        int j = 0
         while (j < len(vs)) { vs[j] = monoRewriteNode(ctx, vs[j]); j = j + 1 }
         node[1] = ks
         node[2] = vs
@@ -1594,8 +1720,8 @@ func monoRewriteNode(ctx, node) {
     }
     if (nt == "IndirectCall") {
         node[1] = monoRewriteNode(ctx, indirectTarget(node))
-        let args = indirectArgs(node)
-        let i = 0
+        int args = indirectArgs(node)
+        int i = 0
         while (i < len(args)) {
             args[i] = monoRewriteNode(ctx, args[i])
             i = i + 1
@@ -1616,7 +1742,7 @@ func monoRewriteNode(ctx, node) {
 }
 
 func monoRewriteStmts(ctx, list) {
-    let i = 0
+    int i = 0
     while (i < len(list)) {
         list[i] = monoRewriteNode(ctx, list[i])
         i = i + 1
@@ -1633,18 +1759,18 @@ func monoRewriteTop(ctx, stmt) {
 }
 
 func monoRewriteCall(ctx, node) {
-    let args = callArgs(node)
-    let i = 0
+    Value args = callArgs(node)
+    int i = 0
     while (i < len(args)) {
         args[i] = monoRewriteNode(ctx, args[i])
         i = i + 1
     }
     node[2] = args
-    let targs = callTypeArgs(node)
+    Value targs = callTypeArgs(node)
     if (len(targs) > 0) {
         return monoRewriteGenericCall(ctx, node)
     }
-    let head = callFunc(node)
+    string head = callFunc(node)
     if (monoFindFuncTmpl(ctx, head) != []) {
         monoAddError(ctx, callLine(node), "generic function '" + head + "' requires explicit type arguments (e.g. " + head + "[T](...))")
     }
@@ -1652,18 +1778,18 @@ func monoRewriteCall(ctx, node) {
 }
 
 func monoRewriteGenericCall(ctx, node) {
-    let head = callFunc(node)
-    let targs = callTypeArgs(node)
-    let tmpl = monoFindFuncTmpl(ctx, head)
+    string head = callFunc(node)
+    Value targs = callTypeArgs(node)
+    int tmpl = monoFindFuncTmpl(ctx, head)
     if (tmpl == []) {
         return monoDemoteCall(ctx, node)
     }
-    let gps = funcGenericParams(tmpl)
+    int gps = funcGenericParams(tmpl)
     if (len(targs) != len(gps)) {
         monoAddError(ctx, callLine(node), "generic function '" + head + "' expects " + str(len(gps)) + " type argument(s), got " + str(len(targs)))
         return node
     }
-    let specName = monoMangle(funcName(tmpl), targs)
+    int specName = monoMangle(funcName(tmpl), targs)
     monoAddSpec(ctx, monoInstantiateFunc(tmpl, gps, targs))
     node[1] = specName
     node[5] = []
@@ -1671,11 +1797,11 @@ func monoRewriteGenericCall(ctx, node) {
 }
 
 func monoDemoteCall(ctx, node) {
-    let head = callFunc(node)
-    let targs = callTypeArgs(node)
-    let line = callLine(node)
+    string head = callFunc(node)
+    Value targs = callTypeArgs(node)
+    int line = callLine(node)
     if (len(targs) == 1) {
-        let target = makeIndex(makeIdent(head, line, 0), makeIdent(targs[0], line, 0), line)
+        int target = makeIndex(makeIdent(head, line, 0), makeIdent(targs[0], line, 0), line)
         return makeIndirectCall(target, callArgs(node), line)
     }
     monoAddError(ctx, line, "generic function '" + head + "' expects 1 type argument(s), got " + str(len(targs)))
@@ -1683,32 +1809,32 @@ func monoDemoteCall(ctx, node) {
 }
 
 func monoRewriteStructLit(ctx, node) {
-    let fields = structLitFields(node)
-    let i = 0
+    int fields = structLitFields(node)
+    int i = 0
     while (i < len(fields)) {
         fields[i] = monoRewriteNode(ctx, fields[i])
         i = i + 1
     }
     node[2] = fields
-    let typeName = structLitName(node)
-    let targs = structLitTypeArgs(node)
+    int typeName = structLitName(node)
+    int targs = structLitTypeArgs(node)
     if (len(targs) == 0) {
         if (monoFindStructTmpl(ctx, typeName) != []) {
             monoAddError(ctx, structLitLine(node), "generic struct '" + typeName + "' requires explicit type arguments (e.g. " + typeName + "[T]{...})")
         }
         return node
     }
-    let tmpl = monoFindStructTmpl(ctx, typeName)
+    int tmpl = monoFindStructTmpl(ctx, typeName)
     if (tmpl == []) {
         monoAddError(ctx, structLitLine(node), "generic struct '" + typeName + "' is not defined")
         return node
     }
-    let gps = structDeclGenericParams(tmpl)
+    int gps = structDeclGenericParams(tmpl)
     if (len(targs) != len(gps)) {
         monoAddError(ctx, structLitLine(node), "generic struct '" + typeName + "' expects " + str(len(gps)) + " type argument(s), got " + str(len(targs)))
         return node
     }
-    let specName = monoMangle(structDeclName(tmpl), targs)
+    int specName = monoMangle(structDeclName(tmpl), targs)
     monoAddSpec(ctx, monoInstantiateStruct(tmpl, gps, targs))
     node[1] = specName
     node[4] = []
@@ -1721,21 +1847,21 @@ func monoRewriteStructLit(ctx, node) {
 // write-back `ast[1] = stmts` keeps the program's statements slot pointing at
 // the (possibly reallocated) array — mirroring Go's prog.Statements growth.
 func monomorphizeProgram(ast) {
-    let ctx = monoCreateCtx()
-    let stmts = programStatements(ast)
+    int ctx = monoCreateCtx()
+    Value stmts = programStatements(ast)
     monoCollect(ctx, stmts)
-    let i = 0
+    int i = 0
     while (1) {
         if (i >= len(stmts)) { break }
-        let s = stmts[i]
-        let nt = getNodeType(s)
-        let skip = 0
+        Value s = stmts[i]
+        string nt = getNodeType(s)
+        int skip = 0
         if (nt == "FuncDecl" && len(funcGenericParams(s)) > 0) { skip = 1 }
         if (nt == "StructDecl" && len(structDeclGenericParams(s)) > 0) { skip = 1 }
         if (skip == 0) {
             stmts[i] = monoRewriteTop(ctx, s)
         }
-        let p = 0
+        int p = 0
         while (p < len(ctx[2])) {
             stmts = appendArray(stmts, ctx[2][p])
             p = p + 1
@@ -1758,15 +1884,15 @@ func typeCheckProgram(ast) {
     // pass runs before resolve). K115 diagnostics short-circuit like the Go
     // engine's mono-errors gate: when they are present we do not descend into
     // the template bodies/bare-generic call sites that would cascade.
-    let errs = monomorphizeProgram(ast)
+    int errs = monomorphizeProgram(ast)
     if (len(errs) > 0) { return errs }
-    let tab = createCheckerTab()
-    let stmts = programStatements(ast)
+    int tab = createCheckerTab()
+    Value stmts = programStatements(ast)
     collectDecls(tab, stmts)
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
-        let s = stmts[i]
-        let nt = getNodeType(s)
+        Value s = stmts[i]
+        string nt = getNodeType(s)
         if (nt == "FuncDecl") { checkFuncDecl(tab, s, 0) }
         if (nt == "KernelDecl") { checkKernelDecl(tab, s) }
         i = i + 1

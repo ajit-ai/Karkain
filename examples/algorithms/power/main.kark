@@ -1,6 +1,6 @@
 func power(base, exp) {
-    let result = 1
-    let i = 0
+    int result = 1
+    int i = 0
     while (i < exp) {
         result = result * base
         i = i + 1

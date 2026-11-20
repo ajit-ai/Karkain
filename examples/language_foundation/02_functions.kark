@@ -13,7 +13,7 @@ func describe(x) {
 func main() {
     print(add(10, 20))
     print(sub(10, 20))
-    let r = describe(7)
+    int r = describe(7)
     print(r)
     print(add(add(1, 2), add(3, 4)))
 }

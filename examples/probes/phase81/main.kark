@@ -2,8 +2,8 @@ func isTrue() int {
     return 1
 }
 func main() {
-    let x = 3
-    let y = 5
+    int x = 3
+    int y = 5
     if x < y {
         print(1)
     }
@@ -27,7 +27,7 @@ func main() {
     if 1 {
         print(7)
     }
-    let done = 1
+    int done = 1
     if done {
         print(8)
     }
@@ -39,13 +39,13 @@ func main() {
     if isTrue() {
         print(10)
     }
-    let a = 7
-    let b = 3
+    int a = 7
+    int b = 3
     print(a % b)
-    let c = -7
-    let d = 3
+    int c = -7
+    int d = 3
     print(c % d)
-    let e = 7
-    let f = -3
+    int e = 7
+    int f = -3
     print(e % f)
 }

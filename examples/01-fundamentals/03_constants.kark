@@ -8,12 +8,12 @@
 // Run:  karkain run examples/01-fundamentals/03_constants.kark
 
 func main() {
-    const TAX_RATE = 8
-    const BASE_PRICE = 500
+    const int TAX_RATE = 8
+    const int BASE_PRICE = 500
 
-    let price = BASE_PRICE
-    let tax = price * TAX_RATE / 100
-    let total = price + tax
+    int price = BASE_PRICE
+    int tax = price * TAX_RATE / 100
+    int total = price + tax
     print(total)
     print(TAX_RATE)
 }

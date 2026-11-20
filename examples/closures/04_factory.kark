@@ -12,13 +12,13 @@ func mkadder() fn {
 }
 
 func main() {
-    let a = mkadder()
+    fn a = mkadder()
     print(a(1))
     print(a(2))
     let fns = []
-    let i = 0
+    int i = 0
     while (i < 3) {
-        let k = i * 10
+        int k = i * 10
         fns = appendArray(fns, fn(x int) int { return x + k })
         i = i + 1
     }

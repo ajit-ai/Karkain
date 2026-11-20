@@ -10,8 +10,8 @@ func fsqrt(x) {
     if (x <= 0.0) {
         return 0.0
     }
-    let guess = x / 2.0
-    let i = 0
+    double guess = x / 2.0
+    int i = 0
     while (i < 40) {
         guess = (guess + x / guess) / 2.0
         i = i + 1
@@ -20,8 +20,8 @@ func fsqrt(x) {
 }
 
 func dot(a, b) {
-    let sum = 0
-    let i = 0
+    int sum = 0
+    int i = 0
     while (i < len(a)) {
         sum = sum + a[i] * b[i]
         i = i + 1
@@ -30,14 +30,14 @@ func dot(a, b) {
 }
 
 func matmul(a, b) {
-    let res = []
-    let i = 0
+    int[] res = []
+    int i = 0
     while (i < len(a)) {
-        let row = []
-        let j = 0
+        int[] row = []
+        int j = 0
         while (j < len(b[0])) {
-            let acc = 0
-            let k = 0
+            int acc = 0
+            int k = 0
             while (k < len(b)) {
                 acc = acc + a[i][k] * b[k][j]
                 k = k + 1
@@ -52,19 +52,19 @@ func matmul(a, b) {
 }
 
 func cosine(a, b) {
-    let na = fsqrt(dot(a, a) * 1.0)
-    let nb = fsqrt(dot(b, b) * 1.0)
+    float64 na = fsqrt(dot(a, a) * 1.0)
+    float64 nb = fsqrt(dot(b, b) * 1.0)
     return (dot(a, b) * 1.0) / (na * nb)
 }
 
 @target(cpu)
 func nearest(q, rows) {
     // Cosine similarity: keep the row with the HIGHEST score.
-    let best = -1
-    let bestD = -1.0
-    let i = 0
+    int best = -1
+    float64 bestD = -1.0
+    int i = 0
     while (i < len(rows)) {
-        let d = cosine(q, rows[i])
+        int d = cosine(q, rows[i])
         if (best == -1 || d > bestD) {
             best = i
             bestD = d
@@ -75,22 +75,22 @@ func nearest(q, rows) {
 }
 
 func main() {
-    let a = [1, 2, 3]
-    let b = [4, 5, 6]
+    int[] a = [1, 2, 3]
+    int[] b = [4, 5, 6]
     print("dot=" + str(dot(a, b)))              // 4 + 10 + 18            -> 32
 
-    let m1 = [[1, 2], [3, 4]]
-    let m2 = [[5, 6], [7, 8]]
-    let prod = matmul(m1, m2)
+    int[][] m1 = [[1, 2], [3, 4]]
+    int[][] m2 = [[5, 6], [7, 8]]
+    int[] prod = matmul(m1, m2)
     print("matmul[0][1]=" + str(prod[0][1]))    // 1*6 + 2*8              -> 22
     print("matmul[1][0]=" + str(prod[1][0]))    // 3*5 + 4*7              -> 43
 
-    let v1 = [1.0, 2.0, 3.0]
-    let v2 = [4.0, 5.0, 6.0]
+    float64[] v1 = [1.0, 2.0, 3.0]
+    float64[] v2 = [4.0, 5.0, 6.0]
     print("cosine=" + str(cosine(v1, v2)))      // ~0.974632 (see README)
 
-    let queries = [[1.0, 0.0], [0.0, 1.0]]
-    let bank = [[0.9, 0.1], [0.95, 0.05], [0.2, 0.8]]
+    double[][] queries = [[1.0, 0.0], [0.0, 1.0]]
+    double[][] bank = [[0.9, 0.1], [0.95, 0.05], [0.2, 0.8]]
     print("nearest_q0=" + str(nearest(queries[0], bank))) // most similar     -> 1
     print("nearest_q1=" + str(nearest(queries[1], bank))) // most similar     -> 2
 }

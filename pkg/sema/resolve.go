@@ -57,6 +57,10 @@ type Resolver struct {
 	// record type, plus declaration order so a diagnostic can list them.
 	structs map[string]map[string]bool
 	structFieldOrder map[string][]string
+	// type-first signatures, populated from explicit declarations
+	funcParamTypes  map[string][]string
+	funcReturnTypes map[string]string
+	globals         map[string]bool
 }
 
 // builtinNames is the set of language/standard-library functions handled
@@ -111,6 +115,9 @@ func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 		imported:   make(map[string]bool),
 		structs:    make(map[string]map[string]bool),
 		structFieldOrder: make(map[string][]string),
+		funcParamTypes: make(map[string][]string),
+		funcReturnTypes: make(map[string]string),
+		globals:         make(map[string]bool),
 	}
 	for _, imp := range prog.Imports {
 		r.imported[imp.Name] = true
@@ -122,6 +129,7 @@ func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 	r.collectDefs(prog.Statements, sm)
 	r.collectStructTypes(prog.Statements)
 	r.checkStructFields(prog.Statements)
+	r.checkExplicitTypes(prog.Statements)
 	if sm != nil && len(prog.Imports) > 0 {
 		r.validateImports(prog.Imports, sm)
 	}
@@ -207,6 +215,12 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 				seen[n.Name] = true
 			}
 			r.funcs[n.Name] = true
+			if len(n.ParamTypes) > 0 {
+				r.funcParamTypes[n.Name] = append([]string(nil), n.ParamTypes...)
+			}
+			if n.ReturnType != "" {
+				r.funcReturnTypes[n.Name] = n.ReturnType
+			}
 			if sm != nil && n.Line > 0 {
 				declFile[n.Name] = sm[n.Line]
 			}
@@ -235,7 +249,11 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 				}
 			}
 		case *parser.VarDeclStmt:
-			// Phase 112: track module-level const declarations
+			// Phase 112: track module-level const declarations; type-first
+			// globals are registered as known names in every function scope.
+			if n.Name != "" {
+				r.globals[n.Name] = true
+			}
 			if n.Const && n.Name != "" {
 				r.consts[n.Name] = true
 			}
@@ -754,7 +772,7 @@ func (r *Resolver) checkUndefinedName(n *parser.Identifier, locals map[string]bo
 		return
 	}
 	name := n.Name
-	if locals[name] || r.funcs[name] || r.types[name] || r.builtin[name] {
+	if locals[name] || r.funcs[name] || r.types[name] || r.builtin[name] || r.consts[name] || r.globals[name] {
 		return
 	}
 	// Guard the few keyword-shaped literals that the lexer may surface as

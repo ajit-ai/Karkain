@@ -150,7 +150,7 @@ Example
    import std.string
 
    func main() {
-       let name = "karkain"
+       let name: string = "karkain"
        println(str_to_upper(name))              // KARKAIN
        println(str_concat("hello", " world"))   // hello world
        let parts = str_split("a,b,c", ",")

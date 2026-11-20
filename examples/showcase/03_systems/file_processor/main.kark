@@ -8,17 +8,17 @@
 //   karkain run examples/showcase/03_systems/file_processor/main.kark
 
 func main() {
-    let path = "ledger.txt"
+    string path = "ledger.txt"
 
     writeFile(path, "alpha\nbeta\ngamma\n")
 
-    let data = trim(readFile(path))
+    string data = trim(readFile(path))
     let lines = split(data, "\n")
     print("lines=" + str(len(lines)))
     print("first=" + lines[0])
     print("last=" + lines[len(lines) - 1])
 
-    let args = getArgs()
+    string[] args = getArgs()
     print("args=" + str(len(args)))
 
     removeFile(path)

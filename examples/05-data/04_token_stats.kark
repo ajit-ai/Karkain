@@ -11,14 +11,14 @@
 import std.string
 
 func main() {
-    let text = "the quick brown fox jumps over the lazy dog"
-    let words = str_split(text, " ")
+    string text = "the quick brown fox jumps over the lazy dog"
+    string[] words = str_split(text, " ")
 
     print(len(words))            // token count
 
-    let long_words = 0
-    let total_chars = 0
-    let i = 0
+    int long_words = 0
+    int total_chars = 0
+    int i = 0
     while (i < len(words)) {
         total_chars = total_chars + len(words[i])
         if (len(words[i]) >= 5) {

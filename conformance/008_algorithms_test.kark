@@ -49,7 +49,7 @@ func is_prime(n) {
     if n < 2 {
         return 0
     }
-    let d = 2
+    int d = 2
     while(d * d <= n) {
         if n % d == 0 {
             return 0
@@ -60,7 +60,7 @@ func is_prime(n) {
 }
 
 func test_bubble_sort() {
-    let xs =[64, 34, 25, 12, 22, 11, 90]
+    int[] xs = [64, 34, 25, 12, 22, 11, 90]
     bubble_sort(xs)
     assert_eq(xs[0], 11)
     assert_eq(xs[3], 25)
@@ -69,10 +69,10 @@ func test_bubble_sort() {
 }
 
 func bubble_sort(arr) {
-    let n = len(arr)
-    let i = 0
+    int n = len(arr)
+    int i = 0
     while(i < n) {
-        let j = 0
+        int j = 0
         while(j < n - i - 1) {
             if arr[j] > arr[j + 1] {
                 let tmp = arr[j]
@@ -91,8 +91,8 @@ func test_sum_of_squares() {
 }
 
 func sum_squares(n) {
-    let total = 0
-    let i = 1
+    int total = 0
+    int i = 1
     while(i <= n) {
         total = total + i * i
         i = i + 1

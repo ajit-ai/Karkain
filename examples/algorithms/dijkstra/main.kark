@@ -1,19 +1,19 @@
 func dijkstra(graph, start, target) {
-    let n = len(graph)
-    let dist = []
-    let visited = []
-    let i = 0
+    int n = len(graph)
+    int[] dist = []
+    int[] visited = []
+    int i = 0
     while (i < n) {
         push(dist, 999999)
         push(visited, 0)
         i = i + 1
     }
     dist[start] = 0
-    let count = 0
+    int count = 0
     while (count < n) {
-        let u = -1
-        let best = 999999
-        let v = 0
+        int u = -1
+        int best = 999999
+        int v = 0
         while (v < n) {
             if (visited[v] == 0 && dist[v] < best) {
                 best = dist[v]
@@ -25,7 +25,7 @@ func dijkstra(graph, start, target) {
             count = n
         } else {
             visited[u] = 1
-            let k = 0
+            int k = 0
             while (k < len(graph[u])) {
                 let edge = graph[u][k]
                 let nb = edge[0]

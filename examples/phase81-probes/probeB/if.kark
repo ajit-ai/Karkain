@@ -1,6 +1,6 @@
 func main() {
-    let x = 3
-    let y = 5
+    int x = 3
+    int y = 5
     if x < y {
         print(1)
     }
@@ -24,7 +24,7 @@ func main() {
     if 1 {
         print(7)
     }
-    let done = 1
+    int done = 1
     if done {
         print(8)
     }

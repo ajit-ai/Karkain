@@ -79,7 +79,7 @@ func natRebasePointerSize() { return 8 }
 // the same discipline the ELF writer uses for its program-header count, and it
 // is why a Mach-O header size cannot be baked in anywhere.
 func natMachoTextOffset(hasData) {
-    let segs = 3
+    int segs = 3
     if (hasData) { segs = 4 }
     return natMachoHeaderSize() + segs * natSegCmdSize() + natDyldInfoSize() + natDyldLoaderSize() + natMainCmdSize()
 }
@@ -96,9 +96,9 @@ func natMachoDataOffset(bodyEnd) {
 // but the last. Mirrors appendUleb in pkg/native/macho.go; dyld decodes this
 // and nothing else, so a wrong continuation bit corrupts every later opcode.
 func natAppendUleb(dst, v) {
-    let more = 1
+    int more = 1
     while (more == 1) {
-        let b = v & 127
+        int b = v & 127
         v = v >> 7
         if (v != 0) {
             b = b | 128
@@ -135,13 +135,13 @@ func natAppendUleb(dst, v) {
 // guard stays because that is a property of today's emission, not of this
 // encoding, and a future tighter instruction would otherwise lose a pointer.
 func natMachoRebaseOpcodes(sites) {
-    let sorted = natSortInts(sites)
-    let out = [natRebaseOpSetTypeImm() | natRebaseTypePointer()]
+    int[] sorted = natSortInts(sites)
+    Value out = [natRebaseOpSetTypeImm() | natRebaseTypePointer()]
     let last = 0 - 1
     let cur = 0 - 1
-    let i = 0
+    int i = 0
     while (i < len(sorted)) {
-        let s = sorted[i]
+        Value s = sorted[i]
         if (s != last) {
             let d = s - cur
             if (cur < 0) {
@@ -174,24 +174,24 @@ func natMachoRebaseOpcodes(sites) {
 // rebase sites as it has absolute addresses, tens at most -- so an insertion
 // sort is both fast enough and easy to check against the Go oracle.
 func natSortInts(a) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i < len(a)) {
-        let v = a[i]
-        let j = 0
+        Value v = a[i]
+        int j = 0
         while (j < len(out)) {
             if (out[j] > v) { break }
             j = j + 1
         }
         // Splice v in at position j.
-        let head = []
-        let k = 0
+        Value head = []
+        int k = 0
         while (k < j) {
             head = appendArray(head, out[k])
             k = k + 1
         }
         head = appendArray(head, v)
-        let m = j
+        int m = j
         while (m < len(out)) {
             head = appendArray(head, out[m])
             m = m + 1
@@ -208,14 +208,14 @@ func natSortInts(a) {
 // caller: Karkain strings are length-counted, so a fixed-width field has to be
 // written byte by byte rather than copied.
 func natMachoSegCmd(name, vmaddr, vmsize, fileoff, filesize, maxprot, initprot) {
-    let seg = natZeros(natSegCmdSize())
+    int[] seg = natZeros(natSegCmdSize())
     natPut32(seg, 0, 25)          // LC_SEGMENT_64
     natPut32(seg, 4, natSegCmdSize())
     // seg[8:24] is the name, written 16 bytes wide. Karkain strings are
     // length-counted rather than byte arrays, so a fixed-width binary field is
     // filled a character at a time with the compiler's own asciiVal, and the
     // remaining bytes stay zero.
-    let k = 0
+    int k = 0
     while (k < 16) {
         if (k < len(name)) {
             seg[8 + k] = asciiVal(substr(name, k, 1))
@@ -247,18 +247,18 @@ func natMachoSegCmd(name, vmaddr, vmsize, fileoff, filesize, maxprot, initprot) 
 // contract honest ("these are offsets into .text") and stops the two from
 // drifting apart.
 func natMachoLink(text, rodata, data, textOffset, entryOffset, rebaseSites) {
-    let hasData = false
+    bool hasData = false
     if (len(data) > 0) { hasData = true }
-    let want = natMachoTextOffset(hasData)
+    string want = natMachoTextOffset(hasData)
     if (textOffset != want) {
         return "error[K117]: native mach-o: unsupported text offset " + str(textOffset) + ", want " + str(want)
     }
 
-    let bodyEnd = textOffset + len(text) + len(rodata)
+    int bodyEnd = textOffset + len(text) + len(rodata)
     // __DATA and __LINKEDIT each start on a page boundary, so neither can
     // overlap the mapping before it and both keep fileoff == vmaddr mod page.
     let dataOff = 0
-    let linkEditOff = natMachoDataOffset(bodyEnd)
+    string linkEditOff = natMachoDataOffset(bodyEnd)
     if (hasData) {
         dataOff = linkEditOff
         linkEditOff = natMachoDataOffset(dataOff + len(data))
@@ -266,18 +266,18 @@ func natMachoLink(text, rodata, data, textOffset, entryOffset, rebaseSites) {
 
     // Rebase opcodes address a segment-relative offset, and __TEXT is mapped
     // from file offset 0, so a segment-relative offset is a plain file offset.
-    let segs = []
-    let i = 0
+    Value segs = []
+    int i = 0
     while (i < len(rebaseSites)) {
         segs = appendArray(segs, rebaseSites[i] + textOffset)
         i = i + 1
     }
-    let rebase = natMachoRebaseOpcodes(segs)
+    int[] rebase = natMachoRebaseOpcodes(segs)
 
-    let nsegs = 3
+    int nsegs = 3
     if (hasData) { nsegs = 4 }
 
-    let out = natZeros(natMachoHeaderSize())
+    int[] out = natZeros(natMachoHeaderSize())
     natPut32(out, 0, 4277009103)   // 0xFEEDFACF, little-endian
     natPut32(out, 4, 16777223)     // cputype: x86-64
     natPut32(out, 8, 3)            // cpusubtype: all
@@ -299,27 +299,27 @@ func natMachoLink(text, rodata, data, textOffset, entryOffset, rebaseSites) {
     // bind/weak_bind/lazy_bind/export stay zero -- this image imports nothing
     // (raw syscalls; the loader is named by LC_LOAD_DYLINKER) and exports
     // nothing.
-    let di = natZeros(natDyldInfoSize())
+    int[] di = natZeros(natDyldInfoSize())
     natPut32(di, 0, 2147483682)   // 0x80000022, LC_DYLD_INFO_ONLY
     natPut32(di, 4, natDyldInfoSize())
     natPut32(di, 8, linkEditOff)   // rebase_off, a file offset
     natPut32(di, 12, len(rebase))  // rebase_size
     out = natMachoAppend(out, di)
 
-    let ld = natZeros(natDyldLoaderSize())
+    int[] ld = natZeros(natDyldLoaderSize())
     natPut32(ld, 0, 12)            // LC_LOAD_DYLINKER
     natPut32(ld, 4, natDyldLoaderSize())
     natPut32(ld, 8, 12)            // name offset
     // "/usr/lib/dyld\0" written byte by byte, padded so cmdsize % 8 == 0.
-    let dyld = "/usr/lib/dyld"
-    let d = 0
+    string dyld = "/usr/lib/dyld"
+    int d = 0
     while (d < len(dyld)) {
         ld[12 + d] = asciiVal(substr(dyld, d, 1))
         d = d + 1
     }
     out = natMachoAppend(out, ld)
 
-    let mc = natZeros(natMainCmdSize())
+    int[] mc = natZeros(natMainCmdSize())
     natPut32(mc, 0, 2147483688)   // 0x80000028, LC_MAIN
     natPut32(mc, 4, natMainCmdSize())
     // entryoff is a FILE offset, so the entry is slide-independent.
@@ -339,7 +339,7 @@ func natMachoLink(text, rodata, data, textOffset, entryOffset, rebaseSites) {
 
 // natMachoAppend appends every byte of src to dst.
 func natMachoAppend(dst, src) {
-    let i = 0
+    int i = 0
     while (i < len(src)) {
         dst = appendArray(dst, src[i])
         i = i + 1
@@ -403,19 +403,19 @@ func natMachoSites(which) {
 //   4 - refusal: an unsupported text offset.
 func natMachoCorpus(which) {
     if (which == 0) {
-        let t = natMachoTextOffset(0)
+        string t = natMachoTextOffset(0)
         return "single " + natToHex(natMachoLink(natMachoText(), natMachoRodata(), [], t, t + 15, natMachoSites(0)))
     }
     if (which == 1) {
-        let t = natMachoTextOffset(1)
+        string t = natMachoTextOffset(1)
         return "arena " + natToHex(natMachoLink(natMachoText(), natMachoRodata(), natMachoData(), t, t + 15, natMachoSites(1)))
     }
     if (which == 2) {
-        let t = natMachoTextOffset(1)
+        string t = natMachoTextOffset(1)
         return "nosite " + natToHex(natMachoLink(natMachoText(), natMachoRodata(), natMachoData(), t, t + 15, natMachoSites(2)))
     }
     if (which == 3) {
-        let t = natMachoTextOffset(0)
+        string t = natMachoTextOffset(0)
         return "adjacent " + natToHex(natMachoLink(natMachoText(), natMachoRodata(), [], t, t + 15, natMachoSites(3)))
     }
     if (which == 4) {

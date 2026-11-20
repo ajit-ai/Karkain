@@ -10,12 +10,12 @@
 import std.encoding
 
 func main() {
-    let message = "verify me"
-    let h = hex_encode(message)
+    string message = "verify me"
+    string h = hex_encode(message)
     print(h)
     print(hex_decode(h))
 
-    let b = base64_encode(message)
+    string b = base64_encode(message)
     print(b)
     print(base64_decode(b))
 }

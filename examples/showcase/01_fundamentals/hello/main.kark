@@ -19,8 +19,8 @@ func classify(x) {
 }
 
 func sumSquares(arr) {
-    let total = 0
-    let i = 0
+    int total = 0
+    int i = 0
     while (i < len(arr)) {
         total = total + arr[i] * arr[i]
         i = i + 1
@@ -31,10 +31,10 @@ func sumSquares(arr) {
 func main() {
     print("Hello, Karkain!")
 
-    let count = 10        // dynamic typing, like most values in Karkain
-    let rate: float = 2.5 // explicit annotations are optional and enforced
-    let name = "Karkain"
-    let ok = true
+    int count = 10        // dynamic typing, like most values in Karkain
+    float rate = 2.5 // explicit annotations are optional and enforced
+    string name = "Karkain"
+    bool ok = true
 
     print(count + 3)      // integer arithmetic           -> 13
     print(rate * 4.0)     // float arithmetic             -> 10
@@ -47,7 +47,7 @@ func main() {
     print(classify(0))    // -> zero
     print(classify(7))    // -> positive
 
-    let i = 1
+    int i = 1
     while (i <= 5) {
         print(i * i)      // 1 4 9 16 25
         i = i + 1
@@ -55,7 +55,7 @@ func main() {
 
     print(fib(10))        // recursion                    -> 55
 
-    let xs = [3, 1, 4, 1, 5]
+    int[] xs = [3, 1, 4, 1, 5]
     print(len(xs))        // array length                 -> 5
     print(sumSquares(xs)) // 9 + 1 + 16 + 1 + 25          -> 52
     push(xs, 9)

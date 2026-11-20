@@ -13,16 +13,16 @@ import std.string
 import std.collections
 
 func main() {
-    let rows = "north,10\nsouth,20\nnorth,5\nwest,15"
+    string rows = "north,10\nsouth,20\nnorth,5\nwest,15"
 
     let by_region = {}
     let by_region_count = {}
-    let lines = str_split(rows, "\n")
-    let i = 0
+    string[] lines = str_split(rows, "\n")
+    int i = 0
     while (i < len(lines)) {
-        let fields = str_split(lines[i], ",")
-        let region = fields[0]
-        let value = str_to_int(fields[1])
+        string[] fields = str_split(lines[i], ",")
+        string region = fields[0]
+        int value = str_to_int(fields[1])
 
         if (map_contains_key(by_region, region)) {
             by_region[region] = by_region[region] + value

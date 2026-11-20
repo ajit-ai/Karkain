@@ -56,6 +56,13 @@ const (
 	TokenStruct  TokenType = "STRUCT"
 	TokenTypeDef TokenType = "TYPE"
 	TokenBool    TokenType = "BOOL"
+	TokenByte    TokenType = "BYTE"
+	TokenShort   TokenType = "SHORT"
+	TokenLong    TokenType = "LONG"
+	TokenFloat   TokenType = "FLOAT"
+	TokenDouble  TokenType = "DOUBLE"
+	TokenChar    TokenType = "CHAR"
+	TokenValue   TokenType = "VALUE"
 	TokenTrue    TokenType = "TRUE"
 	TokenFalse   TokenType = "FALSE"
 
@@ -66,6 +73,7 @@ const (
 	TokenBigInt  TokenType = "BIGINT"
 	TokenBigFloat TokenType = "BIGFLOAT"
 	TokenString  TokenType = "STRING"
+	TokenCharLit TokenType = "CHARLIT"
 
 	// Operators & Delimiters
 	TokenAssign       TokenType = "="
@@ -361,6 +369,8 @@ func (l *Lexer) NextToken() Token {
 		tok = Token{Type: TokenQuestion, Start: uint32(l.Position), Len: 1, Line: uint16(l.Line), Col: uint16(l.Col)}
 	case '"':
 		return l.scanString()
+	case '\'':
+		return l.scanChar()
 	case 0:
 		tok = Token{Type: TokenEOF, Start: uint32(l.Position), Len: 0, Line: uint16(l.Line), Col: uint16(l.Col)}
 	default:
@@ -519,6 +529,33 @@ func (l *Lexer) scanString() Token {
 	return Token{Type: TokenString, Start: uint32(tokStart), Len: uint16(tokLen), Line: uint16(startLine), Col: uint16(startCol)}
 }
 
+// scanChar reads a character literal: 'A' or an escape such as '\n'.
+// The token literal holds the source text between the quotes; the parser
+// lowers it to its integer code point (char is represented as an integer).
+func (l *Lexer) scanChar() Token {
+	startLine := l.Line
+	startCol := l.Col
+	startPos := l.Position
+	l.readChar()
+	l.Col++
+	tokLen := 1
+	if l.Ch == '\\' {
+		tokLen = 2
+		l.readChar()
+		l.Col++
+	}
+	l.readChar() // consume character (or escaped character)
+	l.Col++
+	tokStart := startPos + 1
+	if l.Ch == '\'' {
+		l.readChar()
+		l.Col++
+	} else {
+		l.Errors = append(l.Errors, LexError{Line: startLine, Col: startCol + 1, Msg: "unterminated character literal"})
+	}
+	return Token{Type: TokenCharLit, Start: uint32(tokStart), Len: uint16(tokLen), Line: uint16(startLine), Col: uint16(startCol)}
+}
+
 // Read C import block content between { }
 func (l *Lexer) readCBlock() string {
 	pos := l.Position + 1 // skip {
@@ -617,6 +654,20 @@ func lookupIdent(ident string) TokenType {
 		return TokenStruct
 	case "bool":
 		return TokenBool
+	case "byte":
+		return TokenByte
+	case "short":
+		return TokenShort
+	case "long":
+		return TokenLong
+	case "float":
+		return TokenFloat
+	case "double":
+		return TokenDouble
+	case "char":
+		return TokenChar
+	case "Value":
+		return TokenValue
 	case "bigint":
 		return TokenBigInt
 	case "bigfloat":

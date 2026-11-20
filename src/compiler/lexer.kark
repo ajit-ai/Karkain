@@ -101,13 +101,21 @@ func TK_INT()          { return 140 }
 func TK_FLOAT64()      { return 141 }
 func TK_STRING()       { return 142 }
 func TK_CONST()        { return 143 }
+func TK_BYTE()         { return 144 }
+func TK_SHORT()        { return 145 }
+func TK_LONG()         { return 146 }
+func TK_FLOAT()        { return 147 }
+func TK_DOUBLE()       { return 148 }
+func TK_CHAR()         { return 149 }
+func TK_CHAR_LIT()     { return 150 }
+func TK_VALUE()        { return 151 }
 
 // ============================================================
 // Token: [kind, startOffset, length, line, col]
 // ============================================================
 
 func createToken(kind, start, tokLen, line, col) {
-    let tok = []
+    int[] tok = []
     tok = appendArray(tok, kind)
     tok = appendArray(tok, start)
     tok = appendArray(tok, tokLen)
@@ -123,8 +131,8 @@ func tokenLine(tok)     { return tok[3] }
 func tokenCol(tok)      { return tok[4] }
 
 func tokenLiteral(tok, source) {
-    let s = tokenStart(tok)
-    let l = tokenLen(tok)
+    int s = tokenStart(tok)
+    int l = tokenLen(tok)
     if (l <= 0) { return "" }
     return substr(source, s, l)
 }
@@ -134,7 +142,7 @@ func tokenLiteral(tok, source) {
 // ============================================================
 
 func createLexerState(source) {
-    let state = []
+    int[] state = []
     state = appendArray(state, source)
     state = appendArray(state, 0)
     state = appendArray(state, 1)
@@ -151,17 +159,17 @@ func setLxLine(state, v) { state[2] = v }
 func setLxCol(state, v)  { state[3] = v }
 
 func lxPeek(state) {
-    let src = lxSource(state)
-    let pos = lxPos(state)
+    string src = lxSource(state)
+    string pos = lxPos(state)
     if (pos >= len(src)) { return "" }
     return substr(src, pos, 1)
 }
 
 func lxAdvance(state) {
-    let src = lxSource(state)
-    let pos = lxPos(state)
+    string src = lxSource(state)
+    string pos = lxPos(state)
     if (pos >= len(src)) { return "" }
-    let ch = substr(src, pos, 1)
+    string ch = substr(src, pos, 1)
     setLxPos(state, pos + 1)
     if (ch == "\n") {
         setLxLine(state, lxLine(state) + 1)
@@ -173,8 +181,8 @@ func lxAdvance(state) {
 }
 
 func lxPeekAt(state, offset) {
-    let src = lxSource(state)
-    let pos = lxPos(state) + offset
+    string src = lxSource(state)
+    string pos = lxPos(state) + offset
     if (pos >= len(src)) { return "" }
     return substr(src, pos, 1)
 }
@@ -185,14 +193,14 @@ func lxPeekAt(state, offset) {
 
 func isKarkLetter(ch) {
     if (ch == "_") { return 1 }
-    let c = asciiVal(ch)
+    int c = asciiVal(ch)
     if (c >= 65 && c <= 90)  { return 1 }
     if (c >= 97 && c <= 122) { return 1 }
     return 0
 }
 
 func isKarkDigit(ch) {
-    let c = asciiVal(ch)
+    int c = asciiVal(ch)
     if (c >= 48 && c <= 57) { return 1 }
     return 0
 }
@@ -331,6 +339,13 @@ func lookupKeyword(ident) {
     if (ident == "type")     { return TK_TYPE() }
     if (ident == "bool")     { return TK_BOOL() }
     if (ident == "int")      { return TK_INT() }
+    if (ident == "byte")     { return TK_BYTE() }
+    if (ident == "short")    { return TK_SHORT() }
+    if (ident == "long")     { return TK_LONG() }
+    if (ident == "float")    { return TK_FLOAT() }
+    if (ident == "double")   { return TK_DOUBLE() }
+    if (ident == "char")     { return TK_CHAR() }
+    if (ident == "Value")    { return TK_VALUE() }
     if (ident == "float64")  { return TK_FLOAT64() }
     if (ident == "string")   { return TK_STRING() }
     if (ident == "true")     { return TK_TRUE() }
@@ -372,7 +387,7 @@ func lookupKeyword(ident) {
 
 func skipWhitespace(state) {
     while (1) {
-        let ch = lxPeek(state)
+        string ch = lxPeek(state)
         if (ch == " ") {
             lxAdvance(state)
             continue
@@ -403,7 +418,7 @@ func skipWhitespace(state) {
             lxAdvance(state) // skip /
             lxAdvance(state) // skip *
             while (1) {
-                let c = lxPeek(state)
+                string c = lxPeek(state)
                 if (c == "") { break }
                 if (c == "*" && lxPeekAt(state, 1) == "/") {
                     lxAdvance(state) // skip *
@@ -424,13 +439,13 @@ func skipWhitespace(state) {
 // ============================================================
 
 func scanString(state) {
-    let startLine = lxLine(state)
-    let startCol = lxCol(state)
-    let startPos = lxPos(state) + 1 // skip opening quote
+    string startLine = lxLine(state)
+    string startCol = lxCol(state)
+    string startPos = lxPos(state) + 1 // skip opening quote
     lxAdvance(state) // consume "
 
     while (1) {
-        let ch = lxPeek(state)
+        string ch = lxPeek(state)
         if (ch == "" || ch == "\n") { break }
         if (ch == "\\") {
             lxAdvance(state) // skip backslash
@@ -441,16 +456,36 @@ func scanString(state) {
         lxAdvance(state)
     }
 
-    let tokLen = lxPos(state) - startPos
+    string tokLen = lxPos(state) - startPos
     lxAdvance(state) // consume closing "
 
     return createToken(TK_STRING_LIT(), startPos, tokLen, startLine, startCol)
 }
 
+// scanChar reads a single-quoted character literal. The token spans the
+// character text (or a two-character escape); the parser lowers it to its
+// integer code, since `char` is represented as an integer.
+func scanChar(state) {
+    string startLine = lxLine(state)
+    string startCol = lxCol(state)
+    string startPos = lxPos(state) + 1
+    lxAdvance(state) // consume opening quote
+    int escaped = 0
+    if (lxPeek(state) == "\\") {
+        escaped = 1
+        lxAdvance(state)
+    }
+    int tokLen = 1
+    if (escaped == 1) { tokLen = 2 }
+    lxAdvance(state) // consume character
+    if (lxPeek(state) == "'") { lxAdvance(state) }
+    return createToken(TK_CHAR_LIT(), startPos, tokLen, startLine, startCol)
+}
+
 func scanNumber(state) {
-    let startLine = lxLine(state)
-    let startCol = lxCol(state)
-    let startPos = lxPos(state)
+    string startLine = lxLine(state)
+    string startCol = lxCol(state)
+    string startPos = lxPos(state)
 
     while (isKarkDigit(lxPeek(state)) == 1) {
         lxAdvance(state)
@@ -462,26 +497,26 @@ func scanNumber(state) {
         while (isKarkDigit(lxPeek(state)) == 1) {
             lxAdvance(state)
         }
-        let tokLen = lxPos(state) - startPos
+        string tokLen = lxPos(state) - startPos
         return createToken(TK_FLOAT_LIT(), startPos, tokLen, startLine, startCol)
     }
 
-    let tokLen = lxPos(state) - startPos
+    string tokLen = lxPos(state) - startPos
     return createToken(TK_INT_LIT(), startPos, tokLen, startLine, startCol)
 }
 
 func scanIdent(state) {
-    let startLine = lxLine(state)
-    let startCol = lxCol(state)
-    let startPos = lxPos(state)
+    string startLine = lxLine(state)
+    string startCol = lxCol(state)
+    string startPos = lxPos(state)
 
     while (isKarkAlphaNum(lxPeek(state)) == 1) {
         lxAdvance(state)
     }
 
-    let tokLen = lxPos(state) - startPos
-    let ident = substr(lxSource(state), startPos, tokLen)
-    let kind = lookupKeyword(ident)
+    string tokLen = lxPos(state) - startPos
+    string ident = substr(lxSource(state), startPos, tokLen)
+    string kind = lookupKeyword(ident)
     return createToken(kind, startPos, tokLen, startLine, startCol)
 }
 
@@ -490,25 +525,31 @@ func scanIdent(state) {
 // ============================================================
 
 func tokenize(source) {
-    let state = createLexerState(source)
-    let tokens = []
+    string state = createLexerState(source)
+    Value tokens = []
 
     while (1) {
         skipWhitespace(state)
 
-        let ch = lxPeek(state)
+        string ch = lxPeek(state)
         if (ch == "") {
             tokens = appendArray(tokens, createToken(TK_EOF(), lxPos(state), 0, lxLine(state), lxCol(state)))
             break
         }
 
-        let startLine = lxLine(state)
-        let startCol = lxCol(state)
-        let startPos = lxPos(state)
+        string startLine = lxLine(state)
+        string startCol = lxCol(state)
+        string startPos = lxPos(state)
 
         // String literal
         if (ch == "\"") {
             tokens = appendArray(tokens, scanString(state))
+            continue
+        }
+
+        // Character literal
+        if (ch == "'") {
+            tokens = appendArray(tokens, scanChar(state))
             continue
         }
 
@@ -526,7 +567,7 @@ func tokenize(source) {
 
         // Single-char tokens
         lxAdvance(state)
-        let tokLen = 1
+        int tokLen = 1
 
         if (ch == "(") {
             tokens = appendArray(tokens, createToken(TK_LPAREN(), startPos, tokLen, startLine, startCol))

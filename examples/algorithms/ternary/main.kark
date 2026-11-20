@@ -1,12 +1,12 @@
 func ternary_search(data, target) {
-    let low = 0
-    let high = len(data) - 1
+    int low = 0
+    int high = len(data) - 1
     while (low <= high) {
-        let third = (high - low) / 3
-        let mid1 = low + third
-        let mid2 = high - third
-        let e1 = data[mid1]
-        let e2 = data[mid2]
+        int third = (high - low) / 3
+        int mid1 = low + third
+        int mid2 = high - third
+        int e1 = data[mid1]
+        int e2 = data[mid2]
         if (e1 == target) {
             return mid1
         }
@@ -26,7 +26,7 @@ func ternary_search(data, target) {
 }
 
 func main() {
-    let data = [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    int[] data = [10, 20, 30, 40, 50, 60, 70, 80, 90]
     print("Ternary Search for 80:")
     print(ternary_search(data, 80))
     print("Ternary Search for 75 (not found):")

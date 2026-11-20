@@ -13,11 +13,11 @@ func f(x) {
 
 func trapezoid(a, b, n) {
     let h = (b - a) / n
-    let total = 0.0
-    let i = 0
+    float64 total = 0.0
+    int i = 0
     while (i < n) {
-        let x0 = a + i * h
-        let x1 = x0 + h
+        int x0 = a + i * h
+        int x1 = x0 + h
         total = total + (f(x0) + f(x1)) / 2 * h
         i = i + 1
     }

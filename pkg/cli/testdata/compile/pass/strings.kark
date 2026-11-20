@@ -1,9 +1,9 @@
 func main() {
-    let s = "karkain"
+    string s = "karkain"
     print(s)
     print(len(s))
-    let b = s == "karkain"
+    string b = s == "karkain"
     print(b)
-    let c: string = "prefix_" + s
+    string c = "prefix_" + s
     print(c)
 }

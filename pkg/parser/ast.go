@@ -25,6 +25,7 @@ type FuncDecl struct {
 	Name          string
 	Params        []string
 	ParamTypes    []string // Phase 46: typed parameters (e.g., "int", "string")
+	ReturnType    string   // Type-first function return type (e.g. `int add(...)`)
 	Body          []Node
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 	Captures      []string           // Phase 54: free variables captured from enclosing scope (lambdas only)

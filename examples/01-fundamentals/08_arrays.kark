@@ -9,7 +9,7 @@
 // Run:  karkain run examples/01-fundamentals/08_arrays.kark
 
 func main() {
-    let primes = [2, 3, 5, 7, 11]
+    int[] primes = [2, 3, 5, 7, 11]
     print(len(primes))
     print(primes[0])
     print(primes[4])
@@ -18,8 +18,8 @@ func main() {
     primes[2] = 0
     print(primes[2])
 
-    let collected = []
-    let i = 0
+    int[] collected = []
+    int i = 0
     while (i < 5) {
         push(collected, i * i)
         i = i + 1
@@ -27,6 +27,6 @@ func main() {
     print(collected)
     print(len(collected))
 
-    let grid = [[1, 2], [3, 4]]
+    int[][] grid = [[1, 2], [3, 4]]
     print(grid[1][0])
 }
