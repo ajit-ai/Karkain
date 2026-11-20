@@ -9,7 +9,7 @@ func exit(code: int) -> void {
 // get_args returns the command-line arguments as a string array.
 // Uses the runtime's argument access.
 func get_args() -> string[] {
-    let result: string[] = []
+    string[] result = []
     return result
 }
 
@@ -20,7 +20,7 @@ func get_env(name: string) -> string {
 
 // set_env sets an environment variable (platform-dependent).
 func set_env(name: string, value: string) -> int {
-    let cmd = "export " + name + "=" + value
+    string cmd = "export " + name + "=" + value
     system(cmd)
     return 0
 }

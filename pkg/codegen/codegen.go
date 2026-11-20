@@ -378,7 +378,36 @@ func (g *Generator) emitFuncBodies(sb *strings.Builder, prog *parser.Program, on
 // Types and prototypes duplicate harmlessly across TUs (identical text);
 // the maps they populate (enumDecls, localFuncs, closureVars/headers)
 // are idempotent, so calling per module TU is safe.
+// globalDeclInit emits a C static-initializer for a type-first global
+// declaration or constant. Only literals are valid at file scope; complex
+// values are diagnosed by the checker rather than emitted with wrong bytes.
+func (g *Generator) globalDeclInit(vd *parser.VarDeclStmt) (string, bool) {
+	switch v := vd.Value.(type) {
+	case *parser.IntLiteral:
+		return fmt.Sprintf("{TYPE_INT, .intVal = %s}", v.Value), true
+	case *parser.Float64Literal:
+		return fmt.Sprintf("{TYPE_FLOAT64, .floatVal = %s}", v.Value), true
+	case *parser.BoolLiteral:
+		b := 0
+		if v.Value {
+			b = 1
+		}
+		return fmt.Sprintf("{TYPE_BOOL, .intVal = %d}", b), true
+	case *parser.StringLiteral:
+		return fmt.Sprintf("{TYPE_STRING, .strVal = %q}", unescapeKarkain(v.Value)), true
+	}
+	return "", false
+}
+
 func (g *Generator) emitSharedDecls(sb *strings.Builder, prog *parser.Program) {
+	// Type-first module-level declarations and constants.
+	for _, stmt := range prog.Statements {
+		if vd, ok := stmt.(*parser.VarDeclStmt); ok && vd.Name != "" {
+			if init, ok := g.globalDeclInit(vd); ok {
+				fmt.Fprintf(sb, "static Value %s = %s;\n", vd.Name, init)
+			}
+		}
+	}
 	// Phase 45: Generate enum type declarations before functions
 	for _, stmt := range prog.Statements {
 		if enum, ok := stmt.(*parser.EnumDecl); ok {

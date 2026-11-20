@@ -3,22 +3,22 @@
 
 func main() {
     // Test basic operations that don't require stdlib
-    let x = 42
-    let y = 58
-    let sum = x + y
+    int x = 42
+    int y = 58
+    int sum = x + y
     print("Basic arithmetic: " + str(sum))
 
     // Test array operations
-    let arr = [1, 2, 3, 4, 5]
+    int[] arr = [1, 2, 3, 4, 5]
     print("Array length: " + str(len(arr)))
 
     // Test string operations
-    let s = "Hello, Karkain 1.0!"
+    string s = "Hello, Karkain 1.0!"
     print("String length: " + str(len(s)))
 
     // Test control flow
-    var i = 0
-    var total = 0
+    int i = 0
+    int total = 0
     while (i < len(arr)) {
         total = total + arr[i]
         i = i + 1

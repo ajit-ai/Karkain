@@ -8,7 +8,7 @@
 import std.generics
 
 func main() {
-    let q = queue_new()
+    int[] q = queue_new()
     println(queue_is_empty(q))
     let q1 = queue_enqueue[int](q, 1)
     let q2 = queue_enqueue[int](q1, 2)

@@ -11,14 +11,14 @@
 import std.io
 
 func main() {
-    let path = "corpus_demo.txt"
+    string path = "corpus_demo.txt"
     io_write_file(path, "alpha")
     print(io_file_exists(path))
 
     io_append_file(path, "\nbeta")
     io_append_file(path, "\ngamma")
 
-    let lines = io_read_lines(path)
+    int[] lines = io_read_lines(path)
     print(len(lines))
     print(lines[0])
     print(lines[1])

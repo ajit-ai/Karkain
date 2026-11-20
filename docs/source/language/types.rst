@@ -66,7 +66,7 @@ Annotations are accepted but not required:
 .. code-block:: kark
 
    let x: int = 42
-   let y = 42          // inferred as int
+   let y: int = 42     // explicit type required in official programs
 
    func double(n: int): int {
        return n * 2

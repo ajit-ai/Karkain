@@ -8,11 +8,11 @@
 // Run:  karkain run examples/02-algorithms/04_bubble_sort.kark
 
 func bubble_sort(xs) {
-    let n = len(xs)
-    let swapped = 1
+    int n = len(xs)
+    int swapped = 1
     while (swapped == 1) {
         swapped = 0
-        let i = 1
+        int i = 1
         while (i < n) {
             if (xs[i - 1] > xs[i]) {
                 let tmp = xs[i - 1]
@@ -27,8 +27,8 @@ func bubble_sort(xs) {
 }
 
 func main() {
-    let data = [5, 2, 8, 1, 9, 3, 7]
-    let sorted = bubble_sort(data)
+    int[] data = [5, 2, 8, 1, 9, 3, 7]
+    int sorted = bubble_sort(data)
     print(sorted)
     print(bubble_sort([1, 2, 3, 4]))
     print(bubble_sort([4, 3, 2, 1]))

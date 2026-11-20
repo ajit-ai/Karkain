@@ -21,7 +21,7 @@ func main() {
         None => print("underflow")
     }
 
-    let x = 3
+    int x = 3
     let label = match x {
         1 => "one",
         3 => "three",

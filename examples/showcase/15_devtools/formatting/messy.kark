@@ -8,7 +8,7 @@ func messyAdd(a, b) {
 return a + b
 }
 func main() {
-let x = 1
-let y = 2
+int x = 1
+int y = 2
 print(messyAdd(x, y))
 }

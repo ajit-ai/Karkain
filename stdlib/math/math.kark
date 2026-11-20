@@ -37,16 +37,16 @@ import "libc" {
 // Constants
 // ============================================================
 
-const PI: float64 = 3.14159265358979323846
-const E: float64 = 2.71828182845904523536
-const LN2: float64 = 0.6931471805599453
-const LN10: float64 = 2.30258509299404568402
-const SQRT2: float64 = 1.41421356237309504880
-const SQRT3: float64 = 1.73205080756887729353
-const GOLDEN_RATIO: float64 = 1.61803398874989484820
-const DEG_TO_RAD: float64 = 0.017453292519943295
-const RAD_TO_DEG: float64 = 57.2957795130823208768
-const EPSILON: float64 = 0.00000000000000022204
+const float64 PI = 3.14159265358979323846
+const float64 E = 2.71828182845904523536
+const float64 LN2 = 0.6931471805599453
+const float64 LN10 = 2.30258509299404568402
+const float64 SQRT2 = 1.41421356237309504880
+const float64 SQRT3 = 1.73205080756887729353
+const float64 GOLDEN_RATIO = 1.61803398874989484820
+const float64 DEG_TO_RAD = 0.017453292519943295
+const float64 RAD_TO_DEG = 57.2957795130823208768
+const float64 EPSILON = 0.00000000000000022204
 
 // ============================================================
 // Basic Math Operations
@@ -142,7 +142,7 @@ func math_inverse_lerp(a: float64, b: float64, value: float64) -> float64 {
 
 // Remap a value from one range to another
 func math_remap(value: float64, from_min: float64, from_max: float64, to_min: float64, to_max: float64) -> float64 {
-    let t: float64 = math_inverse_lerp(from_min, from_max, value)
+    float64 t = math_inverse_lerp(from_min, from_max, value)
     return math_lerp(to_min, to_max, t)
 }
 
@@ -283,7 +283,7 @@ func math_fmod(x: float64, y: float64) -> float64 {
 
 // Integer modulo (always positive result)
 func math_mod(a: int, b: int) -> int {
-    let result: int = a % b
+    int result = a % b
     if (result < 0) {
         result = result + b
     }
@@ -300,7 +300,7 @@ func math_gcd(a: int, b: int) -> int {
     a = math_abs_int(a)
     b = math_abs_int(b)
     while (b != 0) {
-        let temp: int = b
+        int temp = b
         b = math_mod(a, b)
         a = temp
     }
@@ -325,16 +325,16 @@ func math_hypot(x: float64, y: float64) -> float64 {
 
 // Euclidean distance between two 2D points
 func math_distance_2d(x1: float64, y1: float64, x2: float64, y2: float64) -> float64 {
-    let dx: float64 = x2 - x1
-    let dy: float64 = y2 - y1
+    float64 dx = x2 - x1
+    float64 dy = y2 - y1
     return sqrt(dx * dx + dy * dy)
 }
 
 // Euclidean distance between two 3D points
 func math_distance_3d(x1: float64, y1: float64, z1: float64, x2: float64, y2: float64, z2: float64) -> float64 {
-    let dx: float64 = x2 - x1
-    let dy: float64 = y2 - y1
-    let dz: float64 = z2 - z1
+    float64 dx = x2 - x1
+    float64 dy = y2 - y1
+    float64 dz = z2 - z1
     return sqrt(dx * dx + dy * dy + dz * dz)
 }
 
@@ -372,7 +372,7 @@ func vec2_length_squared(v: float64[]) -> float64 {
 }
 
 func vec2_normalize(v: float64[]) -> float64[] {
-    let len: float64 = vec2_length(v)
+    float64 len = vec2_length(v)
     if (len < EPSILON) {
         return [0.0, 0.0]
     }
@@ -380,8 +380,8 @@ func vec2_normalize(v: float64[]) -> float64[] {
 }
 
 func vec2_distance(a: float64[], b: float64[]) -> float64 {
-    let dx: float64 = b[0] - a[0]
-    let dy: float64 = b[1] - a[1]
+    float64 dx = b[0] - a[0]
+    float64 dy = b[1] - a[1]
     return sqrt(dx * dx + dy * dy)
 }
 
@@ -445,7 +445,7 @@ func vec3_length_squared(v: float64[]) -> float64 {
 }
 
 func vec3_normalize(v: float64[]) -> float64[] {
-    let len: float64 = vec3_length(v)
+    float64 len = vec3_length(v)
     if (len < EPSILON) {
         return [0.0, 0.0, 0.0]
     }
@@ -453,9 +453,9 @@ func vec3_normalize(v: float64[]) -> float64[] {
 }
 
 func vec3_distance(a: float64[], b: float64[]) -> float64 {
-    let dx: float64 = b[0] - a[0]
-    let dy: float64 = b[1] - a[1]
-    let dz: float64 = b[2] - a[2]
+    float64 dx = b[0] - a[0]
+    float64 dy = b[1] - a[1]
+    float64 dz = b[2] - a[2]
     return sqrt(dx * dx + dy * dy + dz * dz)
 }
 
@@ -504,7 +504,7 @@ func vec4_length(v: float64[]) -> float64 {
 }
 
 func vec4_normalize(v: float64[]) -> float64[] {
-    let len: float64 = vec4_length(v)
+    float64 len = vec4_length(v)
     if (len < EPSILON) {
         return [0.0, 0.0, 0.0, 0.0]
     }
@@ -517,10 +517,10 @@ func vec4_normalize(v: float64[]) -> float64[] {
 
 // Create an identity matrix of size n
 func mat_identity(n: int) -> float64[] {
-    let result: float64[] = allocate(n * n * 8)
-    let i: int = 0
+    float64[] result = allocate(n * n * 8)
+    int i = 0
     while (i < n) {
-        let j: int = 0
+        int j = 0
         while (j < n) {
             if (i == j) {
                 result[i * n + j] = 1.0
@@ -536,8 +536,8 @@ func mat_identity(n: int) -> float64[] {
 
 // Create a zero matrix of size n
 func mat_zero(n: int) -> float64[] {
-    let result: float64[] = allocate(n * n * 8)
-    let i: int = 0
+    float64[] result = allocate(n * n * 8)
+    int i = 0
     while (i < n * n) {
         result[i] = 0.0
         i = i + 1
@@ -547,13 +547,13 @@ func mat_zero(n: int) -> float64[] {
 
 // Matrix multiplication: C = A * B (n x n)
 func mat_mul(a: float64[], b: float64[], n: int) -> float64[] {
-    let c: float64[] = mat_zero(n)
-    let i: int = 0
+    float64[] c = mat_zero(n)
+    int i = 0
     while (i < n) {
-        let j: int = 0
+        int j = 0
         while (j < n) {
-            let sum: float64 = 0.0
-            let k: int = 0
+            float64 sum = 0.0
+            int k = 0
             while (k < n) {
                 sum = sum + a[i * n + k] * b[k * n + j]
                 k = k + 1
@@ -568,11 +568,11 @@ func mat_mul(a: float64[], b: float64[], n: int) -> float64[] {
 
 // Matrix-vector multiplication: y = A * x
 func mat_vec_mul(a: float64[], x: float64[], n: int) -> float64[] {
-    let y: float64[] = allocate(n * 8)
-    let i: int = 0
+    float64[] y = allocate(n * 8)
+    int i = 0
     while (i < n) {
-        let sum: float64 = 0.0
-        let j: int = 0
+        float64 sum = 0.0
+        int j = 0
         while (j < n) {
             sum = sum + a[i * n + j] * x[j]
             j = j + 1
@@ -585,10 +585,10 @@ func mat_vec_mul(a: float64[], x: float64[], n: int) -> float64[] {
 
 // Matrix transpose
 func mat_transpose(a: float64[], n: int) -> float64[] {
-    let result: float64[] = mat_zero(n)
-    let i: int = 0
+    float64[] result = mat_zero(n)
+    int i = 0
     while (i < n) {
-        let j: int = 0
+        int j = 0
         while (j < n) {
             result[j * n + i] = a[i * n + j]
             j = j + 1
@@ -600,8 +600,8 @@ func mat_transpose(a: float64[], n: int) -> float64[] {
 
 // Matrix scalar multiplication
 func mat_scale(a: float64[], n: int, s: float64) -> float64[] {
-    let result: float64[] = allocate(n * n * 8)
-    let i: int = 0
+    float64[] result = allocate(n * n * 8)
+    int i = 0
     while (i < n * n) {
         result[i] = a[i] * s
         i = i + 1
@@ -611,8 +611,8 @@ func mat_scale(a: float64[], n: int, s: float64) -> float64[] {
 
 // Matrix addition
 func mat_add(a: float64[], b: float64[], n: int) -> float64[] {
-    let result: float64[] = allocate(n * n * 8)
-    let i: int = 0
+    float64[] result = allocate(n * n * 8)
+    int i = 0
     while (i < n * n) {
         result[i] = a[i] + b[i]
         i = i + 1
@@ -622,8 +622,8 @@ func mat_add(a: float64[], b: float64[], n: int) -> float64[] {
 
 // Matrix subtraction
 func mat_sub(a: float64[], b: float64[], n: int) -> float64[] {
-    let result: float64[] = allocate(n * n * 8)
-    let i: int = 0
+    float64[] result = allocate(n * n * 8)
+    int i = 0
     while (i < n * n) {
         result[i] = a[i] - b[i]
         i = i + 1
@@ -647,12 +647,12 @@ func mat_set(a: float64[], n: int, row: int, col: int, value: float64) {
 
 // Compute mean of an array
 func math_mean(data: float64[]) -> float64 {
-    let n: int = len(data)
+    int n = len(data)
     if (n == 0) {
         return 0.0
     }
-    let sum: float64 = 0.0
-    let i: int = 0
+    float64 sum = 0.0
+    int i = 0
     while (i < n) {
         sum = sum + data[i]
         i = i + 1
@@ -662,15 +662,15 @@ func math_mean(data: float64[]) -> float64 {
 
 // Compute variance of an array
 func math_variance(data: float64[]) -> float64 {
-    let n: int = len(data)
+    int n = len(data)
     if (n == 0) {
         return 0.0
     }
-    let mean: float64 = math_mean(data)
-    let sum_sq: float64 = 0.0
-    let i: int = 0
+    float64 mean = math_mean(data)
+    float64 sum_sq = 0.0
+    int i = 0
     while (i < n) {
-        let diff: float64 = data[i] - mean
+        float64 diff = data[i] - mean
         sum_sq = sum_sq + diff * diff
         i = i + 1
     }
@@ -684,12 +684,12 @@ func math_stddev(data: float64[]) -> float64 {
 
 // Find minimum value in array
 func math_min_array(data: float64[]) -> float64 {
-    let n: int = len(data)
+    int n = len(data)
     if (n == 0) {
         return 0.0
     }
-    let min_val: float64 = data[0]
-    let i: int = 1
+    float64 min_val = data[0]
+    int i = 1
     while (i < n) {
         if (data[i] < min_val) {
             min_val = data[i]
@@ -701,12 +701,12 @@ func math_min_array(data: float64[]) -> float64 {
 
 // Find maximum value in array
 func math_max_array(data: float64[]) -> float64 {
-    let n: int = len(data)
+    int n = len(data)
     if (n == 0) {
         return 0.0
     }
-    let max_val: float64 = data[0]
-    let i: int = 1
+    float64 max_val = data[0]
+    int i = 1
     while (i < n) {
         if (data[i] > max_val) {
             max_val = data[i]
@@ -718,8 +718,8 @@ func math_max_array(data: float64[]) -> float64 {
 
 // Compute sum of array elements
 func math_sum(data: float64[]) -> float64 {
-    let sum: float64 = 0.0
-    let i: int = 0
+    float64 sum = 0.0
+    int i = 0
     while (i < len(data)) {
         sum = sum + data[i]
         i = i + 1
@@ -729,9 +729,9 @@ func math_sum(data: float64[]) -> float64 {
 
 // Dot product of two arrays
 func math_dot(a: float64[], b: float64[]) -> float64 {
-    let n: int = len(a)
-    let sum: float64 = 0.0
-    let i: int = 0
+    int n = len(a)
+    float64 sum = 0.0
+    int i = 0
     while (i < n) {
         sum = sum + a[i] * b[i]
         i = i + 1

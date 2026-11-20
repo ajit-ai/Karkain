@@ -10,7 +10,7 @@ Strings are UTF-8 byte sequences delimited by double quotes:
 
 .. code-block:: kark
 
-   let s = "hello, karkain"
+   let s: string = "hello, karkain"
 
 Indexing
 --------
@@ -19,7 +19,7 @@ Individual bytes are accessed by integer index (0-based):
 
 .. code-block:: kark
 
-   let s = "abc"
+   let s: string = "abc"
    print(s[0])           // 97  (ASCII 'a')
 
 Concatenation
@@ -29,8 +29,8 @@ Strings are joined with the ``+`` operator:
 
 .. code-block:: kark
 
-   let first = "hello"
-   let second = " world"
+   let first: string = "hello"
+   let second: string = " world"
    print(first + second) // hello world
 
 Built-in functions

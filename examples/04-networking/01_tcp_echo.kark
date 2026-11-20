@@ -12,18 +12,18 @@
 import std.net
 
 func main() {
-    let ep = net_endpoint("127.0.0.1", 49051)
-    let srv = net_serve(ep)
-    let cli = net_dial(ep)
-    let conn = net_accept_next(srv)
-    let n = net_send(cli, "ping")
-    let echoed = net_recv(conn, 32)
+    bool ep = net_endpoint("127.0.0.1", 49051)
+    bool srv = net_serve(ep)
+    bool cli = net_dial(ep)
+    bool conn = net_accept_next(srv)
+    bool n = net_send(cli, "ping")
+    bool echoed = net_recv(conn, 32)
     println(n)
     println(echoed)
-    let w = net_send(conn, "pong")
+    bool w = net_send(conn, "pong")
     println(w)
-    let back = net_recv(cli, 32)
+    bool back = net_recv(cli, 32)
     println(back)
-    let ok = net_shut(conn) + net_shut(cli) + net_shut(srv)
+    bool ok = net_shut(conn) + net_shut(cli) + net_shut(srv)
     println(ok)
 }

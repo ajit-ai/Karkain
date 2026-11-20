@@ -34,7 +34,7 @@ Newton square root (excerpt)
 
    func sqrt_newton(x) {
        let guess = x
-       let i = 0
+       let i: int = 0
        while (i < 10) {
            guess = (guess + x / guess) / 2.0
            i = i + 1

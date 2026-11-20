@@ -8,42 +8,42 @@
 // runtime behind the documented builtin boundary).
 
 // hex_encode returns the lowercase hexadecimal encoding of data.
-func hex_encode(data) {
+string hex_encode(string data) {
     return hex_encode_bytes(data)
 }
 
 // hex_decode decodes a hexadecimal string into its bytes (returned as a
 // string). Raises a runtime error if the input is malformed (odd length or
 // non-hexadecimal characters).
-func hex_decode(hex_string) {
+string hex_decode(string hex_string) {
     return hex_decode_bytes(hex_string)
 }
 
 // base64_encode returns the standard RFC 4648 Base64 encoding of data,
 // including '=' padding.
-func base64_encode(data) {
+string base64_encode(string data) {
     return base64_encode_bytes(data)
 }
 
 // base64_decode decodes a standard Base64 string into its bytes (returned as
 // a string). Raises a runtime error if the input is malformed.
-func base64_decode(b64_string) {
+string base64_decode(string b64_string) {
     return base64_decode_bytes(b64_string)
 }
 
 // utf8_encode returns the UTF-8 encoding of the given string (identity:
 // Karkain strings are already UTF-8 byte strings).
-func utf8_encode(s) {
+string utf8_encode(string s) {
     return s
 }
 
 // utf8_decode returns the string decoded from UTF-8 bytes (identity: Karkain
 // strings are already UTF-8 byte strings).
-func utf8_decode(s) {
+string utf8_decode(string s) {
     return s
 }
 
 // utf8_valid returns true if the bytes in s form well-formed UTF-8.
-func utf8_valid(s) {
+bool utf8_valid(string s) {
     return utf8_valid_bytes(s)
 }

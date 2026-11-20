@@ -12,14 +12,14 @@
 // there, never silently miscompiled).
 
 // stack_new returns an empty stack.
-func stack_new() {
+int[] stack_new() {
     return []
 }
 
 // stack_push[T] returns s with v appended (the new top).
 func stack_push[T](s, v) {
     let out = []
-    let i = 0
+    int i = 0
     while (i < len(s)) {
         push(out, s[i])
         i = i + 1
@@ -31,7 +31,7 @@ func stack_push[T](s, v) {
 // stack_pop[T] returns s without its top element (empty stays empty).
 func stack_pop[T](s) {
     let out = []
-    let i = 0
+    int i = 0
     while (i < len(s) - 1) {
         push(out, s[i])
         i = i + 1
@@ -45,24 +45,24 @@ func stack_peek[T](s) {
 }
 
 // stack_len returns the element count.
-func stack_len(s) {
+int stack_len(int[] s) {
     return len(s)
 }
 
 // stack_is_empty reports whether the stack holds no elements.
-func stack_is_empty(s) {
+bool stack_is_empty(int[] s) {
     return len(s) == 0
 }
 
 // queue_new returns an empty queue.
-func queue_new() {
+int[] queue_new() {
     return []
 }
 
 // queue_enqueue[T] returns q with v appended at the back.
 func queue_enqueue[T](q, v) {
     let out = []
-    let i = 0
+    int i = 0
     while (i < len(q)) {
         push(out, q[i])
         i = i + 1
@@ -74,7 +74,7 @@ func queue_enqueue[T](q, v) {
 // queue_dequeue[T] returns q without its front element (empty stays empty).
 func queue_dequeue[T](q) {
     let out = []
-    let i = 1
+    int i = 1
     while (i < len(q)) {
         push(out, q[i])
         i = i + 1
@@ -88,11 +88,11 @@ func queue_front[T](q) {
 }
 
 // queue_len returns the element count.
-func queue_len(q) {
+int queue_len(int[] q) {
     return len(q)
 }
 
 // queue_is_empty reports whether the queue holds no elements.
-func queue_is_empty(q) {
+bool queue_is_empty(int[] q) {
     return len(q) == 0
 }

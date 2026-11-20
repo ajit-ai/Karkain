@@ -89,7 +89,7 @@ func isWhitespace(ch) {
 // ============================================================
 
 func createLexerState(source) {
-    let state = []
+    Value state = []
     state = appendArray(state, source)    // 0: source text
     state = appendArray(state, 0)         // 1: current position
     state = appendArray(state, 1)         // 2: current line
@@ -107,16 +107,16 @@ func setLexerLine(state, line) { state[2] = line }
 func setLexerCol(state, col) { state[3] = col }
 
 func peekChar(state) {
-    let src = lexerSource(state)
-    let pos = lexerPos(state)
+    Value src = lexerSource(state)
+    Value pos = lexerPos(state)
     if (pos >= len(src)) { return "" }
     return substr(src, pos, 1)
 }
 
 func advanceChar(state) {
-    let src = lexerSource(state)
-    let pos = lexerPos(state)
-    let ch = substr(src, pos, 1)
+    Value src = lexerSource(state)
+    Value pos = lexerPos(state)
+    string ch = substr(src, pos, 1)
     pos = pos + 1
     setLexerPos(state, pos)
 
@@ -179,7 +179,7 @@ func lookupKeyword(ident) {
 
 func skipWhitespaceAndComments(state) {
     while (1) {
-        let ch = peekChar(state)
+        string ch = peekChar(state)
 
         // Skip whitespace
         if (isWhitespace(ch) == 1) {
@@ -189,7 +189,7 @@ func skipWhitespaceAndComments(state) {
 
         // Skip single-line comments
         if (ch == "/" && lexerPos(state) + 1 < len(lexerSource(state))) {
-            let nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
+            string nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
             if (nextCh == "/") {
                 // Skip until newline
                 while (peekChar(state) != "\n" && peekChar(state) != "") {
@@ -201,15 +201,15 @@ func skipWhitespaceAndComments(state) {
 
         // Skip multi-line comments
         if (ch == "/" && lexerPos(state) + 1 < len(lexerSource(state))) {
-            let nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
+            string nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
             if (nextCh == "*") {
                 advanceChar(state) // skip /
                 advanceChar(state) // skip *
                 while (1) {
-                    let c = peekChar(state)
+                    string c = peekChar(state)
                     if (c == "") { break }
                     if (c == "*" && lexerPos(state) + 1 < len(lexerSource(state))) {
-                        let nc = substr(lexerSource(state), lexerPos(state) + 1, 1)
+                        string nc = substr(lexerSource(state), lexerPos(state) + 1, 1)
                         if (nc == "/") {
                             advanceChar(state) // skip *
                             advanceChar(state) // skip /
@@ -227,14 +227,14 @@ func skipWhitespaceAndComments(state) {
 }
 
 func scanString(state) {
-    let startPos = lexerPos(state)
-    let startLine = lexerLine(state)
-    let startCol = lexerCol(state)
+    Value startPos = lexerPos(state)
+    string startLine = lexerLine(state)
+    string startCol = lexerCol(state)
     advanceChar(state) // skip opening quote
 
-    let result = ""
+    string result = ""
     while (1) {
-        let ch = peekChar(state)
+        string ch = peekChar(state)
         if (ch == "" || ch == "\n") { break }
         if (ch == "\"") {
             advanceChar(state) // skip closing quote
@@ -242,7 +242,7 @@ func scanString(state) {
         }
         if (ch == "\\") {
             advanceChar(state) // skip backslash
-            let escaped = advanceChar(state)
+            string escaped = advanceChar(state)
             if (escaped == "n") { result = result + "\n" }
             if (escaped == "t") { result = result + "\t" }
             if (escaped == "\\") { result = result + "\\" }
@@ -257,12 +257,12 @@ func scanString(state) {
 }
 
 func scanNumber(state) {
-    let startPos = lexerPos(state)
-    let startLine = lexerLine(state)
-    let startCol = lexerCol(state)
+    Value startPos = lexerPos(state)
+    string startLine = lexerLine(state)
+    string startCol = lexerCol(state)
 
-    let numStr = ""
-    let isFloat = 0
+    string numStr = ""
+    int isFloat = 0
 
     while (isDigit(peekChar(state)) == 1) {
         numStr = numStr + advanceChar(state)
@@ -270,7 +270,7 @@ func scanNumber(state) {
 
     // Check for decimal point
     if (peekChar(state) == "." && lexerPos(state) + 1 < len(lexerSource(state))) {
-        let nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
+        string nextCh = substr(lexerSource(state), lexerPos(state) + 1, 1)
         if (isDigit(nextCh) == 1) {
             isFloat = 1
             numStr = numStr + advanceChar(state) // skip .
@@ -287,28 +287,28 @@ func scanNumber(state) {
 }
 
 func scanIdentOrKeyword(state) {
-    let startPos = lexerPos(state)
-    let startLine = lexerLine(state)
-    let startCol = lexerCol(state)
+    Value startPos = lexerPos(state)
+    string startLine = lexerLine(state)
+    string startCol = lexerCol(state)
 
-    let ident = ""
+    string ident = ""
     while (isLetter(peekChar(state)) == 1 || isDigit(peekChar(state)) == 1) {
         ident = ident + advanceChar(state)
     }
 
-    let kind = lookupKeyword(ident)
+    string kind = lookupKeyword(ident)
     return createToken(kind, ident, createLocation(startLine, startCol, startPos))
 }
 
 func scanToken(state) {
     skipWhitespaceAndComments(state)
 
-    let ch = peekChar(state)
+    string ch = peekChar(state)
     if (ch == "") { return createToken(TK_EOF(), "", createLocation(lexerLine(state), lexerCol(state), lexerPos(state))) }
 
-    let startPos = lexerPos(state)
-    let startLine = lexerLine(state)
-    let startCol = lexerCol(state)
+    Value startPos = lexerPos(state)
+    string startLine = lexerLine(state)
+    string startCol = lexerCol(state)
 
     // String literal
     if (ch == "\"") { return scanString(state) }
@@ -402,11 +402,11 @@ func scanToken(state) {
 // ============================================================
 
 func tokenize(source) {
-    let state = createLexerState(source)
-    let tokens = []
+    Value state = createLexerState(source)
+    Value tokens = []
 
     while (1) {
-        let tok = scanToken(state)
+        string tok = scanToken(state)
         tokens = appendArray(tokens, tok)
         if (tokenKind(tok) == TK_EOF()) { break }
     }
@@ -491,10 +491,10 @@ func tokenKindName(kind) {
 }
 
 func printTokens(tokens, source) {
-    let i = 0
+    int i = 0
     while (i < len(tokens)) {
         let tok = tokens[i]
-        let loc = tokenLoc(tok)
+        int loc = tokenLoc(tok)
         print("L" + str(locLine(loc)) + ":" + str(locCol(loc)) + " " + tokenKindName(tokenKind(tok)) + " " + tokenLiteral(tok, source))
         i = i + 1
     }

@@ -9,9 +9,9 @@
 // Run:  karkain run examples/13-finance/04_portfolio.kark
 
 func weighted_return(weights, returns) {
-    let total_weight = array_sum_int(weights)
-    let acc = 0
-    let i = 0
+    int total_weight = array_sum_int(weights)
+    int acc = 0
+    int i = 0
     while (i < len(weights)) {
         acc = acc + weights[i] * returns[i]
         i = i + 1
@@ -20,8 +20,8 @@ func weighted_return(weights, returns) {
 }
 
 func array_sum_int(xs) {
-    let total = 0
-    let i = 0
+    int total = 0
+    int i = 0
     while (i < len(xs)) {
         total = total + xs[i]
         i = i + 1

@@ -26,11 +26,11 @@ func classify(n) {
 
 func main() {
     let m = max(10, 20)
-    let p = is_positive(5)
-    let z = is_positive(-3)
-    let c1 = classify(5)
-    let c2 = classify(-5)
-    let c3 = classify(0)
+    int p = is_positive(5)
+    int z = is_positive(-3)
+    int c1 = classify(5)
+    int c2 = classify(-5)
+    int c3 = classify(0)
     print(m)
     print(p)
     print(z)

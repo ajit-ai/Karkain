@@ -1,12 +1,12 @@
 func main() {
-    let x = 5
-    let y: int = x + 1
+    int x = 5
+    int y = x + 1
     if x < y {
         print(x)
     } else {
         print(y)
     }
-    let never = -1
+    int never = -1
     while never > 0 {
         print(never)
     }

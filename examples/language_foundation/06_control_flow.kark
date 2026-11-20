@@ -2,7 +2,7 @@
 // Run:  karkain run examples/language_foundation/06_control_flow.kark
 
 func main() {
-    let i = 0
+    int i = 0
     while (i < 5) {
         print(i)
         i = i + 1
@@ -12,12 +12,12 @@ func main() {
         print(j)
     }
 
-    let k = 0
+    int k = 0
     for (; k < 3; k = k + 1) {
         print(k)
     }
 
-    let n = 0
+    int n = 0
     while (true) {
         n = n + 1
         if (n == 3) { continue }

@@ -7,8 +7,8 @@
 
 func checksum(data) {
     // Deterministic 32-bit rolling hash modulo a large prime.
-    let h = 5381
-    let i = 0
+    int h = 5381
+    int i = 0
     while (i < len(data)) {
         h = ((h * 33) + data[i]) % 1000000007
         i = i + 1
@@ -23,10 +23,10 @@ func isUnsignedInt(s) {
     if (len(s) == 0) {
         return 0
     }
-    let i = 0
+    int i = 0
     while (i < len(s)) {
         let c = s[i]
-        let okDigit = (c >= "0") && (c <= "9")
+        string okDigit = (c >= "0") && (c <= "9")
         if (okDigit != 1) {
             return 0
         }
@@ -37,7 +37,7 @@ func isUnsignedInt(s) {
 
 // Simple heuristic password score (length + digit presence). Not a policy.
 func ratePassword(s) {
-    let score = 0
+    int score = 0
     if (len(s) >= 8) {
         score = score + 1
     }
@@ -51,7 +51,7 @@ func ratePassword(s) {
 }
 
 func main() {
-    let payload = [10, 20, 30, 40]
+    int[] payload = [10, 20, 30, 40]
     print("checksum=" + str(checksum(payload)))
     print("checksum_changed=" + str(checksum([10, 20, 31, 40])))
 

@@ -74,12 +74,12 @@ Variable declarations
 
 .. code-block:: karkain
 
-   let x = 5          // inferred int
-   let y: float64 = 3.14   // explicit type
-   var count = 0       // mutable
+   let x: int = 5
+   let y: float64 = 3.14
+   let count: int = 0
 
-Type inference derives the type from the right-hand side. Explicit type
-annotations follow the colon.
+Explicit type annotations follow the colon and are the standard declaration
+form in Karkain programs.
 
 Function declarations
 ---------------------

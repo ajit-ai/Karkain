@@ -12,11 +12,11 @@ import std.encoding
 import std.string
 
 func main() {
-    let s = "café"
+    string s = "café"
     print(utf8_valid(s))
-    let bytes = utf8_encode(s)
+    string bytes = utf8_encode(s)
     print(hex_encode(bytes))
-    let round = utf8_decode(bytes)
+    string round = utf8_decode(bytes)
     print(round == s)
     print(str_to_upper(s))
 }

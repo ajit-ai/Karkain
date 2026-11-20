@@ -56,8 +56,8 @@ func natPage() { return 4096 }
 // every byte keeps the field offsets readable as offsets: put32(ph, 8, v)
 // states "p_vaddr is at byte 8" instead of hiding it in a run of appends.
 func natZeros(n) {
-    let z = []
-    let i = 0
+    int[] z = []
+    int i = 0
     while (i < n) {
         z = appendArray(z, 0)
         i = i + 1
@@ -72,7 +72,7 @@ func natZeros(n) {
 // bits is exactly `x - (x & 0xFFF)`, which is what this does, and it needs
 // only the bitwise AND that 151P0 added. Mirrors peAlignUp in pkg/native.
 func natAlignUp(v, align) {
-    let x = v + align - 1
+    int x = v + align - 1
     return x - (x & (align - 1))
 }
 
@@ -138,23 +138,23 @@ func natByteAt(buf, off) {
 // than an error value because Karkain has no error type here, and it is
 // returned rather than thrown so the caller decides what it means.
 func natELFLink(text, rodata, data, textOffset, entryOffset) {
-    let phnum = 1
+    int phnum = 1
     if (len(data) > 0) { phnum = 2 }
-    let want = natEhSize() + natPhSize() * phnum
+    string want = natEhSize() + natPhSize() * phnum
     if (textOffset != want) {
         return "error[K117]: native elf: unsupported text offset " + str(textOffset) + ", expected " + str(want) + " for phnum " + str(phnum)
     }
 
     // Arena placement: page-aligned file offset, so the vaddr carries the same
     // page residue as the offset, which is what the loader requires.
-    let dataOff = natAlignUp(textOffset + len(text) + len(rodata), natPage())
+    int dataOff = natAlignUp(textOffset + len(text) + len(rodata), natPage())
     let bodyEnd = dataOff
     if (len(data) == 0) {
         dataOff = 0
         bodyEnd = textOffset + len(text) + len(rodata)
     }
 
-    let out = natZeros(natEhSize())
+    int[] out = natZeros(natEhSize())
 
     // ELF identification.
     out[0] = 127
@@ -182,7 +182,7 @@ func natELFLink(text, rodata, data, textOffset, entryOffset) {
 
     // Program header 1: the R+X segment carrying .text and .rodata. It stops
     // at the arena so the two mappings never overlap.
-    let ph = natZeros(natPhSize())
+    int[] ph = natZeros(natPhSize())
     natPut32(ph, 0, 1)                    // p_type: PT_LOAD
     natPut32(ph, 4, 5)                    // p_flags: R+X
     natPut64(ph, 8, 0)                    // p_offset
@@ -192,7 +192,7 @@ func natELFLink(text, rodata, data, textOffset, entryOffset) {
     natPut64(ph, 40, bodyEnd)              // p_memsz
     natPut64(ph, 48, natPage())            // p_align
 
-    let i = 0
+    int i = 0
     while (i < natPhSize()) {
         out = appendArray(out, ph[i])
         i = i + 1
@@ -200,7 +200,7 @@ func natELFLink(text, rodata, data, textOffset, entryOffset) {
 
     // Program header 2: the R+W arena, only when the program has a heap.
     if (len(data) > 0) {
-        let dp = natZeros(natPhSize())
+        int[] dp = natZeros(natPhSize())
         natPut32(dp, 0, 1)                            // p_type: PT_LOAD
         natPut32(dp, 4, 6)                            // p_flags: R+W
         natPut64(dp, 8, dataOff)                      // p_offset
@@ -209,19 +209,19 @@ func natELFLink(text, rodata, data, textOffset, entryOffset) {
         natPut64(dp, 32, len(data))                   // p_filesz
         natPut64(dp, 40, len(data))                   // p_memsz
         natPut64(dp, 48, natPage())                   // p_align
-        let j = 0
+        int j = 0
         while (j < natPhSize()) {
             out = appendArray(out, dp[j])
             j = j + 1
         }
     }
 
-    let k = 0
+    int k = 0
     while (k < len(text)) {
         out = appendArray(out, text[k])
         k = k + 1
     }
-    let m = 0
+    int m = 0
     while (m < len(rodata)) {
         out = appendArray(out, rodata[m])
         m = m + 1
@@ -231,7 +231,7 @@ func natELFLink(text, rodata, data, textOffset, entryOffset) {
         while (len(out) < dataOff) {
             out = appendArray(out, 0)
         }
-        let n = 0
+        int n = 0
         while (n < len(data)) {
             out = appendArray(out, data[n])
             n = n + 1
@@ -247,11 +247,11 @@ func natELFLink(text, rodata, data, textOffset, entryOffset) {
 // choice, and it is why the reference sequences below are written as hex
 // constants: they are the input bytes, not the output.
 func natHexDecode(s) {
-    let out = []
-    let i = 0
+    Value out = []
+    int i = 0
     while (i + 1 < len(s)) {
-        let hi = natHexNibble(substr(s, i, 1))
-        let lo = natHexNibble(substr(s, i + 1, 1))
+        string hi = natHexNibble(substr(s, i, 1))
+        string lo = natHexNibble(substr(s, i + 1, 1))
         out = appendArray(out, hi * 16 + lo)
         i = i + 2
     }
@@ -263,7 +263,7 @@ func natHexDecode(s) {
 // it a literal, and the byte differential against the Go oracle would expose a
 // mis-parse as a byte difference.
 func natHexNibble(c) {
-    let digits = "0123456789abcdef"
+    string digits = "0123456789abcdef"
     return indexOf(digits, c)
 }
 
@@ -310,15 +310,15 @@ func natELFEntry(textOffset) {
 //       rounded into a wrong layout.
 func natELFCorpus(which) {
     if (which == 0) {
-        let t = natEhSize() + natPhSize()
+        string t = natEhSize() + natPhSize()
         return "text " + natToHex(natELFLink(natELFText(), [], [], t, natELFEntry(t)))
     }
     if (which == 1) {
-        let t = natEhSize() + natPhSize() * 2
+        string t = natEhSize() + natPhSize() * 2
         return "arena " + natToHex(natELFLink(natELFText(), natELFRodata(), natELFData(), t, natELFEntry(t)))
     }
     if (which == 2) {
-        let t = natEhSize() + natPhSize()
+        string t = natEhSize() + natPhSize()
         return "rodata " + natToHex(natELFLink(natELFText(), natELFRodata(), [], t, natELFEntry(t)))
     }
     if (which == 3) {

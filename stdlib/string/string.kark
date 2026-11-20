@@ -7,33 +7,33 @@
 // arithmetic) so they work identically on both engines.
 
 // The ASCII alphabet tables used for case mapping.
-func ascii_lower() {
+string ascii_lower() {
     return "abcdefghijklmnopqrstuvwxyz"
 }
 
-func ascii_upper() {
+string ascii_upper() {
     return "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 }
 
 // str_len returns the length of a string. Delegates to the builtin len().
-func str_len(s) {
+int str_len(string s) {
     return len(s)
 }
 
 // str_empty returns true if the string has zero length.
-func str_empty(s) {
+bool str_empty(string s) {
     return len(s) == 0
 }
 
 // str_concat concatenates two strings. Uses the + operator.
-func str_concat(a, b) {
+string str_concat(string a, string b) {
     return a + b
 }
 
 // str_repeat repeats a string n times.
-func str_repeat(s, n) {
-    let result = ""
-    let i = 0
+string str_repeat(string s, int n) {
+    string result = ""
+    int i = 0
     while(i < n ) {
         result = result + s
         i = i + 1
@@ -42,11 +42,11 @@ func str_repeat(s, n) {
 }
 
 // str_starts_with checks if a string starts with the given prefix.
-func str_starts_with(s, prefix) {
+bool str_starts_with(string s, string prefix) {
     if len(prefix) > len(s) {
         return false
     }
-    let i = 0
+    int i = 0
     while(i < len(prefix) ) {
         if s[i] != prefix[i] {
             return false
@@ -57,12 +57,12 @@ func str_starts_with(s, prefix) {
 }
 
 // str_ends_with checks if a string ends with the given suffix.
-func str_ends_with(s, suffix) {
+bool str_ends_with(string s, string suffix) {
     if len(suffix) > len(s) {
         return false
     }
-    let start = len(s) - len(suffix)
-    let i = 0
+    int start = len(s) - len(suffix)
+    int i = 0
     while(i < len(suffix) ) {
         if s[start + i] != suffix[i] {
             return false
@@ -74,23 +74,23 @@ func str_ends_with(s, suffix) {
 
 // str_contains checks if a string contains the given substring.
 // Delegates to the builtin contains().
-func str_contains(s, sub) {
+bool str_contains(string s, string sub) {
     return contains(s, sub)
 }
 
 // str_index_of returns the index of the first occurrence of sub in s,
 // or -1 if not found.
-func str_index_of(s, sub) {
+int str_index_of(string s, string sub) {
     if len(sub) == 0 {
         return 0
     }
     if len(sub) > len(s) {
         return -1
     }
-    let i = 0
+    int i = 0
     while(i <= len(s) - len(sub) ) {
-        let found = true
-        let j = 0
+        bool found = true
+        int j = 0
         while(j < len(sub) ) {
             if s[i + j] != sub[j] {
                 found = false
@@ -108,18 +108,18 @@ func str_index_of(s, sub) {
 
 // str_last_index_of returns the index of the last occurrence of sub in s,
 // or -1 if not found.
-func str_last_index_of(s, sub) {
+int str_last_index_of(string s, string sub) {
     if len(sub) == 0 {
         return len(s)
     }
     if len(sub) > len(s) {
         return -1
     }
-    let last = -1
-    let i = 0
+    int last = -1
+    int i = 0
     while(i <= len(s) - len(sub) ) {
-        let found = true
-        let j = 0
+        bool found = true
+        int j = 0
         while(j < len(sub) ) {
             if s[i + j] != sub[j] {
                 found = false
@@ -136,38 +136,38 @@ func str_last_index_of(s, sub) {
 }
 
 // str_sub returns a substring from start to end (exclusive).
-func str_sub(s, start, end) {
+string str_sub(string s, int start, int end) {
     return substr(s, start, end - start)
 }
 
 // str_slice returns a substring from start with the given length.
 // Delegates to the builtin substr().
-func str_slice(s, start, length) {
+string str_slice(string s, int start, int length) {
     return substr(s, start, length)
 }
 
 // str_trim removes leading and trailing whitespace.
 // Delegates to the builtin trim().
-func str_trim(s) {
+string str_trim(string s) {
     return trim(s)
 }
 
 // str_split splits a string by a delimiter.
 // Delegates to the builtin split().
-func str_split(s, delimiter) {
+string[] str_split(string s, string delimiter) {
     return split(s, delimiter)
 }
 
 // str_to_upper converts ASCII lowercase letters to uppercase.
-func str_to_upper(s) {
-    let result = ""
-    let lower = ascii_lower()
-    let upper = ascii_upper()
-    let i = 0
+string str_to_upper(string s) {
+    string result = ""
+    string lower = ascii_lower()
+    string upper = ascii_upper()
+    int i = 0
     while(i < len(s) ) {
         let ch = s[i]
-        let mapped = ""
-        let j = 0
+        string mapped = ""
+        int j = 0
         while(j < 26 ) {
             if ch == lower[j] {
                 mapped = upper[j]
@@ -186,15 +186,15 @@ func str_to_upper(s) {
 }
 
 // str_to_lower converts ASCII uppercase letters to lowercase.
-func str_to_lower(s) {
-    let result = ""
-    let lower = ascii_lower()
-    let upper = ascii_upper()
-    let i = 0
+string str_to_lower(string s) {
+    string result = ""
+    string lower = ascii_lower()
+    string upper = ascii_upper()
+    int i = 0
     while(i < len(s) ) {
         let ch = s[i]
-        let mapped = ""
-        let j = 0
+        string mapped = ""
+        int j = 0
         while(j < 26 ) {
             if ch == upper[j] {
                 mapped = lower[j]
@@ -213,13 +213,13 @@ func str_to_lower(s) {
 }
 
 // str_replace returns a new string with all occurrences of old replaced by new.
-func str_replace(s, old, new) {
-    let result = ""
-    let i = 0
+string str_replace(string s, string old, string new) {
+    string result = ""
+    int i = 0
     while(i < len(s) ) {
         if i <= len(s) - len(old) {
-            let found = true
-            let j = 0
+            bool found = true
+            int j = 0
             while(j < len(old) ) {
                 if s[i + j] != old[j] {
                     found = false
@@ -243,9 +243,9 @@ func str_replace(s, old, new) {
 }
 
 // str_reverse returns a new string with characters in reverse order.
-func str_reverse(s) {
-    let result = ""
-    let i = len(s) - 1
+string str_reverse(string s) {
+    string result = ""
+    int i = len(s) - 1
     while(i >= 0 ) {
         result = result + s[i]
         i = i - 1
@@ -254,7 +254,7 @@ func str_reverse(s) {
 }
 
 // str_char_at returns the character at the given index as a string.
-func str_char_at(s, index) {
+string str_char_at(string s, int index) {
     if index < 0 || index >= len(s) {
         return ""
     }
@@ -262,35 +262,35 @@ func str_char_at(s, index) {
 }
 
 // str_to_int converts a string to an integer using the builtin int().
-func str_to_int(s) {
+int str_to_int(string s) {
     return int(s)
 }
 
 // str_from_int converts an integer to a string using the builtin str().
-func str_from_int(n) {
+string str_from_int(int n) {
     return str(n)
 }
 
 // str_from_float converts a float to a string.
-func str_from_float(f) {
+string str_from_float(double f) {
     return str(f)
 }
 
 // str_is_empty returns true if the string has zero length.
-func str_is_empty(s) {
+bool str_is_empty(string s) {
     return len(s) == 0
 }
 
 // str_count returns the number of non-overlapping occurrences of sub in s.
-func str_count(s, sub) {
+int str_count(string s, string sub) {
     if len(sub) == 0 {
         return 0
     }
-    let count = 0
-    let i = 0
+    int count = 0
+    int i = 0
     while(i <= len(s) - len(sub) ) {
-        let found = true
-        let j = 0
+        bool found = true
+        int j = 0
         while(j < len(sub) ) {
             if s[i + j] != sub[j] {
                 found = false
@@ -309,9 +309,9 @@ func str_count(s, sub) {
 }
 
 // str_join joins an array of strings with a separator.
-func str_join(arr, sep) {
-    let result = ""
-    let i = 0
+string str_join(string[] arr, string sep) {
+    string result = ""
+    int i = 0
     while(i < len(arr) ) {
         if i > 0 {
             result = result + sep
@@ -323,8 +323,8 @@ func str_join(arr, sep) {
 }
 
 // str_trim_left removes leading whitespace from a string.
-func str_trim_left(s) {
-    let i = 0
+string str_trim_left(string s) {
+    int i = 0
     while(i < len(s) ) {
         let ch = s[i]
         if ch != " " && ch != "\t" && ch != "\n" && ch != "\r" {
@@ -336,8 +336,8 @@ func str_trim_left(s) {
 }
 
 // str_trim_right removes trailing whitespace from a string.
-func str_trim_right(s) {
-    let end = len(s) - 1
+string str_trim_right(string s) {
+    int end = len(s) - 1
     while(end >= 0 ) {
         let ch = s[end]
         if ch != " " && ch != "\t" && ch != "\n" && ch != "\r" {

@@ -7,18 +7,18 @@
 // Run:  karkain run examples/02-algorithms/09_prime_sieve.kark
 
 func sieve(n) {
-    let composite = []
+    int[] composite = []
     push(composite, 0)
     push(composite, 0)
-    let i = 2
+    int i = 2
     while (i <= n) {
         push(composite, 0)
         i = i + 1
     }
 
-    let p = 2
+    int p = 2
     while (p * p <= n) {
-        let m = p * p
+        int m = p * p
         while (m <= n) {
             composite[m] = 1
             m = m + p
@@ -26,8 +26,8 @@ func sieve(n) {
         p = p + 1
     }
 
-    let primes = []
-    let j = 2
+    int[] primes = []
+    int j = 2
     while (j <= n) {
         if (composite[j] == 0) {
             push(primes, j)

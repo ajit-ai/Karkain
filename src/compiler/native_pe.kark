@@ -98,7 +98,7 @@ func natPESectRelocChars() { return 1107296320 }  // 0x42000040 DISCARD|READ
 // at 148. The three imports are fixed by the native architecture, which only
 // ever needs exit, a stdout handle, and write.
 func natPEIdata() {
-    let idata = natZeros(161)
+    int[] idata = natZeros(161)
     // Import directory entry: OriginalFirstThunk, Name, FirstThunk.
     natPut32(idata, natPEIDTOff() + 0, natPEIdataRVA() + natPEILTOff())
     natPut32(idata, natPEIDTOff() + 12, natPEIdataRVA() + 148)
@@ -106,11 +106,11 @@ func natPEIdata() {
 
     // Hint/Name RVA per import. The blob sizes are 16, 16 and 12, which are
     // the 2-byte hint plus the padded name.
-    let sizes = [16, 16, 12]
-    let names = ["ExitProcess", "GetStdHandle", "WriteFile"]
-    let hnOff = natPEHNOff()
-    let hnRvas = []
-    let i = 0
+    Value sizes = [16, 16, 12]
+    Value names = ["ExitProcess", "GetStdHandle", "WriteFile"]
+    string hnOff = natPEHNOff()
+    Value hnRvas = []
+    int i = 0
     while (i < natPENumImports()) {
         hnRvas = appendArray(hnRvas, natPEIdataRVA() + hnOff)
         hnOff = hnOff + sizes[i]
@@ -126,12 +126,12 @@ func natPEIdata() {
         i = i + 1
     }
 
-    let off = natPEHNOff()
+    string off = natPEHNOff()
     i = 0
     while (i < natPENumImports()) {
         natPut16(idata, off, 0) // hint: 0, so the loader matches by name alone
-        let nm = names[i]
-        let k = 0
+        Value nm = names[i]
+        int k = 0
         while (k < len(nm)) {
             idata[off + 2 + k] = asciiVal(substr(nm, k, 1))
             k = k + 1
@@ -141,8 +141,8 @@ func natPEIdata() {
     }
 
     // "kernel32.dll" at 148, NUL-terminated, 13 bytes.
-    let dll = "kernel32.dll"
-    let d = 0
+    string dll = "kernel32.dll"
+    int d = 0
     while (d < len(dll)) {
         idata[148 + d] = asciiVal(substr(dll, d, 1))
         d = d + 1
@@ -160,18 +160,18 @@ func natPEIdata() {
 // type-10 (DIR64) grouped into one block per 4 KB page, each block padded to a
 // DWORD boundary with a type-0 ABSOLUTE entry.
 func natPEReloc(rvas) {
-    let sorted = natSortInts(rvas)
-    let blocks = []
-    let rvas2 = sorted
+    int[] sorted = natSortInts(rvas)
+    Value blocks = []
+    int[] rvas2 = sorted
     while (len(rvas2) > 0) {
-        let page = rvas2[0] - (rvas2[0] & 4095)
-        let entries = []
-        let rest = []
-        let i = 0
+        int page = rvas2[0] - (rvas2[0] & 4095)
+        Value entries = []
+        Value rest = []
+        int i = 0
         while (i < len(rvas2)) {
             if (rvas2[i] - (rvas2[i] & 4095) == page) {
                 // type 10 (DIR64) in the top nibble, offset in the low 12.
-                let v = 10 * 4096 + (rvas2[i] & 4095)
+                int v = 10 * 4096 + (rvas2[i] & 4095)
                 entries = appendArray(entries, v & natMask(0))
                 entries = appendArray(entries, (v >> 8) & natMask(0))
             } else {
@@ -184,15 +184,15 @@ func natPEReloc(rvas) {
             entries = appendArray(entries, 0)
             entries = appendArray(entries, 0)
         }
-        let hdr = natZeros(8)
+        int[] hdr = natZeros(8)
         natPut32(hdr, 0, page)
         natPut32(hdr, 4, 8 + len(entries))
         blocks = natMachoAppend(blocks, hdr)
         blocks = natMachoAppend(blocks, entries)
     }
-    let size = len(blocks)
+    int size = len(blocks)
     let padded = blocks
-    let want = natAlignUp(size, natPEFileAlign())
+    string want = natAlignUp(size, natPEFileAlign())
     while (len(padded) < want) {
         padded = appendArray(padded, 0)
     }
@@ -206,8 +206,8 @@ func natPEReloc(rvas) {
 // parameter that shadows a keyword does not parse, and the error names the
 // token rather than the parameter, so this is worth stating.
 func natPESectHeader(name, vsize, rva, rawSize, off, chars) {
-    let s = natZeros(natPESectSize())
-    let k = 0
+    int[] s = natZeros(natPESectSize())
+    int k = 0
     while (k < 8) {
         if (k < len(name)) {
             s[k] = asciiVal(substr(name, k, 1))
@@ -264,18 +264,18 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
         return "error[K117]: native pe: unsupported text offset " + str(textOffset) + ", want " + str(natPETextOff())
     }
 
-    let codeLen = len(text) + len(rodata)
-    let textRaw = natAlignUp(codeLen, natPEFileAlign())
-    let idata = natPEIdata()
-    let idataFileOff = natPETextOff() + textRaw
-    let arenaLen = len(heap)
-    let idataTotal = len(idata) + arenaLen
-    let idataRaw = natAlignUp(idataTotal, natPEFileAlign())
+    int codeLen = len(text) + len(rodata)
+    string textRaw = natAlignUp(codeLen, natPEFileAlign())
+    string idata = natPEIdata()
+    string idataFileOff = natPETextOff() + textRaw
+    int arenaLen = len(heap)
+    int idataTotal = len(idata) + arenaLen
+    string idataRaw = natAlignUp(idataTotal, natPEFileAlign())
 
     // Every patch site holds an absolute address and therefore needs a DIR64
     // fixup, so the relocation list is the union of the four patch lists.
-    let rvas = []
-    let i = 0
+    Value rvas = []
+    int i = 0
     while (i < len(patches)) { rvas = appendArray(rvas, natPETextRVA() + patches[i]); i = i + 2 }
     i = 0
     while (i < len(ipatches)) { rvas = appendArray(rvas, natPETextRVA() + ipatches[i]); i = i + 2 }
@@ -283,10 +283,10 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
     while (i < len(apatches)) { rvas = appendArray(rvas, natPETextRVA() + apatches[i]); i = i + 2 }
     i = 0
     while (i < len(hpatches)) { rvas = appendArray(rvas, natPETextRVA() + hpatches[i]); i = i + 2 }
-    let rel = natPEReloc(rvas)
-    let relocBlocks = rel[1]
-    let relocFileOff = idataFileOff + idataRaw
-    let relocRaw = natAlignUp(relocBlocks, natPEFileAlign())
+    string rel = natPEReloc(rvas)
+    Value relocBlocks = rel[1]
+    string relocFileOff = idataFileOff + idataRaw
+    string relocRaw = natAlignUp(relocBlocks, natPEFileAlign())
 
     // SizeOfImage must cover the WHOLE image. .idata is not a fixed size (the
     // arena grows it) and .reloc sits AFTER .idata, so computing the total
@@ -294,14 +294,14 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
     // the loader then maps an image whose tail is not backed by memory, which
     // is the access violation Phase 150B diagnosed. The high-water mark is the
     // end of whichever section ends last.
-    let imageEnd = natPEIdataRVA() + idataTotal
+    string imageEnd = natPEIdataRVA() + idataTotal
     if (natPERelocRVA() + relocBlocks > imageEnd) {
         imageEnd = natPERelocRVA() + relocBlocks
     }
-    let sizeOfImage = natAlignUp(imageEnd, natPESectAlign())
+    string sizeOfImage = natAlignUp(imageEnd, natPESectAlign())
 
     // DOS header. 64 bytes, then padding to the signature offset.
-    let out = natZeros(64)
+    int[] out = natZeros(64)
     out[0] = 77   // 'M'
     out[1] = 90   // 'Z'
     natPut32(out, 60, natPESigOff())   // e_lfanew
@@ -312,7 +312,7 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
     out = appendArray(out, 0)
 
     // COFF header.
-    let coff = natZeros(natPECoffSize())
+    int[] coff = natZeros(natPECoffSize())
     natPut16(coff, 0, 34404)               // Machine: IMAGE_FILE_MACHINE_AMD64
     natPut16(coff, 2, natPENumSections())
     natPut32(coff, 4, 0)                   // TimeDateStamp: 0, for determinism
@@ -322,7 +322,7 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
     out = natMachoAppend(out, coff)
 
     // Optional header, PE32+.
-    let opt = natZeros(natPEOptSize())
+    int[] opt = natZeros(natPEOptSize())
     natPut16(opt, 0, 523)                  // Magic: PE32+
     natPut32(opt, 4, textRaw)              // SizeOfCode
     natPut32(opt, 8, idataRaw + relocRaw)  // SizeOfInitializedData
@@ -371,11 +371,11 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
 
     // Absolute addresses the patches resolve to. All three bases are VIRTUAL
     // addresses, which is what a pointer stored in the image must hold.
-    let textBase = natPEBaseAddr() + natPETextRVA()
-    let roBase = textBase + len(text)
-    let idataBase = natPEBaseAddr() + natPEIdataRVA()
+    string textBase = natPEBaseAddr() + natPETextRVA()
+    string roBase = textBase + len(text)
+    string idataBase = natPEBaseAddr() + natPEIdataRVA()
 
-    let img = out
+    int[] img = out
     img = natMachoAppend(img, text)
     img = natMachoAppend(img, rodata)
     // Pad .text out to its file alignment before any patch is written, so a

@@ -1,4 +1,4 @@
 func main() {
-    let s = "Hello, WASM!"
+    string s = "Hello, WASM!"
     print(len(s))
 }

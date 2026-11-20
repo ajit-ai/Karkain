@@ -10,8 +10,8 @@ func wordCount(text) {
 
 func longestWord(text) {
     let words = split(text, " ")
-    let best = ""
-    let i = 0
+    string best = ""
+    int i = 0
     while (i < len(words)) {
         if (len(words[i]) > len(best)) {
             best = words[i]
@@ -23,8 +23,8 @@ func longestWord(text) {
 
 func averageWordLength(text) {
     let words = split(text, " ")
-    let chars = 0
-    let i = 0
+    int chars = 0
+    int i = 0
     while (i < len(words)) {
         chars = chars + len(words[i])
         i = i + 1
@@ -33,7 +33,7 @@ func averageWordLength(text) {
 }
 
 func main() {
-    let doc = "the quick brown fox jumps over the lazy dog"
+    string doc = "the quick brown fox jumps over the lazy dog"
 
     print("characters=" + str(len(doc)))
     print("words=" + str(wordCount(doc)))

@@ -394,3 +394,46 @@ The fourth move — `if` in a callee and in `main` — was needed again by NAT-I
 (see `docs/audit/NAT-IF-BASELINE.md` §8.6), which is the honest way to record
 it: the table's rows follow the driver's capability, and every move says which
 slice moved them.
+
+### 8.7 Corrective change (2026-11-20): three argument-type rows now pin K112
+
+**Measured, not inferred.** CI run `44762813512` (`9d96ec2`, the PR #3
+type-first branch) failed at the step *Run NAT-CALL kcc native user-call gate*
+with three failing subtests, and nothing else:
+
+```
+--- FAIL: TestPhaseNATCall_RefusalsAreByName (0.08s)
+    --- FAIL: .../string_argument  output: error[K112] line 2: argument 1 of 'f' has type 'string', expected 'int'
+    --- FAIL: .../bool_argument    output: error[K112] line 2: argument 1 of 'f' has type 'bool', expected 'int'
+    --- FAIL: .../float_argument   output: error[K112] line 2: argument 1 of 'f' has type 'float', expected 'int'
+```
+
+All three rows expected `error[K145]` from the native driver ("string argument
+for int parameter `` `n` `` (call to `f`)"). The type-first migration
+(`bbecf1c`) taught the self-hosted checker to compare a call argument's
+primitive tag against the parameter's declared type (`checker.kark`, the K112
+site that reports `argument <i> of '<callee>' has type '<got>', expected
+'<want>'`), so such a program is now rejected **before** the driver is
+reached.
+
+**Why the rows are re-pinned rather than deleted or weakened.** This table's
+property is "a construct the driver cannot lower is refused with a diagnostic
+that names it and writes no image", and the K101/K103 rows already pin the
+earlier checker layer for the same reason. Pinning the earlier layer is
+strictly more precise evidence: it names the argument's type, the parameter's
+type and the callee, where the driver's message named only the kind. Deleting
+the rows would have removed the only coverage of non-int arguments at the call
+site.
+
+**What did NOT change.** The driver's own refusal arm
+(`native_value.kark`, the `argument for int parameter` message) is untouched
+and remains the second line of defence for paths the checker does not
+statically type. The three subtests pass locally (24/24 subtests in
+`TestPhaseNATCall_RefusalsAreByName`, 15.9 s), each with exit status 3, no
+image written; `go vet ./pkg/cli/` is clean.
+
+**Not claimed.** This is not a NAT-CALL regression and not a new compiler
+capability; it is a gate aligning with a checker rule that shipped in an
+earlier increment on a different branch. The refusal *table shrinking* case
+this section warned about did not occur — the rows are still there, with a
+different expected code.

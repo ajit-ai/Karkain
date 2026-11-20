@@ -8,9 +8,9 @@
 // Run:  karkain run examples/13-finance/03_npv.kark
 
 func npv(flows, yearly) {
-    let present = 0.0
-    let factor = 1.0
-    let i = 0
+    float64 present = 0.0
+    float64 factor = 1.0
+    int i = 0
     while (i < len(flows)) {
         factor = factor / (1 + yearly)
         present = present + flows[i] * factor

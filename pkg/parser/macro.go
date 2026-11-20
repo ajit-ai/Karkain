@@ -85,6 +85,7 @@ func (me *MacroExpander) expandNode(node Node) Node {
 			Name:          n.Name,
 			Params:        n.Params,
 			ParamTypes:    n.ParamTypes,
+			ReturnType:    n.ReturnType,
 			GenericParams: n.GenericParams,
 			Captures:      n.Captures,
 			Public:        n.Public,

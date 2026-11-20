@@ -12,10 +12,10 @@
 // engines). Only plain variables are capturable.
 
 func main() {
-    let base = 10
-    let outer = fn(a int) int {
-        let m = 3
-        let inner = fn(b int) int { return base + m + b }
+    int base = 10
+    fn outer = fn(a int) int {
+        int m = 3
+        fn inner = fn(b int) int { return base + m + b }
         return inner(a) + inner(1)
     }
     println(outer(5))

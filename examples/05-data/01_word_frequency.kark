@@ -11,13 +11,13 @@ import std.string
 import std.collections
 
 func main() {
-    let text = "the fox and the hound and the fox"
-    let words = str_split(text, " ")
+    string text = "the fox and the hound and the fox"
+    string[] words = str_split(text, " ")
 
     let counts = {}
-    let i = 0
+    int i = 0
     while (i < len(words)) {
-        let w = words[i]
+        string w = words[i]
         if (map_contains_key(counts, w)) {
             counts[w] = counts[w] + 1
         } else {

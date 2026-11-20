@@ -154,8 +154,8 @@ Power
 .. code-block:: kark
 
    func power(base, exp) {
-       let result = 1
-       let i = 0
+       let result: int = 1
+       let i: int = 0
        while (i < exp) {
            result = result * base
            i = i + 1
@@ -190,7 +190,7 @@ Sieve
        if (n < 2) {
            return 0
        }
-       let d = 2
+       let d: int = 2
        while (d * d <= n) {
            if (n % d == 0) {
                return 0
@@ -201,9 +201,9 @@ Sieve
    }
 
    func main() {
-       let limit = 30
+       let limit: int = 30
        let primes = []
-       let n = 2
+       let n: int = 2
        while (n <= limit) {
            if (is_prime(n)) {
                push(primes, n)
@@ -211,7 +211,7 @@ Sieve
            n = n + 1
        }
        print("Primes up to 30:")
-       let i = 0
+       let i: int = 0
        while (i < len(primes)) {
            print(primes[i])
            i = i + 1

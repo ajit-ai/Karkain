@@ -23,11 +23,11 @@
 // path is used only for the basename header so the output stays
 // independent of the host location of the source file.
 func kirEmit(ast, path) {
-    let lines = []
+    Value lines = []
     lines = appendArray(lines, "KIR v1")
     lines = appendArray(lines, "source: " + fileBaseName(path))
-    let imports = progImports(ast)
-    let c = 0
+    int imports = progImports(ast)
+    int c = 0
     while (c < len(imports)) {
         lines = kirImport(lines, imports[c], 0)
         c = c + 1
@@ -38,8 +38,8 @@ func kirEmit(ast, path) {
 
 // kirImport renders an import / cimport declaration as one line.
 func kirImport(lines, node, depth) {
-    let pad = kirIndent(depth)
-    let t = getNodeType(node)
+    Value pad = kirIndent(depth)
+    string t = getNodeType(node)
     if (t == "Import") {
         return appendArray(lines, pad + "import " + importName(node) + " line: " + str(importLine(node)))
     }
@@ -51,7 +51,7 @@ func kirImport(lines, node, depth) {
 
 // kirStmts appends the rendered form of every statement in stmts.
 func kirStmts(lines, stmts, depth) {
-    let i = 0
+    int i = 0
     while (i < len(stmts)) {
         lines = kirStmt(lines, stmts[i], depth)
         i = i + 1
@@ -62,8 +62,8 @@ func kirStmts(lines, stmts, depth) {
 // kirStmt renders one statement into line(s). Multi-line statements
 // (function bodies, blocks, control flow) recurse at depth + 1.
 func kirStmt(lines, node, depth) {
-    let pad = kirIndent(depth)
-    let t = getNodeType(node)
+    Value pad = kirIndent(depth)
+    string t = getNodeType(node)
 
     if (t == "FuncDecl") {
         lines = appendArray(lines, pad + "func " + funcName(node) + " (params: " + kirJoin(funcParams(node)) + ") line: " + str(funcLine(node)))
@@ -133,8 +133,8 @@ func kirStmt(lines, node, depth) {
     }
     if (t == "Match") {
         lines = appendArray(lines, pad + "match " + kirExpr(matchValue(node)) + " line: " + str(matchLine(node)))
-        let arms = matchArms(node)
-        let a = 0
+        Value arms = matchArms(node)
+        int a = 0
         while (a < len(arms)) {
             lines = kirArm(lines, arms[a], depth + 1)
             a = a + 1
@@ -155,7 +155,7 @@ func kirStmt(lines, node, depth) {
 
 // kirArm renders one match arm and its body.
 func kirArm(lines, node, depth) {
-    let pad = kirIndent(depth)
+    Value pad = kirIndent(depth)
     let lines2 = appendArray(lines, pad + "case " + armPatternType(node) + " " + armBinding(node) + " " + kirPattern(armPatternValue(node)) + " line: " + str(armLine(node)))
     return kirStmts(lines2, armBody(node), depth + 1)
 }
@@ -170,7 +170,7 @@ func kirPattern(node) {
 // expression, or "_" when empty.
 func kirInit(node) {
     if (len(node) < 1) { return "_" }
-    let t = getNodeType(node)
+    string t = getNodeType(node)
     if (t == "LetDecl") { return "let " + letDeclName(node) + " = " + kirExpr(letDeclValue(node)) }
     if (t == "VarDecl") { return "var " + varDeclName(node) + " = " + kirExpr(varDeclValue(node)) }
     if (t == "ConstDecl") { return "const " + constDeclName(node) + " = " + kirExpr(constDeclValue(node)) }
@@ -192,7 +192,7 @@ func kirPost(node) {
 // kirExpr renders a single expression as a stable S-expression.
 func kirExpr(node) {
     if (len(node) < 1) { return "_" }
-    let t = getNodeType(node)
+    string t = getNodeType(node)
     if (t == "Ident") { return identName(node) }
     if (t == "IntLiteral") { return literalValue(node) }
     if (t == "FloatLiteral") { return literalValue(node) }
@@ -205,9 +205,9 @@ func kirExpr(node) {
         return "(" + unaryOp(node) + " " + kirExpr(unaryOperand(node)) + ")"
     }
     if (t == "Call") {
-        let s = "(call " + callFunc(node)
-        let args = callArgs(node)
-        let i = 0
+        string s = "(call " + callFunc(node)
+        Value args = callArgs(node)
+        int i = 0
         while (i < len(args)) {
             s = s + " " + kirExpr(args[i])
             i = i + 1
@@ -216,9 +216,9 @@ func kirExpr(node) {
     }
     // Phase 133: computed callee renders with its target expression first.
     if (t == "IndirectCall") {
-        let s = "(indirect-call " + kirExpr(indirectTarget(node))
-        let args = indirectArgs(node)
-        let i = 0
+        string s = "(indirect-call " + kirExpr(indirectTarget(node))
+        int args = indirectArgs(node)
+        int i = 0
         while (i < len(args)) {
             s = s + " " + kirExpr(args[i])
             i = i + 1
@@ -228,9 +228,9 @@ func kirExpr(node) {
     // Phase 137: spawn and receive render explicitly (previously the
     // parser dropped them to `_`).
     if (t == "Spawn") {
-        let s = "(spawn " + spawnFunc(node)
-        let args = spawnArgs(node)
-        let i = 0
+        string s = "(spawn " + spawnFunc(node)
+        int args = spawnArgs(node)
+        int i = 0
         while (i < len(args)) {
             s = s + " " + kirExpr(args[i])
             i = i + 1
@@ -250,9 +250,9 @@ func kirExpr(node) {
         return "(slice " + kirExpr(sliceLeft(node)) + " " + kirBound(sliceStart(node)) + " " + kirBound(sliceEnd(node)) + ")"
     }
     if (t == "ArrayLiteral") {
-        let s = "(array"
-        let elems = arrayLitElems(node)
-        let i = 0
+        string s = "(array"
+        int elems = arrayLitElems(node)
+        int i = 0
         while (i < len(elems)) {
             s = s + " " + kirExpr(elems[i])
             i = i + 1
@@ -260,10 +260,10 @@ func kirExpr(node) {
         return s + ")"
     }
     if (t == "MapLiteral") {
-        let s = "(map"
-        let keys = mapKeys(node)
-        let vals = mapValues(node)
-        let i = 0
+        string s = "(map"
+        int keys = mapKeys(node)
+        Value vals = mapValues(node)
+        int i = 0
         while (i < len(keys)) {
             s = s + " " + kirExpr(keys[i]) + "=" + kirExpr(vals[i])
             i = i + 1
@@ -271,9 +271,9 @@ func kirExpr(node) {
         return s + ")"
     }
     if (t == "StructLiteral") {
-        let s = "(struct " + structLitName(node) + " "
-        let fields = structLitFields(node)
-        let i = 0
+        string s = "(struct " + structLitName(node) + " "
+        Value fields = structLitFields(node)
+        int i = 0
         while (i < len(fields)) {
             s = s + kirField(fields[i])
             if (i + 1 < len(fields)) { s = s + " " }
@@ -285,9 +285,9 @@ func kirExpr(node) {
         return "(lambda (params: " + kirJoin(lambdaParams(node)) + ") body=" + str(len(lambdaBody(node))) + ")"
     }
     if (t == "Match") {
-        let s = "(match " + kirExpr(matchValue(node))
-        let arms = matchArms(node)
-        let i = 0
+        string s = "(match " + kirExpr(matchValue(node))
+        Value arms = matchArms(node)
+        int i = 0
         while (i < len(arms)) {
             s = s + " (" + armPatternType(arms[i]) + " " + armBinding(arms[i]) + " " + kirPattern(armPatternValue(arms[i])) + " line: " + str(armLine(arms[i])) + ")"
             i = i + 1
@@ -310,8 +310,8 @@ func kirExpr(node) {
         return "(global_id " + str(globalIdDim(node)) + ")"
     }
     if (t == "EnumVariantExpr") {
-        let s = "(enum_variant " + enumVariantExprEnumName(node) + " " + enumVariantExprVariant(node)
-        let val = enumVariantExprValue(node)
+        string s = "(enum_variant " + enumVariantExprEnumName(node) + " " + enumVariantExprVariant(node)
+        int val = enumVariantExprValue(node)
         if (len(val) > 0) { s = s + " " + kirExpr(val) }
         return s + ")"
     }
@@ -327,7 +327,7 @@ func kirBound(node) {
 // kirField renders one struct-literal field, an "=" binary node
 // whose left side is the field name identifier.
 func kirField(field) {
-    let t = getNodeType(field)
+    string t = getNodeType(field)
     if (t == "BinaryExpr" && binaryOp(field) == "=") {
         return kirExpr(binaryLeft(field)) + "=" + kirExpr(binaryRight(field))
     }
@@ -336,8 +336,8 @@ func kirField(field) {
 
 // kirJoin renders an array of name strings as a ", "-separated list.
 func kirJoin(items) {
-    let s = ""
-    let i = 0
+    string s = ""
+    int i = 0
     while (i < len(items)) {
         if (i > 0) { s = s + ", " }
         s = s + items[i]
@@ -348,8 +348,8 @@ func kirJoin(items) {
 
 // kirIndent returns depth*2 spaces.
 func kirIndent(depth) {
-    let s = ""
-    let i = 0
+    string s = ""
+    int i = 0
     while (i < depth) {
         s = s + "  "
         i = i + 1
@@ -377,10 +377,10 @@ func kirIndent(depth) {
 
 // kirIndentCount returns the number of leading spaces in line.
 func kirIndentCount(line) {
-    let n = len(line)
-    let i = 0
+    int n = len(line)
+    int i = 0
     while (i < n) {
-        let ch = substr(line, i, 1)
+        string ch = substr(line, i, 1)
         if (ch != " ") { return i }
         i = i + 1
     }
@@ -389,12 +389,12 @@ func kirIndentCount(line) {
 
 // kirIsDigits reports whether s is non-empty and all ASCII digits.
 func kirIsDigits(s) {
-    let n = len(s)
+    int n = len(s)
     if (n == 0) { return 0 }
-    let digits = "0123456789"
-    let i = 0
+    string digits = "0123456789"
+    int i = 0
     while (i < n) {
-        let ch = substr(s, i, 1)
+        string ch = substr(s, i, 1)
         if (contains(digits, ch) == 0) { return 0 }
         i = i + 1
     }
@@ -405,7 +405,7 @@ func kirIsDigits(s) {
 // " line: <decimal>" suffix rule (bare "block" introducers and the
 // unknown-node fallback are not annotated with line numbers).
 func kirIsStructureLine(line) {
-    let t = trim(line)
+    string t = trim(line)
     if (t == "block") { return 1 }
     if (len(t) >= 6 && substr(t, 0, 6) == "stmt <") { return 1 }
     return 0
@@ -416,11 +416,11 @@ func kirIsStructureLine(line) {
 // expression-embedded markers such as match-arm "(... line: N)" from
 // being mistaken for the statement-level suffix.
 func kirHasLineNo(line) {
-    let marker = " line: "
-    let mlen = 7
-    let ln = len(line)
-    let last = -1
-    let i = 0
+    string marker = " line: "
+    int mlen = 7
+    int ln = len(line)
+    int last = -1
+    int i = 0
     while (i + mlen <= ln) {
         if (substr(line, i, mlen) == marker) {
             last = i
@@ -428,15 +428,15 @@ func kirHasLineNo(line) {
         i = i + 1
     }
     if (last < 0) { return 0 }
-    let tail = substr(line, last + mlen, ln - last - mlen)
+    string tail = substr(line, last + mlen, ln - last - mlen)
     return kirIsDigits(tail)
 }
 
 // kirVerify checks the emitter's own output (as produced by kirEmit)
 // against the KIR v1 contract. problems is empty on success.
 func kirVerify(lines, path) {
-    let problems = []
-    let n = len(lines)
+    Value problems = []
+    int n = len(lines)
     if (n < 3) {
         problems = appendArray(problems, "kir text has fewer than 3 lines")
         return problems
@@ -444,19 +444,19 @@ func kirVerify(lines, path) {
     if (lines[0] != "KIR v1") {
         problems = appendArray(problems, "line 1: header is not 'KIR v1'")
     }
-    let encoded = "source: " + fileBaseName(path)
+    string encoded = "source: " + fileBaseName(path)
     if (lines[1] != encoded) {
         problems = appendArray(problems, "line 2: source header is not '" + encoded + "'")
     }
-    let i = 2
-    let depth = 0
+    int i = 2
+    int depth = 0
     while (i < n) {
-        let line = lines[i]
-        let ind = kirIndentCount(line)
+        Value line = lines[i]
+        int ind = kirIndentCount(line)
         if ((ind % 2) != 0) {
             problems = appendArray(problems, "line " + str(i + 1) + ": indentation " + str(ind) + " is not a multiple of 2")
         }
-        let d = ind / 2
+        int d = ind / 2
         if (d > depth + 1) {
             problems = appendArray(problems, "line " + str(i + 1) + ": nesting depth jumps from " + str(depth) + " to " + str(d))
         }

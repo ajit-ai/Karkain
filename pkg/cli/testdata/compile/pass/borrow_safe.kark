@@ -1,6 +1,6 @@
 func main() {
-    let counter = 0
-    let bump = fn() {
+    int counter = 0
+    fn bump = fn() {
         return counter + 1
     }
     print(bump())

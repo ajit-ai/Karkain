@@ -7,7 +7,7 @@
 // ============================================================
 
 func createCodegenState(target) {
-    let state = []
+    Value state = []
     state = appendArray(state, target)   // 0: target ("c11", "wgsl", "opencl", "spirv")
     state = appendArray(state, "")       // 1: output buffer
     state = appendArray(state, 0)        // 2: indent level
@@ -36,8 +36,8 @@ func emit(state, text) {
 }
 
 func emitLine(state, text) {
-    let indentStr = ""
-    let i = 0
+    string indentStr = ""
+    int i = 0
     while (i < codegenIndent(state)) {
         indentStr = indentStr + "  "
         i = i + 1
@@ -76,7 +76,7 @@ func emitC11Type(varType) {
 }
 
 func emitC11Expr(state, node) {
-    let nt = getNodeType(node)
+    Value nt = getNodeType(node)
 
     if (nt == "IntLiteral") { emit(state, literalValue(node)) }
     if (nt == "FloatLiteral") { emit(state, literalValue(node)) }
@@ -98,7 +98,7 @@ func emitC11Expr(state, node) {
     }
 
     if (nt == "UnaryExpr") {
-        let op = unaryOp(node)
+        Value op = unaryOp(node)
         if (op == "!") { emit(state, "!") }
         if (op == "-") { emit(state, "-") }
         if (op == "*") { emit(state, "*") }
@@ -108,8 +108,8 @@ func emitC11Expr(state, node) {
 
     if (nt == "Call") {
         emit(state, callFunc(node) + "(")
-        let args = callArgs(node)
-        let i = 0
+        Value args = callArgs(node)
+        int i = 0
         while (i < len(args)) {
             if (i > 0) { emit(state, ", ") }
             emitC11Expr(state, args[i])
@@ -139,8 +139,8 @@ func emitC11Expr(state, node) {
 
     if (nt == "ArrayLiteral") {
         emit(state, "{")
-        let elems = arrayElements(node)
-        let i = 0
+        int elems = arrayElements(node)
+        int i = 0
         while (i < len(elems)) {
             if (i > 0) { emit(state, ", ") }
             emitC11Expr(state, elems[i])
@@ -151,10 +151,10 @@ func emitC11Expr(state, node) {
 }
 
 func emitC11Stmt(state, node) {
-    let nt = getNodeType(node)
+    Value nt = getNodeType(node)
 
     if (nt == "VarDecl") {
-        let vtype = emitC11Type(varDeclType(node))
+        string vtype = emitC11Type(varDeclType(node))
         emitLine(state, vtype + " " + varDeclName(node) + " = ";)
         emitC11Expr(state, varDeclValue(node))
         emit(state, ";")
@@ -189,14 +189,14 @@ func emitC11Stmt(state, node) {
         emitC11Expr(state, ifCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let thenB = ifThen(node)
-        let i = 0
+        int thenB = ifThen(node)
+        int i = 0
         while (i < len(thenB)) {
             emitC11Stmt(state, thenB[i])
             i = i + 1
         }
         state[2] = codegenIndent(state) - 1
-        let elseB = ifElse(node)
+        int elseB = ifElse(node)
         if (len(elseB) > 0) {
             emitLine(state, "} else {")
             state[2] = codegenIndent(state) + 1
@@ -215,8 +215,8 @@ func emitC11Stmt(state, node) {
         emitC11Expr(state, whileCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = whileBody(node)
-        let i = 0
+        int body = whileBody(node)
+        int i = 0
         while (i < len(body)) {
             emitC11Stmt(state, body[i])
             i = i + 1
@@ -233,8 +233,8 @@ func emitC11Stmt(state, node) {
         emitC11Expr(state, forPost(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = forBody(node)
-        let i = 0
+        int body = forBody(node)
+        int i = 0
         while (i < len(body)) {
             emitC11Stmt(state, body[i])
             i = i + 1
@@ -248,10 +248,10 @@ func emitC11Stmt(state, node) {
     }
 
     if (nt == "FuncDecl") {
-        let rtype = emitC11Type(funcReturnType(node))
+        string rtype = emitC11Type(funcReturnType(node))
         emit(state, rtype + " " + funcName(node) + "(")
-        let params = funcParams(node)
-        let i = 0
+        int params = funcParams(node)
+        int i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, emitC11Type(params[i][0]) + " " + params[i][1])
@@ -259,7 +259,7 @@ func emitC11Stmt(state, node) {
         }
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = funcBody(node)
+        int body = funcBody(node)
         i = 0
         while (i < len(body)) {
             emitC11Stmt(state, body[i])
@@ -272,8 +272,8 @@ func emitC11Stmt(state, node) {
 
     if (nt == "KernelDecl") {
         emit(state, "__kernel void " + kernelName(node) + "(")
-        let params = kernelParams(node)
-        let i = 0
+        int params = kernelParams(node)
+        int i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, emitC11Type(params[i][0]) + " " + params[i][1])
@@ -281,7 +281,7 @@ func emitC11Stmt(state, node) {
         }
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = kernelBody(node)
+        int body = kernelBody(node)
         i = 0
         while (i < len(body)) {
             emitC11Stmt(state, body[i])
@@ -295,8 +295,8 @@ func emitC11Stmt(state, node) {
     if (nt == "StructDecl") {
         emitLine(state, "typedef struct " + structName(node) + " {")
         state[2] = codegenIndent(state) + 1
-        let fields = structFields(node)
-        let i = 0
+        int fields = structFields(node)
+        int i = 0
         while (i < len(fields)) {
             emitLine(state, emitC11Type(fields[i][0]) + " " + fields[i][1] + ";")
             i = i + 1
@@ -308,11 +308,11 @@ func emitC11Stmt(state, node) {
 }
 
 func generateC11(ast) {
-    let state = createCodegenState("c11")
+    Value state = createCodegenState("c11")
     emitC11Preamble(state)
 
-    let stmts = programStatements(ast)
-    let i = 0
+    Value stmts = programStatements(ast)
+    int i = 0
     while (i < len(stmts)) {
         emitC11Stmt(state, stmts[i])
         i = i + 1
@@ -340,7 +340,7 @@ func emitWGSLType(varType) {
 }
 
 func emitWGSLExpr(state, node) {
-    let nt = getNodeType(node)
+    Value nt = getNodeType(node)
 
     if (nt == "IntLiteral") { emit(state, literalValue(node)) }
     if (nt == "FloatLiteral") { emit(state, literalValue(node)) }
@@ -358,8 +358,8 @@ func emitWGSLExpr(state, node) {
 
     if (nt == "Call") {
         emit(state, callFunc(node) + "(")
-        let args = callArgs(node)
-        let i = 0
+        Value args = callArgs(node)
+        int i = 0
         while (i < len(args)) {
             if (i > 0) { emit(state, ", ") }
             emitWGSLExpr(state, args[i])
@@ -390,8 +390,8 @@ func emitWGSLExpr(state, node) {
 
     if (nt == "ArrayLiteral") {
         emit(state, "array(")
-        let elems = arrayElements(node)
-        let i = 0
+        int elems = arrayElements(node)
+        int i = 0
         while (i < len(elems)) {
             if (i > 0) { emit(state, ", ") }
             emitWGSLExpr(state, elems[i])
@@ -402,7 +402,7 @@ func emitWGSLExpr(state, node) {
 }
 
 func emitWGSLStmt(state, node) {
-    let nt = getNodeType(node)
+    Value nt = getNodeType(node)
 
     if (nt == "VarDecl") {
         let vtype = emitWGSLType(varDeclType(node))
@@ -438,8 +438,8 @@ func emitWGSLStmt(state, node) {
         emitWGSLExpr(state, ifCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let thenB = ifThen(node)
-        let i = 0
+        int thenB = ifThen(node)
+        int i = 0
         while (i < len(thenB)) {
             emitWGSLStmt(state, thenB[i])
             i = i + 1
@@ -455,7 +455,7 @@ func emitWGSLStmt(state, node) {
     if (nt == "KernelDecl") {
         emit(state, "@compute @workgroup_size(")
         let wg = kernelWorkgroup(node)
-        let i = 0
+        int i = 0
         while (i < len(wg)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, wg[i])
@@ -463,7 +463,7 @@ func emitWGSLStmt(state, node) {
         }
         emitLine(state, ")")
         emit(state, "fn " + kernelName(node) + "(")
-        let params = kernelParams(node)
+        int params = kernelParams(node)
         i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
@@ -472,7 +472,7 @@ func emitWGSLStmt(state, node) {
         }
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = kernelBody(node)
+        int body = kernelBody(node)
         i = 0
         while (i < len(body)) {
             emitWGSLStmt(state, body[i])
@@ -485,8 +485,8 @@ func emitWGSLStmt(state, node) {
 
     if (nt == "FuncDecl") {
         emit(state, "fn " + funcName(node) + "(")
-        let params = funcParams(node)
-        let i = 0
+        int params = funcParams(node)
+        int i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, params[i][1] + ": " + emitWGSLType(params[i][0]))
@@ -495,7 +495,7 @@ func emitWGSLStmt(state, node) {
         emit(state, ") -> " + emitWGSLType(funcReturnType(node)))
         emitLine(state, " {")
         state[2] = codegenIndent(state) + 1
-        let body = funcBody(node)
+        int body = funcBody(node)
         i = 0
         while (i < len(body)) {
             emitWGSLStmt(state, body[i])
@@ -509,8 +509,8 @@ func emitWGSLStmt(state, node) {
     if (nt == "StructDecl") {
         emitLine(state, "struct " + structName(node) + " {")
         state[2] = codegenIndent(state) + 1
-        let fields = structFields(node)
-        let i = 0
+        int fields = structFields(node)
+        int i = 0
         while (i < len(fields)) {
             emitLine(state, fields[i][1] + ": " + emitWGSLType(fields[i][0]) + ",")
             i = i + 1
@@ -526,8 +526,8 @@ func emitWGSLStmt(state, node) {
         emit(state, "if (!")
         emitWGSLExpr(state, whileCondition(node))
         emitLine(state, ") { break; }")
-        let body = whileBody(node)
-        let i = 0
+        int body = whileBody(node)
+        int i = 0
         while (i < len(body)) {
             emitWGSLStmt(state, body[i])
             i = i + 1
@@ -545,8 +545,8 @@ func emitWGSLStmt(state, node) {
         emit(state, "if (!")
         emitWGSLExpr(state, forCondition(node))
         emitLine(state, ") { break; }")
-        let body = forBody(node)
-        let i = 0
+        int body = forBody(node)
+        int i = 0
         while (i < len(body)) {
             emitWGSLStmt(state, body[i])
             i = i + 1
@@ -562,11 +562,11 @@ func emitWGSLStmt(state, node) {
 }
 
 func generateWGSL(ast) {
-    let state = createCodegenState("wgsl")
+    Value state = createCodegenState("wgsl")
     emitWGSLEpreamble(state)
 
-    let stmts = programStatements(ast)
-    let i = 0
+    Value stmts = programStatements(ast)
+    int i = 0
     while (i < len(stmts)) {
         emitWGSLStmt(state, stmts[i])
         i = i + 1
@@ -595,7 +595,7 @@ func emitOpenCLType(varType) {
 }
 
 func emitOpenCLExpr(state, node) {
-    let nt = getNodeType(node)
+    Value nt = getNodeType(node)
 
     if (nt == "IntLiteral") { emit(state, literalValue(node)) }
     if (nt == "FloatLiteral") { emit(state, literalValue(node)) }
@@ -616,8 +616,8 @@ func emitOpenCLExpr(state, node) {
 
     if (nt == "Call") {
         emit(state, callFunc(node) + "(")
-        let args = callArgs(node)
-        let i = 0
+        Value args = callArgs(node)
+        int i = 0
         while (i < len(args)) {
             if (i > 0) { emit(state, ", ") }
             emitOpenCLExpr(state, args[i])
@@ -647,7 +647,7 @@ func emitOpenCLExpr(state, node) {
 }
 
 func emitOpenCLStmt(state, node) {
-    let nt = getNodeType(node)
+    Value nt = getNodeType(node)
 
     if (nt == "VarDecl") {
         let vtype = emitOpenCLType(varDeclType(node))
@@ -684,14 +684,14 @@ func emitOpenCLStmt(state, node) {
         emitOpenCLExpr(state, ifCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let thenB = ifThen(node)
-        let i = 0
+        int thenB = ifThen(node)
+        int i = 0
         while (i < len(thenB)) {
             emitOpenCLStmt(state, thenB[i])
             i = i + 1
         }
         state[2] = codegenIndent(state) - 1
-        let elseB = ifElse(node)
+        int elseB = ifElse(node)
         if (len(elseB) > 0) {
             emitLine(state, "} else {")
             state[2] = codegenIndent(state) + 1
@@ -711,8 +711,8 @@ func emitOpenCLStmt(state, node) {
 
     if (nt == "KernelDecl") {
         emit(state, "__kernel void " + kernelName(node) + "(")
-        let params = kernelParams(node)
-        let i = 0
+        int params = kernelParams(node)
+        int i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, "__global " + emitOpenCLType(params[i][0]) + "* " + params[i][1])
@@ -720,7 +720,7 @@ func emitOpenCLStmt(state, node) {
         }
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = kernelBody(node)
+        int body = kernelBody(node)
         i = 0
         while (i < len(body)) {
             emitOpenCLStmt(state, body[i])
@@ -734,8 +734,8 @@ func emitOpenCLStmt(state, node) {
     if (nt == "FuncDecl") {
         let rtype = emitOpenCLType(funcReturnType(node))
         emit(state, rtype + " " + funcName(node) + "(")
-        let params = funcParams(node)
-        let i = 0
+        int params = funcParams(node)
+        int i = 0
         while (i < len(params)) {
             if (i > 0) { emit(state, ", ") }
             emit(state, emitOpenCLType(params[i][0]) + " " + params[i][1])
@@ -743,7 +743,7 @@ func emitOpenCLStmt(state, node) {
         }
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = funcBody(node)
+        int body = funcBody(node)
         i = 0
         while (i < len(body)) {
             emitOpenCLStmt(state, body[i])
@@ -757,8 +757,8 @@ func emitOpenCLStmt(state, node) {
     if (nt == "StructDecl") {
         emitLine(state, "typedef struct " + structName(node) + " {")
         state[2] = codegenIndent(state) + 1
-        let fields = structFields(node)
-        let i = 0
+        int fields = structFields(node)
+        int i = 0
         while (i < len(fields)) {
             emitLine(state, emitOpenCLType(fields[i][0]) + " " + fields[i][1] + ";")
             i = i + 1
@@ -773,8 +773,8 @@ func emitOpenCLStmt(state, node) {
         emitOpenCLExpr(state, whileCondition(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = whileBody(node)
-        let i = 0
+        int body = whileBody(node)
+        int i = 0
         while (i < len(body)) {
             emitOpenCLStmt(state, body[i])
             i = i + 1
@@ -791,8 +791,8 @@ func emitOpenCLStmt(state, node) {
         emitOpenCLExpr(state, forPost(node))
         emitLine(state, ") {")
         state[2] = codegenIndent(state) + 1
-        let body = forBody(node)
-        let i = 0
+        int body = forBody(node)
+        int i = 0
         while (i < len(body)) {
             emitOpenCLStmt(state, body[i])
             i = i + 1
@@ -803,11 +803,11 @@ func emitOpenCLStmt(state, node) {
 }
 
 func generateOpenCL(ast) {
-    let state = createCodegenState("opencl")
+    Value state = createCodegenState("opencl")
     emitOpenCLPreamble(state)
 
-    let stmts = programStatements(ast)
-    let i = 0
+    Value stmts = programStatements(ast)
+    int i = 0
     while (i < len(stmts)) {
         emitOpenCLStmt(state, stmts[i])
         i = i + 1

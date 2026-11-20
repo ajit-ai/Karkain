@@ -254,16 +254,31 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// read-only data is now interned in the oracle's order and its offsets
 		// are read back out of the interning table.
 		//
-		// RE-PINNED FOR NAT-REG: 14946 -> 15243 (+297). The register allocator
-		// and its liveness walk are new FUNCTIONS, and the KIR text renders
-		// the AST rather than the file, so a slice that adds functions moves
-		// the pin by more than its line count.
+		// RE-PINNED FOR TYPE-FIRST MIGRATION: 15243 -> 15780 (+537). The
+		// type-first declaration migration added AST lines across src/compiler;
+		// the pin was re-measured on CI (`karkain kir --verify src/compiler/kir.kark`,
+		// text=15780 verify=15780) and never predicted.
+		// KIR renders the AST rather than the file, so added declarations move
+		// the pin. Verified by this gate's own invocation.
 		//
-		// Measured with `karkain kir --verify src/compiler/kir.kark` in this
-		// gate's own invocation -- text=15243 verify=15243 -- and never
+		// RE-PINNED FOR TYPE-KEYWORD REMOVAL: 15780 -> 15766 (-14). The seven
+		// type names byte/short/long/float/double/char/Value stopped being
+		// lexer keywords in src/compiler/lexer.kark, so seven `if (ident ==
+		// "...")` statements left lookupKeyword's AST; KIR renders each as two
+		// lines. Measured on this host with `karkain kir --verify
+		// src/compiler/kir.kark` (text=15766 verify=15766, 611 s), never
 		// predicted.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 15243 {
-			t.Errorf("whole-tree kir text = %d lines, want 15243:\n%s", got, out)
+		//
+		// RE-PINNED FOR THE KCC PARSER CORRECTIONS: 15766 -> 15780 (+14).
+		// parseFunc gained the `name <keyword type>` arm and parseBlock gained
+		// the `fn <ident> = fn(...)` arm, so fourteen more AST lines render.
+		// The net is zero against the migration pin by coincidence (the
+		// keyword removal above was -14), which is why the chain is written
+		// out rather than compressed: 15780 -> 15766 -> 15780. Measured on
+		// this host with `karkain kir --verify src/compiler/kir.kark`
+		// (text=15780 verify=15780, 966 s), never predicted.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 15780 {
+			t.Errorf("whole-tree kir text = %d lines, want 15780:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

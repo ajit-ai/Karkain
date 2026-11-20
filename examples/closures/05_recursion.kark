@@ -10,11 +10,11 @@
 // Golden 300 on both engines.
 
 func countdown(n int) int {
-    let get = fn() int { return n }
+    fn get = fn() int { return n }
     if (n <= 0) {
         return get()
     }
-    let sub = countdown(n - 1)
+    int sub = countdown(n - 1)
     return get() * 100 + sub
 }
 

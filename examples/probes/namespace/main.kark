@@ -7,18 +7,18 @@ func readFile(path) {
 }
 
 func main() {
-    let r = sqrt(4)
+    string r = sqrt(4)
     println(r)
-    let s = readFile("/nowhere")
+    string s = readFile("/nowhere")
     println(s)
-    let v = [1, 2]
+    int[] v = [1, 2]
     println(v[0])
-    let n = mathLength(v)
+    int n = mathLength(v)
     println(n)
 }
 
 func mathLength(x) {
-    let i = 0
+    int i = 0
     while (i < len(x)) {
         i = i + 1
     }

@@ -9,8 +9,8 @@
 // Run:  karkain run examples/12-scientific-computing/03_statistics.kark
 
 func mean(xs) {
-    let total = 0.0
-    let i = 0
+    float64 total = 0.0
+    int i = 0
     while (i < len(xs)) {
         total = total + xs[i]
         i = i + 1
@@ -19,9 +19,9 @@ func mean(xs) {
 }
 
 func variance(xs) {
-    let m = mean(xs)
-    let total = 0.0
-    let i = 0
+    float64 m = mean(xs)
+    float64 total = 0.0
+    int i = 0
     while (i < len(xs)) {
         let d = xs[i] - m
         total = total + d * d
@@ -35,8 +35,8 @@ func stddev(xs) {
 }
 
 func sqrt_newton(x, guesses) {
-    let r = 1.0
-    let i = 0
+    float64 r = 1.0
+    int i = 0
     while (i < guesses) {
         r = (r + x / r) / 2
         i = i + 1
@@ -45,7 +45,7 @@ func sqrt_newton(x, guesses) {
 }
 
 func main() {
-    let data = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
+    float64[] data = [2.0, 4.0, 4.0, 4.0, 5.0, 5.0, 7.0, 9.0]
     print(mean(data))
     print(variance(data))
     print(stddev(data))

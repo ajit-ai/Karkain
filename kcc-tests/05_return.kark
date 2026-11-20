@@ -12,9 +12,9 @@ func abs_value(n) {
 }
 
 func main() {
-    let s = square(5)
-    let a = abs_value(-7)
-    let b = abs_value(3)
+    int s = square(5)
+    int a = abs_value(-7)
+    int b = abs_value(3)
     print(s)
     print(a)
     print(b)

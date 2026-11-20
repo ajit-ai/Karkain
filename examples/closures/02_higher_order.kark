@@ -12,7 +12,7 @@ func apply_twice(g fn, v int) int {
 }
 
 func main() {
-    let inc = fn(x int) int { return x + 1 }
+    fn inc = fn(x int) int { return x + 1 }
     print(inc(10))
     print(apply_twice(inc, 10))
     let h fn = inc

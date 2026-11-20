@@ -27,7 +27,7 @@ Compound interest (excerpt)
 
    func compound(start, years, percent) {
        let amount = start
-       let year = 0
+       let year: int = 0
        while (year < years) {
            amount = amount + amount * percent / 100
            year = year + 1

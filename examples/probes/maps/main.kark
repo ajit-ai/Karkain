@@ -1,5 +1,5 @@
 func main() {
-    let m = {}
+    map[int]int m = {}
     m["age"] = 30
     print(m["age"])
     m["name"] = "Ana"

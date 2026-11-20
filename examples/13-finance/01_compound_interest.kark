@@ -9,7 +9,7 @@
 
 func compound(start, years, percent) {
     let amount = start
-    let year = 0
+    int year = 0
     while (year < years) {
         amount = amount + amount * percent / 100
         year = year + 1

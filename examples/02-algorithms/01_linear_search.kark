@@ -7,7 +7,7 @@
 // Run:  karkain run examples/02-algorithms/01_linear_search.kark
 
 func linear_search(xs, target) {
-    let i = 0
+    int i = 0
     while (i < len(xs)) {
         if (xs[i] == target) {
             return i
@@ -18,7 +18,7 @@ func linear_search(xs, target) {
 }
 
 func main() {
-    let data = [42, 17, 99, 3, 7, 12]
+    int[] data = [42, 17, 99, 3, 7, 12]
     print(linear_search(data, 99))
     print(linear_search(data, 3))
     print(linear_search(data, 100))

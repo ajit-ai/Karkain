@@ -9,8 +9,8 @@
 // Run:  karkain run examples/12-scientific-computing/01_sqrt_newton.kark
 
 func sqrt_newton(x, guesses) {
-    let r = 1.0
-    let i = 0
+    float64 r = 1.0
+    int i = 0
     while (i < guesses) {
         r = (r + x / r) / 2
         i = i + 1
