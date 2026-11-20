@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"karkain/pkg/lexer"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -994,12 +995,22 @@ func (p *Parser) parsePrint() *PrintStmt {
 	return node
 }
 
+// isNilNode detects a typed-nil pointer stored in a Node interface — the
+// classic Go trap where `var p *VarDeclStmt; var n Node = p` makes n != nil.
+func isNilNode(n Node) bool {
+	if n == nil {
+		return true
+	}
+	v := reflect.ValueOf(n)
+	return v.Kind() == reflect.Ptr && v.IsNil()
+}
+
 func (p *Parser) parseBlock() []Node {
 	stmts := []Node{}
 	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
 		start := p.curToken.Start
 		stmt := p.parseStatement()
-		if stmt != nil {
+		if stmt != nil && !isNilNode(stmt) {
 			stmts = append(stmts, stmt)
 		}
 		// Phase 117: consume an explicit ';' statement terminator after each
@@ -1436,19 +1447,19 @@ func (p *Parser) parseIdentStatement() Node {
 		p.nextToken()
 		tfBrackets = true
 	}
+	// Phase 14: Bare quantum gate syntax — H qr[0], CNOT qr[0], qr[1].
+	// Must be checked BEFORE the type-first declaration branch: `H qr[0]`
+	// has an identifier after the gate name and would otherwise be misread
+	// as a typed declaration `H qr`.
+	if isQuantumGate(ident) && (p.curToken.Type == lexer.TokenIdent || p.curToken.Type == lexer.TokenInt) {
+		return p.parseBareGateApply(ident)
+	}
 	if p.curToken.Type == lexer.TokenIdent || p.curToken.Type == lexer.TokenMatrix {
 		return p.parseTypeFirstDeclFrom(tfType, line, identCol)
 	}
 	if tfBrackets {
 		p.addError("expected variable name after type '" + tfType + "'")
 		return nil
-	}
-
-	// Phase 14: Bare quantum gate syntax — H qr[0], CNOT qr[0], qr[1]
-	// A known gate name in statement position followed by an operand (identifier or int)
-	// is a gate apply, not an expression statement.
-	if isQuantumGate(ident) && (p.curToken.Type == lexer.TokenIdent || p.curToken.Type == lexer.TokenInt) {
-		return p.parseBareGateApply(ident)
 	}
 
 	// Check for index assignment: arr[i] = val, chained arr[i][j] = val, or
