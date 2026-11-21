@@ -39,9 +39,31 @@ No emitted bytes change: this is a diagnostics-only resolver pass, so the
 Phase 114 corpus and the self-hosted compiler's byte identity are untouched by
 construction. `go test ./pkg/sema/ -run 'TestPhase13_' -count=1` passes.
 
+## Second corrective change — assignment invalidation inside blocks
+
+The first CI run on the NAT-FORIN PR exposed a second false positive:
+
+```text
+examples/closures/04_factory.kark:25
+array index 0 out of range (length 0)
+```
+
+The example binds `let fns = []`, then grows it with
+`fns = appendArray(fns, ...)` inside a `while` body. The size was forgotten by
+the assignment, but `leaveArrayScope` restored the pre-block snapshot and
+resurrected the length-0 size, so the post-loop `fns[0]` was rejected.
+
+Fix: `pkg/sema/resolve.go` now records assignment invalidation in
+`arrayForgotten`; `pkg/sema/bounds_check.go` skips invalidated names and
+`leaveArrayScope` does not restore them. A fresh literal declaration clears
+the invalidation. Regression: `TestPhase13_ReassignmentForgetsLiteralSize`
+and `TestPhase13_LoopReassignmentSurvivesBlockRestore`, plus the real
+`TestPhase133_GoldensGoEngine`/`CheckClean` gates, all PASS.
+
 ## Record
 
 This is recorded as a corrective change against the frozen baseline per the
 Governance rule in `AGENTS.md`: owning layer identified (`pkg/sema`), failure
-demonstrated (false positive on a parameter), downstream behavior preserved
-(no codegen change), and the affected regression gate run.
+demonstrated (false positive on a parameter and on a loop-grown array),
+downstream behavior preserved (no codegen change), and the affected regression
+gates run.

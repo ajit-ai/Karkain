@@ -51,6 +51,40 @@ func TestPhase13_BoundsTableIsFunctionScoped(t *testing.T) {
 	}
 }
 
+func TestPhase13_ReassignmentForgetsLiteralSize(t *testing.T) {
+	src := "func main() {\n" +
+		"    let fns = []\n" +
+		"    fns = appendArray(fns, 7)\n" +
+		"    print(fns[0])\n" +
+		"}\n"
+
+	errs := NewResolver(parseTestProg(t, src), nil).Resolve()
+	if got := boundsErrors(errs); len(got) != 0 {
+		t.Fatalf("appendArray assignment should remove the provable literal size, got: %v\nall errors: %s",
+			got, errLines(errs))
+	}
+}
+
+func TestPhase13_LoopReassignmentSurvivesBlockRestore(t *testing.T) {
+	// Exact shape from examples/closures/04_factory.kark that failed CI:
+	// an empty literal is grown inside a while body, then indexed after it.
+	src := "func main() {\n" +
+		"    let fns = []\n" +
+		"    int i = 0\n" +
+		"    while (i < 3) {\n" +
+		"        fns = appendArray(fns, i)\n" +
+		"        i = i + 1\n" +
+		"    }\n" +
+		"    print(fns[0])\n" +
+		"}\n"
+
+	errs := NewResolver(parseTestProg(t, src), nil).Resolve()
+	if got := boundsErrors(errs); len(got) != 0 {
+		t.Fatalf("loop reassignment invalidation must survive block restore, got: %v\nall errors: %s",
+			got, errLines(errs))
+	}
+}
+
 func TestPhase13_BlockDeclarationDoesNotOutliveItsBlock(t *testing.T) {
 	src := "func main() {\n" +
 		"    let s = [1, 2]\n" +
