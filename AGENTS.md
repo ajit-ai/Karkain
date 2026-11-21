@@ -23,11 +23,37 @@ status: `docs/audit/NEXT_PHASE_RECOMMENDATION.md`,
 
 After EVERY Phase completion and successful test run:
 1. Commit all changes to `develop` branch
-2. Merge `develop` into `main` branch
-3. Push both branches to origin
+2. Create a **Pull Request** from `develop` to `main` (do NOT merge directly)
+3. Wait for owner review and approval before merging
+4. Push both branches to origin after merge approval
 
 This ensures `main` always reflects the latest working state.
 NEVER skip this step. This is a hard rule, not optional.
+
+**PRs are mandatory.** Direct merges to `main` without a PR and owner approval
+are not permitted. The owner (Ajit Kumar) reviews and merges every PR.
+
+## Documentation Update (MANDATORY RULE)
+
+Every implementation change MUST include documentation updates in the same
+commit/PR. Documentation is not a follow-up task — it is part of the
+definition of done.
+
+Required documentation updates per change:
+1. **RST documentation** (`docs/source/`): Update the relevant `.rst` pages
+   (stdlib module pages, language reference, getting-started, etc.) to reflect
+   new or changed functionality.
+2. **HTML documentation**: The Sphinx build (`docs/source/`) must be kept
+   consistent. Run `sphinx-build -b html docs/source docs/build -W` locally
+   or verify via CI Pages job.
+3. **SPEC.md**: Update the language specification for any language-level change.
+4. **stable-api.rst**: Update the stable API ledger for any public surface change.
+5. **feature-matrix.rst**: Update the feature matrix for any capability change.
+6. **AGENTS.md completion record**: Record the increment with its gate, commit,
+   and evidence.
+
+A PR that adds functionality without updating the corresponding documentation
+will be rejected. Documentation is not optional.
 
 ### Release cadence (version-wise, since the 1.2.0 line)
 

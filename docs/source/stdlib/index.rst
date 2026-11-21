@@ -50,6 +50,21 @@ byte-identical on both engines (Phase 132 API Freeze):
    * - ``std.db``
      - Backend-neutral database layer (SQL subset)
      - 20
+   * - :doc:`std.path <path>`
+     - Cross-platform path manipulation
+     - 9
+   * - :doc:`std.env <env>`
+     - Environment variable access
+     - 9
+   * - :doc:`std.time <time>`
+     - Time and date utilities
+     - 11
+   * - :doc:`std.random <random>`
+     - Random number generation
+     - 7
+   * - :doc:`std.json <json>`
+     - JSON field extraction and serialization
+     - 8
 
 ``stdlib/`` also contains ``std.core``, ``std.math``, ``std.system``,
 ``std.gpu`` and ``std.async``, but these are **not importable**: they use
@@ -60,9 +75,12 @@ the Phase 109 standard-library boundary. See
 :doc:`not-implemented <not-implemented>`.
 
 Modules that do not exist in the repository at all — ``std.memory``,
-``std.filesystem``, ``std.process``, ``std.os``, ``std.time``,
+``std.filesystem``, ``std.process``, ``std.os``,
 ``std.concurrency``, ``std.diagnostics`` — are tracked in
 :doc:`not-implemented <not-implemented>`.
+
+The following modules were added in the v1.2.x line (increment 155):
+``std.path``, ``std.env``, ``std.time``, ``std.random``, ``std.json``.
 
 Invariants shared by every implemented module
 ---------------------------------------------
@@ -90,6 +108,11 @@ Invariants shared by every implemented module
    net
    http
    db
+   path
+   env
+   time
+   random
+   json
    core
    math
    not-implemented
