@@ -4386,6 +4386,11 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
         // into rodata, so there is nothing to evaluate.
         return ""
     }
+    // Phase 2.1 (v1.2.x): a string expression (concatenation) may now
+    // initialise a string binding in main.
+    if (vt == NODE_BINARY() && natNativeIsStrBinary(v, [], plan) == 1) {
+        return natNativeScanConcat(v, [], plan, natNativeDeclLine(n))
+    }
     if (vt == NODE_CALL()) {
         if (callFunc(v) == "push") {
             int args = callArgs(v)
