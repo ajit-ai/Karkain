@@ -789,11 +789,17 @@ var natERefusals = []natERefusal{
 		code: "error[K145]", want: "`main` must take no parameters on the native target",
 	},
 	{
-		// Step 9c froze main's `let` arm at literal initialisers. The reason
-		// is not arbitrary: widening it would make main's frame depend on a
-		// callee's return kind, which the parser does not record.
-		name: "main_let_from_call",
-		src:  "func f(n int) int { return n }\nfunc main() {\n    let c = f(1)\n    print(c)\n}\n",
+		// CORRECTIVE CHANGE against the frozen NAT-CALL baseline, recorded in
+		// docs/audit/V1.2.1-STDLIB-PATH-JSON-GATES.md section "CI blocker
+		// corrections". This row used to pin `let c = f(1)` as refused because
+		// Step 9c froze main's let arm at literals. STD-001 (already committed
+		// on develop) widened that arm to int-valued user calls, so the row
+		// failed in PR #5 CI with "exit = 0" and an emitted image. It is
+		// REPLACED rather than deleted: a map literal is still not a lowerable
+		// main binding, and preserves the table's property -- a construct the
+		// driver cannot lower is refused BY NAME and writes no image.
+		name: "main_let_from_map_literal",
+		src:  "func main() { let c = {1: 2} print(c) }\n",
 		code: "error[K145]", want: "`let c` initialised from a non-integer expression",
 	},
 	{
