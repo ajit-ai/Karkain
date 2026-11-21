@@ -4766,4 +4766,7 @@ map-literal binding (`let c = {1: 2}`), measured with `error[K145]` and no
 image; `TestPhaseNATCall_` PASS. A fourth CI correction fixed a malformed
 native feature-matrix row that put two comma-separated gate files in one
 field; the qualification gate reads that field as a single path, so the row now
-names one file and one pattern and `TestPhaseNATQual_` PASS.
+names one file and one pattern and `TestPhaseNATQual_` PASS. A fifth CI
+correction updated NAT-STR-STAGE's two push cases: the PE patch guard now
+refuses push programs by name, so their driver half is a K117 refusal pin while
+the ORACLE's string-stage frames remain measured; `TestPhaseNATStrStage_` PASS.

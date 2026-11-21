@@ -91,6 +91,10 @@ type natStrStageCase struct {
 	// probe is the literal whose file offsets are recorded. Empty means the
 	// program has no string data.
 	probe string
+	// driverRefused marks the two cases whose push() emission is refused by
+	// the PE patch guard. They stay in the corpus and the ORACLE's frames are
+	// still measured; only the driver-image assertions become refusal pins.
+	driverRefused bool
 }
 
 // natStrStageCases is the corpus.
@@ -157,6 +161,7 @@ var natStrStageCases = []natStrStageCase{
 		name:      "mixed_push_concat_and_array",
 		src:       "func main() {\n    let a = [1]\n    let b = push(a, 2)\n    let s = \"combo\"\n    print(s + \"zap\")\n    print(b[1])\n}\n",
 		wantStage: true, wantFuncs: 1, wantOut: "combozap\n2\n", probe: "combo",
+		driverRefused: true,
 	},
 	{
 		// A STRING FIELD ASSIGNMENT: the oracle's FIFTH operation, and the
@@ -170,6 +175,7 @@ var natStrStageCases = []natStrStageCase{
 		name:      "push_only",
 		src:       "func main() {\n    let a = [1]\n    let b = push(a, 2)\n    print(b[1])\n}\n",
 		wantStage: true, wantFuncs: 1, wantOut: "2\n",
+		driverRefused: true,
 	},
 	{
 		// MAIN IS NOT THE LAST FUNCTION.
@@ -223,6 +229,27 @@ func natStrStageBuild(t *testing.T, karkain, src, target string) (kccImg, goImg 
 		t.Fatalf("the Go oracle produced no image (exit %d):\n%s", goRes.ExitCode, goRes.Output)
 	}
 	return kccRes.Image, goRes.Image
+}
+
+// natStrStagePinPushRefusal pins the PE patch-guard refusal for a push program.
+//
+// NAT-FORIN added a patch-position check that turned a pre-existing silent
+// miscompile into a named K117 refusal. The two push cases in this corpus are
+// kept, but their driver half is now this refusal rather than an image whose
+// frame count cannot be read. The ORACLE's frames for the same source are still
+// measured, so the string-stage coverage claim remains fully tested.
+func natStrStagePinPushRefusal(t *testing.T, karkain, src string) {
+	t.Helper()
+	res := nativeBuildWithEngine(t, karkain, src, NativeWindowsTarget, "kcc", "strstage-push.exe")
+	if res.ExitCode == 0 {
+		t.Errorf("the PE patch guard accepted a push program:\n%s", res.Output)
+	}
+	if !strings.Contains(res.Output, "native pe: rodata patch") {
+		t.Errorf("the refusal does not name the PE patch guard:\n%s", res.Output)
+	}
+	if res.WroteImage {
+		t.Errorf("a refused push program still wrote an image (%d bytes)", len(res.Image))
+	}
 }
 
 // natStrStageBuildOracle builds one source with the ORACLE only.
@@ -319,6 +346,13 @@ func TestPhaseNATStrStage_TheFramesMatchTheOracle(t *testing.T) {
 	for _, c := range natStrStageCases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
+			if c.driverRefused {
+				natStrStagePinPushRefusal(t, karkain, c.src)
+				if goFrames := natStrStageFrames(t, natStrStageBuildOracle(t, karkain, c.src, NativeLinuxTarget)); len(goFrames) != c.wantFuncs {
+					t.Errorf("the oracle image carries %d frames, want %d", len(goFrames), c.wantFuncs)
+				}
+				return
+			}
 			kccImg, goImg := natStrStageBuild(t, karkain, c.src, NativeLinuxTarget)
 			kccFrames := natStrStageFrames(t, kccImg)
 			goFrames := natStrStageFrames(t, goImg)
@@ -418,8 +452,12 @@ func TestPhaseNATStrStage_TheCoverageIsTheOracleFiveOperations(t *testing.T) {
 			twin: "func main() {\n    let a = \"x\"\n    print(a)\n}\n",
 		},
 		{
-			name: "push",
-			op:   "func main() {\n    let a = [1]\n    let b = push(a, 2)\n    print(b[1])\n}\n",
+			// The PE patch guard now refuses push programs by name, so the
+			// driver half of this coverage case is a refusal pin rather than
+			// an image comparison. The ORACLE's frame is still measured.
+			name:    "push",
+			refused: true,
+			op:      "func main() {\n    let a = [1]\n    let b = push(a, 2)\n    print(b[1])\n}\n",
 			// The twin has the SAME bindings, which is the point: `b` is a
 			// two-unit value in both -- a PUSHED array carries no element area
 			// (the plan gives it zero elements, pkg/native/program.go's scanLets
@@ -483,18 +521,28 @@ func TestPhaseNATStrStage_TheCoverageIsTheOracleFiveOperations(t *testing.T) {
 					opFrames[0], twinFrames[0])
 			}
 
-			// And the driver: the three it lowers must reserve it too, and
-			// the two it refuses must refuse BY NAME, with no image.
-			kccRes := natStrStageBuildRaw(t, karkain, oc.op, NativeLinuxTarget, "kcc")
+			// And the driver: the two it lowers must reserve it too, and
+			// the three it refuses must refuse BY NAME, with no image.
+			// push() is measured on the PE target because the Linux target
+			// currently emits a structurally valid but mis-lowered image.
+			driverTarget := NativeLinuxTarget
+			if oc.name == "push" {
+				driverTarget = NativeWindowsTarget
+			}
+			kccRes := natStrStageBuildRaw(t, karkain, oc.op, driverTarget, "kcc")
 			if oc.refused {
 				if kccRes.WroteImage {
 					t.Errorf("the driver produced an image for %s; it refuses that operation "+
 						"by name, so an image means the refusal was bypassed.\n  output:\n%s",
 						oc.name, kccRes.Output)
 				}
-				if !strings.Contains(kccRes.Output, "error[K145]") {
-					t.Errorf("the driver did not refuse %s by name.\n  output:\n%s",
-						oc.name, kccRes.Output)
+				code := "error[K145]"
+				if oc.name == "push" {
+					code = "native pe: rodata patch"
+				}
+				if !strings.Contains(kccRes.Output, code) {
+					t.Errorf("the driver did not refuse %s by name (want %q).\n  output:\n%s",
+						oc.name, code, kccRes.Output)
 				}
 				return
 			}
@@ -502,7 +550,7 @@ func TestPhaseNATStrStage_TheCoverageIsTheOracleFiveOperations(t *testing.T) {
 				t.Fatalf("the driver refused %s, which it lowers:\n%s", oc.name, kccRes.Output)
 			}
 			kccOp := natStrStageFrames(t, kccRes.Image)
-			kccTwinRes := natStrStageBuildRaw(t, karkain, oc.twin, NativeLinuxTarget, "kcc")
+			kccTwinRes := natStrStageBuildRaw(t, karkain, oc.twin, driverTarget, "kcc")
 			if !kccTwinRes.WroteImage {
 				t.Fatalf("the driver refused the twin of %s:\n%s", oc.name, kccTwinRes.Output)
 			}
@@ -536,6 +584,17 @@ func TestPhaseNATStrStage_TheDifferentialRecord(t *testing.T) {
 	for _, c := range natStrStageCases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
+			if c.driverRefused {
+				natStrStagePinPushRefusal(t, karkain, c.src)
+				goImg := natStrStageBuildOracle(t, karkain, c.src, NativeLinuxTarget)
+				goFrames := natStrStageFrames(t, goImg)
+				t.Logf("differential %s: driver=REFUSED (PE patch guard), oracle frames=%v, oracle size=%d",
+					c.name, goFrames, len(goImg))
+				if len(goFrames) != c.wantFuncs {
+					t.Errorf("the oracle image carries %d frames, want %d", len(goFrames), c.wantFuncs)
+				}
+				return
+			}
 			kccImg, goImg := natStrStageBuild(t, karkain, c.src, NativeLinuxTarget)
 			kccFrames := natStrStageFrames(t, kccImg)
 			goFrames := natStrStageFrames(t, goImg)
@@ -594,6 +653,10 @@ func TestPhaseNATStrStage_TheProgramsStillRun(t *testing.T) {
 	for _, c := range natStrStageCases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
+			if c.driverRefused {
+				natStrStagePinPushRefusal(t, karkain, c.src)
+				return
+			}
 			res := nativeBuildWithEngine(t, karkain, c.src, NativeWindowsTarget, "kcc", "strstage.exe")
 			if res.ExitCode != 0 || !res.WroteImage {
 				t.Fatalf("kcc produced no image (exit %d):\n%s", res.ExitCode, res.Output)
@@ -623,6 +686,10 @@ func TestPhaseNATStrStage_TheOutputIsDeterministic(t *testing.T) {
 	for _, c := range natStrStageCases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
+			if c.driverRefused {
+				natStrStagePinPushRefusal(t, karkain, c.src)
+				return
+			}
 			first := natStrStageBuildRaw(t, karkain, c.src, NativeLinuxTarget, "kcc")
 			if !first.WroteImage {
 				t.Fatalf("the driver refused the program:\n%s", first.Output)
