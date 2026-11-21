@@ -4412,6 +4412,18 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
             if (bad != "") { return bad }
             return ""
         }
+        // Phase 2.1 (v1.2.x): a call to a user function may initialise a string
+        // binding in main, if all arguments are string expressions.
+        int args2 = callArgs(v)
+        int i2 = 0
+        int allStr = 1
+        while (i2 < len(args2)) {
+            if (natNativeStrKind(args2[i2], [], plan) != 1) { allStr = 0 }
+            i2 = i2 + 1
+        }
+        if (allStr == 1 && len(args2) > 0) {
+            return ""
+        }
         // STD-001 (v1.2.x): a call to a USER function may initialise an int
         // binding in main, mirroring what a callee already does via
         // natNativeScanIntExpr. natNativeScanCall refuses builtins the driver
@@ -6154,7 +6166,20 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
             // the parameters, so both kinds of binding resolve through one lookup.
             int idx = natNativeSlotIndex(plan, natNativeDeclName(n))
             int v = natNativeDeclValue(n)
-            if (nodeType(v) == NODE_ARRAY_LIT()) {
+            if (nodeType(v) == NODE_BINARY() && natNativeIsStrBinary(v, stmts, plan) == 1) {
+                // Phase 2.1 (v1.2.x): string concatenation in a decl position.
+                s = natStrConcat(s, binaryLeft(v), binaryRight(v), 0, site, strTemp,
+                    stmts, plan, roffs, tbl)
+                s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
+                s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
+                site = site + 1
+            } else if (nodeType(v) == NODE_CALL()) {
+                // Phase 2.1 (v1.2.x): string call in a decl position.
+                s = natEmitStrCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp)
+                s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
+                s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
+                site = site + 1
+            } else if (nodeType(v) == NODE_ARRAY_LIT()) {
                 s = natArrayValue(s, natNativeSlotOff(plan, idx), arrayLitElems(v))
             } else {
 if (nodeType(v) == NODE_STRUCT_LIT()) {
@@ -8232,4 +8257,67 @@ func natNativeStrLitIn(e) {
         }
     }
     return 0
+}
+
+// Phase 2.1 (v1.2.x): natEmitStrCall lowers a call to a USER function that
+// returns a string, and leaves (RDI, RSI) = (ptr, len).
+func natEmitStrCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx, stmts, roffs, tbl, site, strTemp) {
+    string fname = callFunc(e)
+    int args = callArgs(e)
+    int unit = 0
+    int i = 0
+    while (i < len(args)) {
+        if (nodeType(args[i]) == NODE_STRING_LIT()) {
+            s = natRodataRefOff(s, natRegRDI(), natRodataOffsetFor(stringLitVal(args[i]), stmts, roffs))
+            s = natMovRegImm32(s, natRegRSI(), len(stringLitVal(args[i])))
+        } else {
+            if (nodeType(args[i]) == NODE_IDENT()) {
+                int off = natNativeSlotOff(plan, natNativeSlotIndex(plan, identName(args[i])))
+                s = natLoadStack(s, natRegRDI(), off)
+                s = natLoadStack(s, natRegRSI(), off + 8)
+            } else {
+                if (nodeType(args[i]) == NODE_BINARY()) {
+                    int scSite = site
+                    site = site + 1
+                    s = natStrConcat(s, binaryLeft(args[i]), binaryRight(args[i]), 0, scSite, strTemp, stmts, plan, roffs, tbl)
+                }
+            }
+        }
+        if (unit < 6) {
+            s = natStoreStack(s, natRegRDI(), natArgTemp(unit, frame))
+            if (unit + 1 < 6) {
+                s = natStoreStack(s, natRegRSI(), natArgTemp(unit + 1, frame))
+            } else {
+                s = natStoreStack(s, natRegRSI(), extrasBase + (unit + 1 - 6) * 8)
+            }
+        } else {
+            s = natStoreStack(s, natRegRDI(), extrasBase + (unit - 6) * 8)
+            s = natStoreStack(s, natRegRSI(), extrasBase + (unit - 6 + 1) * 8)
+        }
+        unit = unit + 2
+        i = i + 1
+    }
+    int k = 0
+    while (k < 6 && k < unit) {
+        if (k == 0) { s = natLoadStack(s, natRegRDI(), natArgTemp(0, frame)) }
+        if (k == 1) { s = natLoadStack(s, natRegRSI(), natArgTemp(1, frame)) }
+        if (k == 2) { s = natLoadStack(s, natRegRDX(), natArgTemp(2, frame)) }
+        if (k == 3) { s = natLoadStack(s, natRegRCX(), natArgTemp(3, frame)) }
+        if (k == 4) { s = natLoadStack(s, natRegR8(), natArgTemp(4, frame)) }
+        if (k == 5) { s = natLoadStack(s, natRegR9(), natArgTemp(5, frame)) }
+        k = k + 1
+    }
+    if (unit > 6) {
+        s = natLeaRegStack(s, natRegR10(), extrasBase)
+    }
+    int isWin = 0
+    if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
+    if (isWin == 1) { s = natSubRegImm32(s, natRegRSP(), 8) }
+    s = natCall32(s)
+    Value rr = natRel32(s, natNativeFuncLabel(fname))
+    s = rr[0]
+    if (isWin == 1) { s = natAddRegImm32(s, natRegRSP(), 8) }
+    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+    s = natMovRegReg(s, natRegRSI(), natRegRDX())
+    return s
 }
