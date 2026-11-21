@@ -143,6 +143,10 @@ Stable stdlib modules
      - Structured logging (6 functions, increment 155).
    * - ``std.config``
      - Configuration management (5 functions, increment 155).
+   * - ``std.core``
+     - Core helpers: identity, clamp, min/max, sign, range, sum, product (20 functions, increment 156).
+   * - ``std.math``
+     - Math utilities: abs, sqrt, pow, min/max, clamp, gcd, lcm, factorial (15 functions, increment 156).
    * - ``std.generics``
      - Persistent ``Stack[T]`` / ``Queue[T]`` over plain arrays (12
        functions; new in Phase 146, both engines since Phase 146C).
