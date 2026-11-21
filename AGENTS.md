@@ -4707,3 +4707,32 @@ missed optimisation and not a wrong answer. **No performance improvement is
 claimed**: the allocator trades memory traffic for a push/pop pair per
 claimed register, and the measured sizes are mixed (sometimes smaller,
 sometimes a byte or two larger).
+
+Also completed: **NAT-FORIN — `for x in arr` in the self-hosted native driver**
+(increment 151, slice "NAT-FORIN"; verdict **COMPLETE for the covered subset**;
+record `docs/audit/NAT-FORIN-BASELINE.md`). The kcc native driver now lowers
+iteration over an ARRAY VARIABLE with a hidden index slot, nested loops,
+`break`/`continue` and an index inside the body; a literal iterator is refused
+by both engines. Evidence: `pkg/cli/phase151a9i_forin_test.go`
+(`TestPhase151A9I_`, PASS 36.7 s) with executed PE exact-byte goldens on the
+Windows host, byte-identical Linux ELF against the Go oracle everywhere,
+distinctness/determinism, a refusal table that also pins the out-of-scope PE
+`push()` patch-guard failure, and an opt-in register-path agreement check;
+dedicated CI step *Run 151A Step 9I for-in gate*. Three frozen refusal rows that
+pinned "for-in is not lowered" were **replaced**, not deleted; four more rows
+pinned by earlier slices were corrected against measured current messages (two
+Phase-2.1 string rows, the record-alias wording, and the PE `push()` patch-guard
+refusal, whose former execution gate now pins the refusal). Whole-tree KIR
+pin re-measured 15780 -> **16017** (measured, never predicted) in both pinning
+tests. `docs/inventory/native-feature-matrix.json` and
+`docs/source/targets/host-targets.rst` updated; the false `push()` supported row
+corrected.
+
+Also completed: **corrective change — Phase 1.3 bounds table function/block
+scope** (verdict **COMPLETE**; record `docs/audit/PHASE-1.3-BOUNDS-CORRECTIVE.md`).
+`pkg/sema/bounds_check.go` keyed inferred array sizes by variable name alone,
+so a literal binding in one function produced a false out-of-range diagnostic
+for a same-named parameter in another; a block-local literal also leaked its
+size past the block. The table is now keyed by function as well as name with
+block snapshot/restore, and `pkg/sema/phase13_bounds_scope_test.go` (`TestPhase13_`)
+pins both properties. Diagnostics-only: no emitted bytes change.

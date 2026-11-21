@@ -252,6 +252,17 @@ jobs:
       - name: Run 151A Step 9h records gate
         run: go test ./pkg/cli/ -run 'TestPhase151A9H_' -count=1 -timeout 30m
 
+      # Phase 2.2 -- `for x in arr` in the self-hosted native driver.
+      # A dedicated step, because this repository has repeatedly shipped gates
+      # that were green locally but never executed by CI. The pattern is
+      # distinct from 9H, from the broad 151 family and from the NAT-* gates,
+      # so a for-in regression cannot hide behind another native step's result.
+      # On Windows the PE leg is executed with exact-byte stdout goldens; on
+      # Linux this same step additionally runs the ELF. Everywhere it builds the
+      # Linux ELF and compares it byte for byte against the Go oracle.
+      - name: Run 151A Step 9I for-in gate
+        run: go test ./pkg/cli/ -run 'TestPhase151A9I_' -count=1 -timeout 30m
+
       # Increment 151: the kcc native-parity track. These four gates were
       # written but NOT wired here between 146D and this step, so every green
       # run in that window was reporting success without exercising them --

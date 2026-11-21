@@ -209,7 +209,10 @@ var nat9hRefusals = []struct {
 		// rather than silently copying or sharing the wrong thing.
 		name: "record_alias",
 		src:  "type P struct { x int }\nfunc main() {\n    let a = P { x: 1 }\n    let b = a\n    print(a.x)\n}\n",
-		want: "initialised from a non-integer expression",
+		// The message was sharpened by later slices: the offending value is now
+		// identified as a STRUCT in an int position, which is strictly more
+		// useful than the old generic "non-integer expression" wording.
+		want: "`a` is struct; only an int may appear",
 		code: "error[K145]",
 	},
 	{

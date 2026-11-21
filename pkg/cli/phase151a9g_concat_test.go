@@ -43,9 +43,10 @@ package cli
 //      string is not an exit status). Both are refused BY NAME. The rule that matters: a
 //      shape that is not lowered must be refused, never guessed at.
 //
-// NOT IN THIS SLICE, each refused by name: chained concatenation, binding a
-// concatenation to a `let`, `len()` of a concatenation, `return` of a concatenation,
-// string slicing, string comparison.
+// NOT IN THIS SLICE, each refused by name: chained concatenation, `len()` of a
+// concatenation, `return` of a concatenation, string slicing, string comparison.
+// Binding a concatenation to a `let` was moved OUT of this list by the committed
+// Phase 2.1 arena work; the frozen refusal row was replaced rather than deleted.
 
 import (
 	"bytes"
@@ -114,9 +115,13 @@ var nat9gRefusals = []struct{ name, src, want string }{
 	{name: "return_concat_refused",
 		src:  "func main() {\n    let s = \"ab\"\n    return s + \"cd\"\n}\n",
 		want: "error[K145]: native target: `return` of a concatenated string"},
-	{name: "bind_concat_refused",
-		src:  "func main() {\n    let a = \"ab\"\n    let b = \"cd\"\n    let c = a + b\n    print(c)\n}\n",
-		want: "error[K145]"},
+	// CORRECTIVE CHANGE against the frozen 9g baseline: Phase 2.1 (already
+	// committed) taught the driver to lower `let c = a + b`, so this row stopped
+	// being a refusal. It is REPLACED, not deleted, by a still-refused shape:
+	// a string SLICE has no lowering and must be named rather than mis-lowered.
+	{name: "string_slice_not_lowered",
+		src:  "func main() {\n    let s = \"hi\"\n    print(s[0:1])\n}\n",
+		want: "expression of kind 46"},
 	{name: "len_of_concat_refused",
 		src:  "func main() {\n    let a = \"ab\"\n    print(len(a + \"cd\"))\n}\n",
 		want: "error[K145]"},

@@ -61,7 +61,7 @@ type Resolver struct {
 	funcParamTypes  map[string][]string
 	funcReturnTypes map[string]string
 	globals         map[string]bool
-	arraySizes      map[string]int
+	arraySizes      map[string]map[string]int
 }
 
 // builtinNames is the set of language/standard-library functions handled
@@ -119,7 +119,7 @@ func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 		funcParamTypes: make(map[string][]string),
 		funcReturnTypes: make(map[string]string),
 		globals:         make(map[string]bool),
-		arraySizes:      make(map[string]int),
+		arraySizes:      make(map[string]map[string]int),
 	}
 	for _, imp := range prog.Imports {
 		r.imported[imp.Name] = true
@@ -632,8 +632,12 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 		if locals != nil && n.Name != "" {
 			locals[n.Name] = true
 			// Phase 1.3 (v1.3.0): track array sizes for bounds checking.
+			// A declaration whose value is not a literal forgets any earlier
+			// size recorded for the same name in this function.
 			if arrLit, ok := n.Value.(*parser.ArrayLiteral); ok {
-				r.trackArraySize(n.Name, len(arrLit.Elements))
+				r.trackArraySize(callerName, n.Name, len(arrLit.Elements))
+			} else {
+				r.forgetArraySize(callerName, n.Name)
 			}
 		}
 		r.checkExpr(n.Value, locals, callerName, sm)
@@ -642,22 +646,30 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 	case *parser.PrintStmt:
 		r.checkExpr(n.Value, locals, callerName, sm)
 	case *parser.BlockStmt:
+		saved := r.enterArrayScope(callerName)
 		for _, x := range n.Statements {
 			r.checkStmt(x, locals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, saved)
 	case *parser.IfStmt:
 		r.checkExpr(n.Condition, locals, callerName, sm)
+		savedCons := r.enterArrayScope(callerName)
 		for _, x := range n.Consequence {
 			r.checkStmt(x, locals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, savedCons)
+		savedAlt := r.enterArrayScope(callerName)
 		for _, x := range n.Alternative {
 			r.checkStmt(x, locals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, savedAlt)
 	case *parser.WhileStmt:
 		r.checkExpr(n.Condition, locals, callerName, sm)
+		savedBody := r.enterArrayScope(callerName)
 		for _, x := range n.Body {
 			r.checkStmt(x, locals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, savedBody)
 	case *parser.ForInStmt:
 		r.checkExpr(n.Iter, locals, callerName, sm)
 		bodyLocals := locals
@@ -673,9 +685,11 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 				bodyLocals[n.KeyName] = true
 			}
 		}
+		savedForIn := r.enterArrayScope(callerName)
 		for _, x := range n.Body {
 			r.checkStmt(x, bodyLocals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, savedForIn)
 	case *parser.FuncDecl:
 		sub := r.localNames(n)
 		r.walkCalls(n.Body, sub, n.Name, sm)
@@ -731,7 +745,7 @@ func (r *Resolver) checkExpr(e parser.Node, locals map[string]bool, callerName s
 		r.checkExpr(n.Left, locals, callerName, sm)
 		r.checkExpr(n.Index, locals, callerName, sm)
 		// Phase 1.3 (v1.3.0): compile-time bounds checking where provable.
-		r.checkBoundsSafety(n)
+		r.checkBoundsSafety(n, callerName)
 	case *parser.SliceExpr:
 		r.checkExpr(n.Target, locals, callerName, sm)
 		if n.Start != nil {

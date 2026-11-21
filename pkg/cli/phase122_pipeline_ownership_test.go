@@ -277,8 +277,14 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// out rather than compressed: 15780 -> 15766 -> 15780. Measured on
 		// this host with `karkain kir --verify src/compiler/kir.kark`
 		// (text=15780 verify=15780, 966 s), never predicted.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 15780 {
-			t.Errorf("whole-tree kir text = %d lines, want 15780:\n%s", got, out)
+		//
+		// RE-PINNED FOR THE NATIVE FOR-IN SLICE: 15780 -> 16017 (+237).
+		// `native_value.kark` gained the for-in scan/plan/lower/live-walk arms
+		// and `native_emit.kark` the two memory primitives they call. Measured
+		// on this host with `karkain kir --verify src/compiler/kir.kark`
+		// (text=16017 verify=16017), never predicted.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 16017 {
+			t.Errorf("whole-tree kir text = %d lines, want 16017:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

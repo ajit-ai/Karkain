@@ -228,16 +228,15 @@ var nat9dRefusals = []struct {
 		code: "error[K102]",
 	},
 	{
-		// `len(a)` was pinned here as OUT OF SUBSET when 9d landed. Step 9e added it,
-		// so this case was removed rather than left asserting a refusal that is no
-		// longer honest -- and its behaviour is now gated properly by
-		// TestPhase151A9E_* , including the shape distinctions (len of a scalar, len
-		// of an expression, wrong arity). Moving a construct from "refused" to
-		// "supported" has to delete the old pin; keeping it would have made this gate
-		// fail on correct behaviour and taught its readers to ignore it.
-		name: "for_in_over_array",
-		src:  "func main() {\n    let a = [7, 35]\n    for x in a {\n        print(x)\n    }\n}\n",
-		want: "error[K145]",
+		// Phase 2.2 taught the driver to lower `for x in a` where `a` is an ARRAY
+		// VARIABLE, so that row stopped being a refusal and was REPLACED rather
+		// than deleted. The remaining boundary is an iterator that is not a
+		// variable: the oracle refuses a literal `for x in [1, 2]` with the same
+		// message, so this pins a shared boundary rather than a kcc narrowing.
+		// The supported shape is gated by TestPhase151A9I_*.
+		name: "for_in_over_literal",
+		src:  "func main() {\n    for x in [7, 35] {\n        print(x)\n    }\n}\n",
+		want: "for-in iterates a variable on the native target",
 		code: "error[K145]",
 	},
 	{

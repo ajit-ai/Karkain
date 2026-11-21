@@ -4019,6 +4019,38 @@ func natNativePlanFor(params, stmts, tbl) {
   plan = rf[0]
   next = rf[1]
   }
+  if (nodeType(n) == NODE_FOR_IN()) {
+  // The oracle's scanLets (pkg/native/program.go:4695-4702) allocates the
+  // LOOP VARIABLE first, with first-declaration-wins -- `for i` where `i`
+  // already has a slot reuses it -- and the hidden INDEX slot immediately
+  // after. A slot allocated in a different order moves every frame
+  // displacement after it, so both the order and the reuse rule are part of
+  // the layout contract.
+  string varName = forInVar(n)
+  if (natNativeSlotIndex(plan, varName) < 0) {
+  plan = appendArray(plan, next)
+  plan = appendArray(plan, natKindInt())
+  plan = appendArray(plan, 0)
+  plan = appendArray(plan, varName)
+  plan = appendArray(plan, -1)
+  next = next + 8
+  }
+  // The index slot is keyed by the NODE in the oracle, and the driver cannot
+  // key by node, so it is keyed by name + line. Two same-named loops on
+  // different lines therefore get distinct slots, which is what makes nested
+  // `for x in a { for x in b {` behave like the oracle's per-node slots.
+  string idxName = varName + "$idx$" + str(forInLine(n))
+  plan = appendArray(plan, next)
+  plan = appendArray(plan, natKindInt())
+  plan = appendArray(plan, 0)
+  plan = appendArray(plan, idxName)
+  plan = appendArray(plan, -1)
+  next = next + 8
+  // Descend into body for nested bindings, in declaration order.
+  int rb = natNativePlanDecls(plan, forInBody(n), tbl, next)
+  plan = rb[0]
+  next = rb[1]
+  }
   i = i + 1
   }
   return [plan, next]
@@ -4161,7 +4193,7 @@ func natNativeStmtKindName(k) {
     if (k == NODE_IF()) { return "`if` statement" }
     if (k == NODE_WHILE()) { return "`while` statement" }
     if (k == NODE_FOR()) { return "`for` statement" }
-    if (k == NODE_FOR_IN()) { return "`for-in` statement" }
+    // Phase 2.2 (v1.2.x): for-in is now lowered; removed from refusal table.
     if (k == NODE_BREAK()) { return "`break` statement" }
     if (k == NODE_CONTINUE()) { return "`continue` statement" }
     return "statement kind " + str(k)
@@ -4313,6 +4345,25 @@ if (k == NODE_PRINT()) {
   int bad5 = natNativeScanStmts(forBody(n), plan, tbl, fns, isMain, fnStmts, loopDepth + 1, 1)
   if (bad5[0] != "") { return [bad5[0], hasReturn] }
   } else {
+  if (k == NODE_FOR_IN()) {
+  // NAT-LOOP: a `for-in` loop over an int array. Only int arrays are
+  // supported (the oracle's emitForIn). The iter must be an array variable.
+  int bad = natNativeScanLoopArena(forInBody(n), plan)
+  if (bad != "") { return [bad, hasReturn] }
+  if (nodeType(forInIter(n)) != NODE_IDENT()) {
+  return [natNativeRefuse("for-in iterates a variable on the native target", forInLine(n)), hasReturn]
+  }
+  string iterName = identName(forInIter(n))
+  int iterOrd = natNativeSlotIndex(plan, iterName)
+  if (iterOrd < 0) {
+  return [natNativeRefuse("undefined identifier '" + iterName + "'", forInLine(n)), hasReturn]
+  }
+  if (natNativeSlotKind(plan, iterOrd) != natKindArray()) {
+  return [natNativeRefuse("for-in iterates an array on the native target (got " + natKindName(natNativeSlotKind(plan, iterOrd)) + " '" + iterName + "')", forInLine(n)), hasReturn]
+  }
+  int bad2 = natNativeScanStmts(forInBody(n), plan, tbl, fns, isMain, fnStmts, loopDepth + 1, 1)
+  if (bad2[0] != "") { return [bad2[0], hasReturn] }
+  } else {
   if (k == NODE_BREAK()) {
   // NAT-LOOP: `break` leaves the NEAREST enclosing loop. The oracle refuses it
   // when its loop stack is empty (program.go:4913-4916) and says exactly this.
@@ -4344,6 +4395,8 @@ if (k == NODE_PRINT()) {
   }
   }
   }
+  }
+  // Phase 2.2: one more level -- the for-in arm opened an `else` block.
   }
             }
         }
@@ -5413,6 +5466,13 @@ func natStmtHasIndex(n) {
         if (len(forInit(n)) > 0 && natExprHasIndex(forInit(n)) == 1) { return 1 }
         if (len(forPost(n)) > 0 && natExprHasIndex(forPost(n)) == 1) { return 1 }
         return natStmtHasIndexIn(forBody(n))
+    }
+    if (k == NODE_FOR_IN()) {
+        // Phase 2.2: the ITERATOR can carry an index (`for x in rows[i]`) and
+        // the body can index anything. Both need the bounds reporter, or the
+        // failure block would call a label that was never emitted.
+        if (natExprHasIndex(forInIter(n)) == 1) { return 1 }
+        return natStmtHasIndexIn(forInBody(n))
     }
     return 0
 }
@@ -6578,6 +6638,37 @@ identName(callArgs(pv)[0]))
         s = natMark(s, endLabel)
         }
         else {
+        if (k == NODE_FOR_IN()) {
+        // NAT-LOOP: a `for-in` loop over an int array, in the oracle's
+        // emitForIn order (program.go:5549-5580).
+        string sp = listPath + "." + str(i)
+        string iterName = identName(forInIter(n))
+        int off = natNativeSlotOff(plan, natNativeSlotIndex(plan, iterName))
+        // The index slot is keyed by name + line, the driver's stand-in for
+        // the oracle's per-node key (see natNativePlanDecls).
+        int eoff = natNativeSlotOff(plan, natNativeSlotIndex(plan, forInVar(n) + "$idx$" + str(forInLine(n))))
+        int voff = natNativeSlotOff(plan, natNativeSlotIndex(plan, forInVar(n)))
+        string loopLabel = "nat$forin$" + tag + "$" + sp
+        string endLabel = "nat$forinend$" + tag + "$" + sp
+        string contLabel = "nat$forincont$" + tag + "$" + sp
+        s = natXorRegReg(s, natRegRAX())
+        s = natStoreStack(s, natRegRAX(), eoff)
+        s = natMark(s, loopLabel)
+        s = natLoadStack(s, natRegRCX(), eoff)
+        s = natCmpMemReg(s, natRegRSP(), off + 8, natRegRCX())
+        s = natJle(s, endLabel)
+        s = natLoopPush(s, endLabel, contLabel)
+        s = natLoadStack(s, natRegRBX(), off)
+        s = natLoadScaled64(s, natRegRAX(), natRegRBX(), natRegRCX(), 8, 0)
+        s = natStoreStack(s, natRegRAX(), voff)
+        s = natNativeLower(s, forInBody(n), fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, fns, lay, retLabel, tag, sp)
+        s = natLoopPop(s)
+        s = natMark(s, contLabel)
+        s = natIncMem(s, natRegRSP(), eoff)
+        s = natJmp(s, loopLabel)
+        s = natMark(s, endLabel)
+        }
+        else {
         if (k == NODE_BREAK()) {
         // NAT-LOOP: `break` leaves the NEAREST enclosing loop. The oracle's
         // rule is `Jmp(b.loops[len(b.loops)-1].brk)` (program.go:4917), and the
@@ -6606,6 +6697,8 @@ identName(callArgs(pv)[0]))
         }
         }
         }
+        }
+        // Phase 2.2: one more level -- the for-in arm opened an `else` block.
         }
         i = i + 1
     }
@@ -7080,6 +7173,14 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         // correct only while `_start` was emitted first. It is passed as a FILE
         // offset for the same reason the other two are -- the loader compares it
         // against BaseOfCode.
+        //
+        // The patch lists are validated HERE rather than left to natPELink,
+        // because natPELink returns a diagnostic STRING on refusal and this
+        // function's contract is ["", <bytes>]. Returning the refusal as the
+        // image made the CLI len() the string and natToHex() it into a run of
+        // zero bytes -- a garbage image where a diagnostic belonged.
+        string badpe = natPECheckAllPatches(len(text), rp, ip, ap, hp)
+        if (badpe != "") { return [badpe, []] }
         return ["", natPELink(text, ro[0], heap, rp, ip, ap, hp, natPETextOff(), natPETextOff() + entryOff)]
     }
     if (targetOS == natOSMac()) {
@@ -7870,6 +7971,25 @@ func natNativeLiveStmt(n, plan, ranges, loops, pos) {
             loops = w[1]
             pos = w[2]
         }
+        loops = appendArray(loops, lstart)
+        loops = appendArray(loops, pos)
+    }
+    if (k == NODE_FOR_IN()) {
+        // Phase 2.2: a `for-in` is a loop, so its body is widened exactly like
+        // a `while`'s (see the NODE_WHILE arm). The iter array is read on
+        // every iteration, so it is live from the loop head; the loop variable
+        // and the hidden index are written by the loop itself. Omitting this
+        // arm would let the opt-in register allocator promote a local that the
+        // body reads across iterations, because the walk would never see the
+        // use -- a wrong answer, not a missed optimisation.
+        let lstart = pos
+        int[] w = natNativeLiveExpr(forInIter(n), plan, ranges, pos + 1)
+        ranges = w[0]
+        pos = w[1]
+        int b = natNativeLiveWalk(forInBody(n), plan, ranges, loops, pos + 1)
+        ranges = b[0]
+        loops = b[1]
+        pos = b[2]
         loops = appendArray(loops, lstart)
         loops = appendArray(loops, pos)
     }

@@ -1071,6 +1071,43 @@ func natMemBaseOff(s, gp, base, off) {
     return natU32(s, off)
 }
 
+// natCmpMemReg emits cmp [base+off], src: REX.W + 39 /r + ModRM + memory.
+//
+// The operand order matters and is the oracle's (pkg/native/emit.go:1136):
+// the MEMORY form is the destination of the comparison, so the flags describe
+// [base+off] - src. A for-in exit branch depends on that direction: [len] - i
+// is strictly positive while the loop continues, so the exit is `jle`, not
+// `jge`. Reversing these operands compiles and silently inverts the loop.
+func natCmpMemReg(s, base, off, src) {
+    s = natRex(s, 1, src, base)
+    s = natByte(s, natMask(32))
+    return natMemBaseOff(s, src, base, off)
+}
+
+// natIncMem emits inc qword [base+off]: REX.W + FF /0 + ModRM + SIB + disp.
+//
+// The SIB byte is ALWAYS emitted here, even for a base that has a compact
+// direct encoding, because the oracle's IncMem does (emit.go:1145) and the
+// images are compared byte for byte. Note the `off == 0 && base != RBP` case:
+// an RBP base cannot use mod=00 (that means "no base, disp32"), so it falls
+// through to the disp8 form.
+func natIncMem(s, base, off) {
+    s = natRex(s, 1, 0, base)
+    s = natByte(s, natMask(44))
+    if (off == 0 && (base & 7) != 5) {
+        s = natModrm(s, 0, 0, 4)
+        return natByte(s, 32 + (base & 7))
+    }
+    if (off >= -128 && off <= 127) {
+        s = natModrm(s, 1, 0, 4)
+        s = natByte(s, 32 + (base & 7))
+        return natByte(s, off & 255)
+    }
+    s = natModrm(s, 2, 0, 4)
+    s = natByte(s, 32 + (base & 7))
+    return natU32(s, off)
+}
+
 // natLoadBaseOff emits mov r64, [base+off]: REX.W + 8B /r.
 func natLoadBaseOff(s, dst, base, off) {
     s = natRex(s, 1, dst, base)

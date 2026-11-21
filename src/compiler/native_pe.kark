@@ -240,6 +240,61 @@ func natPEStore64(img, textFileOff, pos, v) {
     return img
 }
 
+// natPECheckPatch refuses a patch site that does not fit inside the section
+// body it is addressed against.
+//
+// This exists because the alternative is a bounds-check crash INSIDE
+// natPEStore64, which names the store rather than the patch list that supplied
+// the bad position. A mis-recorded site is a defect in whoever recorded it, and
+// the diagnostic has to say which list, which pair and which position, or the
+// crash is indistinguishable from a wrong image length.
+func natPECheckPatch(pos, limit, kind, i, count) {
+    if (pos < 0) {
+        return "error[K117]: native pe: " + kind + " patch " + str(i / 2) + " of " + str(count / 2) + " has a negative .text offset " + str(pos)
+    }
+    if (pos + 8 > limit) {
+        return "error[K117]: native pe: " + kind + " patch " + str(i / 2) + " of " + str(count / 2) + " at .text offset " + str(pos) + " does not fit the section body (" + str(limit) + " bytes)"
+    }
+    return ""
+}
+
+// natPECheckPatchList walks one flat [pos, value] list and returns the first
+// refusal, so the rule above is stated once and used by both natPELink and
+// natPECheckAllPatches.
+func natPECheckPatchList(list, limit, kind) {
+    int i = 0
+    while (i < len(list)) {
+        string bad = natPECheckPatch(list[i], limit, kind, i, len(list))
+        if (bad != "") { return bad }
+        i = i + 2
+    }
+    return ""
+}
+
+// natPECheckAllPatches validates every list natPELink will apply, so the DRIVER
+// can refuse before calling the linker.
+//
+// This exists because of a measured defect, not a hypothetical one: natPELink
+// returns a diagnostic STRING on refusal, and the driver returned
+//
+//     ["", natPELink(...)]
+//
+// unconditionally, so a refusal was handed back as if it were the image. The
+// CLI then did len() on that string -- 105 characters -- and natToHex() over a
+// string (which is not indexable) produced 105 zero bytes, i.e. a garbage
+// "image" instead of a diagnostic. Both halves are now stated: the driver
+// validates the patch lists here and the linker's own checks stay as defence in
+// depth for the subcommands that still call natPELink directly.
+func natPECheckAllPatches(textLen, patches, ipatches, apatches, hpatches) {
+    string b = natPECheckPatchList(patches, textLen, "rodata")
+    if (b != "") { return b }
+    b = natPECheckPatchList(ipatches, textLen, "iat")
+    if (b != "") { return b }
+    b = natPECheckPatchList(apatches, textLen, "import")
+    if (b != "") { return b }
+    return natPECheckPatchList(hpatches, textLen, "arena")
+}
+
 // natPELink builds a complete PE32+ x86-64 image.
 //
 //   text, rodata - already-encoded bytes
@@ -384,21 +439,29 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
 
     i = 0
     while (i < len(patches)) {
+        string badp = natPECheckPatch(patches[i], len(text), "rodata", i, len(patches))
+        if (badp != "") { return badp }
         img = natPEStore64(img, natPETextOff(), patches[i], roBase + patches[i + 1])
         i = i + 2
     }
     i = 0
     while (i < len(ipatches)) {
+        string badi = natPECheckPatch(ipatches[i], len(text), "iat", i, len(ipatches))
+        if (badi != "") { return badi }
         img = natPEStore64(img, natPETextOff(), ipatches[i], idataBase + natPEIATOff() + ipatches[i + 1] * 8)
         i = i + 2
     }
     i = 0
     while (i < len(apatches)) {
+        string bada = natPECheckPatch(apatches[i], len(text), "import", i, len(apatches))
+        if (bada != "") { return bada }
         img = natPEStore64(img, natPETextOff(), apatches[i], idataBase + natPEIATOff() + apatches[i + 1] * 8)
         i = i + 2
     }
     i = 0
     while (i < len(hpatches)) {
+        string badh = natPECheckPatch(hpatches[i], len(text), "arena", i, len(hpatches))
+        if (badh != "") { return badh }
         img = natPEStore64(img, natPETextOff(), hpatches[i], idataBase + len(idata) + hpatches[i + 1])
         i = i + 2
     }

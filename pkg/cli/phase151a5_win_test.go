@@ -989,8 +989,13 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// 15780 -> 15766 -> 15780. Measured on this host with `karkain kir
 	// --verify src/compiler/kir.kark` (text=15780 verify=15780, 966 s),
 	// never predicted.
-	if text != 15780 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 15780; see the comment above for the measured chain. output follows: %s", text, out)
+	//
+	// RE-PINNED FOR THE NATIVE FOR-IN SLICE: 15780 -> 16017 (+237), from the
+	// for-in driver arms and the two memory encoder primitives. Measured with
+	// `karkain kir --verify src/compiler/kir.kark` (text=16017 verify=16017),
+	// never predicted.
+	if text != 16017 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 16017; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }
