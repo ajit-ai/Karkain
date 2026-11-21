@@ -1,5 +1,5 @@
 func test_array_literal_and_index() {
-    int[] xs = [1, 2, 3, 4]
+    int[] xs =[1, 2, 3, 4]
     assert_eq(len(xs), 4)
     assert_eq(xs[0], 1)
     assert_eq(xs[2], 3)
@@ -7,14 +7,14 @@ func test_array_literal_and_index() {
 }
 
 func test_array_mutation() {
-    int[] xs = [1, 2, 3]
+    int[] xs =[1, 2, 3]
     xs[1] = 99
     assert_eq(xs[1], 99)
     assert_eq(len(xs), 3)
 }
 
 func test_array_push_and_len() {
-    int[] items = []
+    int[] items =[]
     assert_eq(len(items), 0)
     push(items, 10)
     push(items, 20)
@@ -25,7 +25,7 @@ func test_array_push_and_len() {
 }
 
 func test_array_slices() {
-    int[] xs = [10, 20, 30, 40, 50]
+    int[] xs =[10, 20, 30, 40, 50]
     int tail = xs[2: 5]
     assert_eq(len(tail), 3)
     assert_eq(tail[0], 30)
@@ -33,10 +33,10 @@ func test_array_slices() {
 }
 
 func test_array_2d() {
-    int[] grid = []
+    int[] grid =[]
     int r = 0
     while(r < 3) {
-        int[] row = []
+        int[] row =[]
         int c = 0
         while(c < 3) {
             push(row, r * 3 + c)
@@ -52,7 +52,7 @@ func test_array_2d() {
 }
 
 func test_array_of_strings() {
-    string[] names = ["ana", "bob", "cam"]
+    string[] names =["ana", "bob", "cam"]
     assert_eq(len(names), 3)
     assert_eq(names[0], "ana")
     assert_eq(names[2], "cam")
