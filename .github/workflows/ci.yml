@@ -147,6 +147,13 @@ jobs:
       - name: Run Phase 132 stdlib-freeze gate
         run: go test ./pkg/cli/ -run 'TestPhase132' -count=1
 
+      # v1.2.1 -- std.path/std.json cross-engine gates. These two modules are
+      # documented as importable but had no located executed evidence before
+      # this slice. Distinct pattern so a regression cannot hide behind the
+      # broader Phase 132 step above.
+      - name: Run v1.2.1 stdlib path/json gates
+        run: go test ./pkg/cli/ -run 'TestPhaseV121_' -count=1 -timeout 30m
+
       - name: Run Phase 133 first-class-fn gate
         run: go test ./pkg/cli/ -run 'TestPhase133|TestPhase130' -count=1
 

@@ -1,40 +1,60 @@
 // Karkain Standard Library - Path Module
+//
+// v1.2.1 corrective: the original loops used `i >= 0 && path[i] != "/"`.
+// kcc evaluates the indexed operand before the range guard, so `path[-1]`
+// was reached on a basename with no separator and raised a runtime error.
+// Every loop below checks the range in an outer `if` and indexes only inside
+// it, which is portable across both engines without changing the surface.
 
 string path_join(string a, string b) {
     if (len(a) == 0) { return b }
     if (len(b) == 0) { return a }
-    if (a[len(a)-1] == "/" || a[len(a)-1] == "\\") {
-        return a + b
-    }
+    string last = substr(a, len(a) - 1, 1)
+    if (last == "/") { return a + b }
+    if (last == "\\") { return a + b }
     return a + "/" + b
 }
 
 string path_basename(string path) {
+    int start = 0
     int i = len(path) - 1
-    while (i >= 0 && path[i] != "/" && path[i] != "\\") {
-        i = i - 1
+    while (i >= 0) {
+        string ch = substr(path, i, 1)
+        if (ch == "/") { start = i + 1; i = -1 }
+        else {
+            if (ch == "\\") { start = i + 1; i = -1 }
+            else { i = i - 1 }
+        }
     }
-    return substr(path, i + 1, len(path) - i - 1)
+    return substr(path, start, len(path) - start)
 }
 
 string path_dirname(string path) {
+    int slash = -1
     int i = len(path) - 1
-    while (i >= 0 && path[i] != "/" && path[i] != "\\") {
-        i = i - 1
+    while (i >= 0) {
+        string ch = substr(path, i, 1)
+        if (ch == "/") { slash = i; i = -1 }
+        else {
+            if (ch == "\\") { slash = i; i = -1 }
+            else { i = i - 1 }
+        }
     }
-    if (i < 0) { return "." }
-    if (i == 0) { return "/" }
-    return substr(path, 0, i)
+    if (slash < 0) { return "." }
+    if (slash == 0) { return "/" }
+    return substr(path, 0, slash)
 }
 
 string path_extension(string path) {
     string base = path_basename(path)
+    int dot = -1
     int i = len(base) - 1
-    while (i >= 0 && base[i] != ".") {
-        i = i - 1
+    while (i > 0) {
+        if (substr(base, i, 1) == ".") { dot = i; i = 0 }
+        else { i = i - 1 }
     }
-    if (i <= 0) { return "" }
-    return substr(base, i, len(base) - i)
+    if (dot <= 0) { return "" }
+    return substr(base, dot, len(base) - dot)
 }
 
 string path_stem(string path) {
@@ -46,8 +66,11 @@ string path_stem(string path) {
 
 bool path_is_absolute(string path) {
     if (len(path) == 0) { return false }
-    if (path[0] == "/" || path[0] == "\\") { return true }
-    if (len(path) >= 2 && path[1] == ":") { return true }
+    string first = substr(path, 0, 1)
+    if (first == "/" || first == "\\") { return true }
+    if (len(path) >= 2) {
+        if (substr(path, 1, 1) == ":") { return true }
+    }
     return false
 }
 
@@ -55,21 +78,23 @@ string path_normalize(string path) {
     string result = ""
     int i = 0
     while (i < len(path)) {
-        if (path[i] == "\\") {
-            result = result + "/"
-        } else {
-            result = result + substr(path, i, 1)
-        }
+        string ch = substr(path, i, 1)
+        if (ch == "\\") { result = result + "/" }
+        else { result = result + ch }
         i = i + 1
     }
     while (contains(result, "//")) {
         string tmp = ""
         int j = 0
         while (j < len(result)) {
-            if (j > 0 && result[j-1] == "/" && result[j] == "/") {
-            } else {
-                tmp = tmp + substr(result, j, 1)
+            string ch = substr(result, j, 1)
+            bool skip = false
+            if (j > 0) {
+                if (substr(result, j - 1, 1) == "/") {
+                    if (ch == "/") { skip = true }
+                }
             }
+            if (skip == false) { tmp = tmp + ch }
             j = j + 1
         }
         result = tmp
@@ -79,19 +104,21 @@ string path_normalize(string path) {
 
 bool path_has_extension(string path, string ext) {
     string actual = path_extension(path)
-    if (len(ext) > 0 && ext[0] != ".") {
-        ext = "." + ext
+    string wanted = ext
+    if (len(wanted) > 0) {
+        if (substr(wanted, 0, 1) != ".") { wanted = "." + wanted }
     }
-    return actual == ext
+    return actual == wanted
 }
 
 string path_replace_extension(string path, string new_ext) {
     string dir = path_dirname(path)
     string base = path_stem(path)
-    if (len(new_ext) > 0 && new_ext[0] != ".") {
-        new_ext = "." + new_ext
+    string ext = new_ext
+    if (len(ext) > 0) {
+        if (substr(ext, 0, 1) != ".") { ext = "." + ext }
     }
-    string new_base = base + new_ext
+    string new_base = base + ext
     if (dir == ".") { return new_base }
     return path_join(dir, new_base)
 }

@@ -3,6 +3,7 @@ package pm
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -155,12 +156,12 @@ local_lib = { version = "0.1.0", source = "local", url = "../local_lib" }
 
 func TestPackageManager_ManifestRoundTrip(t *testing.T) {
 	original := &Manifest{
-		Name:         "roundtrip_test",
-		Version:      "1.0.0",
-		Author:       "Test",
-		Description:  "Roundtrip test",
-		License:      "MIT",
-		Targets:      []string{"native"},
+		Name:        "roundtrip_test",
+		Version:     "1.0.0",
+		Author:      "Test",
+		Description: "Roundtrip test",
+		License:     "MIT",
+		Targets:     []string{"native"},
 		Dependencies: map[string]Dependency{
 			"dep_a": {Name: "dep_a", Version: "2.0.0", Source: "registry"},
 			"dep_b": {Name: "dep_b", Version: "3.0.0", Source: "git", URL: "https://example.com/repo"},
@@ -426,7 +427,12 @@ func TestStdlib_ModuleImport(t *testing.T) {
 				t.Errorf("module %s is empty", mod)
 			}
 
-			if !strings.Contains(content, "func ") {
+			// Increment 156 rewrote std.math with canonical typed declarations
+			// (`float math_abs(float x)`), so a literal "func " check is stale.
+			// Accept either declaration form: the test's intent is that the
+			// module is not empty boilerplate, not that one spelling survives.
+			if !strings.Contains(content, "func ") &&
+				!regexp.MustCompile(`(?m)\b(?:int|float|float64|double|bool|string|void)\s+[A-Za-z_][A-Za-z0-9_]*\s*\(`).MatchString(content) {
 				t.Errorf("module %s has no function declarations", mod)
 			}
 		})
