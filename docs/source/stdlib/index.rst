@@ -65,6 +65,15 @@ byte-identical on both engines (Phase 132 API Freeze):
    * - :doc:`std.json <json>`
      - JSON field extraction and serialization
      - 8
+   * - :doc:`std.filesystem <filesystem>`
+     - File and directory operations
+     - 14
+   * - :doc:`std.log <log>`
+     - Structured logging
+     - 6
+   * - :doc:`std.config <config>`
+     - Configuration management
+     - 5
 
 ``stdlib/`` also contains ``std.core``, ``std.math``, ``std.system``,
 ``std.gpu`` and ``std.async``, but these are **not importable**: they use
@@ -113,6 +122,9 @@ Invariants shared by every implemented module
    time
    random
    json
+   filesystem
+   log
+   config
    core
    math
    not-implemented
