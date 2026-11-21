@@ -10,10 +10,7 @@ in the repository. Nothing can be imported from them today, and no API is
 documented here because none has been designed or implemented:
 
 * ``std.memory``
-* ``std.filesystem``
-* ``std.process``
 * ``std.os``
-* ``std.time``
 * ``std.concurrency``
 * ``std.diagnostics``
 
