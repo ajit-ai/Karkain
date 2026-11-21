@@ -1,0 +1,39 @@
+// Karkain Standard Library - Config Module
+// Configuration management utilities.
+
+import std.env
+
+string config_get(string key, string default_val) {
+    // Check environment variable first
+    string env_val = env_get(key)
+    if (len(env_val) > 0 && env_val != "%" + key + "%") {
+        return env_val
+    }
+    return default_val
+}
+
+bool config_has(string key) {
+    string val = env_get(key)
+    return len(val) > 0 && val != "%" + key + "%"
+}
+
+int config_get_int(string key, int default_val) {
+    string val = config_get(key, "")
+    if (len(val) == 0) { return default_val }
+    return int(val)
+}
+
+bool config_get_bool(string key, bool default_val) {
+    string val = config_get(key, "")
+    if (len(val) == 0) { return default_val }
+    return val == "true" || val == "1" || val == "yes"
+}
+
+string config_require(string key) {
+    string val = config_get(key, "")
+    if (len(val) == 0 || val == "%" + key + "%") {
+        print("ERROR: required config '" + key + "' not set")
+        return ""
+    }
+    return val
+}
