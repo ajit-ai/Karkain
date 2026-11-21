@@ -1,8 +1,16 @@
 # Karkain Version Plan — 1.1.0 → 2.0.0
 
 **Status**: authoritative forward view (planning + release ledger).
-**Baseline**: increment **150** in progress — slices **150A–150C complete,
-150D not started**. `VERSION` = `1.1.0`, `main` @ `da5082c`.
+
+**Owner numbering decision (2026-11-21):** all active forward work is named
+**v1.2.x**, where `x = 1, 2, 3, … n`. No later version line is adopted. Rows
+below carrying other labels are historical audit records only and are not the
+active forward plan.
+
+**Baseline after PR #5 merge:** `main` @ `702ca27`, `VERSION` = `1.2.0`,
+NAT-FORIN and Phase 1.3 corrections merged. The active continuation is
+v1.2.x, beginning with v1.2.1 `std.path`/`std.json` gates and v1.2.2
+control-document refresh.
 **Companion documents** (this file does not replace them):
 
 | Document | Role |
