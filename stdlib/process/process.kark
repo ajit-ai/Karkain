@@ -1,0 +1,47 @@
+// Karkain Standard Library - Process Module
+// Process management and execution utilities.
+
+int proc_run(string cmd) {
+    return system(cmd)
+}
+
+int proc_run_bg(string cmd) {
+    system(cmd + " &")
+    return 0
+}
+
+string proc_output(string cmd) {
+    return system(cmd)
+}
+
+int proc_exit(int code) {
+    system("exit " + str(code))
+    return code
+}
+
+bool proc_is_running(string name) {
+    string result = system("powershell -c Get-Process " + name + " -ErrorAction SilentlyContinue | Select-Object -First 1")
+    return len(result) > 0
+}
+
+string proc_pid() {
+    return system("powershell -c $PID")
+}
+
+int proc_kill(string name) {
+    system("powershell -c Stop-Process -Name " + name + " -Force")
+    return 0
+}
+
+string proc_env(string name) {
+    return system("cmd /c echo %" + name + "%")
+}
+
+int proc_sleep(int seconds) {
+    system("powershell -c Start-Sleep -Seconds " + str(seconds))
+    return 0
+}
+
+string proc_which(string cmd) {
+    return system("powershell -c (Get-Command " + cmd + ").Source")
+}
