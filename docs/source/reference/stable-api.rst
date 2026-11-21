@@ -127,6 +127,16 @@ Stable stdlib modules
      - HTTP/1.1 client/server building blocks (Request/Response, 20 functions).
    * - ``std.db``
      - Backend-neutral database layer (SQL subset, persistence, 20 functions).
+   * - ``std.path``
+     - Cross-platform path manipulation (9 functions, increment 155).
+   * - ``std.env``
+     - Environment variable access (9 functions, increment 155).
+   * - ``std.time``
+     - Time and date utilities (11 functions, increment 155).
+   * - ``std.random``
+     - Random number generation (7 functions, increment 155).
+   * - ``std.json``
+     - JSON field extraction and serialization (8 functions, increment 155).
    * - ``std.generics``
      - Persistent ``Stack[T]`` / ``Queue[T]`` over plain arrays (12
        functions; new in Phase 146, both engines since Phase 146C).
