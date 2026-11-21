@@ -137,6 +137,12 @@ Stable stdlib modules
      - Random number generation (7 functions, increment 155).
    * - ``std.json``
      - JSON field extraction and serialization (8 functions, increment 155).
+   * - ``std.filesystem``
+     - File and directory operations (14 functions, increment 155).
+   * - ``std.log``
+     - Structured logging (6 functions, increment 155).
+   * - ``std.config``
+     - Configuration management (5 functions, increment 155).
    * - ``std.generics``
      - Persistent ``Stack[T]`` / ``Queue[T]`` over plain arrays (12
        functions; new in Phase 146, both engines since Phase 146C).
