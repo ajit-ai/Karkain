@@ -4759,4 +4759,8 @@ change fixed a loop-shaped false positive: `fns = appendArray(fns, ...)` inside
 `while` invalidated a literal size, but the block-scope restore resurrected it
 and rejected `fns[0]` in `examples/closures/04_factory.kark`. Assignment
 invalidation is now kept separately from declaration snapshots; `TestPhase13_`
-and `TestPhase133_` PASS.
+and `TestPhase133_` PASS. A third frozen-gate correction replaced the stale
+NAT-CALL refusal `main_let_from_call`: STD-001 now permits an int-valued user
+call to initialise a main binding, so the row was replaced by a still-refused
+map-literal binding (`let c = {1: 2}`), measured with `error[K145]` and no
+image; `TestPhaseNATCall_` PASS.
