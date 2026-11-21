@@ -1,0 +1,29 @@
+// Karkain Standard Library - Logging Module
+// Structured logging utilities.
+
+import std.time
+
+void log_info(string msg) {
+    print("[INFO] " + msg)
+}
+
+void log_warn(string msg) {
+    print("[WARN] " + msg)
+}
+
+void log_error(string msg) {
+    print("[ERROR] " + msg)
+}
+
+void log_debug(string msg) {
+    print("[DEBUG] " + msg)
+}
+
+string log_format(string level, string msg, string timestamp) {
+    return "[" + level + "] " + timestamp + " " + msg
+}
+
+void log_with_time(string level, string msg) {
+    string ts = time_now()
+    print("[" + level + "] " + ts + " " + msg)
+}
