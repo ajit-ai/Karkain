@@ -1,7 +1,7 @@
 .. _stdlib-filesystem:
 
 std.filesystem — File and directory operations
-=============================================
+==============================================
 
 :implemented:`Implemented` — importable on both engines.
 

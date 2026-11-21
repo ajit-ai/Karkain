@@ -1,7 +1,7 @@
 .. _stdlib-env:
 
 std.env — Environment variables
-==============================
+===============================
 
 :implemented:`Implemented` — importable on both engines.
 

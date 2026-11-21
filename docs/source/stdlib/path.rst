@@ -1,7 +1,7 @@
 .. _stdlib-path:
 
 std.path — Path manipulation
-===========================
+============================
 
 :implemented:`Implemented` — importable on both engines.
 

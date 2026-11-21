@@ -1,7 +1,7 @@
 .. _stdlib-process:
 
 std.process — Process management
-===============================
+================================
 
 :implemented:`Implemented` — importable on both engines.
 

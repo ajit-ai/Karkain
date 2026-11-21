@@ -4749,4 +4749,9 @@ component because the old loops relied on short-circuit evaluation, and
 `stdlib/path/path.kark` and `stdlib/json/json.kark`, mutation-verified, and the
 public surfaces are unchanged. Docs corrected: JSON function count 8 -> 6 in
 `index.rst` and `stable-api.rst`; per-module RST evidence notes added. No
-compiler source moved, so the whole-tree KIR pin remains 16017.
+compiler source moved, so the whole-tree KIR pin remains 16017. A follow-up
+commit in the same PR corrected two gating CI blockers exposed by the first
+run: seven one-character-short RST title underlines from increment 155, and a
+stale `TestStdlib_ModuleImport` assertion that required the literal `func `
+after increment 156 rewrote `std.math` with typed declarations. The two
+exit-143 jobs are non-gating discovery jobs.

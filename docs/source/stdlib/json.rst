@@ -1,7 +1,7 @@
 .. _stdlib-json:
 
 std.json — JSON parsing and serialization
-========================================
+=========================================
 
 :implemented:`Implemented` — importable on both engines.
 
