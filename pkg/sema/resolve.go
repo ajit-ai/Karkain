@@ -61,6 +61,7 @@ type Resolver struct {
 	funcParamTypes  map[string][]string
 	funcReturnTypes map[string]string
 	globals         map[string]bool
+	arraySizes      map[string]int
 }
 
 // builtinNames is the set of language/standard-library functions handled
@@ -118,6 +119,7 @@ func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 		funcParamTypes: make(map[string][]string),
 		funcReturnTypes: make(map[string]string),
 		globals:         make(map[string]bool),
+		arraySizes:      make(map[string]int),
 	}
 	for _, imp := range prog.Imports {
 		r.imported[imp.Name] = true
@@ -629,6 +631,10 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 	case *parser.VarDeclStmt:
 		if locals != nil && n.Name != "" {
 			locals[n.Name] = true
+			// Phase 1.3 (v1.3.0): track array sizes for bounds checking.
+			if arrLit, ok := n.Value.(*parser.ArrayLiteral); ok {
+				r.trackArraySize(n.Name, len(arrLit.Elements))
+			}
 		}
 		r.checkExpr(n.Value, locals, callerName, sm)
 	case *parser.ReturnStmt:
@@ -724,6 +730,8 @@ func (r *Resolver) checkExpr(e parser.Node, locals map[string]bool, callerName s
 	case *parser.IndexExpr:
 		r.checkExpr(n.Left, locals, callerName, sm)
 		r.checkExpr(n.Index, locals, callerName, sm)
+		// Phase 1.3 (v1.3.0): compile-time bounds checking where provable.
+		r.checkBoundsSafety(n)
 	case *parser.SliceExpr:
 		r.checkExpr(n.Target, locals, callerName, sm)
 		if n.Start != nil {
