@@ -4773,3 +4773,11 @@ the ORACLE's string-stage frames remain measured; `TestPhaseNATStrStage_` PASS.
 A sixth CI correction canonicalized six conformance fixtures that failed the
 final formatter step of the long `Test` job; all 12 conformance files now pass
 `fmt --check` on Linux-style LF input and the 64-test corpus still passes.
+
+Also completed: **v1.2.2 — control-document refresh** (documentation-only;
+record `docs/audit/V1.2.2-CONTROL-REFRESH.md`). The owner's v1.2.x-only rule is
+now recorded in `KARKAIN-IMPLEMENTATION-CONTROL.md`, `KARKAIN-VERSION-PLAN.md`,
+and the public roadmap. The stale next-slice recommendation was replaced:
+native calls already work; the next proposed implementation is v1.2.3 native
+string byte indexing (`s[i]`) as the first bounded blocker toward no-C
+`stdlib_v2`.

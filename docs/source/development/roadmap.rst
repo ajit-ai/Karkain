@@ -155,8 +155,25 @@ What ships in 1.2.0 today
 Future: Version-Wise Roadmap
 ----------------------------
 
-Forward development is organized by **version** with per-increment execution
-(see ``docs/audit/KARKAIN-VERSION-PLAN.md`` for exit criteria and NFR targets):
+Forward development is organized by the **v1.2.x continuation** with per-increment
+execution (see ``docs/audit/KARKAIN-VERSION-PLAN.md`` for exit criteria and NFR
+targets). The owner's numbering rule is: all future work is named
+**v1.2.1, v1.2.2, v1.2.3, … v1.2.n**; no later version line is adopted.
+
+The active v1.2.x plan is:
+
+* **v1.2.1** — ``std.path`` and ``std.json`` both-engine gates (complete).
+* **v1.2.2** — control-document refresh (this documentation update).
+* **v1.2.3** — native string byte indexing (``s[i]``), proposed next implementation.
+* **v1.2.4** — trim view and string-array foundation.
+* **v1.2.5** — native hex/Base64 codecs.
+* **v1.2.6** — native SHA-256.
+* **v1.2.7** — full ``stdlib_v2`` no-C proof.
+* **v1.2.8** — ``std.net`` native platform decision and proof.
+* **v1.2.9** — ``std.env`` / ``std.time`` / ``std.random`` gates and portability.
+
+Older version-wise headings below are retained as historical audit context, not
+as the active forward plan.
 
 * **1.2.0 "Sovereignty I" (current):** Native Value model (boxed Values,
   arrays, ``for-in``, floats, structs) + ``native-x86_64-windows``/``macos`` CLI
