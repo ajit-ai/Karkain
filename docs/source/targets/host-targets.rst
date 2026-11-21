@@ -116,6 +116,16 @@ hint (exit 6).
 All three targets are kcc-owned: ``kccNativeOwnedTargets`` has no member
 left to refuse, and nothing refuses with ``error[K116]`` any more.
 
+The self-hosted driver lowers ``for x in arr`` for an **array variable**,
+including nested loops, ``break``/``continue`` and an index inside the loop
+body. The iterator must be a variable with a frame-resident header: a literal
+``for x in [1, 2]`` is refused by both engines. Executed PE goldens and a
+byte-for-byte Linux ELF differential against the Go oracle live in
+``pkg/cli/phase151a9i_forin_test.go``; the machine-readable ledger is
+``docs/inventory/native-feature-matrix.json``. A ``push()`` program built
+through the native CLI target is still refused by the PE patch guard -- a
+pre-existing defect pinned by the same gate, not a for-in limitation.
+
 Engine selection vs. target ownership
 -------------------------------------
 

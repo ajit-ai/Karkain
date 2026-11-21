@@ -64,7 +64,7 @@ byte-identical on both engines (Phase 132 API Freeze):
      - 7
    * - :doc:`std.json <json>`
      - JSON field extraction and serialization
-     - 8
+     - 6
    * - :doc:`std.core <core>`
      - Core helpers (identity, clamp, min/max, range, sum, product)
      - 20

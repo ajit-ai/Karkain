@@ -1,7 +1,7 @@
 .. _stdlib-random:
 
 std.random — Random number generation
-====================================
+=====================================
 
 :implemented:`Implemented` — importable on both engines.
 

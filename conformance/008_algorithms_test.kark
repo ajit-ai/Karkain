@@ -60,7 +60,7 @@ func is_prime(n) {
 }
 
 func test_bubble_sort() {
-    int[] xs = [64, 34, 25, 12, 22, 11, 90]
+    int[] xs =[64, 34, 25, 12, 22, 11, 90]
     bubble_sort(xs)
     assert_eq(xs[0], 11)
     assert_eq(xs[3], 25)

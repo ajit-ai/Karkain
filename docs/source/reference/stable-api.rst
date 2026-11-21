@@ -136,7 +136,7 @@ Stable stdlib modules
    * - ``std.random``
      - Random number generation (7 functions, increment 155).
    * - ``std.json``
-     - JSON field extraction and serialization (8 functions, increment 155).
+     - JSON field extraction and serialization (6 functions, increment 155; gated in v1.2.1).
    * - ``std.filesystem``
      - File and directory operations (14 functions, increment 155).
    * - ``std.log``

@@ -1,7 +1,7 @@
 .. _stdlib-time:
 
 std.time — Time and date utilities
-=================================
+==================================
 
 :implemented:`Implemented` — importable on both engines.
 

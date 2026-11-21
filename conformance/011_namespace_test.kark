@@ -38,7 +38,7 @@ func test_user_trim_shadows_runtime_helpers_still_work() {
 
 func test_user_pow_is_plain_arithmetic() {
     assert_eq(pow(2, 3), 5)
-    int[] xs = [1, 2]
+    int[] xs =[1, 2]
     assert_eq(len(xs), 2)
 }
 

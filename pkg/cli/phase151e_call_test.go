@@ -738,25 +738,17 @@ var natERefusals = []natERefusal{
 		code: "error[K145]", want: "unsupported unary operator '!'",
 	},
 	{
-		// Control flow: the driver lowers no LOOP. Naming the construct is
-		// the difference between a refusal a user can act on and "statement
-		// kind 5".
-		//
-		// A CORRECTIVE CHANGE against the frozen NAT-CALL baseline, recorded
-		// in docs/audit/NAT-IF-BASELINE.md rather than silently here. This row
-		// used to be a BRANCH (`if` in a called function), and NAT-IF taught the
-		// driver to lower branches, so the row stopped being a refusal and the
-		// gate failed with "kcc ACCEPTED a program it cannot lower (exit 0)".
-		// It was REPLACED rather than deleted: this table's property is "a
-		// construct the driver cannot lower is refused BY NAME and writes no
-		// image", and a table that quietly shrinks stops being evidence for
-		// it. The replacement is the C-style `for`, which is still outside the
-		// subset; the `while` row below already covered the loop case.
-		name: "callee_for_in",
+		// Control flow: Phase 2.2 taught the driver to lower `for x in a` over an
+		// ARRAY VARIABLE, so this row's original program stopped being a refusal.
+		// It was REPLACED rather than deleted: the remaining boundary is an
+		// iterator that is not a variable, and the oracle refuses a literal
+		// `for x in [1, 2]` with the same message. The supported shape is gated by
+		// TestPhase151A9I_*; this row keeps the refusal table's property honest.
+		name: "callee_literal_for_in",
 		src: "func f(n int) int {\n    for x in [1, 2] { n = n + 1 }\n    return n\n}\n" +
 			"func main() { print(f(1)) }\n",
 		code: "error[K145]",
-		want: "`for-in` statement is not lowered by the native driver in a called function",
+		want: "for-in iterates a variable on the native target",
 	},
 	{
 		// A CORRECTIVE CHANGE against the frozen NAT-CALL baseline, recorded
@@ -780,16 +772,14 @@ var natERefusals = []natERefusal{
 		want: "is not an integer expression",
 	},
 	{
-		// main keeps its pre-NAT-CALL wording byte for byte, which is why the
-		// suffix differs from the two rows above.
-		//
-		// Replaced by the same argument as the row above: a branch is now
-		// lowered, so the row that pinned "main lowers no branch" had to go,
-		// and the C-style `for` takes its place.
-		name: "main_for_in",
+		// The literal-iterator boundary is the same in main and in a callee:
+		// Phase 2.2 lowered variable-array iteration, but a literal is still
+		// refused by both engines. Kept as a separate row because the entry
+		// function is a distinct lowering path.
+		name: "main_literal_for_in",
 		src:  "func main() {\n    for x in [1, 2] { print(1) }\n}\n",
 		code: "error[K145]",
-		want: "`for-in` statement is not lowered by the native driver in `func main`",
+		want: "for-in iterates a variable on the native target",
 	},
 	{
 		// The entry stub calls main with no arguments, so a parameter has
@@ -799,11 +789,17 @@ var natERefusals = []natERefusal{
 		code: "error[K145]", want: "`main` must take no parameters on the native target",
 	},
 	{
-		// Step 9c froze main's `let` arm at literal initialisers. The reason
-		// is not arbitrary: widening it would make main's frame depend on a
-		// callee's return kind, which the parser does not record.
-		name: "main_let_from_call",
-		src:  "func f(n int) int { return n }\nfunc main() {\n    let c = f(1)\n    print(c)\n}\n",
+		// CORRECTIVE CHANGE against the frozen NAT-CALL baseline, recorded in
+		// docs/audit/V1.2.1-STDLIB-PATH-JSON-GATES.md section "CI blocker
+		// corrections". This row used to pin `let c = f(1)` as refused because
+		// Step 9c froze main's let arm at literals. STD-001 (already committed
+		// on develop) widened that arm to int-valued user calls, so the row
+		// failed in PR #5 CI with "exit = 0" and an emitted image. It is
+		// REPLACED rather than deleted: a map literal is still not a lowerable
+		// main binding, and preserves the table's property -- a construct the
+		// driver cannot lower is refused BY NAME and writes no image.
+		name: "main_let_from_map_literal",
+		src:  "func main() { let c = {1: 2} print(c) }\n",
 		code: "error[K145]", want: "`let c` initialised from a non-integer expression",
 	},
 	{

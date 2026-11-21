@@ -38,12 +38,12 @@ type SourceMap map[int]string // line number → file path
 // When any declaration carries Public=true, an additional visibility check
 // fires: private declarations are only callable from their own source file.
 type Resolver struct {
-	funcs   map[string]bool
-	types   map[string]bool
-	builtin map[string]bool
-	consts  map[string]bool // Phase 112: module-level `const` declarations
+	funcs    map[string]bool
+	types    map[string]bool
+	builtin  map[string]bool
+	consts   map[string]bool            // Phase 112: module-level `const` declarations
 	fnConsts map[string]map[string]bool // Phase 112: per-function local const names
-	errors  []ResolveError
+	errors   []ResolveError
 	// visibility tracking (populated when any Public declaration is present)
 	anyPublic        bool
 	declFile         map[string]string // name → source file path
@@ -55,13 +55,18 @@ type Resolver struct {
 	imported map[string]bool   // declared `import <name>` names
 	// record field tables (see structcheck.go): declared field names per
 	// record type, plus declaration order so a diagnostic can list them.
-	structs map[string]map[string]bool
+	structs          map[string]map[string]bool
 	structFieldOrder map[string][]string
 	// type-first signatures, populated from explicit declarations
 	funcParamTypes  map[string][]string
 	funcReturnTypes map[string]string
 	globals         map[string]bool
-	arraySizes      map[string]int
+	arraySizes      map[string]map[string]int
+	// Phase 1.3 corrective: a size forgotten by an assignment must survive
+	// the enclosing block's scope restore. Without this, `fns = appendArray(...)`
+	// inside a loop was undone on block exit and `fns[0]` was rejected.
+	arrayForgotten  map[string]map[string]bool
+	arrayScopeDepth map[string]int
 }
 
 // builtinNames is the set of language/standard-library functions handled
@@ -74,7 +79,7 @@ var builtinNames = map[string]bool{
 	"hasKey": true, "delete": true,
 	"substr": true, "str": true, "int": true,
 	"getArgs": true,
-	"system": true, "openFile": true, "readLine": true, "readLineEOF": true, "listFiles": true,
+	"system":  true, "openFile": true, "readLine": true, "readLineEOF": true, "listFiles": true,
 	"closeFile": true, "createFile": true, "writeToFile": true, "removeFile": true,
 	"trim": true, "contains": true, "split": true,
 	// Phase 109: stdlib v2 runtime byte helpers (encoding / crypto / map iteration).
@@ -82,14 +87,14 @@ var builtinNames = map[string]bool{
 	"base64_encode_bytes": true, "base64_decode_bytes": true,
 	"utf8_valid_bytes": true, "sha256_hex": true, "sha512_hex": true,
 	"map_keys_of": true,
-	"sqrt": true, "abs": true, "pow": true, "mod": true,
-	"float": true, // Phase 112: float() conversion builtin
+	"sqrt":        true, "abs": true, "pow": true, "mod": true,
+	"float":       true, // Phase 112: float() conversion builtin
 	"add_checked": true, "sub_checked": true, "mul_checked": true,
 	"http.get": true,
 	// Phase 125A: networking builtins (TCP connect/listen/accept/read/write/close).
 	"net_connect": true, "net_listen": true, "net_accept": true,
 	"net_read": true, "net_write": true, "net_close": true, "net_last_error": true,
-	"Some":     true, "None": true, "Ok": true, "Err": true,
+	"Some": true, "None": true, "Ok": true, "Err": true,
 	"assert": true, "assert_eq": true, "assert_ne": true,
 	// Phase 107: concurrency builtins (channels, tasks, actors).
 	"channel": true, "send": true, "chanSend": true, "chanClose": true,
@@ -104,22 +109,24 @@ var builtinNames = map[string]bool{
 // that each module import references a source file present in the compile unit.
 func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 	r := &Resolver{
-		funcs:       make(map[string]bool),
-		types:       make(map[string]bool),
-		builtin:     builtinNames,
-		consts:      make(map[string]bool),
-		fnConsts:    make(map[string]map[string]bool),
-		declFile:    make(map[string]string),
-		publicFuncs: make(map[string]bool),
-		callerFile:  make(map[string]string),
-		modules:    make(map[string]string),
-		imported:   make(map[string]bool),
-		structs:    make(map[string]map[string]bool),
+		funcs:            make(map[string]bool),
+		types:            make(map[string]bool),
+		builtin:          builtinNames,
+		consts:           make(map[string]bool),
+		fnConsts:         make(map[string]map[string]bool),
+		declFile:         make(map[string]string),
+		publicFuncs:      make(map[string]bool),
+		callerFile:       make(map[string]string),
+		modules:          make(map[string]string),
+		imported:         make(map[string]bool),
+		structs:          make(map[string]map[string]bool),
 		structFieldOrder: make(map[string][]string),
-		funcParamTypes: make(map[string][]string),
-		funcReturnTypes: make(map[string]string),
-		globals:         make(map[string]bool),
-		arraySizes:      make(map[string]int),
+		funcParamTypes:   make(map[string][]string),
+		funcReturnTypes:  make(map[string]string),
+		globals:          make(map[string]bool),
+		arraySizes:       make(map[string]map[string]int),
+		arrayForgotten:   make(map[string]map[string]bool),
+		arrayScopeDepth:  make(map[string]int),
 	}
 	for _, imp := range prog.Imports {
 		r.imported[imp.Name] = true
@@ -615,16 +622,24 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 					if _, isConst := r.consts[id.Name]; isConst {
 						r.errors = append(r.errors, ResolveError{
 							Line: id.Line, Col: id.Col, EndCol: id.EndCol,
-							Msg:  fmt.Sprintf("cannot reassign constant '%s'", id.Name),
+							Msg: fmt.Sprintf("cannot reassign constant '%s'", id.Name),
 						})
 					}
 				} else if isLocalConst {
 					r.errors = append(r.errors, ResolveError{
 						Line: id.Line, Col: id.Col, EndCol: id.EndCol,
-						Msg:  fmt.Sprintf("cannot reassign constant '%s'", id.Name),
+						Msg: fmt.Sprintf("cannot reassign constant '%s'", id.Name),
 					})
 				}
 				locals[id.Name] = true
+				// Phase 1.3 corrective: an array variable whose contents are
+				// reassigned no longer has a provable literal length. The
+				// closure corpus does `fns = appendArray(fns, ...)`, which grew
+				// an empty literal; keeping the initial length 0 made every
+				// later `fns[i]` a false out-of-range diagnostic. Forget the
+				// size on ANY assignment to the name, not just appendArray,
+				// because the RHS may be a call whose length cannot be derived.
+				r.forgetArraySize(callerName, id.Name)
 			}
 		}
 		r.checkExpr(n.Expression, locals, callerName, sm)
@@ -632,8 +647,12 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 		if locals != nil && n.Name != "" {
 			locals[n.Name] = true
 			// Phase 1.3 (v1.3.0): track array sizes for bounds checking.
+			// A declaration whose value is not a literal forgets any earlier
+			// size recorded for the same name in this function.
 			if arrLit, ok := n.Value.(*parser.ArrayLiteral); ok {
-				r.trackArraySize(n.Name, len(arrLit.Elements))
+				r.trackArraySize(callerName, n.Name, len(arrLit.Elements))
+			} else {
+				r.forgetArraySize(callerName, n.Name)
 			}
 		}
 		r.checkExpr(n.Value, locals, callerName, sm)
@@ -642,22 +661,30 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 	case *parser.PrintStmt:
 		r.checkExpr(n.Value, locals, callerName, sm)
 	case *parser.BlockStmt:
+		saved := r.enterArrayScope(callerName)
 		for _, x := range n.Statements {
 			r.checkStmt(x, locals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, saved)
 	case *parser.IfStmt:
 		r.checkExpr(n.Condition, locals, callerName, sm)
+		savedCons := r.enterArrayScope(callerName)
 		for _, x := range n.Consequence {
 			r.checkStmt(x, locals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, savedCons)
+		savedAlt := r.enterArrayScope(callerName)
 		for _, x := range n.Alternative {
 			r.checkStmt(x, locals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, savedAlt)
 	case *parser.WhileStmt:
 		r.checkExpr(n.Condition, locals, callerName, sm)
+		savedBody := r.enterArrayScope(callerName)
 		for _, x := range n.Body {
 			r.checkStmt(x, locals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, savedBody)
 	case *parser.ForInStmt:
 		r.checkExpr(n.Iter, locals, callerName, sm)
 		bodyLocals := locals
@@ -673,9 +700,11 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 				bodyLocals[n.KeyName] = true
 			}
 		}
+		savedForIn := r.enterArrayScope(callerName)
 		for _, x := range n.Body {
 			r.checkStmt(x, bodyLocals, callerName, sm)
 		}
+		r.leaveArrayScope(callerName, savedForIn)
 	case *parser.FuncDecl:
 		sub := r.localNames(n)
 		r.walkCalls(n.Body, sub, n.Name, sm)
@@ -731,7 +760,7 @@ func (r *Resolver) checkExpr(e parser.Node, locals map[string]bool, callerName s
 		r.checkExpr(n.Left, locals, callerName, sm)
 		r.checkExpr(n.Index, locals, callerName, sm)
 		// Phase 1.3 (v1.3.0): compile-time bounds checking where provable.
-		r.checkBoundsSafety(n)
+		r.checkBoundsSafety(n, callerName)
 	case *parser.SliceExpr:
 		r.checkExpr(n.Target, locals, callerName, sm)
 		if n.Start != nil {

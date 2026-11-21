@@ -1,13 +1,19 @@
 .. _stdlib-path:
 
 std.path — Path manipulation
-===========================
+============================
 
 :implemented:`Implemented` — importable on both engines.
 
 ``std.path`` provides cross-platform path manipulation utilities built on
 Karkain's native string support. No libc interop: everything works through
 the documented builtin boundary on both engines.
+
+The v1.2.1 gate ``TestPhaseV121_`` executes every documented function on both
+engines. A corrective change in that slice removed loops that indexed a path
+after the range guard; range checks are now outer ``if`` statements so the
+module is portable to the self-hosted engine without relying on short-circuit
+evaluation.
 
 Importing
 ---------

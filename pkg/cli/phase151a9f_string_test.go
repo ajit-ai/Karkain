@@ -99,12 +99,16 @@ var nat9fCases = []nat9dCase{
 }
 var nat9fRefusals = []struct{ name, src, want string }{
 	{
-		// Concatenation must BUILD a string, so it needs the bump arena. Refusing it
-		// is the honest boundary: a string value is (ptr, len) into rodata, and there
-		// is nowhere to put concatenated bytes yet.
-		name: "concatenation_needs_the_arena",
-		src:  "func main() {\n    let a = \"x\"\n    let b = \"y\"\n    let c = a + b\n    print(c)\n}\n",
-		want: "error[K145]",
+		// CORRECTIVE CHANGE against the frozen 9f baseline. The row used to pin
+		// `let c = a + b` as refused because 9f had no arena; the committed
+		// Phase 2.1 work added the arena and now lowers that program, so the row
+		// failed with an image where a refusal was expected. It was REPLACED,
+		// not deleted: a string used as a CONDITION is still outside the subset,
+		// and naming it keeps this table's property ("a shape the driver cannot
+		// lower is refused by name") honest.
+		name: "string_comparison_not_lowered",
+		src:  "func main() {\n    let s = \"hi\"\n    if (s == \"hi\") { print(1) }\n}\n",
+		want: "`s` is string; only an int may appear",
 	},
 	{
 		name: "string_index_not_lowered",

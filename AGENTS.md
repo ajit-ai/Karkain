@@ -4707,3 +4707,69 @@ missed optimisation and not a wrong answer. **No performance improvement is
 claimed**: the allocator trades memory traffic for a push/pop pair per
 claimed register, and the measured sizes are mixed (sometimes smaller,
 sometimes a byte or two larger).
+
+Also completed: **NAT-FORIN — `for x in arr` in the self-hosted native driver**
+(increment 151, slice "NAT-FORIN"; verdict **COMPLETE for the covered subset**;
+record `docs/audit/NAT-FORIN-BASELINE.md`). The kcc native driver now lowers
+iteration over an ARRAY VARIABLE with a hidden index slot, nested loops,
+`break`/`continue` and an index inside the body; a literal iterator is refused
+by both engines. Evidence: `pkg/cli/phase151a9i_forin_test.go`
+(`TestPhase151A9I_`, PASS 36.7 s) with executed PE exact-byte goldens on the
+Windows host, byte-identical Linux ELF against the Go oracle everywhere,
+distinctness/determinism, a refusal table that also pins the out-of-scope PE
+`push()` patch-guard failure, and an opt-in register-path agreement check;
+dedicated CI step *Run 151A Step 9I for-in gate*. Three frozen refusal rows that
+pinned "for-in is not lowered" were **replaced**, not deleted; four more rows
+pinned by earlier slices were corrected against measured current messages (two
+Phase-2.1 string rows, the record-alias wording, and the PE `push()` patch-guard
+refusal, whose former execution gate now pins the refusal). Whole-tree KIR
+pin re-measured 15780 -> **16017** (measured, never predicted) in both pinning
+tests. `docs/inventory/native-feature-matrix.json` and
+`docs/source/targets/host-targets.rst` updated; the false `push()` supported row
+corrected.
+
+Also completed: **corrective change — Phase 1.3 bounds table function/block
+scope** (verdict **COMPLETE**; record `docs/audit/PHASE-1.3-BOUNDS-CORRECTIVE.md`).
+`pkg/sema/bounds_check.go` keyed inferred array sizes by variable name alone,
+so a literal binding in one function produced a false out-of-range diagnostic
+for a same-named parameter in another; a block-local literal also leaked its
+size past the block. The table is now keyed by function as well as name with
+block snapshot/restore, and `pkg/sema/phase13_bounds_scope_test.go` (`TestPhase13_`)
+pins both properties. Diagnostics-only: no emitted bytes change.
+
+Also completed: **v1.2.1 — `std.path` / `std.json` cross-engine gates** (library
+slice; verdict **COMPLETE for the covered surface**; record
+`docs/audit/V1.2.1-STDLIB-PATH-JSON-GATES.md`). Gate
+`pkg/cli/phase_v121_stdlib_test.go` (`TestPhaseV121_`, PASS 48.7 s) executes
+every documented function of both modules through the real Go and kcc pipelines
+and asserts raw stdout parity; dedicated CI step *Run v1.2.1 stdlib path/json
+gates*. The gate found two latent defects: kcc indexed past the start of a path
+component because the old loops relied on short-circuit evaluation, and
+`json_array_length` never entered the array depth. Both are fixed in
+`stdlib/path/path.kark` and `stdlib/json/json.kark`, mutation-verified, and the
+public surfaces are unchanged. Docs corrected: JSON function count 8 -> 6 in
+`index.rst` and `stable-api.rst`; per-module RST evidence notes added. No
+compiler source moved, so the whole-tree KIR pin remains 16017. A follow-up
+commit in the same PR corrected two gating CI blockers exposed by the first
+run: seven one-character-short RST title underlines from increment 155, and a
+stale `TestStdlib_ModuleImport` assertion that required the literal `func `
+after increment 156 rewrote `std.math` with typed declarations. The two
+exit-143 jobs are non-gating discovery jobs. A second Phase 1.3 corrective
+change fixed a loop-shaped false positive: `fns = appendArray(fns, ...)` inside
+`while` invalidated a literal size, but the block-scope restore resurrected it
+and rejected `fns[0]` in `examples/closures/04_factory.kark`. Assignment
+invalidation is now kept separately from declaration snapshots; `TestPhase13_`
+and `TestPhase133_` PASS. A third frozen-gate correction replaced the stale
+NAT-CALL refusal `main_let_from_call`: STD-001 now permits an int-valued user
+call to initialise a main binding, so the row was replaced by a still-refused
+map-literal binding (`let c = {1: 2}`), measured with `error[K145]` and no
+image; `TestPhaseNATCall_` PASS. A fourth CI correction fixed a malformed
+native feature-matrix row that put two comma-separated gate files in one
+field; the qualification gate reads that field as a single path, so the row now
+names one file and one pattern and `TestPhaseNATQual_` PASS. A fifth CI
+correction updated NAT-STR-STAGE's two push cases: the PE patch guard now
+refuses push programs by name, so their driver half is a K117 refusal pin while
+the ORACLE's string-stage frames remain measured; `TestPhaseNATStrStage_` PASS.
+A sixth CI correction canonicalized six conformance fixtures that failed the
+final formatter step of the long `Test` job; all 12 conformance files now pass
+`fmt --check` on Linux-style LF input and the 64-test corpus still passes.
