@@ -1,0 +1,74 @@
+// Karkain Standard Library - Path Module (C1 independence slice)
+// Portable path utilities built ONLY from core Karkain builtins (substr, len).
+// No imports, no OS calls, no C interop — identical on Go and KCC engines.
+
+// path_last_slash returns the index of the last '/' in s, or -1.
+int path_last_slash(string s) {
+    int i = len(s) - 1
+    while (i >= 0) {
+        if (substr(s, i, 1) == "/") { return i }
+        i = i - 1
+    }
+    return -1
+}
+
+// path_base returns the final component of p.
+string path_base(string p) {
+    int i = path_last_slash(p)
+    if (i < 0) { return p }
+    return substr(p, i + 1, len(p) - i - 1)
+}
+
+// path_dir returns everything before the final component.
+string path_dir(string p) {
+    int i = path_last_slash(p)
+    if (i < 0) { return "" }
+    if (i == 0) { return "/" }
+    return substr(p, 0, i)
+}
+
+// path_ext returns the extension including the leading dot, or "".
+string path_ext(string p) {
+    string b = path_base(p)
+    int i = len(b) - 1
+    while (i > 0) {
+        if (substr(b, i, 1) == ".") { return substr(b, i, len(b) - i) }
+        i = i - 1
+    }
+    return ""
+}
+
+// path_stem returns the final component without its extension.
+string path_stem(string p) {
+    string b = path_base(p)
+    string e = path_ext(p)
+    if (e == "") { return b }
+    return substr(b, 0, len(b) - len(e))
+}
+
+// path_join joins two components with exactly one separator.
+string path_join(string a, string b) {
+    if (a == "") { return b }
+    if (b == "") { return a }
+    if (substr(a, len(a) - 1, 1) == "/") { return a + b }
+    return a + "/" + b
+}
+
+// path_is_abs reports whether p begins with '/'.
+bool path_is_abs(string p) {
+    if (len(p) == 0) { return false }
+    return substr(p, 0, 1) == "/"
+}
+
+// path_normalize converts backslashes to forward slashes.
+string path_normalize(string p) {
+    string out = ""
+    int i = 0
+    while (i < len(p)) {
+        string ch = substr(p, i, 1)
+        if (ch == "\\") { ch = "/" }
+        out = out + ch
+        i = i + 1
+    }
+    return out
+}

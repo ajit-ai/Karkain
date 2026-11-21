@@ -347,3 +347,17 @@ string str_trim_right(string s) {
     }
     return substr(s, 0, end + 1)
 }
+// str_replace_all replaces every occurrence of old with new in s.
+// Pure Karkain string operations: portable to both engines and native.
+string str_replace_all(string s, string old, string rep) {
+    if (old == "") { return s }
+    string out = ""
+    int pos = 0
+    while (pos < len(s)) {
+        int at = str_index_of(s, old)
+        if (at < 0) { return out + substr(s, pos, len(s) - pos) }
+        out = out + substr(s, pos, at - pos) + rep
+        pos = at + len(old)
+    }
+    return out
+}
