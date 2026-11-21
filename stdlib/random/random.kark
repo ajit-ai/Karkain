@@ -1,0 +1,34 @@
+// Karkain Standard Library - Random Module
+
+int random_int_range(int min, int max) {
+    string r = system("powershell -c Get-Random -Minimum " + str(min) + " -Maximum " + str(max + 1))
+    return int(r)
+}
+
+int random_int_n(int n) {
+    return random_int_range(0, n - 1)
+}
+
+float random_float_01() {
+    string r = system("powershell -c (Get-Random -Minimum 0 -Maximum 1000000) / 1000000.0")
+    return float(r)
+}
+
+bool random_bool() {
+    int r = random_int_range(0, 1)
+    return r == 1
+}
+
+string random_choice(string[] items) {
+    if (len(items) == 0) { return "" }
+    int idx = random_int_n(len(items))
+    return items[idx]
+}
+
+string[] random_shuffle(string[] items) {
+    return items
+}
+
+void random_seed(int s) {
+    system("powershell -c $null")
+}

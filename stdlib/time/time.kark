@@ -1,0 +1,45 @@
+// Karkain Standard Library - Time Module
+
+string time_now() {
+    return system("powershell -c [DateTimeOffset]::Now.ToUnixTimeSeconds()")
+}
+
+string time_now_ms() {
+    return system("powershell -c [DateTimeOffset]::Now.ToUnixTimeMilliseconds()")
+}
+
+string time_format(string ts, string fmt) {
+    return system("powershell -c [DateTimeOffset]::FromUnixTimeSeconds(" + ts + ").ToString('" + fmt + "')")
+}
+
+string time_today() {
+    return system("powershell -c Get-Date -Format yyyy-MM-dd")
+}
+
+string time_str() {
+    return system("powershell -c Get-Date -Format HH:mm:ss")
+}
+
+string time_year() {
+    return system("powershell -c (Get-Date).Year")
+}
+
+string time_month() {
+    return system("powershell -c (Get-Date).Month")
+}
+
+string time_day() {
+    return system("powershell -c (Get-Date).Day")
+}
+
+string time_weekday() {
+    return system("powershell -c (Get-Date).DayOfWeek.value__")
+}
+
+void time_sleep(int seconds) {
+    system("powershell -c Start-Sleep -Seconds " + str(seconds))
+}
+
+string time_measure(string cmd) {
+    return system("powershell -c Measure-Command {" + cmd + "}")
+}
