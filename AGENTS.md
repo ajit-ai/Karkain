@@ -4736,3 +4736,17 @@ for a same-named parameter in another; a block-local literal also leaked its
 size past the block. The table is now keyed by function as well as name with
 block snapshot/restore, and `pkg/sema/phase13_bounds_scope_test.go` (`TestPhase13_`)
 pins both properties. Diagnostics-only: no emitted bytes change.
+
+Also completed: **v1.2.1 — `std.path` / `std.json` cross-engine gates** (library
+slice; verdict **COMPLETE for the covered surface**; record
+`docs/audit/V1.2.1-STDLIB-PATH-JSON-GATES.md`). Gate
+`pkg/cli/phase_v121_stdlib_test.go` (`TestPhaseV121_`, PASS 48.7 s) executes
+every documented function of both modules through the real Go and kcc pipelines
+and asserts raw stdout parity; dedicated CI step *Run v1.2.1 stdlib path/json
+gates*. The gate found two latent defects: kcc indexed past the start of a path
+component because the old loops relied on short-circuit evaluation, and
+`json_array_length` never entered the array depth. Both are fixed in
+`stdlib/path/path.kark` and `stdlib/json/json.kark`, mutation-verified, and the
+public surfaces are unchanged. Docs corrected: JSON function count 8 -> 6 in
+`index.rst` and `stable-api.rst`; per-module RST evidence notes added. No
+compiler source moved, so the whole-tree KIR pin remains 16017.

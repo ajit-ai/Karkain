@@ -8,6 +8,11 @@ std.json — JSON parsing and serialization
 ``std.json`` provides basic JSON field extraction and serialization using
 string operations. No external dependencies.
 
+The v1.2.1 gate ``TestPhaseV121_`` executes every documented function on both
+engines. ``json_array_length`` counts top-level elements of a flat array; a
+corrective change in that slice fixed its depth accounting, which previously
+reported 1 for a three-element array.
+
 Importing
 ---------
 
