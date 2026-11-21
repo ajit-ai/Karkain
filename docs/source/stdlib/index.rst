@@ -65,6 +65,12 @@ byte-identical on both engines (Phase 132 API Freeze):
    * - :doc:`std.json <json>`
      - JSON field extraction and serialization
      - 8
+   * - :doc:`std.core <core>`
+     - Core helpers (identity, clamp, min/max, range, sum, product)
+     - 20
+   * - :doc:`std.math <math>`
+     - Math utilities (abs, sqrt, pow, gcd, lcm, factorial)
+     - 15
    * - :doc:`std.filesystem <filesystem>`
      - File and directory operations
      - 14
@@ -75,13 +81,15 @@ byte-identical on both engines (Phase 132 API Freeze):
      - Configuration management
      - 5
 
-``stdlib/`` also contains ``std.core``, ``std.math``, ``std.system``,
-``std.gpu`` and ``std.async``, but these are **not importable**: they use
-non-canonical syntax (type annotations, ``import "libc"`` blocks, tuples,
-``Option``/``Result``) and have no runtime builtin backing. They sit behind
-the Phase 109 standard-library boundary. See
-:doc:`core <core>`, :doc:`math <math>` and
+``stdlib/`` also contains ``std.system``, ``std.gpu`` and ``std.async``,
+but these are **not importable**: they use non-canonical syntax (type
+annotations, ``import "libc"`` blocks, tuples, ``Option``/``Result``) and
+have no runtime builtin backing. They sit behind the Phase 109
+standard-library boundary. See
 :doc:`not-implemented <not-implemented>`.
+
+``std.core`` and ``std.math`` were promoted to importable in the v1.2.x
+line (increment 156): rewritten with canonical Karkain syntax.
 
 Modules that do not exist in the repository at all — ``std.memory``,
 ``std.filesystem``, ``std.process``, ``std.os``,
@@ -90,6 +98,13 @@ Modules that do not exist in the repository at all — ``std.memory``,
 
 The following modules were added in the v1.2.x line (increment 155):
 ``std.path``, ``std.env``, ``std.time``, ``std.random``, ``std.json``.
+
+The following modules were promoted in the v1.2.x line (increment 156):
+``std.core``, ``std.math``.
+
+``std.system`` remains **not importable**: its ``system()``-based implementation
+cannot capture command output (``system()`` returns an exit code, not stdout).
+Redesign needed.
 
 Invariants shared by every implemented module
 ---------------------------------------------
