@@ -4763,4 +4763,7 @@ and `TestPhase133_` PASS. A third frozen-gate correction replaced the stale
 NAT-CALL refusal `main_let_from_call`: STD-001 now permits an int-valued user
 call to initialise a main binding, so the row was replaced by a still-refused
 map-literal binding (`let c = {1: 2}`), measured with `error[K145]` and no
-image; `TestPhaseNATCall_` PASS.
+image; `TestPhaseNATCall_` PASS. A fourth CI correction fixed a malformed
+native feature-matrix row that put two comma-separated gate files in one
+field; the qualification gate reads that field as a single path, so the row now
+names one file and one pattern and `TestPhaseNATQual_` PASS.
