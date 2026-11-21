@@ -80,6 +80,9 @@ byte-identical on both engines (Phase 132 API Freeze):
    * - :doc:`std.config <config>`
      - Configuration management
      - 5
+   * - :doc:`std.process <process>`
+     - Process management and execution
+     - 10
 
 ``stdlib/`` also contains ``std.system``, ``std.gpu`` and ``std.async``,
 but these are **not importable**: they use non-canonical syntax (type
@@ -140,6 +143,7 @@ Invariants shared by every implemented module
    filesystem
    log
    config
+   process
    core
    math
    not-implemented

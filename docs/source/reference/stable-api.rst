@@ -143,6 +143,8 @@ Stable stdlib modules
      - Structured logging (6 functions, increment 155).
    * - ``std.config``
      - Configuration management (5 functions, increment 155).
+   * - ``std.process``
+     - Process management and execution (10 functions, increment 155).
    * - ``std.core``
      - Core helpers: identity, clamp, min/max, sign, range, sum, product (20 functions, increment 156).
    * - ``std.math``
