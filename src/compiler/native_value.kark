@@ -117,9 +117,10 @@ func natFrLocals()  { return 0 }
 func natFrBinTemp() { return 1 }
 func natFrStrTemp() { return 2 }
 func natFrMapStage() { return 3 }
-func natFrExtras() { return 4 }
-func natFrNext()   { return 5 }
-func natFrFrame()  { return 6 }
+func natFrCodecTemp() { return 4 }
+func natFrExtras() { return 5 }
+func natFrNext()   { return 6 }
+func natFrFrame()  { return 7 }
 
 // natFrameLayout reproduces the oracle's layout() ordering and sizing for one
 // function. Every parameter is a fact the oracle computed, so this function
@@ -145,7 +146,7 @@ func natFrFrame()  { return 6 }
 // would break the byte-identity of every image that does not use strings or
 // maps. The conditionals are therefore part of the contract, not an
 // optimisation, and they are reproduced exactly.
-func natFrameLayout(localBytes, recArgBytes, usesStr, usesMap, maxExtra, isWindows) {
+func natFrameLayout(localBytes, recArgBytes, usesStr, usesMap, usesCodec, maxExtra, isWindows) {
     let next = localBytes + recArgBytes
     next = next + natBinTempBytes()
     int strTemp = 0
@@ -157,6 +158,11 @@ func natFrameLayout(localBytes, recArgBytes, usesStr, usesMap, maxExtra, isWindo
     if (usesMap == 1) {
         mapStage = next
         next = next + natMapStageBytes()
+    }
+    int codecTemp = 0
+    if (usesCodec == 1) {
+        codecTemp = next
+        next = next + 8 * 5
     }
     int extrasBase = next
     next = next + maxExtra * 8
@@ -181,6 +187,7 @@ func natFrameLayout(localBytes, recArgBytes, usesStr, usesMap, maxExtra, isWindo
     f = appendArray(f, localBytes + recArgBytes)
     f = appendArray(f, strTemp)
     f = appendArray(f, mapStage)
+    f = appendArray(f, codecTemp)
     f = appendArray(f, extrasBase)
     f = appendArray(f, next)
     f = appendArray(f, frame)
@@ -253,7 +260,7 @@ func natValueMain(nLocals) {
     // those two regions are NOT reserved -- the oracle's own conditionals),
     // maxExtra 0 (no call site), isWindows 0 (the reference case is Linux,
     // which never rounds).
-    int[] f = natFrameLayout(localBytes, 0, 0, 0, 0, 0)
+    int[] f = natFrameLayout(localBytes, 0, 0, 0, 0, 0, 0)
     Value frame = f[natFrFrame()]
 
     Value s = natNewEmitter(0)
@@ -279,12 +286,12 @@ func natValueMain(nLocals) {
 func natValueLayoutCorpus(which) {
     if (which == 0) {
         // one int local
-        int[] f = natFrameLayout(8, 0, 0, 0, 0, 0)
+        int[] f = natFrameLayout(8, 0, 0, 0, 0, 0, 0)
         return "int1 units=" + natKindUnits(natKindInt()) + " frame=" + f[natFrFrame()] + " slot0=" + natLocalOff(0, natKindInt())
     }
     if (which == 1) {
         // two int locals
-        int[] f = natFrameLayout(16, 0, 0, 0, 0, 0)
+        int[] f = natFrameLayout(16, 0, 0, 0, 0, 0, 0)
         return "int2 units=" + natKindUnits(natKindInt()) + " frame=" + f[natFrFrame()] + " slot0=" + natLocalOff(0, natKindInt()) + " slot1=" + natLocalOff(1, natKindInt())
     }
     if (which == 2) {
@@ -295,17 +302,17 @@ func natValueLayoutCorpus(which) {
         // the conditional regions: reserved for a string program, skipped for
         // an int program. The int case must report 0, because reserving
         // them unconditionally would grow every int image.
-        int[] fi = natFrameLayout(8, 0, 0, 0, 0, 0)
-        int[] fs = natFrameLayout(8, 0, 1, 0, 0, 0)
-        int[] fm = natFrameLayout(8, 0, 0, 1, 0, 0)
+        int[] fi = natFrameLayout(8, 0, 0, 0, 0, 0, 0)
+        int[] fs = natFrameLayout(8, 0, 1, 0, 0, 0, 0)
+        int[] fm = natFrameLayout(8, 0, 0, 1, 0, 0, 0)
         return "cond int_strTemp=" + fi[natFrStrTemp()] + " int_mapStage=" + fi[natFrMapStage()] + " str_strTemp=" + fs[natFrStrTemp()] + " str_frame=" + fs[natFrFrame()] + " map_mapStage=" + fm[natFrMapStage()] + " map_frame=" + fm[natFrFrame()]
     }
     if (which == 4) {
         // Windows rounds the frame to 16; Linux does not. With maxExtra 2
         // (16 bytes) the unsized total is 8+512+16 = 536, which is 8 mod 16,
         // so Windows adds one unit and Linux does not.
-        int[] fw = natFrameLayout(8, 0, 0, 0, 2, 1)
-        int[] fl = natFrameLayout(8, 0, 0, 0, 2, 0)
+        int[] fw = natFrameLayout(8, 0, 0, 0, 0, 2, 1)
+        int[] fl = natFrameLayout(8, 0, 0, 0, 0, 2, 0)
         return "round win_frame=" + fw[natFrFrame()] + " linux_frame=" + fl[natFrFrame()]
     }
     return ""
@@ -711,7 +718,7 @@ if (which == 5) { return "error[K145]: unsupported return expression *parser.Pro
 // register allocator claimed; no reference program here qualifies, so it is
 // absent from BOTH sides -- a boundary, not an omission.
 func natIntBody(shape, nLocals) {
-    int[] f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0)
+    int[] f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0, 0)
     Value frame = f[natFrFrame()]
     Value bt = f[natFrBinTemp()]
 
@@ -880,7 +887,7 @@ func natIntCond(s, op, falseLabel, bt) {
 // even though the jump to ifelse$1 appears before the jump to ifend$2. That
 // counter order is reproduced here, not tidied.
 func natIntIf(op) {
-    int[] f = natFrameLayout(8, 0, 0, 0, 0, 0)
+    int[] f = natFrameLayout(8, 0, 0, 0, 0, 0, 0)
     Value frame = f[natFrFrame()]
     Value bt = f[natFrBinTemp()]
     Value s = natNewEmitter(0)
@@ -1074,7 +1081,7 @@ func natLoopEpilogue(s, frame, retSlot) {
 // locals: locals, binTemp, no strTemp, no mapStage, no extras, Linux (no
 // 16-byte rounding), plus the fixed arg spill.
 func natLoopFrame(nLocals) {
-    int[] f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0)
+    int[] f = natFrameLayout(8 * nLocals * natKindUnits(natKindInt()), 0, 0, 0, 0, 0, 0)
     return f
 }
 
@@ -4468,6 +4475,17 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
     }
     if (vt == NODE_CALL()) {
         if (callFunc(v) == "push") {
+        if (callFunc(v) == "trim") {
+            if (len(callArgs(v)) != 1) {
+                return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(v))) + ")", natNativeDeclLine(n))
+            }
+            if (natNativeStrKind(callArgs(v)[0], [], plan) != 1) {
+                return natNativeRefuse("trim() requires a string argument", natNativeDeclLine(n))
+            }
+            int bad = natNativeScanValue(callArgs(v)[0], [], plan, natNativeDeclLine(n), tbl, 1, fns)
+            if (bad != "") { return bad }
+            return ""
+        }
             int args = callArgs(v)
             if (len(args) != 2) {
                 return natNativeRefuse("push() takes exactly 2 arguments (got " + str(len(args)) + ")", natNativeDeclLine(n))
@@ -6059,6 +6077,17 @@ if (t == NODE_BINARY()) {
   if (t == NODE_CALL()) {
       if (callFunc(expr) == "len") { return natNativeScanLen(expr, stmts, plan, line) }
       return natNativeScanCall(expr, plan, line, fns)
+       if (callFunc(expr) == "trim") {
+           if (len(callArgs(expr)) != 1) {
+               return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(expr))) + ")", line)
+           }
+           if (natNativeStrKind(callArgs(expr)[0], stmts, plan) != 1) {
+               return natNativeRefuse("trim() requires a string argument", line)
+           }
+           int bad = natNativeScanValue(callArgs(expr)[0], stmts, plan, line, tbl, 1, fns)
+           if (bad != "") { return bad }
+           return ""
+       }
   }
   // Step 9h-1: a record field read, `rec.field`. NARROW by construction -- only an
   // int or float field on a local bound from a record literal is accepted. Anything else
@@ -6112,6 +6141,11 @@ func natNativeScanReturn(expr, stmts, plan, line, tbl, fns) {
         }
     }
     if (nodeType(expr) == NODE_STRING_LIT()) {
+    if (nodeType(expr) == NODE_CALL()) {
+        if (callFunc(expr) == "trim") {
+            return natNativeRefuse("`return` of a string is not supported; a return value becomes the process exit status and must be an int", line)
+        }
+    }
         return natNativeRefuse("`return` of a string is not supported; a return value " +
             "becomes the process exit status and must be an int", line)
     }
@@ -6368,8 +6402,9 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
     // main's would stage operands over the callee's own locals.
     Value binTemp = lay[1]
     int strTemp = lay[2]
-    Value extrasBase = lay[4]
-    Value frame = lay[6]
+    Value codecTemp = lay[4]
+    Value extrasBase = lay[5]
+    Value frame = lay[7]
     // NAT-IDX: the runtime-error REPORTER's context, bundled so it can travel
     // through the shared expression walker as ONE argument.
     //
@@ -6430,11 +6465,15 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
                 site = site + 1
             } else if (nodeType(v) == NODE_CALL()) {
                 // Phase 2.1 (v1.2.x): string call in a decl position.
-                s = natEmitStrCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp)
-                s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
-                s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
-                site = site + 1
-            } else if (nodeType(v) == NODE_ARRAY_LIT()) {
+                 // Phase 2.1 (v1.2.x): string call in a decl position.
+                 if (callFunc(v) == "trim") {
+                     s = natEmitTrimCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp, codecTemp)
+                 } else {
+                     s = natEmitStrCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp)
+                 }
+                 s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
+                 s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
+                 site = site + 1
                 s = natArrayValue(s, natNativeSlotOff(plan, idx), arrayLitElems(v))
             } else {
 if (nodeType(v) == NODE_STRUCT_LIT()) {
@@ -6623,6 +6662,11 @@ s = natCallPrintInt(s)
 }
 } else {
 if (nodeType(pv) == NODE_CALL()) {
+if (callFunc(pv) == "trim") {
+s = natEmitTrimCall(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp, codecTemp)
+s = natCallPrintStr(s)
+site = site + 1
+} else {
 // `len` lowers in place; a call to a USER function goes through the
 // call ABI. They share the print_int tail and nothing else.
 if (callFunc(pv) == "len") {
@@ -6634,6 +6678,7 @@ identName(callArgs(pv)[0]))
                         }
                             s = natMovRegReg(s, natRegRDI(), natRegRAX())
                             s = natCallPrintInt(s)
+                        }
                         } else {
                             int ordp = natNativeSlotIndex(plan, identName(pv))
                             if (natNativeSlotKind(plan, ordp) == natKindString()) {
@@ -6949,7 +6994,7 @@ func natEmitAssignLocal(s, plan, lhs, rhs, fns, binTemp, extrasBase, frame, rctx
 // binds or prints, in the collector's order (NAT-RODATA). It is not the whole rodata
 // offset array: the linker owns the section's interning order, and the emitter only
 // ever wants "the offset of the k-th literal".
-func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg, usesStrProg) {
+func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg, usesStrProg, usesCodecProg) {
     // NAT-STR-STAGE: the string staging area is reserved when the PROGRAM
     // performs a string operation, not when this function does. The oracle's
     // `b.usesConcat || b.usesStrEq || b.usesStrSlice || b.usesPush ||
@@ -6962,8 +7007,8 @@ func natNativeEmitFunc(s, name, params, body, plan, hasReturn, fns, roffs, tbl, 
     // and its layout reserves the slot in every function, so a per-function
     // flag would make a callee's frame 8 bytes short whenever main indexed
     // something.
-    int[] lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, usesMapProg, natNativeMaxExtras(body), isWin)
-    Value frame = lay[6]
+    int[] lay = natFrameLayout(natNativePlanBytes(plan), 0, usesStr, usesMapProg, usesCodecProg, natNativeMaxExtras(body), isWin)
+    Value frame = lay[7]
     int label = natNativeFuncLabel(name)
     int retLabel = label + "$ret"
     s = natMark(s, label)
@@ -7286,6 +7331,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // computed once, over every function, and threaded into every function's
     // layout -- exactly as the map flag is.
     int usesStrProg = natNativeProgramUsesStr(fns, tbl)
+    int usesCodecProg = natNativeProgramUsesCodec(fns, tbl)
     // helpers first: print_int, then print_str when the program can produce a
     // string, then the arena allocator when it allocates.
     s = natPrintIntBody(s, isWin, 0, 1)
@@ -7329,6 +7375,10 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     if (usesRtErr == 1) {
         s = natRuntimeErrorHelper(s, rtErr, isWin)
     }
+    // v1.2.4: trim helper.
+    if (usesCodecProg == 1) {
+        s = natTrimHelper(s, isWin)
+    }
     // Then the user functions, in SOURCE ORDER, each in the oracle's own shape: a
     // label, a frame prologue, parameter homing, the body, the `$ret` label, the
     // epilogue.
@@ -7363,7 +7413,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         }
         s = natNativeEmitFunc(s, fname, fparams, fbody, fplan, fhasReturn, fns,
             roffs, tbl, rtErr, rtKindSlot, srcOff, srcLen, isWin, usesMapProg,
-            usesStrProg)
+            usesStrProg, usesCodecProg)
         fi = fi + 1
     }
     // and `_start` LAST, calling into `karkain_main`.
@@ -8680,6 +8730,155 @@ func natEmitStrCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx, st
     if (isWin == 1) { s = natSubRegImm32(s, natRegRSP(), 8) }
     s = natCall32(s)
     Value rr = natRel32(s, natNativeFuncLabel(fname))
+    s = rr[0]
+    if (isWin == 1) { s = natAddRegImm32(s, natRegRSP(), 8) }
+    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+    s = natMovRegReg(s, natRegRSI(), natRegRDX())
+    return s
+}
+
+func natTrimHelper(s, isWin) {
+    int frameBytes = 64
+    int offPtr = 0
+    int offEnd = 8
+    int offStart = 16
+    int offArgLen = 24
+    s = natMark(s, "karkain_trim")
+    s = natSubRegImm32(s, natRegRSP(), frameBytes)
+    s = natStoreStack(s, natRegRDI(), offPtr)
+    s = natStoreStack(s, natRegRSI(), offArgLen)
+    s = natMovRegReg(s, natRegRAX(), natRegRDI())
+    s = natAddRegReg(s, natRegRAX(), natRegRSI())
+    s = natDecReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offEnd)
+    s = natMovRegReg(s, natRegRAX(), natRegRDI())
+    s = natStoreStack(s, natRegRAX(), offStart)
+    s = natMark(s, "trim$lead")
+    s = natLoadStack(s, natRegRCX(), offStart)
+    s = natLoadStack(s, natRegRAX(), offEnd)
+    s = natCmpRegReg(s, natRegRCX(), natRegRAX())
+    s = natJg(s, "trim$leaddone")
+    s = natMovzxRegMem8(s, natRegRAX(), natRegRCX(), 0)
+    s = natCmpRegImm32(s, natRegRAX(), 32)
+    s = natJz(s, "trim$leadadv")
+    s = natCmpRegImm32(s, natRegRAX(), 9)
+    s = natJz(s, "trim$leadadv")
+    s = natCmpRegImm32(s, natRegRAX(), 10)
+    s = natJz(s, "trim$leadadv")
+    s = natCmpRegImm32(s, natRegRAX(), 13)
+    s = natJz(s, "trim$leadadv")
+    s = natJmp(s, "trim$leaddone")
+    s = natMark(s, "trim$leadadv")
+    s = natIncReg(s, natRegRCX())
+    s = natStoreStack(s, natRegRCX(), offStart)
+    s = natJmp(s, "trim$lead")
+    s = natMark(s, "trim$leaddone")
+    s = natMark(s, "trim$tail")
+    s = natLoadStack(s, natRegRCX(), offEnd)
+    s = natLoadStack(s, natRegRAX(), offStart)
+    s = natCmpRegReg(s, natRegRCX(), natRegRAX())
+    s = natJl(s, "trim$taildone")
+    s = natMovzxRegMem8(s, natRegRAX(), natRegRCX(), 0)
+    s = natCmpRegImm32(s, natRegRAX(), 32)
+    s = natJz(s, "trim$tailadv")
+    s = natCmpRegImm32(s, natRegRAX(), 9)
+    s = natJz(s, "trim$tailadv")
+    s = natCmpRegImm32(s, natRegRAX(), 10)
+    s = natJz(s, "trim$tailadv")
+    s = natCmpRegImm32(s, natRegRAX(), 13)
+    s = natJz(s, "trim$tailadv")
+    s = natJmp(s, "trim$taildone")
+    s = natMark(s, "trim$tailadv")
+    s = natDecReg(s, natRegRCX())
+    s = natStoreStack(s, natRegRCX(), offEnd)
+    s = natJmp(s, "trim$tail")
+    s = natMark(s, "trim$taildone")
+    s = natLoadStack(s, natRegRCX(), offEnd)
+    s = natLoadStack(s, natRegRAX(), offStart)
+    s = natCmpRegReg(s, natRegRCX(), natRegRAX())
+    s = natJl(s, "trim$empty")
+    s = natSubRegReg(s, natRegRCX(), natRegRAX())
+    s = natIncReg(s, natRegRCX())
+    s = natJmp(s, "trim$final")
+    s = natMark(s, "trim$empty")
+    s = natXorRegReg(s, natRegRCX())
+    s = natMark(s, "trim$final")
+    s = natMovRegReg(s, natRegRDX(), natRegRCX())
+    s = natLoadStack(s, natRegRAX(), offStart)
+    s = natAddRegImm32(s, natRegRSP(), frameBytes)
+    return natRet(s)
+}
+func natNativeProgramUsesCodec(fns, tbl) {
+    int fi = 0
+    while (fi < natNativeFuncCount(fns)) {
+        int fbody = natNativeFuncBodyAt(fns, fi)
+        if (natNativeCodecSites(fbody) > 0) { return 1 }
+        fi = fi + 1
+    }
+    return 0
+}
+func natNativeCodecSites(stmts) {
+    int n = 0
+    int i = 0
+    while (i < len(stmts)) {
+        Value st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) {
+            n = n + natNativeCodecIn(printVal(st))
+        }
+        if (natNativeIsDecl(st)) {
+            n = n + natNativeCodecIn(natNativeDeclValue(st))
+        }
+        if (nodeType(st) == NODE_RETURN()) {
+            n = n + natNativeCodecIn(retVal(st))
+        }
+        if (nodeType(st) == NODE_EXPR_STMT()) {
+            n = n + natNativeCodecIn(exprStmtExpr(st))
+        }
+        i = i + 1
+    }
+    return n
+}
+func natNativeCodecIn(e) {
+    if (nodeType(e) == NODE_CALL()) {
+        if (callFunc(e) == "trim") { return 1 }
+        int n = 0
+        int i = 0
+        while (i < len(callArgs(e))) {
+            n = n + natNativeCodecIn(callArgs(e)[i])
+            i = i + 1
+        }
+        return n
+    }
+    if (nodeType(e) == NODE_BINARY()) {
+        return natNativeCodecIn(binaryLeft(e)) + natNativeCodecIn(binaryRight(e))
+    }
+    if (nodeType(e) == NODE_UNARY()) { return natNativeCodecIn(unaryOperand(e)) }
+    if (nodeType(e) == NODE_INDEX()) { return natNativeCodecIn(indexLeft(e)) + natNativeCodecIn(indexRight(e)) }
+    return 0
+}
+
+func natEmitTrimCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx, stmts, roffs, tbl, site, strTemp, codecTemp) {
+    int args = callArgs(e)
+    Value ictx = [fns, binTemp, extrasBase, frame, rctx]
+    s = natEmitStrValue(s, args[0], stmts, plan, roffs, tbl, ictx)
+    s = natStoreStack(s, natRegRDI(), codecTemp)
+    s = natStoreStack(s, natRegRSI(), codecTemp + 8)
+    s = natRodataRefOff(s, natRegRCX(), rctx[1])
+    s = natStoreStack(s, natRegRCX(), codecTemp + 16)
+    s = natMovRegImm32(s, natRegRCX(), rctx[2])
+    s = natStoreStack(s, natRegRCX(), codecTemp + 24)
+    s = natMovRegImm32(s, natRegRCX(), callLine(e))
+    s = natStoreStack(s, natRegRCX(), codecTemp + 32)
+    s = natLoadStack(s, natRegRDI(), codecTemp)
+    s = natLoadStack(s, natRegRSI(), codecTemp + 8)
+    s = natLoadStack(s, natRegRDX(), codecTemp + 16)
+    s = natLoadStack(s, natRegRCX(), codecTemp + 24)
+    s = natLoadStack(s, natRegR8(), codecTemp + 32)
+    int isWin = 0
+    if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
+    if (isWin == 1) { s = natSubRegImm32(s, natRegRSP(), 8) }
+    s = natCall32(s)
+    Value rr = natRel32(s, "karkain_trim")
     s = rr[0]
     if (isWin == 1) { s = natAddRegImm32(s, natRegRSP(), 8) }
     s = natMovRegReg(s, natRegRDI(), natRegRAX())
