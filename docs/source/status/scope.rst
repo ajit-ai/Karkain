@@ -6,7 +6,7 @@ This page is the authoritative status matrix for the Karkain release
 readiness. It classifies every surface of Karkain into exactly one of the
 buckets below so an external contributor can tell at a glance what may be
 relied on, what may change, what does not exist yet, and what blocks a
-release. Current status reflects the **1.1.0** line (Phases 128–149 complete
+release. Current status reflects the **1.2.0** line (Phases 128–149 complete
 in-tree).
 
 .. contents:: Sections
