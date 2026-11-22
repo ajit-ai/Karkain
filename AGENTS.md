@@ -4794,3 +4794,26 @@ behavior: string indexing is no longer a 9F refusal, and D5 now asserts the Go
 compile-time rejection of constant indices separately from kcc's runtime
 reporter. KIR pin re-measured 16017 -> 16197 -> **16204** (the second +7 from
 independent-review fixes; measured, never predicted) in both pin assertions.
+
+Also completed: **v1.2.4 — CI hygiene: the exit-143 class is a runner shutdown**
+(corrective CI change, not a new increment and not a new gate; record
+`docs/audit/V1.2.4-CI-RUNNER-SHUTDOWN.md`). PR #14's three red jobs
+(`kcc whole-tree DIAGNOSTIC`, `B2 seed closure`, `Increment 154
+self-bootstrap`) were GitHub killing the HOSTED RUNNER, not the compiler: job
+`136905942874` ends with `##[error]Process completed with exit code 143.`
+followed by `##[error]The runner has received a shutdown signal.`, and that
+job's own first step had reported `MemAvailable: 15.2 GB` of 16.3 GB, so it was
+neither the Phase-127 guard nor gcc; `ci.yml` carries no `concurrency:` block,
+so no newer run cancelled it either. The one-off `kcc-whole-tree-diag` job is
+REMOVED — its stated question ("is the kill gcc or the self-check?") is
+answered by a sibling's log (neither), and it never reached its `Interpret` or
+`Upload observations` steps in any run, so it had never collected a single
+observation. `B2 seed closure` and `Increment 154 self-bootstrap` now run on a
+weekly `schedule` (`0 4 * * 0`) and `workflow_dispatch` only, so a reclaimed
+runner can no longer turn a PR board red. **Nothing is weakened:** both
+verification steps still treat a missing log, a `--- SKIP:`, any `FAIL`, a
+missing `stage2 == stage3 bitwise identical` witness, or a zero-byte witness
+as hard failures, and conditions 5-6 plus B2 stay UNPROVEN and carried to
+v1.3.0 as UNMET. Verified: `npx js-yaml` parses the workflow, job count
+11 -> 10, `on:` gains `schedule`, both guards read as expected; diff
+`26 insertions(+), 120 deletions(-)`.
