@@ -991,11 +991,13 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// never predicted.
 	//
 	// RE-PINNED FOR THE NATIVE FOR-IN SLICE: 15780 -> 16017 (+237), from the
-	// for-in driver arms and the two memory encoder primitives. Measured with
-	// `karkain kir --verify src/compiler/kir.kark` (text=16017 verify=16017),
+	// for-in driver arms and the two memory encoder primitives.
+	// RE-PINNED FOR V1.2.3 NATIVE STRING INDEX: 16017 -> 16197 (+180), then
+	// 16197 -> 16204 (+7) after the independent-review fixes. Measured with
+	// `karkain kir --verify src/compiler/kir.kark` (text=16204 verify=16204),
 	// never predicted.
-	if text != 16017 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 16017; see the comment above for the measured chain. output follows: %s", text, out)
+	if text != 16204 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 16204; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

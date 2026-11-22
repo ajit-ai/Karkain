@@ -568,8 +568,23 @@ func natSetTargetOS(s, os) {
 //
 // natNewEmitter is the ONLY constructor, so every growth is purely additive: no
 // existing emission changes and no previously-shipped byte moves.
+//
+// v1.2.3 grows the state to NINETEEN slots: slot 18 is the rodata OFFSET of the
+// "string index out of range" diagnostic kind string. It lives in the emitter
+// state for the same reason the target OS does: the string-index emitter needs
+// it deep inside natEmitStrValue, and threading it through every frozen
+// natNativeLower recursion site would touch far more code than this additive
+// slot. Zero means "no string index in this program", so all existing emitters
+// keep their current behavior.
 func natNewEmitter(unused) {
-    return [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0, []]
+    return [[], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], 0, [], 0]
+}
+
+// natStStrIdxKind / natSetStrIdxKind are the v1.2.3 diagnostic-kind slot.
+func natStStrIdxKind(s) { return s[18] }
+func natSetStrIdxKind(s, off) {
+    s[18] = off
+    return s
 }
 
 // natStUid is the fresh-label counter (emitter slot 16).

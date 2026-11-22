@@ -111,9 +111,12 @@ var nat9fRefusals = []struct{ name, src, want string }{
 		want: "`s` is string; only an int may appear",
 	},
 	{
-		name: "string_index_not_lowered",
-		src:  "func main() {\n    let s = \"hi\"\n    print(s[0])\n}\n",
-		want: "error[K145]",
+		// v1.2.3 now lowers `s[i]` to a one-byte string view, so this row was
+		// replaced rather than deleted: a byte index in an INTEGER position is
+		// still refused by name.
+		name: "string_index_in_int_expression",
+		src:  "func main() {\n    let s = \"hi\"\n    print(s[0] + 1)\n}\n",
+		want: "`+` needs two strings on the native target; the right operand is not one",
 	},
 	{
 		name: "string_return_not_lowered",
