@@ -154,6 +154,9 @@ jobs:
       - name: Run v1.2.1 stdlib path/json gates
         run: go test ./pkg/cli/ -run 'TestPhaseV121_' -count=1 -timeout 30m
 
+      - name: Run v1.2.3 native string index gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
+
       - name: Run Phase 133 first-class-fn gate
         run: go test ./pkg/cli/ -run 'TestPhase133|TestPhase130' -count=1
 

@@ -68,10 +68,11 @@ func TestPhaseD5_ArrayBoundsReportThePhase100Diagnostic(t *testing.T) {
 	// gate found that the hard way: a first draft asserted "12345" and passed
 	// an image that printed its digits and silently lost its newline.
 	cases := []struct {
-		name       string
-		src        string
-		wantStdout string
-		wantExit   int
+		name        string
+		src         string
+		wantStdout  string
+		wantExit    int
+		wantCompile string
 	}{
 		{
 			name:       "valid_index_0",
@@ -92,16 +93,28 @@ func TestPhaseD5_ArrayBoundsReportThePhase100Diagnostic(t *testing.T) {
 			wantExit:   0,
 		},
 		{
-			// The D5 case: before the reporter existed this TRAPPED with Int3,
-			// which on Windows is 0xC0000005 -- a negative exit code, not 1.
-			name:       "index_past_end",
-			src:        "func main() {\n    let a = [3, 5, 7]\n    print(a[9])\n}\n",
-			wantStdout: "",
-			wantExit:   1,
+			// Phase 1.3 (v1.2.x) rejects a CONSTANT out-of-range index before
+			// codegen, so the old D5 runtime fixture is now a compile-time
+			// rejection. This row pins that outcome and the next one keeps the
+			// runtime reporter covered with a variable index.
+			name:        "index_past_end_constant",
+			src:         "func main() {\n    let a = [3, 5, 7]\n    print(a[9])\n}\n",
+			wantStdout:  "",
+			wantExit:    1,
+			wantCompile: "array index 9 out of range (length 3)",
 		},
 		{
-			name:       "index_far_past_end",
-			src:        "func main() {\n    let a = [3, 5, 7]\n    print(a[1000000])\n}\n",
+			name:        "index_far_past_end_constant",
+			src:         "func main() {\n    let a = [3, 5, 7]\n    print(a[1000000])\n}\n",
+			wantStdout:  "",
+			wantExit:    1,
+			wantCompile: "array index 1000000 out of range (length 3)",
+		},
+		{
+			// The D5 runtime case: a VARIABLE index is not provably out of range
+			// at compile time, so the bounds check and reporter must still run.
+			name:       "index_past_end_runtime",
+			src:        "func main() {\n    let a = [3, 5, 7]\n    let i = 9\n    print(a[i])\n}\n",
 			wantStdout: "",
 			wantExit:   1,
 		},
@@ -110,6 +123,24 @@ func TestPhaseD5_ArrayBoundsReportThePhase100Diagnostic(t *testing.T) {
 	for _, c := range cases {
 		c := c
 		t.Run(c.name, func(t *testing.T) {
+			if c.wantCompile != "" {
+				// Measured Phase 1.3 behavior: the C/Go engine's resolver rejects
+				// a CONSTANT out-of-range index before codegen, while the kcc
+				// native driver still emits the D5 bounds check and fails at
+				// runtime. Both are safe; they are not byte-identical. Assert
+				// the two contracts separately instead of forcing a false equality.
+				goRes := nativeBuildWithEngine(t, karkain, c.src, NativeWindowsTarget, "go", c.name+"-go.exe")
+				if goRes.ExitCode == 0 || !strings.Contains(goRes.Output, c.wantCompile) || goRes.WroteImage {
+					t.Errorf("Go engine did not reject a constant index at compile time:\n%s", goRes.Output)
+				}
+				kccExe := phase151D5BuildWindows(t, karkain, c.src, "kcc", c.name+"-kcc.exe")
+				gotOut, gotExit := phase151D5Run(t, kccExe)
+				if gotExit != c.wantExit || gotOut != c.wantStdout {
+					t.Errorf("kcc runtime result = %q exit %d, want %q exit %d",
+						gotOut, gotExit, c.wantStdout, c.wantExit)
+				}
+				return
+			}
 			// Both engines are built from the SAME source and run. The
 			// differential is the point: asserting kcc's exit code against a
 			// literal would also pass if the Go backend changed, and then the
