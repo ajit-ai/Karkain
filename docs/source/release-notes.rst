@@ -95,7 +95,7 @@ v1.0.0 — Stable Build (historical)
    :header-rows: 0
 
    * - Status
-     - Karkain 1.1.0 (Stable) — the project's public status (see
+     - Karkain 1.0.0 (Stable) — the public status at this historical release (see
        :doc:`/status/compatibility` for the guarantees attached to it)
    * - Language core
      - Stable core defined and regression-gated on both engines: variables,
@@ -197,3 +197,11 @@ Previous highlighted milestones
 
    :doc:`/development/roadmap` — forward-looking plan.
    :doc:`/status/beta` — what Beta 1 promises and the honest limitation list.
+
+.. seealso::
+
+   :doc:`/releases/v1.2.0/index` - v1.2.0 release documentation hub.
+   :doc:`/releases/v1.2.0/V1.1-TO-V1.2-CHANGELOG` - what changed from v1.1.0.
+   :doc:`/releases/v1.2.0/UPGRADE-FROM-V1.1.0` - practical upgrade guide.
+   :doc:`/releases/v1.2.0/V1.2.0-ARCHITECTURE-CHANGES` - architecture evolution.
+   :doc:`/releases/v1.2.0/V1.2.0-VERIFICATION-MATRIX` - evidence-based feature matrix.

@@ -5,23 +5,27 @@ Karkain — Official Documentation
 Karkain is a **statically typed systems programming language** for
 heterogeneous computing — CPU, GPU, NPU and quantum — with a self-hosted
 compiler written in the language itself. It compiles to C23 via GCC/Clang
-and ships a real CLI: build, run, test, format, debug, profile, package and
-cross-compile.
+and, for its C-free native targets, emits machine code directly. It ships a
+real CLI: build, run, test, format, debug, profile, package and cross-compile.
 
 .. note::
 
-   Status: **Karkain 1.1.0 (Stable)**. The implemented language core, standard
-   library and toolchain are functional and regression-tested on two engines
-   (the Go front end and the self-hosted ``kcc`` engine), with a documented
-   stable core and broad parity for the claimed surface. Large planned
-   surfaces (GPU/NPU/quantum kernels, an advanced package registry) are
-   **not yet implemented**. Nothing on this
-   site describes hypothetical features as available. Every advanced
-   capability states its real status.
+   Status: **Karkain 1.2.0 (Stable) — Native Independence**. The implemented
+   language core, standard library and toolchain are functional and
+   regression-tested on two engines (the Go front end and the self-hosted
+   ``kcc`` engine). The **self-hosted compiler** owns the native value model,
+   the machine-code encoder and the ELF/PE/Mach-O container writers, so
+   ``karkain build --target native-x86_64-<os>`` produces an image with no
+   ``gcc`` and no ``go`` on ``PATH``. Large planned surfaces (GPU/NPU/quantum
+   kernel language surface, a public package registry) remain **not yet
+   implemented**. Mach-O images are structurally validated but have not been
+   executed, and the three-stage self-bootstrap closure is carried to a later
+   version. Nothing on this site describes hypothetical features as available;
+   every advanced capability states its real status.
 
-   Public status: **Karkain 1.1.0 (Stable)** (``karkain --version`` →
-   ``Karkain Compiler v1.1.0 (... Stable Build)``). See
-   :doc:`release-notes` and :doc:`status/beta`.
+   Public status: **Karkain 1.2.0 (Stable)** (``karkain --version`` →
+   ``Karkain Compiler v1.2.0 (... Stable Build)``). See
+   :doc:`release-notes` and :doc:`status/scope`.
 
    Feedback: open an issue at
    https://github.com/ajit-ai/Karkain/issues.
@@ -40,10 +44,13 @@ Quick tour
   :doc:`control flow </language/control-flow>`,
   :doc:`structs </language/structs>`, :doc:`modules </language/modules>`,
   and the :doc:`memory model </language/memory-model>`.
-* **Standard library** — every implemented ``std.*`` module, currently
+* **Standard library** — the frozen, importable ``std.*`` modules:
   :doc:`string </stdlib/strings>`, :doc:`collections </stdlib/collections>`,
   :doc:`io </stdlib/io>`, :doc:`encoding </stdlib/encoding>`,
-  :doc:`crypto </stdlib/crypto>` and :doc:`testing </stdlib/testing>`.
+  :doc:`crypto </stdlib/crypto>`, :doc:`testing </stdlib/testing>`,
+  :doc:`numerics </stdlib/numerics>`, :doc:`net </stdlib/net>`,
+  :doc:`http </stdlib/http>` and :doc:`db </stdlib/db>`, plus
+  ``std.generics``. See :doc:`stdlib/index` for the full, current list.
 * **Tools** — the :doc:`CLI </tools/cli>`, :doc:`build </tools/build>`,
   :doc:`run </tools/run>`, :doc:`test </tools/test>`,
   :doc:`debug </tools/debug>`, :doc:`profile </tools/profile>`,
@@ -121,6 +128,13 @@ The documentation is organized in three layers.
    reference/index
    release-notes
 
+.. toctree::
+   :maxdepth: 1
+   :titlesonly:
+   :caption: Releases
+
+   releases/index
+
 ----------------
 
 How to read this documentation
@@ -135,9 +149,10 @@ language: syntax, variables, constants, types, functions, control flow,
 structs, modules, collections, errors and the memory model.
 
 :doc:`stdlib/index` documents the implemented standard-library modules. A
-module is only listed when it is importable and tested — ``std.string``,
-``std.collections``, ``std.io``, ``std.encoding``, ``std.crypto`` and
-``std.testing`` today.
+module is only listed when it is importable and tested — the frozen v1.2.0
+surface includes ``std.string``, ``std.collections``, ``std.io``,
+``std.encoding``, ``std.crypto``, ``std.testing``, ``std.numerics``,
+``std.net``, ``std.http`` and ``std.db``.
 
 :doc:`tools/index` covers the real CLI — every command, option, exit code
 and example.
@@ -167,7 +182,8 @@ Project status
    * - Language core (variables, functions, control flow, structs, modules)
      - :implemented:`Implemented` — tested on both engines
    * - Standard library
-     - :implemented:`Implemented` — 6 importable ``std.*`` modules
+     - :implemented:`Implemented` — 10 frozen ``std.*`` modules plus
+        ``std.generics``
    * - CLI (build, run, test, fmt, debug, prof, target, pkg)
      - :implemented:`Implemented`
    * - Cross-compilation
@@ -175,7 +191,9 @@ Project status
    * - Debugger / profiler
      - :implemented:`Implemented` — Go engine; kcc/wasm deferred
    * - Self-hosted compiler (``kcc``)
-     - :implemented:`Implemented` — byte-identical bootstrap
+     - :implemented:`Implemented` — owns the native value model, encoder and
+        container writers; the three-stage byte-identical bootstrap proof is
+        carried to a later version
    * - Concurrency runtime
      - :implemented:`Implemented` — channels & actors
    * - SIMD / vector types
@@ -187,8 +205,14 @@ Project status
      - :experimental:`Experimental` — Phase 124: compute-target model and KIR
          lowering boundary; the language surface for kernels stays
          :planned:`Planned`
-   * - Networking, databases, web, AI/ML
-     - :planned:`Planned` — not yet supported
+   * - Networking / databases / web
+     - :implemented:`Implemented` — ``std.net``, ``std.http``, ``std.db``
+       and ``std.numerics`` are importable on both engines
+   * - Native backend (C-free ELF / PE / Mach-O)
+     - :implemented:`Implemented` — emitted by the self-hosted compiler;
+       Windows PE executed on the dev host, Linux ELF byte-identical to the
+       Go oracle and executed on the Linux CI leg, Mach-O structurally
+       validated only (no macOS runner)
    * - Package registry
      - :experimental:`Experimental` — local resolver + lockfile; no registry
 
