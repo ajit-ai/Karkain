@@ -11,9 +11,10 @@ root. This page summarizes the current state for documentation purposes.
 Completed phases (50–149)
 -------------------------
 
-Phases 50–149 are complete. Phases 128–142 shipped the **1.0.0 (Stable)**
-line and the **1.1.0** line (Phases 132–149) is complete in-tree, with only
-the owner tag/archive ceremony outstanding. A concise summary:
+Phases 50-149 are complete. Phases 128-142 shipped the **1.0.0 (Stable)**
+line, and the **1.1.0** line (Phases 132-142) was released. **1.2.0 (Stable)
+- Native Independence)** is the current release; its code is in-tree and the
+tag ``v1.2.0`` is published. A concise summary:
 
 * **50–106** — language core, semantic model (borrow checker, escape
   analysis), SSA optimization pipeline, HIR, stdlib foundation, self-hosted
@@ -164,7 +165,7 @@ The active v1.2.x plan is:
 
 * **v1.2.1** — ``std.path`` and ``std.json`` both-engine gates (complete).
 * **v1.2.2** — control-document refresh (this documentation update).
-* **v1.2.3** — native string byte indexing (``s[i]``), proposed next implementation.
+* **v1.2.3** - native string byte indexing (``s[i]``), complete.
 * **v1.2.4** — trim view and string-array foundation.
 * **v1.2.5** — native hex/Base64 codecs.
 * **v1.2.6** — native SHA-256.
@@ -175,7 +176,7 @@ The active v1.2.x plan is:
 Older version-wise headings below are retained as historical audit context, not
 as the active forward plan.
 
-* **1.2.0 "Sovereignty I" (current):** Native Value model (boxed Values,
+* **1.2.0 "Sovereignty I" (released):** Native Value model (boxed Values,
   arrays, ``for-in``, floats, structs) + ``native-x86_64-windows``/``macos`` CLI
   targets (Increment 150), ``kcc`` native parity (151), native stdlib and no-C
   closure (152), ``kcc`` builds ``kcc`` self-bootstrap (154), and multi-arch

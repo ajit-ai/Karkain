@@ -15,8 +15,11 @@ project = "Karkain"
 author = "Ajit Kumar"
 copyright = "2026, The Karkain Project"
 
-# Version and release describe the LANGUAGE, not one binary.
-version = "1.0.0"
+# Version and release describe the LANGUAGE, not one binary. The authoritative
+# value is loaded from the root VERSION file below; this fallback is only used
+# when building from an export that does not include VERSION. It is kept at the
+# current release (1.2.0) so an export can never silently advertise 1.0.0.
+version = "1.2.0"
 release = version
 
 # Prefer the VERSION file at the repository root when building from a checkout.
@@ -80,7 +83,10 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 html_css_files = ["karkain.css"]
 
-html_title = "Karkain"
+# Keep the HTML title and the theme's version block on the same authoritative
+# value (loaded from VERSION above), so the published site cannot display a
+# different version than ``karkain --version``.
+html_title = f"Karkain {release} Documentation"
 html_short_title = "Karkain"
 
 html_theme_options = {

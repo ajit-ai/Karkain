@@ -1,0 +1,219 @@
+============================================
+Karkain v1.2.0 Architecture Changes
+============================================
+
+This document explains how the compiler architecture evolved from v1.1.0 to
+v1.2.0. It deliberately separates what is **verified** from what is
+**structurally present** or **deferred**, and it defines precisely what
+"Sovereignty I — Off C, Off Go" means.
+
+What "Off C, Off Go" means — and what it does not
+====================================================
+
+In v1.2.0 the phrase is scoped to **compiling a user program to a C-free
+native target**:
+
+* **Off C** — ``karkain build --target native-x86_64-<os>`` does not invoke
+  ``gcc``, ``clang`` or ``cl``. The self-hosted compiler emits machine code
+  and the container itself.
+* **Off Go** — the Go backend is not reached for those targets; the image is
+  produced by ``kcc`` (built from ``src/compiler/*.kark``).
+
+It is proven by ``TestPhaseNATQual_`` with PATH shims that log every ``gcc``
+and ``go`` invocation: the native build's log is empty, while the legacy
+build's log is not empty (the positive control that makes the empty log
+evidence rather than a shim that never fired). The self-hosted compiler is
+warmed **outside** the trace.
+
+It does **not** mean:
+
+* the C23 path (``--target c23``) is gone — it is unchanged;
+* the Go toolchain is unnecessary everywhere — it is still required to build
+  the compiler from source and remains the reference implementation;
+* the compiler rebuilds itself without Go — conditions 5 and 6 of the closure
+  are carried to v1.3.0 as UNMET;
+* the whole language is available natively — the driver supports a qualified
+  subset and refuses everything else by name.
+
+Overall architecture
+====================
+
+v1.1.0
+------
+
+::
+
+   source -> Go front end / kcc checker -> C23 -> gcc/clang -> executable
+
+   native value model: none (integers and strings only)
+   machine-code backend: Go pkg/native (experimental, C-free targets not kcc-owned)
+
+v1.2.0
+------
+
+::
+
+                       +-> C23 -> gcc/clang -> executable   (unchanged path)
+   source -> kcc ------+
+                       +-> native value model -> encoder -> ELF/PE/Mach-O
+                           (whole-program driver, in kcc)   (C-free targets)
+
+   Go front end remains the reference implementation and builds the compiler.
+
+The native driver lives in ``src/compiler/native_value.kark``; the encoder in
+``src/compiler/native_emit.kark``; the container writers in
+``native_elf.kark``, ``native_macho.kark`` and ``native_pe.kark``; the driver
+entry points are in ``src/compiler/main.kark``. The CLI seam in
+``pkg/cli/kcc_native.go`` requires kcc provenance before any image is written,
+so a Go fallback cannot silently reappear.
+
+Frontend and intermediate representation
+=========================================
+
+The Go front end, the self-hosted parser/checker and the KIR v1 text
+representation are carried forward. KIR is emitted and structurally verified
+(``native kir --verify``, ``karkain kir --verify``), but it is **not** the
+backend's input: the native driver consumes the parsed AST directly. This is a
+documented boundary, not a defect, and is recorded in
+``docs/inventory/compiler-dependencies.json``.
+
+Self-hosted compiler components
+================================
+
+The self-hosted compiler gained, in this release:
+
+* the native kind/unit model and frame layout (``natFrameLayout``);
+* a machine-code encoder with label table and rel32/imm64 fixups;
+* the ELF64, PE32+ and Mach-O PIE container writers;
+* the whole-program driver: find ``main``, plan locals, lower statements,
+  emit helpers and the entry in the oracle's order, resolve patches, link.
+
+The driver emits helpers first, then user functions, then the entry stub
+(last), matching the Go oracle's emission order — this was measured to be the
+cause of a constant image-size delta, not frame padding.
+
+Native compilation pipeline
+============================
+
+For a C-free target the pipeline is:
+
+1. kcc assembles and parses the source (including flat module assembly).
+2. The type checker validates the program.
+3. The native driver scans and plans: a refusal aborts before any emission.
+4. Helpers are emitted (``print_int``, ``print_str``, optional arena/map/
+   runtime-error/trim helpers), then functions, then the entry.
+5. Patch lists (rodata, arena, IAT) are resolved for the target container.
+6. The CLI validates the image with the Go oracle's own parser and writes it.
+
+Machine-code generation
+=======================
+
+The encoder mirrors the Go ``pkg/native.Emitter`` byte for byte, including
+REX/ModRM/SIB construction, rel32 fixups and imm64 placeholders. The NAT-*
+series added the primitives needed by the value model: SSE2 scalar-double
+operations, ``print_float``, scaled byte/64-bit load/store, and the Win64 PEB
+bootstrap. Byte-for-byte parity with the oracle is gated for the encoder
+(``TestPhase151B_``), the helpers and the covered program shapes
+(``TestPhaseD2_``, ``TestPhaseD5_``).
+
+ELF, PE and Mach-O generation
+==============================
+
+.. list-table::
+   :widths: 20 40 40
+   :header-rows: 1
+
+   * - Container
+     - Structural facts
+     - Execution evidence
+   * - ELF64
+     - One or two PT_LOAD segments, R+X text and optional R+W arena; entry
+       inside ``.text``.
+     - Executed on the Linux CI leg; byte-identical to the oracle for gated
+       shapes. No ELF runner on the Windows dev host.
+   * - PE32+
+     - DOS/COFF/PE32+ headers, three sections, writable ``.idata`` with the
+       IAT, DIR64 relocations; loader-independent PEB bootstrap.
+     - Executed on the dev host, stdout compared byte-for-byte.
+   * - Mach-O PIE
+     - ``__PAGEZERO``, ``__TEXT``, writable ``__DATA`` when allocating,
+       ``__LINKEDIT`` with a decoded rebase stream; ``MH_PIE`` set.
+     - Structural only — no macOS runner exists.
+
+Runtime and native value representation
+========================================
+
+Values are statically kinded and unboxed: an int is one 8-byte unit, a string
+is a `(ptr, len)` pair, an array is a `(base, len)` header over a
+compile-time-sized element area in the frame, and a record is one 8-byte unit
+holding the address of its field area. A map is one 8-byte unit holding the
+address of an arena-allocated header. Frames never move ``rsp`` during
+expression evaluation, so slot displacements are compile-time constants.
+
+Memory and heap architecture
+=============================
+
+The bump allocator's header lives inside the arena; the cursor self-initialises
+on first use. The arena is a second R+W segment for ELF, lives in ``.idata``
+for PE, and is a writable ``__DATA`` segment for Mach-O. Every allocation is
+compile-time bounded, so there is no ``free()`` and exhaustion is a defensive
+trap. Allocating constructs inside a loop are refused because a compile-time
+bound cannot cover unbounded iterations.
+
+Function calls and stack frames
+===============================
+
+The calling convention packs 8-byte units in order (int 1, string 2), using
+RDI/RSI/RDX/RCX/R8/R9 for the first six and a caller-frame extras area beyond;
+string returns use (RAX=ptr, RDX=len). ``rsp`` never moves during evaluation.
+Register allocation (`NAT-REG`) promotes hot int locals into R12–R15 under
+pressure; it is **opt-in**, and a spilled local keeps its frame slot so all
+displacements are unchanged.
+
+Native target selection
+=======================
+
+``kccNativeOwnedTargets`` names the targets kcc owns; all three C-free targets
+are members, and ``kccNativeValidateImage`` validates each through the oracle's
+own parser. Adding a target without a validator fails loudly rather than
+shipping unvalidated bytes. Foreign C targets continue through the existing
+cross-compilation model.
+
+Build-driver behaviour
+=======================
+
+The CLI requires kcc provenance in the compiler's output before decoding and
+writing any native image. This closes the silent-fallback defect and makes
+"an image exists without kcc provenance" impossible. The stdout-rendering
+parity fix for ``karkain run`` is a corrective change against this baseline.
+
+Remaining host-toolchain dependencies
+======================================
+
+* Go and a C compiler are still needed to **build the compiler** from source.
+* The Go front end is the reference implementation for all backends.
+* The C23 path needs ``gcc``/``clang`` as before.
+* The three-stage self-bootstrap closure (conditions 5 and 6) is carried to
+  v1.3.0; this release does not prove compiler independence from Go at build
+  time.
+
+Architecture limitations
+=========================
+
+* The native driver's qualified subset is documented in
+  ``docs/inventory/native-feature-matrix.json``; unsupported constructs are
+  refused by name.
+* KIR is verified but not consumed by the backend.
+* Mach-O execution is unproven (no runner).
+* The reporter's rodata in one fixture and the field-assignment staging code
+  differ from the oracle in binary layout only; neither changes program
+  output.
+* The register allocator is not the default.
+
+Future independence boundaries
+===============================
+
+Work carried to v1.3.0: no-C ``stdlib_v2`` (condition 2), no-C ``std.net``
+(condition 3), and the self-bootstrap closure (conditions 5 and 6). Those are
+carried by owner-authorized amendments whose condition text is unchanged; they
+are not v1.2.0 capabilities and are not claimed as met.

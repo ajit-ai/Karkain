@@ -1,0 +1,344 @@
+==============================================
+Karkain v1.1.0 to v1.2.0 — Technical Changelog
+==============================================
+
+This document reconstructs the technical differences between **Karkain
+v1.1.0** (merged commit ``951ee10``) and **Karkain v1.2.0** (tag ``v1.2.0``,
+peeled commit ``77d7069``). Every claim is drawn from the release's own
+qualification report (``docs/audit/KARKAIN-V1.2.0-GA-QUALIFICATION.md``), the
+frozen scope (``docs/release/v1.2.0-CHECKLIST.md``), the in-tree gates, or the
+source files named below. Where evidence is incomplete the item is marked
+``PARTIAL`` or ``NOT VERIFIED`` rather than presented as shipped.
+
+The theme of the release is **Sovereignty I — Off C, Off Go**: for the three
+C-free native targets, the *self-hosted* compiler — not a C compiler and not
+the Go backend — produces the machine code.
+
+Status vocabulary
+=================
+
+``NEW``
+   Added in v1.2.0.
+``IMPROVED``
+   Existing behaviour made correct, exact or better verified.
+``CHANGED``
+   Behaviour or ownership moved; compatibility impact is called out.
+``UNCHANGED``
+   Carried forward deliberately.
+``EXPERIMENTAL`` / ``PARTIAL`` / ``NOT VERIFIED``
+   The evidence does not support a stronger claim.
+
+1. Compiler architecture and self-hosting progress
+===================================================
+
+``IMPROVED`` — In v1.1.0 the self-hosted ``kcc`` engine owned the default
+check/build/run/test path and emitted C23; the C-free native backend did not
+exist. In v1.2.0 the same ``kcc`` compiler additionally owns the native value
+model, the machine-code encoder, the ELF/PE/Mach-O container writers and the
+whole-program driver. Source: ``src/compiler/native_value.kark``,
+``native_emit.kark``, ``native_elf.kark``, ``native_macho.kark``,
+``native_pe.kark``. Evidence: ``TestPhaseNATQual_``.
+
+``PARTIAL`` — The three-stage ``stage2 == stage3`` self-bootstrap closure and
+the "no Go toolchain" requirement are **carried to v1.3.0 as UNMET** by
+owner-authorized amendment (2026-10-29). The implementation exists
+(``62a6323``) and the fast pin-contract test runs in the required ``Test``
+job; the full burn is capacity- and runner-blocked. Do not read this release
+as proving full compiler self-reproduction.
+
+2. Compiler frontend and intermediate representation
+=====================================================
+
+``UNCHANGED`` — The Go front end and the self-hosted parser/checker, and the
+KIR v1 text representation (``src/compiler/kir.kark``) with its structural
+verification on the default check path, are carried forward. KIR remains an
+engine-internal invariant and is verified but is **not** the native backend's
+input: the native driver consumes the parsed AST directly. This limitation is
+recorded in ``docs/inventory/compiler-dependencies.json``.
+
+``IMPROVED`` — The whole-tree KIR pin was re-measured against the release
+state (15243 before and after; the version flip changes a string's content,
+not the AST's shape). Evidence: ``TestPhase122_PipelineOwnership`` and
+``TestPhase151A5_KIRPinHolds``.
+
+3. Native compilation architecture
+===================================
+
+``NEW`` — ``karkain build --target native-x86_64-<os>`` writes a machine-code
+image directly::
+
+   karkain build --target native-x86_64-linux   main.kark   # ELF64
+   karkain build --target native-x86_64-windows main.kark   # PE32+
+   karkain build --target native-x86_64-macos   main.kark   # Mach-O PIE
+
+All three targets are owned by ``kcc``; nothing refuses with ``error[K116]``.
+Evidence: ``TestPhase151_`` (anti-fallback invariant), ``TestPhaseD2_``, and
+``TestPhaseNATQual_``.
+
+4. Machine-code generation and encoding
+========================================
+
+``NEW`` — A self-hosted byte encoder in ``src/compiler/native_emit.kark`` with
+a byte-for-byte mirror of the Go emitter's primitives (REX/ModRM/SIB, rel32
+backpatching, imm64 placeholders). Evidence: ``TestPhase151B_`` (7/7, a
+differential against the real ``pkg/native.Emitter``).
+
+``NEW`` — Encoder-level primitives for the value model added through the
+NAT-* series: SSE2 scalar-double instructions (``natAddsdXmmXmm`` and friends,
+``TestPhase151A8_``), the ``print_float`` helper (``TestPhase151A8b_``),
+scaled 8/64-bit loads and stores (``TestPhase151A9D_``/``151A9G_``).
+
+5. Native executable and object-file formats
+=============================================
+
+``NEW`` — Three container writers in the self-hosted compiler:
+
+.. list-table::
+   :widths: 20 40 40
+   :header-rows: 1
+
+   * - Format
+     - Writer
+     - Verification at v1.2.0
+   * - ELF64 (``native-x86_64-linux``)
+     - ``native_elf.kark``
+     - Emission, structure (oracle ``Parse``) and byte-identity with the Go
+       oracle; executed on the Linux CI leg.
+   * - PE32+ (``native-x86_64-windows``)
+     - ``native_pe.kark``
+     - Emission and structure (oracle ``ParsePE``); **executed on the dev
+       host**. Not byte-identical to the oracle (separate entry/PEB
+       implementations).
+   * - Mach-O PIE (``native-x86_64-macos``)
+     - ``native_macho.kark``
+     - Emission and structural validation only (``MH_PIE``, writable
+       ``__DATA``, decodable rebase stream). **No macOS runner exists**, so no
+       Mach-O image has been executed.
+
+Evidence: ``TestPhase151C_``, ``TestPhase151C2_``, ``TestPhase151C3_``,
+``TestPhaseD2_``, ``TestPhaseB_``.
+
+6. C compiler dependency reduction
+===================================
+
+``CHANGED`` — For the C-free native targets, ``gcc``/``clang`` are removed
+from the *program-compilation* path. ``TestPhaseNATQual_`` proves this with
+PATH shims: the native build's ``gcc``/``go`` shim log is empty, while the
+legacy path's is not (the positive control). The self-hosted compiler is
+warmed *outside* the trace, so the claim is about compiling a user program,
+not about how the compiler was built.
+
+``UNCHANGED`` — The C23 path (``--target c23``) and the Go front end still use
+a C toolchain. Building the compiler itself still uses Go and ``gcc``. The
+"Off C" claim is scoped to the native user-program build, not to the whole
+project.
+
+7. Go backend dependency reduction
+===================================
+
+``CHANGED`` — The silent Go hand-off that existed before this line (a native
+target requested under ``kcc`` was quietly built by the Go backend) was
+removed: first replaced by a refusal (``error[K116]``), then by real kcc
+emission. Evidence: ``TestPhase151_NoSilentGoFallback`` (target-aware). The Go
+toolchain remains the reference implementation and is still required to build
+the compiler.
+
+8. Native value model
+=====================
+
+``NEW`` — The native backend in v1.1.0 handled only integers and strings. In
+v1.2.0 it gained a statically kinded, unboxed value model in
+``src/compiler/native_value.kark``: ``natKindInt`` … ``natKindMap`` with unit
+counts (1 for int/float/bool/struct/map, 2 for string/array), a frame layout
+reproducing the oracle's ordering, and slot addressing. The roadmap's word
+"boxed" is not a requirement for a tagged native ``Value``; the oracle assigns
+each local a compile-time kind and stores a raw 8-byte unit.
+
+``IMPROVED`` — `NAT-FRAME` aligned the driver's frame layout with the oracle's:
+the map-stage unit is reserved program-wide, and the `inc r8` encoding bug
+(REX.R instead of REX.B) was fixed. Evidence: ``TestPhaseNATFrame_``.
+
+9. Integer and floating-point operations
+=========================================
+
+``IMPROVED`` — Integer expressions, arithmetic (`+ - *`), comparisons and
+bare assignment are lowered byte-identically (``TestPhase151A2_``). Integer
+division and modulo remain ``NOT SUPPORTED`` on the native driver (refused by
+name).
+
+``PARTIAL`` — The encoder and helpers for float64 exist (SSE2 primitives,
+``print_float``, float statement lowering and the call ABI in Steps 8a–8e),
+but the **whole-program driver refuses float statements, parameters and
+returns by name**. Evidence: ``TestPhase151A8_`` family (encoder/helper level)
+and the native feature matrix (``not_supported`` at the driver level).
+
+10. Arrays and indexing
+=======================
+
+``NEW`` — Fixed-footprint arrays as `(base, len)` frame values, `for-in`
+iteration over array variables, `len()`, integer-expression indices and a
+conditional runtime bounds diagnostic. Evidence: ``TestPhase151A9D_``,
+``TestPhase151A9E_``, ``TestPhaseNATIdx_``, ``TestPhaseD5_``,
+``TestPhaseNATFrame_``. Out-of-range and negative indices produce a runtime
+error with a non-zero exit and no value printed; the diagnostic text of the
+native PE path goes to stderr, which the Phase-152-B0 `GetStdHandle`
+limitation leaves empty on the dev host, so the exit status is the observable.
+
+11. Heap and memory management
+===============================
+
+``NEW`` — A bump allocator over a static region whose 16-byte header
+(`[cursor][limit]`, absolute addresses) lives inside the arena itself. Writable
+storage is provided by a second R+W PT_LOAD for ELF and by `.idata` for PE;
+macOS uses a writable `__DATA` segment. No `free()` exists: every allocation is
+compile-time bounded, so exhaustion is a defensive `Int3`. Evidence:
+``TestPhase151A9G_`` (concat) and ``TestPhase151A9H_`` (records).
+
+``PARTIAL`` / ``CHANGED`` — Arena-using constructs inside a loop are refused by
+name (a compile-time bound cannot cover unbounded iterations); `push()` through
+the native CLI target is currently refused by the PE patch guard after a
+pre-existing bad rodata patch position was found (pinned as a refusal by
+``TestPushMain_ProgramsAreRefusedByThePEPatchGuard`` and
+``TestPhase151A9I_``).
+
+12. Strings and string operations
+==================================
+
+``NEW`` — String literals printed from `.rodata`; string concatenation as an
+arena allocation; string byte indexing `s[i]` as a one-byte view. Evidence:
+``TestPhase151A9F_``, ``TestPhase151A9G_``, ``TestPhaseV123_``.
+
+``NOT VERIFIED`` / ``NOT SUPPORTED`` — String equality and string slicing are
+refused by name on the native driver. A string literal inside a branch or a
+loop, and a string in a callee, are also refused. The one known diagnostic
+layout difference (39 bytes in a single fixture where a literal is bound
+after an index site) is binary-layout only; the emitted diagnostic text is
+identical.
+
+``CHANGED`` (after the v1.2.0 tag) — The `trim` builtin is lowered as a
+non-allocating view in the v1.2.x continuation (``v1.2.4``), not part of the
+tagged release. Hex/Base64/SHA-256 native codecs are later v1.2.x work.
+
+13. Records and maps
+====================
+
+``NEW`` — A record is one 8-byte unit holding the address of a
+compile-time-sized field area in the frame; field reads/writes and the
+"record idiom" (passing the record to a function) work. Evidence:
+``TestPhase151A9H_``.
+
+``PARTIAL`` — Map lowering exists in the driver and is gated in the Go
+oracle, but no gate exercises the kcc side: the feature matrix classifies it
+``implemented_not_gated``. Map insertion inside a loop is refused.
+
+14. Control flow, loops, break and continue
+============================================
+
+``NEW`` — `if`/`else`/`else if` and nested branches (`TestPhaseNATIf_`), then
+`while`, C-style `for`, `break`, `continue` and nesting (`TestPhaseNATLoop_`).
+`break`/`continue` target the nearest enclosing loop; a `continue` in a
+`while` jumps to the loop head while one in a `for` jumps to the post clause,
+matching the oracle. Two parser discrepancies (a call expression in a `for`
+post; the engines' differing `for`-init scope) are refused by name on both
+backends and recorded as known limitations.
+
+15. Function calls, stack frames and calling conventions
+========================================================
+
+``NEW`` — The Phase 148 calling convention was ported: 8-byte units in
+RDI/RSI/RDX/RCX/R8/R9 with a caller-frame extras area, string returns in
+(RAX=ptr, RDX=len), and a per-argument staging scheme that never moves `rsp`
+during evaluation. Evidence: ``TestPhaseNATCall_`` and the 151A Steps 8d–8f
+gates (int, float and two-unit string arguments).
+
+16. Register allocation and optimization
+=========================================
+
+``NEW`` / ``EXPERIMENTAL`` — `NAT-REG` ports the oracle's Phase-150C allocator:
+int locals move into R12–R15 (callee-saved under both ABIs) under pressure
+(control flow and at least five simultaneously-live int locals). It is
+**opt-in** — ``KARKAIN_NATIVE_REGALLOC=1``; the qualified stack-based path is
+the default. Evidence: ``TestPhaseNATReg_`` (behavioural agreement over the
+corpus, four mutations caught, one conservative mutation deliberately not
+caught and recorded). No performance improvement is claimed.
+
+17. Standard library changes
+============================
+
+``UNCHANGED`` / ``IMPROVED`` — The frozen v1.2.0 stdlib surface (``std.string``,
+``std.collections``, ``std.io``, ``std.encoding``, ``std.crypto``,
+``std.testing``, ``std.numerics``, ``std.net``, ``std.http``, ``std.db``, plus
+``std.generics``) is carried forward under the SemVer policy. ``std.path`` and
+``std.json`` cross-engine gates and later module additions belong to the
+**v1.2.x continuation**, not the tagged release.
+
+``NOT VERIFIED`` — The no-C `stdlib_v2` proof and the no-C ``std.net`` proof are
+**carried to v1.3.0 as UNMET** (closure conditions 2 and 3); the native driver
+at the tag could not build those programs. See :doc:`/stdlib/index`.
+
+18. Supported operating systems and architecture targets
+========================================================
+
+``CHANGED`` — The three C-free targets are kcc-owned (see section 5). New
+triples from Phase 139 (``aarch64-windows``, ``riscv64-linux``,
+``x86_64-macos``, ``aarch64-macos``) are in-tree; foreign targets still fail
+deterministically when a cross-linker is absent. See
+:doc:`/targets/host-targets`.
+
+19. CLI and build-driver changes
+================================
+
+``NEW`` — ``build``/``run``/``check`` route the three native targets through
+the self-hosted engine with a provenance check before any bytes are written;
+``--incremental`` is refused for native builds with an explanatory reason.
+The CLI stdout-rendering parity fix (kcc ``run`` streams program stdout
+verbatim and emits the compiler banner to stderr under ``--verbose``) is a
+corrective change against this baseline. See :doc:`/tools/cli`.
+
+20. Testing, conformance and verification
+==========================================
+
+``IMPROVED`` — The conformance corpus is 64/64; the native family is a set of
+dedicated gates (NAT-QUAL, NAT-CALL, NAT-IF, NAT-LOOP, NAT-IDX, NAT-FRAME,
+NAT-STR-STAGE, NAT-RODATA, NAT-REG), each in its own CI step. The KIR pin is
+15243. The QA battery's stages are green except the capacity-blocked
+``pkg/bootstrap`` heavyweight tests; the conformance corpus and the journey
+stage were observed to flake on the ~4 GB dev host when gcc was killed, and
+passed on re-run — recorded as flakes, not as successes. See
+:doc:`V1.2.0-VERIFICATION-MATRIX`.
+
+``IMPORTANT`` — The v1.2.0 GitHub Release is **locally built, not CI-green**
+(closure condition 8's provenance note). The tag-triggered workflow did not
+execute its Build matrix because of a billing/payment restriction.
+
+21. Compatibility and breaking changes
+=======================================
+
+``UNCHANGED`` — Every v1.1.0 program builds and runs identically; the surface
+change is strictly additive. The single behavioural change is that the native
+targets are now produced by the self-hosted engine. The K114 escape rejection
+was already the one behaviour fix of v1.1.0 and is not new here. See
+:doc:`/status/compatibility`.
+
+22. Known limitations and deferred capabilities
+================================================
+
+The following are explicitly **not** v1.2.0 capabilities and are refused by
+name or carried forward:
+
+* float64 statements/parameters/returns, `for-in`, map literals, string
+  equality and slicing in the native driver;
+* a string literal in a branch or loop, a string in a callee;
+* arena allocation inside a loop; `push()` through the native CLI target;
+* Mach-O execution (no runner);
+* the three-stage self-bootstrap closure and Go-free self-bootstrap
+  (conditions 5 and 6, carried to v1.3.0);
+* no-C ``stdlib_v2`` and no-C ``std.net`` (conditions 2 and 3, carried to
+  v1.3.0);
+* register allocation as the default (it is opt-in);
+* GPU/NPU/quantum kernel language surface and a public package registry
+  (planned, not implemented).
+
+None of these is a wrong result, a memory-safety defect, an invalid executable
+or an incorrect runtime diagnostic. See
+``docs/audit/KARKAIN-V1.2.0-GA-QUALIFICATION.md`` section 8 for the full list.

@@ -8853,7 +8853,7 @@ func natNativeCodecIn(e) {
         return natNativeCodecIn(binaryLeft(e)) + natNativeCodecIn(binaryRight(e))
     }
     if (nodeType(e) == NODE_UNARY()) { return natNativeCodecIn(unaryOperand(e)) }
-    if (nodeType(e) == NODE_INDEX()) { return natNativeCodecIn(indexLeft(e)) + natNativeCodecIn(indexRight(e)) }
+    if (nodeType(e) == NODE_INDEX()) { return natNativeCodecIn(indexLeft(e)) + natNativeCodecIn(indexExpr(e)) }
     return 0
 }
 

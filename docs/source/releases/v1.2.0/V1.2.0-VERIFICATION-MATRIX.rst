@@ -1,0 +1,270 @@
+============================================
+Karkain v1.2.0 Verification Matrix
+============================================
+
+This matrix records what was actually verified for **Karkain v1.2.0** (tag
+``v1.2.0``, peeled commit ``77d7069``). It is evidence-based: a row is not
+marked ``PASS`` merely because the source contains an implementation. The
+primary evidence is ``docs/audit/KARKAIN-V1.2.0-GA-QUALIFICATION.md`` and the
+gates named in each row.
+
+Status definitions
+==================
+
+``PASS``
+   Directly verified by an executed test or a measured build result.
+``PARTIAL``
+   Some behaviour is implemented or verified, but coverage is incomplete.
+``NOT VERIFIED``
+   Implementation or test evidence is insufficient to claim correctness.
+``NOT IMPLEMENTED``
+   No implementation exists in the inspected release.
+``BLOCKED``
+   Verification could not be completed because of an identified blocker.
+
+Local verification and GitHub Actions verification are distinguished below.
+A red or unexecuted CI job is never reported as successful.
+
+Native language features (self-hosted driver)
+=============================================
+
+.. list-table::
+   :widths: 30 12 28 30
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Gate / source
+     - Limitation
+   * - Integer literals, bindings, assignment
+     - PASS
+     - ``TestPhase151A9C_`` / ``151A2_``; ``native_value.kark``
+     - None known.
+   * - Integer arithmetic (`+ - *`), comparisons, unary minus
+     - PASS
+     - ``TestPhase151A2_``; ``native_emit.kark``
+     - Division and modulo are refused by name.
+   * - User function calls, arguments, return values
+     - PASS
+     - ``TestPhaseNATCall_``
+     - Qualified subset of argument shapes.
+   * - Conditional branches (`if`/`else`, nesting)
+     - PASS
+     - ``TestPhaseNATIf_``
+     - Comparison-as-a-value refused.
+   * - Loops (`while`, C-style `for`), `break`, `continue`
+     - PASS
+     - ``TestPhaseNATLoop_``
+     - Two parser discrepancies refused by name (see changelog §14).
+   * - Array literal, element access, variable/arithmetic index
+     - PASS
+     - ``TestPhase151A9D_``, ``TestPhaseNATIdx_``
+     - Int elements only; non-int element types refused.
+   * - Array bounds runtime diagnostic
+     - PASS (exit status)
+     - ``TestPhaseNATIdx_``, ``TestPhaseD5_``
+     - stderr text empty on dev host (GetStdHandle limitation); exit status
+       is the observable.
+   * - `len()` of an array
+     - PASS
+     - ``TestPhase151A9E_``
+     - None known.
+   * - String literals and printing
+     - PASS
+     - ``TestPhase151A9F_``
+     - None known.
+   * - String concatenation (arena)
+     - PASS
+     - ``TestPhase151A9G_``
+     - Refused inside a loop (compile-time arena bound).
+   * - String byte indexing ``s[i]``
+     - PARTIAL
+     - ``TestPhaseV123_``
+     - **Added in the v1.2.x continuation (v1.2.3), after the v1.2.0 tag.**
+       Listed for completeness of the current tree, not as a tagged-1.2.0
+       feature.
+   * - Records (structs) and field access
+     - PASS
+     - ``TestPhase151A9H_``
+     - Narrow, guarded subset; refused shapes listed in the feature matrix.
+   * - Maps (literal, lookup, insertion)
+     - NOT VERIFIED
+     - ``implemented_not_gated`` in ``native-feature-matrix.json``
+     - Driver lowers maps; no gate exercises the kcc side.
+   * - float64 statements / parameters / returns
+     - NOT IMPLEMENTED (driver)
+     - Refused by name; encoder/helper gates ``TestPhase151A8_`` family exist
+     - Helpers exist at encoder level; whole-program driver refuses.
+   * - `for ... in`
+     - NOT IMPLEMENTED (driver)
+     - Refused by name
+     - See native feature matrix.
+   * - String equality / slicing
+     - NOT IMPLEMENTED (driver)
+     - Refused by name
+     - See native feature matrix.
+   * - `push()` through native CLI target
+     - BLOCKED
+     - ``TestPushMain_ProgramsAreRefusedByThePEPatchGuard``
+     - Pre-existing bad rodata patch position; refusal is asserted.
+   * - `trim()` native builtin
+     - PARTIAL
+     - ``docs/audit/V1.2.4-NATIVE-TRIM.md``
+     - **Added in v1.2.4 (after the tag)**; no gate yet at the time of this
+       document.
+
+Native target verification
+===========================
+
+.. list-table::
+   :widths: 22 14 32 32
+   :header-rows: 1
+
+   * - Target
+     - Status
+     - Verification method
+     - Evidence / limitation
+   * - Linux ELF — emission and structure
+     - PASS
+     - Oracle ``native.Parse`` validates the image.
+     - ``TestPhase151C_``, ``TestPhaseD2_``.
+   * - Linux ELF — byte-identity with Go oracle
+     - PASS (gated shapes)
+     - Differential against the oracle's own emission.
+     - ``TestPhaseD2_``; known-non-parity list is empty for the gated shapes.
+   * - Linux ELF — execution
+     - PARTIAL
+     - Linux CI leg executes the ELF.
+     - NOT run on the Windows dev host (no WSL/Docker). CI is the source of
+       execution evidence.
+   * - Windows PE — emission and structure
+     - PASS
+     - Oracle ``ParsePE`` validates the image.
+     - ``TestPhase151C3_``, ``TestPhase151D_``.
+   * - Windows PE — execution
+     - PASS (local)
+     - Dev host executes the image, stdout compared byte-for-byte.
+     - ``TestPhaseNATReg_`` and native family; local, not CI-wide.
+   * - Windows PE — byte-identity with Go oracle
+     - NOT VERIFIED
+     - Explicitly not claimed.
+     - Separate entry stub and PEB bootstrap implementations (~1 KB of
+       `.text` differs).
+   * - macOS Mach-O — emission and structure
+     - PASS (structural)
+     - Oracle ``ParseMachO`` checks ``MH_PIE``, segments, rebase stream.
+     - ``TestPhase151C2_``, ``TestPhaseB_``.
+   * - macOS Mach-O — execution
+     - BLOCKED
+     - No runner.
+     - No macOS runner exists in this repository; no Intel-Mac host in its
+       history. Every Mach-O claim since increment 149 is structural.
+
+Native independence and ownership
+==================================
+
+.. list-table::
+   :widths: 40 12 48
+   :header-rows: 1
+
+   * - Claim
+     - Status
+     - Evidence
+   * - Native build reaches neither ``gcc`` nor ``go``
+     - PASS
+     - ``TestPhaseNATQual_`` PATH-shim log empty; legacy positive control
+       non-empty.
+   * - No silent Go fallback for native targets
+     - PASS
+     - ``TestPhase151_NoSilentGoFallback`` (target-aware), kcc provenance gate
+       in ``pkg/cli/kcc_native.go``.
+   * - All three C-free targets kcc-owned
+     - PASS
+     - ``kccNativeOwnedTargets``; nothing refuses with ``error[K116]``.
+   * - Byte-identity with the oracle where gated
+     - PASS
+     - ``TestPhaseD2_``, ``TestPhaseNATRodata_``, ``TestPhaseNATFrame_``.
+
+Compiler / toolchain / release
+==============================
+
+.. list-table::
+   :widths: 38 14 48
+   :header-rows: 1
+
+   * - Item
+     - Status
+     - Evidence / note
+   * - Conformance corpus
+     - PASS (64/64)
+     - Passed on the dev host on re-run; two earlier failures were gcc-killed
+       flakes recorded as such.
+   * - QA battery stages (build, vet, cligates, conformance, probes, examples,
+       fresh, install, verify-install, journey)
+     - PASS
+     - Measured in the GA report §11.1; `docs` stage SKIP (no Sphinx on host).
+   * - `pkg/bootstrap` heavyweight tests
+     - BLOCKED
+     - Capacity limit (error[K127] guard, ~4 GB host); carried conditions 5–6.
+   * - `stage2 == stage3` self-bootstrap closure
+     - BLOCKED / carried
+     - Owner-authorized carry to v1.3.0 as UNMET; fast pin-contract test
+       passes in required CI.
+   * - No Go toolchain for self-bootstrap
+     - BLOCKED / carried
+     - Carried to v1.3.0 as UNMET.
+   * - No-C ``stdlib_v2``
+     - BLOCKED / carried
+     - Carried to v1.3.0 as UNMET (condition 2).
+   * - No-C ``std.net``
+     - BLOCKED / carried
+     - Carried to v1.3.0 as UNMET (condition 3).
+   * - Register allocation
+     - PARTIAL
+     - Behavioural gate PASS; opt-in, not the default; one conservative
+       mutation intentionally not caught and recorded.
+   * - KIR pin (15243)
+     - PASS
+     - ``TestPhase122_PipelineOwnership``, ``TestPhase151A5_KIRPinHolds``.
+   * - Version identity (1.2.0)
+     - PASS
+     - ``VERSION``, both Go banners, kcc banners, generated headers, LSP and
+       the five version-pinning test files.
+   * - GitHub Release published
+     - PASS (local provenance)
+     - Tag ``v1.2.0``, GitHub Release 2026-11-14; archives built locally,
+       **not CI-green**.
+
+Known binary-layout differences
+================================
+
+These are not wrong results. Each is binary-layout only and is asserted by a
+gate so it cannot be forgotten:
+
+.. list-table::
+   :widths: 50 50
+   :header-rows: 1
+
+   * - Difference
+     - Impact
+   * - Reporter rodata interning in one fixture (39 bytes, literal bound after
+       an index site)
+     - Binary layout only; diagnostic text identical.
+   * - Field-assignment staging code (25 bytes)
+     - Binary layout only; output identical.
+   * - Oracle's name-based string inference over-reserves the staging area
+     - Binary layout only; driver follows the emission.
+   * - Register allocation opt-in
+     - Binary layout only; qualified stack path is the default.
+
+Reporter's note on CI
+=====================
+
+The v1.2.0 tag-triggered workflow (run ``43374786565``, 2026-11-14) had its
+Build jobs rejected before starting because the account was subject to a
+billing/payment restriction. It did **not** execute its Build matrix, and the
+published checksums identify locally built archives. The three discovery /
+informational jobs that appear red on later runs (B2 seed closure, increment
+154 self-bootstrap, the one-off kcc whole-tree diagnostic) are non-gating and
+their red status is the documented exit-143 runner-shutdown class — not a
+compiler failure. None of them is reported here as a pass.
