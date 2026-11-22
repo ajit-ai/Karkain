@@ -286,11 +286,14 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// RE-PINNED FOR V1.2.4B TRIM CORRECTIVE: 16204 -> 16393 (+189). Measured
 		// on CI (run 45006927128, kcc whole-tree self-check job) with
 		// `karkain kir --verify src/compiler/kir.kark` (text=16393 verify=16393),
+		// never predicted. RE-PINNED FOR V1.2.5A HEX DECODE: 16393 -> 16620 (+227),
+		// measured on CI run 45011411432 (kcc whole-tree self-check job)
+		// (text=16620 verify=16620), never predicted.
 		// never predicted. The delta is the four repaired control-flow blocks,
 		// the CallExpr descent in the literal collector, and the trim binding's
 		// KindString clause.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 16393 {
-			t.Errorf("whole-tree kir text = %d lines, want 16393:\n%s", got, out)
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 16620 {
+			t.Errorf("whole-tree kir text = %d lines, want 16620:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

@@ -997,9 +997,12 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// RE-PINNED FOR V1.2.4B TRIM CORRECTIVE: 16204 -> 16393 (+189), measured on
 	// CI (run 45006927128, kcc whole-tree self-check job) with
 	// `karkain kir --verify src/compiler/kir.kark` (text=16393 verify=16393),
+	// never predicted. RE-PINNED FOR V1.2.5A HEX DECODE: 16393 -> 16620 (+227),
+	// measured on CI run 45011411432 (kcc whole-tree self-check job)
+	// (text=16620 verify=16620), never predicted.
 	// never predicted.
-	if text != 16393 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 16393; see the comment above for the measured chain. output follows: %s", text, out)
+	if text != 16620 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 16620; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }
