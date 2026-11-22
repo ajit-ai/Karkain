@@ -13,7 +13,9 @@ returns the byte length and ``s[i]`` returns the single byte at ``i`` as a
 engines.
 
 All functions are implemented in pure Karkain with untyped parameters and are
-identical on the Go and ``kcc`` engines.
+identical on the Go and ``kcc`` engines. The v1.2.3 native driver also lowers
+``s[i]`` itself as a one-byte string view, so the byte-indexing helpers are no
+longer limited to the C path; the dedicated gate is ``TestPhaseV123_``.
 
 Importing
 ---------

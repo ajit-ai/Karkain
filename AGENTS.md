@@ -4773,3 +4773,24 @@ the ORACLE's string-stage frames remain measured; `TestPhaseNATStrStage_` PASS.
 A sixth CI correction canonicalized six conformance fixtures that failed the
 final formatter step of the long `Test` job; all 12 conformance files now pass
 `fmt --check` on Linux-style LF input and the 64-test corpus still passes.
+
+Also completed: **v1.2.2 — control-document refresh** (documentation-only;
+record `docs/audit/V1.2.2-CONTROL-REFRESH.md`). The owner's v1.2.x-only rule is
+now recorded in `KARKAIN-IMPLEMENTATION-CONTROL.md`, `KARKAIN-VERSION-PLAN.md`,
+and the public roadmap. The stale next-slice recommendation was replaced:
+native calls already work; the next proposed implementation is v1.2.3 native
+string byte indexing (`s[i]`) as the first bounded blocker toward no-C
+`stdlib_v2`.
+
+Also completed: **v1.2.3 — native string byte indexing** (increment 151
+continuation; verdict **COMPLETE for the covered subset**; record
+`docs/audit/V1.2.3-NATIVE-STRING-INDEX.md`). `s[i]` with a string base now
+lowers to a one-byte string view in the kcc native driver, with integer-expression
+indices, nested-body support, a conditional runtime diagnostic, and a dedicated
+gate `TestPhaseV123_` plus CI step. The Go native backend has no `s[i]`, so the
+gate uses exact PE execution and a C-backend stdout differential rather than a
+false ELF byte-identity claim. Two frozen gates were corrected to measured
+behavior: string indexing is no longer a 9F refusal, and D5 now asserts the Go
+compile-time rejection of constant indices separately from kcc's runtime
+reporter. KIR pin re-measured 16017 -> 16197 -> **16204** (the second +7 from
+independent-review fixes; measured, never predicted) in both pin assertions.

@@ -143,9 +143,16 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 
 ### 5.1 Current recommendation
 
-**Recommended next: close the carried v1.2.0 debt - lower user function calls in
-the kcc native driver, then prove `stdlib_v2` and `std.net` with no C compiler
-(`proposed` - requires owner authorisation as the v1.3.0 opener).**
+**Owner numbering decision (2026-11-21):** all active forward work is named
+**v1.2.x** (`x = 1, 2, 3, … n`). Older non-v1.2.x labels in this register are
+historical audit records, not the active plan.
+
+**Current slice: v1.2.2 — control-document refresh** (documentation-only;
+record `docs/audit/V1.2.2-CONTROL-REFRESH.md`).
+
+**Recommended next implementation: v1.2.3 — native string byte indexing
+(`s[i]`)**, the first bounded blocker toward no-C `stdlib_v2`. It requires the
+owner's authorisation before implementation begins.
 
 Why this one, from evidence:
 
@@ -348,12 +355,20 @@ apparent complexity, or preference for new features.
 
 ### 9.4 Single recommendation, runner-up, deferrals
 
-**Recommended next slice: STD-001**, the v1.3.0 opener - lower user function
-calls in the kcc native driver together with the kinds a library program needs,
-then prove `stdlib_v2` and `std.net` build and run **with no C compiler**.
-Status `proposed`; it requires owner authorisation because it opens a numbered
-increment rather than extending a completed slice, and it is the first time the
-native path is asked to carry a real library program.
+**Recommended next slice: v1.2.3 — native string byte indexing (`s[i]`).** This
+supersedes the older STD-001 recommendation. Measured repository state shows
+user calls already work and `stdlib_v2` is blocked by string operations, not by
+call dispatch. The first bounded blocker is `s[i]`, needed by `std.string`'s
+`str_to_upper` and `str_trim`. Status `proposed`; it requires owner
+authorisation before implementation begins.
+
+Completed before this recommendation:
+
+- NAT-FORIN and Phase 1.3 bounds corrections: merged in PR #5.
+- v1.2.1 `std.path` / `std.json` gates and six CI-stability corrections: merged
+  in PRs #6–#11.
+- Post-merge `main` CI required `Test` job passed; only non-gating discovery
+  jobs remain red.
 
 The measured entry point is one refusal, not a programme of work:
 `src/compiler/native_value.kark:4238` refuses every user call by name. The

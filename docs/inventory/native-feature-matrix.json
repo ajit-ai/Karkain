@@ -23,6 +23,7 @@
     {"construct": "binding inside a branch", "status": "supported", "gate": "TestPhaseNATIf_", "gate_file": "pkg/cli/phase151g_if_test.go"},
     {"construct": "array literal and element access", "status": "supported", "gate": "TestPhase151A9D_", "gate_file": "pkg/cli/phase151a9d_array_test.go"},
     {"construct": "array element read with a VARIABLE index", "status": "supported", "gate": "TestPhaseNATIdx_", "gate_file": "pkg/cli/phase151j_array_index_test.go"},
+    {"construct": "string byte index (`s[i]`) as a one-byte view", "status": "supported", "gate": "TestPhaseV123_", "gate_file": "pkg/cli/phase_v123_string_index_test.go"},
     {"construct": "array element read with an ARITHMETIC index", "status": "supported", "gate": "TestPhaseNATIdx_", "gate_file": "pkg/cli/phase151j_array_index_test.go"},
     {"construct": "array iteration in a `while` loop", "status": "supported", "gate": "TestPhaseNATIdx_", "gate_file": "pkg/cli/phase151j_array_index_test.go"},
     {"construct": "array iteration in a C-style `for` loop", "status": "supported", "gate": "TestPhaseNATIdx_", "gate_file": "pkg/cli/phase151j_array_index_test.go"},
