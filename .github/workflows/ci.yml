@@ -153,6 +153,12 @@ jobs:
       - name: Run Phase 124 compute-target gate
         run: go test ./pkg/cli/ -run 'TestPhase124' -count=1
 
+      # Foundation audit regression gate: the self-hosted compiler source must
+      # build into a usable kcc. A defect here (an undefined AST accessor)
+      # broke every kcc-dependent gate while looking like a compiler failure.
+      - name: Run foundation compiler-source build gate
+        run: go test ./pkg/cli/ -run 'TestPhaseFoundation_KCCSourceCompiles' -count=1 -timeout 30m
+
       - name: Run Phase 132 stdlib-freeze gate
         run: go test ./pkg/cli/ -run 'TestPhase132' -count=1
 
