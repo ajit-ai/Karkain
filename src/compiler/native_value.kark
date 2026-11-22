@@ -3994,6 +3994,7 @@ func natNativePlanFor(params, stmts, tbl) {
         // loads only the pointer.
         if (callFunc(v) == "trim") { k = natKindString() }
         if (callFunc(v) == "hex_decode_bytes") { k = natKindString() }
+        if (callFunc(v) == "base64_encode_bytes") { k = natKindString() }
     }
   plan = appendArray(plan, next)
   plan = appendArray(plan, k)
@@ -4479,7 +4480,7 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
         return natNativeScanConcat(v, [], plan, natNativeDeclLine(n), fns)
     }
     if (vt == NODE_CALL()) {
-        if (callFunc(v) == "trim" || callFunc(v) == "hex_decode_bytes") {
+        if (callFunc(v) == "trim" || callFunc(v) == "hex_decode_bytes" || callFunc(v) == "base64_encode_bytes") {
             if (len(callArgs(v)) != 1) {
                 return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(v))) + ")", natNativeDeclLine(n))
             }
@@ -6093,7 +6094,7 @@ if (t == NODE_BINARY()) {
   }
   if (t == NODE_CALL()) {
       if (callFunc(expr) == "len") { return natNativeScanLen(expr, stmts, plan, line) }
-       if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes") {
+       if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes" || callFunc(expr) == "base64_encode_bytes") {
            if (len(callArgs(expr)) != 1) {
                return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(expr))) + ")", line)
            }
@@ -6162,7 +6163,7 @@ func natNativeScanReturn(expr, stmts, plan, line, tbl, fns) {
             "becomes the process exit status and must be an int", line)
     }
     if (nodeType(expr) == NODE_CALL()) {
-        if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes") {
+        if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes" || callFunc(expr) == "base64_encode_bytes") {
             return natNativeRefuse("`return` of a string is not supported; a return value " +
                 "becomes the process exit status and must be an int", line)
         }
@@ -6488,6 +6489,8 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
                      s = natEmitTrimCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp, codecTemp)
                 } else if (callFunc(v) == "hex_decode_bytes") {
                     s = natEmitHexDecodeCall(s, v, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
+                } else if (callFunc(v) == "base64_encode_bytes") {
+                    s = natEmitBase64EncodeCall(s, v, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
                  } else {
                      s = natEmitStrCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp)
                  }
@@ -6689,6 +6692,9 @@ s = natCallPrintStr(s)
 site = site + 1
 } else if (callFunc(pv) == "hex_decode_bytes") {
 s = natEmitHexDecodeCall(s, pv, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
+s = natCallPrintStr(s)
+} else if (callFunc(pv) == "base64_encode_bytes") {
+s = natEmitBase64EncodeCall(s, pv, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
 s = natCallPrintStr(s)
 } else {
 // `len` lowers in place; a call to a USER function goes through the
@@ -7209,6 +7215,8 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // is the D5 baseline's stated rule (PHASE-D5-BASELINE.md section 8.3) and
     // the only thing that can be correct when a duplicate is interned: a LIST
     // POSITION is not an OFFSET.
+    int usesBase64Encode = 0
+    if (natNativeProgramUsesBase64Encode(fns, tbl) == 1) { usesBase64Encode = 1 }
     int usesHexDecode = 0
     if (natNativeProgramUsesHexDecode(fns, tbl) == 1) { usesHexDecode = 1 }
     int usesRtErr = 0
@@ -7273,6 +7281,10 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         strs = appendArray(strs, "invalid hex string")
         strs = appendArray(strs, "invalid hex string (odd length)")
     }
+    int b64AlphaBase = len(strs)
+    if (usesBase64Encode == 1) {
+        strs = appendArray(strs, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+    }
     int ro = natRodataSection(strs)
     // The reporter's OWN four strings, read back OUT of the section's offset
     // array rather than assumed -- the D5 baseline's section 8.3 risk. rtErr[k]
@@ -7296,6 +7308,8 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         rtKindSlot = ro[1][callBase]
         srcOff = ro[1][callBase + 1]
     }
+    int b64AlphaOff = 0
+    if (usesBase64Encode == 1) { b64AlphaOff = ro[1][b64AlphaBase] }
     int hexBadOff = 0
     int hexOddOff = 0
     if (usesHexDecode == 1) {
@@ -7417,6 +7431,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     if (usesCodecProg == 1) {
         s = natTrimHelper(s, isWin)
         if (usesHexDecode == 1) { s = natHexDecodeHelper(s, hexBadOff, hexOddOff) }
+        if (usesBase64Encode == 1) { s = natBase64EncodeHelper(s, b64AlphaOff) }
     }
     // Then the user functions, in SOURCE ORDER, each in the oracle's own shape: a
     // label, a frame prologue, parameter homing, the body, the `$ret` label, the
@@ -8020,11 +8035,16 @@ func natNativeArenaBytes(stmts, plan) {
     }
     int sites = natNativeConcatSites(stmts, plan)
     int hexSites = natNativeHexDecodeSites(stmts)
-    if (sites == 0 && hexSites == 0) { return 0 }
+    int b64Sites = natNativeBase64EncodeSites(stmts)
+    if (sites == 0 && hexSites == 0 && b64Sites == 0) { return 0 }
     int dataBytes = sites * natNativeStrTotalBytes(stmts)
     if (hexSites > 0) {
         int hb = hexSites * (natNativeStrTotalBytes(stmts) + 16)
         if (hb > dataBytes) { dataBytes = hb }
+    }
+    if (b64Sites > 0) {
+        int bb = b64Sites * (2 * natNativeStrTotalBytes(stmts) + 16)
+        if (bb > dataBytes) { dataBytes = bb }
     }
     if (dataBytes < natArenaMinSize()) { dataBytes = natArenaMinSize() }
     return dataBytes + natArenaHeaderLen()
@@ -8880,6 +8900,34 @@ func natEmitHexDecodeCall(s, e, plan, fns, binTemp, extrasBase, frame, rctx, stm
     s = natMovRegReg(s, natRegRSI(), natRegRDX())
     return s
 }
+func natEmitBase64EncodeCall(s, e, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp) {
+    int args = callArgs(e)
+    Value ictx = [fns, binTemp, extrasBase, frame, rctx]
+    s = natEmitStrValue(s, args[0], stmts, plan, roffs, tbl, ictx)
+    s = natStoreStack(s, natRegRDI(), codecTemp)
+    s = natStoreStack(s, natRegRSI(), codecTemp + 8)
+    s = natRodataRefOff(s, natRegRCX(), rctx[1])
+    s = natStoreStack(s, natRegRCX(), codecTemp + 16)
+    s = natMovRegImm32(s, natRegRCX(), rctx[2])
+    s = natStoreStack(s, natRegRCX(), codecTemp + 24)
+    s = natMovRegImm32(s, natRegRCX(), callLine(e))
+    s = natStoreStack(s, natRegRCX(), codecTemp + 32)
+    s = natLoadStack(s, natRegRDI(), codecTemp)
+    s = natLoadStack(s, natRegRSI(), codecTemp + 8)
+    s = natLoadStack(s, natRegRDX(), codecTemp + 16)
+    s = natLoadStack(s, natRegRCX(), codecTemp + 24)
+    s = natLoadStack(s, natRegR8(), codecTemp + 32)
+    int isWin = 0
+    if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
+    if (isWin == 1) { s = natSubRegImm32(s, natRegRSP(), 8) }
+    s = natCall32(s)
+    Value rr = natRel32(s, "karkain_base64_encode_bytes")
+    s = rr[0]
+    if (isWin == 1) { s = natAddRegImm32(s, natRegRSP(), 8) }
+    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+    s = natMovRegReg(s, natRegRSI(), natRegRDX())
+    return s
+}
 func natNativeProgramUsesCodec(fns, tbl) {
     int fi = 0
     while (fi < natNativeFuncCount(fns)) {
@@ -8914,6 +8962,7 @@ func natNativeCodecIn(e) {
     if (nodeType(e) == NODE_CALL()) {
         if (callFunc(e) == "trim") { return 1 }
         if (callFunc(e) == "hex_decode_bytes") { return 1 }
+        if (callFunc(e) == "base64_encode_bytes") { return 1 }
         int n = 0
         int i = 0
         while (i < len(callArgs(e))) {
@@ -8946,6 +8995,7 @@ func natNativeHexDecodeSites(stmts) {
 func natNativeHexDecodeIn(e) {
     if (nodeType(e) == NODE_CALL()) {
         if (callFunc(e) == "hex_decode_bytes") { return 1 }
+        if (callFunc(e) == "base64_encode_bytes") { return 1 }
         int n = 0
         int i = 0
         while (i < len(callArgs(e))) { n = n + natNativeHexDecodeIn(callArgs(e)[i]); i = i + 1 }
@@ -9082,6 +9132,166 @@ func natHexDecodeHelper(s, kindBad, kindOdd) {
     s = natCall32(s)
     Value ro2 = natRel32(s, "karkain_runtime_error")
     s = ro2[0]
+    s = natAddRegImm32(s, natRegRSP(), frameBytes)
+    return natRet(s)
+}
+func natNativeBase64EncodeSites(stmts) {
+    int n = 0
+    int i = 0
+    while (i < len(stmts)) {
+        Value st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeBase64EncodeIn(printVal(st)) }
+        if (natNativeIsDecl(st)) { n = n + natNativeBase64EncodeIn(natNativeDeclValue(st)) }
+        if (nodeType(st) == NODE_RETURN()) { n = n + natNativeBase64EncodeIn(retVal(st)) }
+        if (nodeType(st) == NODE_EXPR_STMT()) { n = n + natNativeBase64EncodeIn(exprStmtExpr(st)) }
+        i = i + 1
+    }
+    return n
+}
+func natNativeBase64EncodeIn(e) {
+    if (nodeType(e) == NODE_CALL()) {
+        if (callFunc(e) == "base64_encode_bytes") { return 1 }
+        int n = 0
+        int i = 0
+        while (i < len(callArgs(e))) { n = n + natNativeBase64EncodeIn(callArgs(e)[i]); i = i + 1 }
+        return n
+    }
+    if (nodeType(e) == NODE_BINARY()) { return natNativeBase64EncodeIn(binaryLeft(e)) + natNativeBase64EncodeIn(binaryRight(e)) }
+    if (nodeType(e) == NODE_UNARY()) { return natNativeBase64EncodeIn(unaryOperand(e)) }
+    if (nodeType(e) == NODE_INDEX()) { return natNativeBase64EncodeIn(indexLeft(e)) + natNativeBase64EncodeIn(indexExpr(e)) }
+    return 0
+}
+func natNativeProgramUsesBase64Encode(fns, tbl) {
+    int fi = 0
+    while (fi < natNativeFuncCount(fns)) {
+        if (natNativeBase64EncodeSites(natNativeFuncBodyAt(fns, fi)) > 0) { return 1 }
+        fi = fi + 1
+    }
+    return 0
+}
+func natBase64Symbol(s, shift, offOut, offJ, offAlpha, offV, slot) {
+    s = natLoadStack(s, natRegRAX(), offV)
+    s = natShrRegImm(s, natRegRAX(), shift)
+    s = natMovRegImm32(s, natRegR10(), 63)
+    s = natAndRegReg(s, natRegRAX(), natRegR10())
+    s = natLoadStack(s, natRegR11(), offAlpha)
+    s = natLoadScaled8(s, natRegRAX(), natRegR11(), natRegRAX(), 1, 0)
+    s = natLoadStack(s, natRegR10(), offOut)
+    s = natLoadStack(s, natRegR11(), offJ)
+    return natStoreScaled8(s, natRegRAX(), natRegR10(), natRegR11(), 1, slot)
+}
+func natBase64Pad(s, offOut, offJ, slot) {
+    s = natMovRegImm32(s, natRegRAX(), 61)
+    s = natLoadStack(s, natRegR10(), offOut)
+    s = natLoadStack(s, natRegR11(), offJ)
+    return natStoreScaled8(s, natRegRAX(), natRegR10(), natRegR11(), 1, slot)
+}
+func natBase64EncodeHelper(s, alphaOff) {
+    int frameBytes = 72
+    int offIn = 0
+    int offN = 8
+    int offOut = 16
+    int offI = 24
+    int offJ = 32
+    int offAlpha = 40
+    int offOutLen = 48
+    int offV = 56
+    s = natMark(s, "karkain_base64_encode_bytes")
+    s = natSubRegImm32(s, natRegRSP(), frameBytes)
+    s = natStoreStack(s, natRegRDI(), offIn)
+    s = natStoreStack(s, natRegRSI(), offN)
+    s = natLoadStack(s, natRegRAX(), offN)
+    s = natAddRegImm32(s, natRegRAX(), 2)
+    s = natCqo(s)
+    s = natMovRegImm32(s, natRegRCX(), 3)
+    s = natDivReg(s, natRegRCX())
+    s = natShlRegImm(s, natRegRAX(), 2)
+    s = natStoreStack(s, natRegRAX(), offOutLen)
+    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+    s = natCallAlloc(s)
+    s = natStoreStack(s, natRegRAX(), offOut)
+    s = natRodataRefOff(s, natRegRCX(), alphaOff)
+    s = natStoreStack(s, natRegRCX(), offAlpha)
+    s = natXorRegReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offI)
+    s = natStoreStack(s, natRegRAX(), offJ)
+    s = natMark(s, "b64$group")
+    s = natLoadStack(s, natRegR9(), offI)
+    s = natLoadStack(s, natRegR10(), offN)
+    s = natAddRegImm32(s, natRegR9(), 2)
+    s = natCmpRegReg(s, natRegR9(), natRegR10())
+    s = natJae(s, "b64$tail")
+    s = natLoadStack(s, natRegR10(), offI)
+    s = natLoadStack(s, natRegR11(), offIn)
+    s = natLoadScaled8(s, natRegRAX(), natRegR11(), natRegR10(), 1, 0)
+    s = natShlRegImm(s, natRegRAX(), 16)
+    s = natMovRegReg(s, natRegR9(), natRegRAX())
+    s = natLoadStack(s, natRegR10(), offI)
+    s = natIncReg(s, natRegR10())
+    s = natLoadStack(s, natRegR11(), offIn)
+    s = natLoadScaled8(s, natRegRAX(), natRegR11(), natRegR10(), 1, 0)
+    s = natShlRegImm(s, natRegRAX(), 8)
+    s = natOrRegReg(s, natRegR9(), natRegRAX())
+    s = natLoadStack(s, natRegR10(), offI)
+    s = natAddRegImm32(s, natRegR10(), 2)
+    s = natLoadStack(s, natRegR11(), offIn)
+    s = natLoadScaled8(s, natRegRAX(), natRegR11(), natRegR10(), 1, 0)
+    s = natOrRegReg(s, natRegR9(), natRegRAX())
+    s = natStoreStack(s, natRegR9(), offV)
+    s = natBase64Symbol(s, 18, offOut, offJ, offAlpha, offV, 0)
+    s = natBase64Symbol(s, 12, offOut, offJ, offAlpha, offV, 1)
+    s = natBase64Symbol(s, 6, offOut, offJ, offAlpha, offV, 2)
+    s = natBase64Symbol(s, 0, offOut, offJ, offAlpha, offV, 3)
+    s = natLoadStack(s, natRegR9(), offI)
+    s = natAddRegImm32(s, natRegR9(), 3)
+    s = natStoreStack(s, natRegR9(), offI)
+    s = natLoadStack(s, natRegR9(), offJ)
+    s = natAddRegImm32(s, natRegR9(), 4)
+    s = natStoreStack(s, natRegR9(), offJ)
+    s = natJmp(s, "b64$group")
+    s = natMark(s, "b64$tail")
+    s = natLoadStack(s, natRegR9(), offI)
+    s = natLoadStack(s, natRegR10(), offN)
+    s = natCmpRegReg(s, natRegR9(), natRegR10())
+    s = natJae(s, "b64$done")
+    s = natLoadStack(s, natRegR10(), offI)
+    s = natLoadStack(s, natRegR11(), offIn)
+    s = natLoadScaled8(s, natRegRAX(), natRegR11(), natRegR10(), 1, 0)
+    s = natShlRegImm(s, natRegRAX(), 16)
+    s = natStoreStack(s, natRegRAX(), offV)
+    s = natBase64Symbol(s, 18, offOut, offJ, offAlpha, offV, 0)
+    s = natLoadStack(s, natRegR9(), offI)
+    s = natIncReg(s, natRegR9())
+    s = natLoadStack(s, natRegR10(), offN)
+    s = natCmpRegReg(s, natRegR9(), natRegR10())
+    s = natJae(s, "b64$oneleft")
+    s = natLoadStack(s, natRegR10(), offI)
+    s = natIncReg(s, natRegR10())
+    s = natLoadStack(s, natRegR11(), offIn)
+    s = natLoadScaled8(s, natRegRAX(), natRegR11(), natRegR10(), 1, 0)
+    s = natShlRegImm(s, natRegRAX(), 8)
+    s = natLoadStack(s, natRegR9(), offV)
+    s = natOrRegReg(s, natRegR9(), natRegRAX())
+    s = natStoreStack(s, natRegR9(), offV)
+    s = natBase64Symbol(s, 12, offOut, offJ, offAlpha, offV, 1)
+    s = natBase64Symbol(s, 6, offOut, offJ, offAlpha, offV, 2)
+    s = natBase64Pad(s, offOut, offJ, 3)
+    s = natJmp(s, "b64$taildone")
+    s = natMark(s, "b64$oneleft")
+    s = natBase64Symbol(s, 12, offOut, offJ, offAlpha, offV, 1)
+    s = natBase64Pad(s, offOut, offJ, 2)
+    s = natBase64Pad(s, offOut, offJ, 3)
+    s = natMark(s, "b64$taildone")
+    s = natLoadStack(s, natRegR9(), offJ)
+    s = natAddRegImm32(s, natRegR9(), 4)
+    s = natStoreStack(s, natRegR9(), offJ)
+    s = natLoadStack(s, natRegR9(), offI)
+    s = natIncReg(s, natRegR9())
+    s = natStoreStack(s, natRegR9(), offI)
+    s = natJmp(s, "b64$tail")
+    s = natMark(s, "b64$done")
+    s = natLoadStack(s, natRegRAX(), offOut)
+    s = natLoadStack(s, natRegRDX(), offOutLen)
     s = natAddRegImm32(s, natRegRSP(), frameBytes)
     return natRet(s)
 }
