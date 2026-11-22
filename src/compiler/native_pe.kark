@@ -97,12 +97,12 @@ func natPESectRelocChars() { return 1107296320 }  // 0x42000040 DISCARD|READ
 // RVA: IDT at 0, ILT at 40, IAT at 72, Hint/Name at 104, and "kernel32.dll"
 // at 148. The three imports are fixed by the native architecture, which only
 // ever needs exit, a stdout handle, and write.
-func natPEIdata() {
+func natPEIdata(idataRVA) {
     int[] idata = natZeros(161)
     // Import directory entry: OriginalFirstThunk, Name, FirstThunk.
-    natPut32(idata, natPEIDTOff() + 0, natPEIdataRVA() + natPEILTOff())
-    natPut32(idata, natPEIDTOff() + 12, natPEIdataRVA() + 148)
-    natPut32(idata, natPEIDTOff() + 16, natPEIdataRVA() + natPEIATOff())
+    natPut32(idata, natPEIDTOff() + 0, idataRVA + natPEILTOff())
+    natPut32(idata, natPEIDTOff() + 12, idataRVA + 148)
+    natPut32(idata, natPEIDTOff() + 16, idataRVA + natPEIATOff())
 
     // Hint/Name RVA per import. The blob sizes are 16, 16 and 12, which are
     // the 2-byte hint plus the padded name.
@@ -112,7 +112,7 @@ func natPEIdata() {
     Value hnRvas = []
     int i = 0
     while (i < natPENumImports()) {
-        hnRvas = appendArray(hnRvas, natPEIdataRVA() + hnOff)
+        hnRvas = appendArray(hnRvas, idataRVA + hnOff)
         hnOff = hnOff + sizes[i]
         i = i + 1
     }
@@ -321,14 +321,13 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
 
     int codeLen = len(text) + len(rodata)
     string textRaw = natAlignUp(codeLen, natPEFileAlign())
-    string idata = natPEIdata()
+    string idataRVA = natAlignUp(natPETextRVA() + textRaw, natPESectAlign())
+    string idata = natPEIdata(idataRVA)
     string idataFileOff = natPETextOff() + textRaw
     int arenaLen = len(heap)
     int idataTotal = len(idata) + arenaLen
     string idataRaw = natAlignUp(idataTotal, natPEFileAlign())
-
-    // Every patch site holds an absolute address and therefore needs a DIR64
-    // fixup, so the relocation list is the union of the four patch lists.
+    string relocRVA = natAlignUp(idataRVA + idataRaw, natPESectAlign())
     Value rvas = []
     int i = 0
     while (i < len(patches)) { rvas = appendArray(rvas, natPETextRVA() + patches[i]); i = i + 2 }
@@ -349,9 +348,9 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
     // the loader then maps an image whose tail is not backed by memory, which
     // is the access violation Phase 150B diagnosed. The high-water mark is the
     // end of whichever section ends last.
-    string imageEnd = natPEIdataRVA() + idataTotal
-    if (natPERelocRVA() + relocBlocks > imageEnd) {
-        imageEnd = natPERelocRVA() + relocBlocks
+    string imageEnd = idataRVA + idataTotal
+    if (relocRVA + relocBlocks > imageEnd) {
+        imageEnd = relocRVA + relocBlocks
     }
     string sizeOfImage = natAlignUp(imageEnd, natPESectAlign())
 
@@ -404,17 +403,17 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
     // claimed: the import table, the base relocation table and the IAT.
     // Claiming a directory that carries no data would be a claim the loader
     // could act on.
-    natPut32(opt, 120, natPEIdataRVA())                    // export: none
+    natPut32(opt, 120, idataRVA)                    // export: none
     natPut32(opt, 124, 40)                                 // import table (entry 1)
-    natPut32(opt, 152, natPERelocRVA())                    // base reloc (entry 5)
+    natPut32(opt, 152, relocRVA)                    // base reloc (entry 5)
     natPut32(opt, 156, relocBlocks)
-    natPut32(opt, 208, natPEIdataRVA() + natPEIATOff())    // IAT (entry 12)
+    natPut32(opt, 208, idataRVA + natPEIATOff())    // IAT (entry 12)
     natPut32(opt, 212, natPENumImports() * 8)
     out = natMachoAppend(out, opt)
 
     out = natMachoAppend(out, natPESectHeader(".text", codeLen, natPETextRVA(), textRaw, natPETextOff(), natPESectTextChars()))
-    out = natMachoAppend(out, natPESectHeader(".idata", idataTotal, natPEIdataRVA(), idataRaw, idataFileOff, natPESectIdataChars()))
-    out = natMachoAppend(out, natPESectHeader(".reloc", relocBlocks, natPERelocRVA(), relocRaw, relocFileOff, natPESectRelocChars()))
+    out = natMachoAppend(out, natPESectHeader(".idata", idataTotal, idataRVA, idataRaw, idataFileOff, natPESectIdataChars()))
+    out = natMachoAppend(out, natPESectHeader(".reloc", relocBlocks, relocRVA, relocRaw, relocFileOff, natPESectRelocChars()))
 
     // The headers must fit before .text. They land on exactly 0x200, so there
     // is no slack: if header growth ever pushes past this the image is
@@ -428,7 +427,7 @@ func natPELink(text, rodata, heap, patches, ipatches, apatches, hpatches, textOf
     // addresses, which is what a pointer stored in the image must hold.
     string textBase = natPEBaseAddr() + natPETextRVA()
     string roBase = textBase + len(text)
-    string idataBase = natPEBaseAddr() + natPEIdataRVA()
+    string idataBase = natPEBaseAddr() + idataRVA
 
     int[] img = out
     img = natMachoAppend(img, text)
