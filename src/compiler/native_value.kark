@@ -3989,6 +3989,10 @@ func natNativePlanFor(params, stmts, tbl) {
             k = natKindArray()
             ne = 0
         }
+        // v1.2.4b: trim returns a (ptr,len) string pair, so its binding needs
+        // two units. Without this the plan types the binding as int and print
+        // loads only the pointer.
+        if (callFunc(v) == "trim") { k = natKindString() }
     }
   plan = appendArray(plan, next)
   plan = appendArray(plan, k)
@@ -4474,7 +4478,6 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
         return natNativeScanConcat(v, [], plan, natNativeDeclLine(n), fns)
     }
     if (vt == NODE_CALL()) {
-        if (callFunc(v) == "push") {
         if (callFunc(v) == "trim") {
             if (len(callArgs(v)) != 1) {
                 return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(v))) + ")", natNativeDeclLine(n))
@@ -4486,6 +4489,7 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
             if (bad != "") { return bad }
             return ""
         }
+        if (callFunc(v) == "push") {
             int args = callArgs(v)
             if (len(args) != 2) {
                 return natNativeRefuse("push() takes exactly 2 arguments (got " + str(len(args)) + ")", natNativeDeclLine(n))
@@ -5782,6 +5786,18 @@ func natNativeStrLitAppend(out, e) {
     if (nodeType(e) == NODE_STRING_LIT()) {
         return appendArray(out, stringLitVal(e))
     }
+    // v1.2.4b: a codec call's argument is a string literal that must be
+    // interned. Without this arm natRodataOffsetFor returns 0 (print_int's
+    // "-"), so the helper trims the wrong bytes.
+    if (nodeType(e) == NODE_CALL()) {
+        int ca = callArgs(e)
+        int ci = 0
+        while (ci < len(ca)) {
+            out = natNativeStrLitAppend(out, ca[ci])
+            ci = ci + 1
+        }
+        return out
+    }
 if (nodeType(e) == NODE_BINARY() && binaryOp(e) == "+") {
   out = natNativeStrLitAppend(out, binaryLeft(e))
   return natNativeStrLitAppend(out, binaryRight(e))
@@ -6076,7 +6092,6 @@ if (t == NODE_BINARY()) {
   }
   if (t == NODE_CALL()) {
       if (callFunc(expr) == "len") { return natNativeScanLen(expr, stmts, plan, line) }
-      return natNativeScanCall(expr, plan, line, fns)
        if (callFunc(expr) == "trim") {
            if (len(callArgs(expr)) != 1) {
                return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(expr))) + ")", line)
@@ -6086,8 +6101,9 @@ if (t == NODE_BINARY()) {
            }
            int bad = natNativeScanValue(callArgs(expr)[0], stmts, plan, line, tbl, 1, fns)
            if (bad != "") { return bad }
-           return ""
-       }
+            return ""
+        }
+       return natNativeScanCall(expr, plan, line, fns)
   }
   // Step 9h-1: a record field read, `rec.field`. NARROW by construction -- only an
   // int or float field on a local bound from a record literal is accepted. Anything else
@@ -6141,13 +6157,14 @@ func natNativeScanReturn(expr, stmts, plan, line, tbl, fns) {
         }
     }
     if (nodeType(expr) == NODE_STRING_LIT()) {
-    if (nodeType(expr) == NODE_CALL()) {
-        if (callFunc(expr) == "trim") {
-            return natNativeRefuse("`return` of a string is not supported; a return value becomes the process exit status and must be an int", line)
-        }
-    }
         return natNativeRefuse("`return` of a string is not supported; a return value " +
             "becomes the process exit status and must be an int", line)
+    }
+    if (nodeType(expr) == NODE_CALL()) {
+        if (callFunc(expr) == "trim") {
+            return natNativeRefuse("`return` of a string is not supported; a return value " +
+                "becomes the process exit status and must be an int", line)
+        }
     }
     int bad = natNativeScanValue(expr, stmts, plan, line, tbl, 0, fns)
     if (bad != "") { return bad }
@@ -6474,6 +6491,7 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
                  s = natStoreStack(s, natRegRDI(), natNativeSlotOff(plan, idx))
                  s = natStoreStack(s, natRegRSI(), natNativeSlotOff(plan, idx) + 8)
                  site = site + 1
+            } else if (nodeType(v) == NODE_ARRAY_LIT()) {
                 s = natArrayValue(s, natNativeSlotOff(plan, idx), arrayLitElems(v))
             } else {
 if (nodeType(v) == NODE_STRUCT_LIT()) {
