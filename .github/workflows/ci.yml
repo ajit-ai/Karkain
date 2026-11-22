@@ -180,6 +180,9 @@ jobs:
       - name: Run v1.2.5b native base64-encode gate
         run: go test ./pkg/cli/ -run 'TestPhaseV125B_' -count=1 -timeout 30m
 
+      - name: Run v1.2.5c native base64-decode gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV125C_' -count=1 -timeout 30m
+
       - name: Run v1.2.3 native string index gate
         run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
 
