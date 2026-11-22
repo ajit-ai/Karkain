@@ -3993,6 +3993,7 @@ func natNativePlanFor(params, stmts, tbl) {
         // two units. Without this the plan types the binding as int and print
         // loads only the pointer.
         if (callFunc(v) == "trim") { k = natKindString() }
+        if (callFunc(v) == "hex_decode_bytes") { k = natKindString() }
     }
   plan = appendArray(plan, next)
   plan = appendArray(plan, k)
@@ -4478,7 +4479,7 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
         return natNativeScanConcat(v, [], plan, natNativeDeclLine(n), fns)
     }
     if (vt == NODE_CALL()) {
-        if (callFunc(v) == "trim") {
+        if (callFunc(v) == "trim" || callFunc(v) == "hex_decode_bytes") {
             if (len(callArgs(v)) != 1) {
                 return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(v))) + ")", natNativeDeclLine(n))
             }
@@ -6092,7 +6093,7 @@ if (t == NODE_BINARY()) {
   }
   if (t == NODE_CALL()) {
       if (callFunc(expr) == "len") { return natNativeScanLen(expr, stmts, plan, line) }
-       if (callFunc(expr) == "trim") {
+       if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes") {
            if (len(callArgs(expr)) != 1) {
                return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(expr))) + ")", line)
            }
@@ -6161,7 +6162,7 @@ func natNativeScanReturn(expr, stmts, plan, line, tbl, fns) {
             "becomes the process exit status and must be an int", line)
     }
     if (nodeType(expr) == NODE_CALL()) {
-        if (callFunc(expr) == "trim") {
+        if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes") {
             return natNativeRefuse("`return` of a string is not supported; a return value " +
                 "becomes the process exit status and must be an int", line)
         }
@@ -6485,6 +6486,8 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
                  // Phase 2.1 (v1.2.x): string call in a decl position.
                  if (callFunc(v) == "trim") {
                      s = natEmitTrimCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp, codecTemp)
+                } else if (callFunc(v) == "hex_decode_bytes") {
+                    s = natEmitHexDecodeCall(s, v, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
                  } else {
                      s = natEmitStrCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp)
                  }
@@ -6684,6 +6687,9 @@ if (callFunc(pv) == "trim") {
 s = natEmitTrimCall(s, pv, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp, codecTemp)
 s = natCallPrintStr(s)
 site = site + 1
+} else if (callFunc(pv) == "hex_decode_bytes") {
+s = natEmitHexDecodeCall(s, pv, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
+s = natCallPrintStr(s)
 } else {
 // `len` lowers in place; a call to a USER function goes through the
 // call ABI. They share the print_int tail and nothing else.
@@ -7203,8 +7209,11 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // is the D5 baseline's stated rule (PHASE-D5-BASELINE.md section 8.3) and
     // the only thing that can be correct when a duplicate is interned: a LIST
     // POSITION is not an OFFSET.
+    int usesHexDecode = 0
+    if (natNativeProgramUsesHexDecode(fns, tbl) == 1) { usesHexDecode = 1 }
     int usesRtErr = 0
     if (natNativeUsesRuntimeError(body) == 1) { usesRtErr = 1 }
+    if (usesHexDecode == 1) { usesRtErr = 1 }
     // v1.2.3: a string byte index needs its own reporter kind string. Detect it
     // over main and every callee with that callee's own plan, the same pattern
     // the arena and map flags use; a mismatch here would call karkain_runtime_error
@@ -7259,6 +7268,11 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
             strs = appendArray(strs, "string index out of range")
         }
     }
+    int hexBase = len(strs)
+    if (usesHexDecode == 1) {
+        strs = appendArray(strs, "invalid hex string")
+        strs = appendArray(strs, "invalid hex string (odd length)")
+    }
     int ro = natRodataSection(strs)
     // The reporter's OWN four strings, read back OUT of the section's offset
     // array rather than assumed -- the D5 baseline's section 8.3 risk. rtErr[k]
@@ -7281,6 +7295,12 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         }
         rtKindSlot = ro[1][callBase]
         srcOff = ro[1][callBase + 1]
+    }
+    int hexBadOff = 0
+    int hexOddOff = 0
+    if (usesHexDecode == 1) {
+        hexBadOff = ro[1][hexBase]
+        hexOddOff = ro[1][hexBase + 1]
     }
     // The EMITTER gets the LITERALS' offsets and nothing else.
     //
@@ -7396,6 +7416,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // v1.2.4: trim helper.
     if (usesCodecProg == 1) {
         s = natTrimHelper(s, isWin)
+        if (usesHexDecode == 1) { s = natHexDecodeHelper(s, hexBadOff, hexOddOff) }
     }
     // Then the user functions, in SOURCE ORDER, each in the oracle's own shape: a
     // label, a frame prologue, parameter homing, the body, the `$ret` label, the
@@ -7998,8 +8019,13 @@ func natNativeArenaBytes(stmts, plan) {
         return pushBytes + natArenaHeaderLen()
     }
     int sites = natNativeConcatSites(stmts, plan)
-    if (sites == 0) { return 0 }
+    int hexSites = natNativeHexDecodeSites(stmts)
+    if (sites == 0 && hexSites == 0) { return 0 }
     int dataBytes = sites * natNativeStrTotalBytes(stmts)
+    if (hexSites > 0) {
+        int hb = hexSites * (natNativeStrTotalBytes(stmts) + 16)
+        if (hb > dataBytes) { dataBytes = hb }
+    }
     if (dataBytes < natArenaMinSize()) { dataBytes = natArenaMinSize() }
     return dataBytes + natArenaHeaderLen()
 }
@@ -8826,6 +8852,34 @@ func natTrimHelper(s, isWin) {
     s = natAddRegImm32(s, natRegRSP(), frameBytes)
     return natRet(s)
 }
+func natEmitHexDecodeCall(s, e, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp) {
+    int args = callArgs(e)
+    Value ictx = [fns, binTemp, extrasBase, frame, rctx]
+    s = natEmitStrValue(s, args[0], stmts, plan, roffs, tbl, ictx)
+    s = natStoreStack(s, natRegRDI(), codecTemp)
+    s = natStoreStack(s, natRegRSI(), codecTemp + 8)
+    s = natRodataRefOff(s, natRegRCX(), rctx[1])
+    s = natStoreStack(s, natRegRCX(), codecTemp + 16)
+    s = natMovRegImm32(s, natRegRCX(), rctx[2])
+    s = natStoreStack(s, natRegRCX(), codecTemp + 24)
+    s = natMovRegImm32(s, natRegRCX(), callLine(e))
+    s = natStoreStack(s, natRegRCX(), codecTemp + 32)
+    s = natLoadStack(s, natRegRDI(), codecTemp)
+    s = natLoadStack(s, natRegRSI(), codecTemp + 8)
+    s = natLoadStack(s, natRegRDX(), codecTemp + 16)
+    s = natLoadStack(s, natRegRCX(), codecTemp + 24)
+    s = natLoadStack(s, natRegR8(), codecTemp + 32)
+    int isWin = 0
+    if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
+    if (isWin == 1) { s = natSubRegImm32(s, natRegRSP(), 8) }
+    s = natCall32(s)
+    Value rr = natRel32(s, "karkain_hex_decode_bytes")
+    s = rr[0]
+    if (isWin == 1) { s = natAddRegImm32(s, natRegRSP(), 8) }
+    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+    s = natMovRegReg(s, natRegRSI(), natRegRDX())
+    return s
+}
 func natNativeProgramUsesCodec(fns, tbl) {
     int fi = 0
     while (fi < natNativeFuncCount(fns)) {
@@ -8859,6 +8913,7 @@ func natNativeCodecSites(stmts) {
 func natNativeCodecIn(e) {
     if (nodeType(e) == NODE_CALL()) {
         if (callFunc(e) == "trim") { return 1 }
+        if (callFunc(e) == "hex_decode_bytes") { return 1 }
         int n = 0
         int i = 0
         while (i < len(callArgs(e))) {
@@ -8875,6 +8930,161 @@ func natNativeCodecIn(e) {
     return 0
 }
 
+func natNativeHexDecodeSites(stmts) {
+    int n = 0
+    int i = 0
+    while (i < len(stmts)) {
+        Value st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeHexDecodeIn(printVal(st)) }
+        if (natNativeIsDecl(st)) { n = n + natNativeHexDecodeIn(natNativeDeclValue(st)) }
+        if (nodeType(st) == NODE_RETURN()) { n = n + natNativeHexDecodeIn(retVal(st)) }
+        if (nodeType(st) == NODE_EXPR_STMT()) { n = n + natNativeHexDecodeIn(exprStmtExpr(st)) }
+        i = i + 1
+    }
+    return n
+}
+func natNativeHexDecodeIn(e) {
+    if (nodeType(e) == NODE_CALL()) {
+        if (callFunc(e) == "hex_decode_bytes") { return 1 }
+        int n = 0
+        int i = 0
+        while (i < len(callArgs(e))) { n = n + natNativeHexDecodeIn(callArgs(e)[i]); i = i + 1 }
+        return n
+    }
+    if (nodeType(e) == NODE_BINARY()) { return natNativeHexDecodeIn(binaryLeft(e)) + natNativeHexDecodeIn(binaryRight(e)) }
+    if (nodeType(e) == NODE_UNARY()) { return natNativeHexDecodeIn(unaryOperand(e)) }
+    if (nodeType(e) == NODE_INDEX()) { return natNativeHexDecodeIn(indexLeft(e)) + natNativeHexDecodeIn(indexExpr(e)) }
+    return 0
+}
+func natNativeProgramUsesHexDecode(fns, tbl) {
+    int fi = 0
+    while (fi < natNativeFuncCount(fns)) {
+        if (natNativeHexDecodeSites(natNativeFuncBodyAt(fns, fi)) > 0) { return 1 }
+        fi = fi + 1
+    }
+    return 0
+}
+func natHexDecodeHelper(s, kindBad, kindOdd) {
+    int frameBytes = 88
+    int offIn = 0
+    int offN = 8
+    int offFile = 16
+    int offFileN = 24
+    int offLine = 32
+    int offI = 40
+    int offOut = 48
+    int offH = 64
+    s = natMark(s, "karkain_hex_decode_bytes")
+    s = natSubRegImm32(s, natRegRSP(), frameBytes)
+    s = natStoreStack(s, natRegRDI(), offIn)
+    s = natStoreStack(s, natRegRSI(), offN)
+    s = natStoreStack(s, natRegRDX(), offFile)
+    s = natStoreStack(s, natRegRCX(), offFileN)
+    s = natStoreStack(s, natRegR8(), offLine)
+    s = natLoadStack(s, natRegRAX(), offN)
+    s = natMovRegImm32(s, natRegRCX(), 1)
+    s = natAndRegReg(s, natRegRAX(), natRegRCX())
+    s = natCmpRegImm32(s, natRegRAX(), 0)
+    s = natJnz(s, "hex$odd")
+    s = natLoadStack(s, natRegRAX(), offN)
+    s = natShrRegImm(s, natRegRAX(), 1)
+    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+    s = natCallAlloc(s)
+    s = natStoreStack(s, natRegRAX(), offOut)
+    s = natXorRegReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offI)
+    s = natMark(s, "hex$loop")
+    s = natLoadStack(s, natRegR9(), offI)
+    s = natLoadStack(s, natRegR10(), offN)
+    s = natCmpRegReg(s, natRegR9(), natRegR10())
+    s = natJae(s, "hex$done")
+    s = natLoadStack(s, natRegR10(), offIn)
+    s = natLoadScaled8(s, natRegRAX(), natRegR10(), natRegR9(), 1, 0)
+    s = natCmpRegImm32(s, natRegRAX(), 48)
+    s = natJl(s, "hex$hiLower")
+    s = natCmpRegImm32(s, natRegRAX(), 57)
+    s = natJg(s, "hex$hiLower")
+    s = natSubRegImm32(s, natRegRAX(), 48)
+    s = natJmp(s, "hex$hiDone")
+    s = natMark(s, "hex$hiLower")
+    s = natCmpRegImm32(s, natRegRAX(), 97)
+    s = natJl(s, "hex$hiUpper")
+    s = natCmpRegImm32(s, natRegRAX(), 102)
+    s = natJg(s, "hex$hiUpper")
+    s = natSubRegImm32(s, natRegRAX(), 87)
+    s = natJmp(s, "hex$hiDone")
+    s = natMark(s, "hex$hiUpper")
+    s = natCmpRegImm32(s, natRegRAX(), 65)
+    s = natJl(s, "hex$bad")
+    s = natCmpRegImm32(s, natRegRAX(), 70)
+    s = natJg(s, "hex$bad")
+    s = natSubRegImm32(s, natRegRAX(), 55)
+    s = natMark(s, "hex$hiDone")
+    s = natStoreStack(s, natRegRAX(), offH)
+    s = natLoadStack(s, natRegR9(), offI)
+    s = natIncReg(s, natRegR9())
+    s = natLoadStack(s, natRegR10(), offIn)
+    s = natLoadScaled8(s, natRegRAX(), natRegR10(), natRegR9(), 1, 0)
+    s = natCmpRegImm32(s, natRegRAX(), 48)
+    s = natJl(s, "hex$loLower")
+    s = natCmpRegImm32(s, natRegRAX(), 57)
+    s = natJg(s, "hex$loLower")
+    s = natSubRegImm32(s, natRegRAX(), 48)
+    s = natJmp(s, "hex$loDone")
+    s = natMark(s, "hex$loLower")
+    s = natCmpRegImm32(s, natRegRAX(), 97)
+    s = natJl(s, "hex$loUpper")
+    s = natCmpRegImm32(s, natRegRAX(), 102)
+    s = natJg(s, "hex$loUpper")
+    s = natSubRegImm32(s, natRegRAX(), 87)
+    s = natJmp(s, "hex$loDone")
+    s = natMark(s, "hex$loUpper")
+    s = natCmpRegImm32(s, natRegRAX(), 65)
+    s = natJl(s, "hex$bad")
+    s = natCmpRegImm32(s, natRegRAX(), 70)
+    s = natJg(s, "hex$bad")
+    s = natSubRegImm32(s, natRegRAX(), 55)
+    s = natMark(s, "hex$loDone")
+    s = natLoadStack(s, natRegR9(), offH)
+    s = natShlRegImm(s, natRegR9(), 4)
+    s = natOrRegReg(s, natRegR9(), natRegRAX())
+    s = natLoadStack(s, natRegR10(), offI)
+    s = natShrRegImm(s, natRegR10(), 1)
+    s = natLoadStack(s, natRegR11(), offOut)
+    s = natStoreScaled8(s, natRegR9(), natRegR11(), natRegR10(), 1, 0)
+    s = natLoadStack(s, natRegR9(), offI)
+    s = natAddRegImm32(s, natRegR9(), 2)
+    s = natStoreStack(s, natRegR9(), offI)
+    s = natJmp(s, "hex$loop")
+    s = natMark(s, "hex$done")
+    s = natLoadStack(s, natRegRAX(), offOut)
+    s = natLoadStack(s, natRegRDX(), offN)
+    s = natShrRegImm(s, natRegRDX(), 1)
+    s = natAddRegImm32(s, natRegRSP(), frameBytes)
+    s = natRet(s)
+    s = natMark(s, "hex$bad")
+    s = natRodataRefOff(s, natRegRDI(), kindBad)
+    s = natMovRegImm32(s, natRegRSI(), 18)
+    s = natLoadStack(s, natRegRDX(), offFile)
+    s = natLoadStack(s, natRegRCX(), offFileN)
+    s = natLoadStack(s, natRegR8(), offLine)
+    s = natCall32(s)
+    Value rb = natRel32(s, "karkain_runtime_error")
+    s = rb[0]
+    s = natAddRegImm32(s, natRegRSP(), frameBytes)
+    s = natRet(s)
+    s = natMark(s, "hex$odd")
+    s = natRodataRefOff(s, natRegRDI(), kindOdd)
+    s = natMovRegImm32(s, natRegRSI(), 31)
+    s = natLoadStack(s, natRegRDX(), offFile)
+    s = natLoadStack(s, natRegRCX(), offFileN)
+    s = natLoadStack(s, natRegR8(), offLine)
+    s = natCall32(s)
+    Value ro2 = natRel32(s, "karkain_runtime_error")
+    s = ro2[0]
+    s = natAddRegImm32(s, natRegRSP(), frameBytes)
+    return natRet(s)
+}
 func natEmitTrimCall(s, e, plan, fns, binTemp, extrasBase, frame, depth, rctx, stmts, roffs, tbl, site, strTemp, codecTemp) {
     int args = callArgs(e)
     Value ictx = [fns, binTemp, extrasBase, frame, rctx]

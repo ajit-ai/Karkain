@@ -202,6 +202,7 @@ func natMask(which) {
   // changed the bytes an unrelated primitive emits.
   if (which == 73) { return 131 }                     // 0x83  jae rel32 (unsigned >=)
   if (which == 74) { return 135 }                     // 0x87  ja  rel32 (unsigned >)
+  if (which == 75) { return 9 }                        // 0x09  or r/m64, r64
     return 0
 }
 
@@ -1742,6 +1743,12 @@ func natMovRegImm64(s, r, v) {
 func natAndRegReg(s, dst, src) {
     s = natRex(s, 1, src, dst)
     s = natByte(s, natMask(63))
+    return natModrm(s, 3, src, dst)
+}
+
+func natOrRegReg(s, dst, src) {
+    s = natRex(s, 1, src, dst)
+    s = natByte(s, natMask(75))
     return natModrm(s, 3, src, dst)
 }
 
