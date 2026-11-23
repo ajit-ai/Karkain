@@ -183,6 +183,9 @@ func createCheckerTab() {
     tab = appendArray(tab, [])  // 9: instantiated specialization names (to avoid duplicates)
     tab = appendArray(tab, [])  // 10: function parameter types (name -> [types])
     tab = appendArray(tab, [])  // 11: function parameter names (for lifetime analysis, Phase 1.2)
+    // Phase 150: global symbol name -> position in tab[0], used to accelerate
+    // ckKind/ckCount lookups (avoids O(n) linear scans).
+    tab = appendArray(tab, {})  // 12: global symbol index (name -> position)
     return tab
 }
 
@@ -256,6 +259,10 @@ func ckDeclare(tab, name, kind, count) {
     tab[1] = appendArray(tab[1], kind)
     tab[2] = appendArray(tab[2], count)
     tab[6] = appendArray(tab[6], [])
+    if (len(tab) > 12) {
+        int pos = len(tab[0]) - 1
+        tab[12][name] = pos
+    }
 }
 
 // ckSetEnumVariants attaches a variant list to a declared enum (kind "enum").
@@ -304,29 +311,42 @@ func ckEnumHasVariant(tab, name, v) {
 }
 
 func ckKind(tab, name) {
-    Value names = tab[0]
-    Value kinds = tab[1]
-    int i = 0
-    while (i < len(names)) {
-        if (names[i] == name) {
-            return kinds[i]
+    if (len(tab) <= 12) {
+        // Fallback for tabs without the index (backward compatibility).
+        Value names = tab[0]
+        Value kinds = tab[1]
+        int i = 0
+        while (i < len(names)) {
+            if (names[i] == name) { return kinds[i] }
+            i = i + 1
         }
-        i = i + 1
+        return ""
     }
-    return ""
+    Value idx = tab[12]
+    if (map_contains_key(idx, name) == 0) { return "" }
+    int pos = idx[name]
+    Value kinds = tab[1]
+    if (pos < 0 || pos >= len(kinds)) { return "" }
+    return kinds[pos]
 }
 
 func ckCount(tab, name) {
-    Value names = tab[0]
-    Value counts = tab[2]
-    int i = 0
-    while (i < len(names)) {
-        if (names[i] == name) {
-            return counts[i]
+    if (len(tab) <= 12) {
+        Value names = tab[0]
+        Value counts = tab[2]
+        int i = 0
+        while (i < len(names)) {
+            if (names[i] == name) { return counts[i] }
+            i = i + 1
         }
-        i = i + 1
+        return -1
     }
-    return -1
+    Value idx = tab[12]
+    if (map_contains_key(idx, name) == 0) { return -1 }
+    int pos = idx[name]
+    Value counts = tab[2]
+    if (pos < 0 || pos >= len(counts)) { return -1 }
+    return counts[pos]
 }
 
 func ckLocalHas(tab, name) {
