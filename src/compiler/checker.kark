@@ -261,7 +261,7 @@ func ckDeclare(tab, name, kind, count) {
     tab[6] = appendArray(tab[6], [])
     if (len(tab) > 12) {
         int pos = len(tab[0]) - 1
-        tab[12][name] = pos
+        tab[12][name] = pos + 1
     }
 }
 
@@ -323,8 +323,9 @@ func ckKind(tab, name) {
         return ""
     }
     Value idx = tab[12]
-    if (map_contains_key(idx, name) == 0) { return "" }
     int pos = idx[name]
+    if (pos == 0) { return "" }
+    pos = pos - 1
     Value kinds = tab[1]
     if (pos < 0 || pos >= len(kinds)) { return "" }
     return kinds[pos]
@@ -342,8 +343,9 @@ func ckCount(tab, name) {
         return -1
     }
     Value idx = tab[12]
-    if (map_contains_key(idx, name) == 0) { return -1 }
     int pos = idx[name]
+    if (pos == 0) { return -1 }
+    pos = pos - 1
     Value counts = tab[2]
     if (pos < 0 || pos >= len(counts)) { return -1 }
     return counts[pos]
