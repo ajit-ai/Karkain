@@ -147,39 +147,49 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 **v1.2.x** (`x = 1, 2, 3, … n`). Older non-v1.2.x labels in this register are
 historical audit records, not the active plan.
 
-**Current slice: v1.2.2 — control-document refresh** (documentation-only;
-record `docs/audit/V1.2.2-CONTROL-REFRESH.md`).
+**Current slice: P0.2 — task cancellation and timed joins** — **COMPLETE in
+the working tree; commit/PR deliberately withheld** under the slice's own
+no-commit instruction (2026-11-23; record
+`docs/audit/P0.2-TASK-CANCEL-BASELINE.md`). Per §2 this is not yet the
+register's `completed` status: the gate and the CI step exist and the gate
+passed locally on both engines, but the commit and the step's first CI
+execution follow the owner's commit instruction.
+`cancel(task)` and `join_timeout(task, ms)` are lowered on both engines and
+gated by `pkg/cli/phase_p02_task_cancel_test.go` (A–I); the P0.1 goldens
+(spawn/join grid `285`, channel producer/consumer `5, 0, 8`, actor
+valid/invalid-handler cases) still pass, and `spawn`/`join`/`channel`/`actor`
+are unchanged. Cancellation is cooperative: a queued task never runs, a running
+task is not preempted. **Superseded (2026-11-23):** the recommendation recorded
+here as v1.2.3 was implemented and followed by v1.2.4, v1.2.4b and
+v1.2.5a–v1.2.5c, so its rationale is history, not guidance.
 
-**Recommended next implementation: v1.2.3 — native string byte indexing
-(`s[i]`)**, the first bounded blocker toward no-C `stdlib_v2`. It requires the
-owner's authorisation before implementation begins.
+**Recommended next implementation: v1.2.6 — native `sha256_hex`**, the next
+queued native-stdlib slice after the v1.2.5a–c codecs. It requires the owner's
+authorisation before implementation begins.
 
 Why this one, from evidence:
 
-1. It is the largest *measured* unmet obligation in the repository. v1.2.0
-   conditions 2 and 3 were carried to v1.3.0 by owner amendment on 2026-10-10,
-   not withdrawn, and the reason they were carried is one named missing
-   capability: the driver refuses every user call, by name, at
-   `src/compiler/native_value.kark:4238` (the message begins "call to" and ends
-   "is not lowered by the"). No amount of library work
-   substitutes for that - a `stdlib_v2` program is a program with calls in it.
-2. It converts a deferred condition into a measurable one. Today condition 2 is
-   an argument about what a missing lowering would allow; after the call path
-   exists it is a test: build `examples/stdlib_v2` through the C-free native
-   target and compare its output, then do the same for `std::net` on the
-   platforms the version claims.
-3. It is incremental on a pattern that is already gated end to end. Phases
-   151A-8d/8e/8f lowered the call ABI for int, float and string arguments
-   (spill staging, register budget, extras area, two-unit high-half rule) and
-   each was byte-verified against the real `pkg/native` emitter. What is missing
-   is the driver *reaching* that machinery for a program's own functions, plus
-   the kinds the driver still refuses (`for-in`, `push`, maps, float statements
-   and params).
-4. **REL-001 no longer has a cheap decisive experiment, so it is not the pick.**
+1. It is the next *measured* unlowered `std` primitive in a module whose
+   semantics are already gated. `std.crypto` is one of the 13 VERIFIED modules
+   in `KARKAIN-STDLIB-CAPABILITY-MATRIX.rst`, and Phase 109 pins NIST FIPS 180
+   vectors (`sha256_hex("abc") = ba7816bf...`) on both engines — so the native
+   slice has an exact-value oracle before a line of emitter code is written,
+   which is the property that made v1.2.5a–c reviewable.
+2. The pattern is proven and bounded. v1.2.5a/b/c established the shape for a
+   codec primitive: a helper emitted only when used, five-unit argument staging,
+   an arena result, runtime-error paths for invalid input, PE execution with
+   exact bytes and a C-backend differential. A hash is the same shape with a
+   longer body; it is not a new mechanism.
+3. The instruction set already exists. A compression function needs 32-bit
+   rotates, shifts, `and`/`or`/`xor` and byte loads; bitwise operators are fixed
+   and gated on both engines by `TestPhase151P0_`, and the scaled/byte load
+   forms are gated by the 9d/9g work. Nothing in the slice requires a new class
+   of emitter primitive.
+4. **REL-001 still has no cheap decisive experiment, so it is not the pick.**
    ASan is unavailable on this toolchain (measured), the 64 MiB stack reserve is
    falsified (measured), the low-RAM and corrupt-binary hypotheses are
    falsified, and five consecutive isolated runs completed cleanly. A sixth
-   guess is not evidence, and REL-001 does not block this work: the pin is now
+   guess is not evidence, and REL-001 does not block this work: the pin is
    verified on CI (REL-005, closed below).
 
 **Runner-up, and why it is second: the type-system foundation
@@ -354,6 +364,15 @@ apparent complexity, or preference for new features.
    reports; only a runner-side change or an owner decision moves it.
 
 ### 9.4 Single recommendation, runner-up, deferrals
+
+> **Superseded in part on 2026-11-23.** The recommendation below (v1.2.3,
+> `s[i]`) was implemented, followed by v1.2.4, v1.2.4b, v1.2.5a–v1.2.5c and
+> **P0.2 (task cancellation and timed joins; implemented and gated, commit
+> withheld by instruction)**. Its rationale is
+> retained unedited as the 2026-11-21 record — it was correct then. The current
+> recommendation is in §5.1: **v1.2.6 — native `sha256_hex`**, subject to owner
+> authorisation. The deferral list below is unchanged and still current except
+> where §5.1 restates it.
 
 **Recommended next slice: v1.2.3 — native string byte indexing (`s[i]`).** This
 supersedes the older STD-001 recommendation. Measured repository state shows

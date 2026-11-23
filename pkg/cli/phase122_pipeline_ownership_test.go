@@ -291,12 +291,16 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// (text=16620 verify=16620), never predicted.
 		// RE-PINNED FOR V1.2.5B BASE64 ENCODE: 16620 -> 17095 (+221),
 		// measured on CI run 45019824294 (kcc whole-tree self-check job)
-		// (text=17095 verify=17095), never predicted.
-		// never predicted. The delta is the four repaired control-flow blocks,
-		// the CallExpr descent in the literal collector, and the trim binding's
-		// KindString clause.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 17095 {
-			t.Errorf("whole-tree kir text = %d lines, want 17095:\n%s", got, out)
+		// (text=17095 verify=17095), never predicted. The delta is the four
+		// repaired control-flow blocks, the CallExpr descent in the literal
+		// collector, and the trim binding's KindString clause.
+		// RE-PINNED FOR P0.2 TASK CANCELLATION AND TIMED JOINS: 17095 -> 17215
+		// (+120), measured on CI run 45128095773 (kcc whole-tree self-check
+		// job) (text=17215 verify=17215), never predicted. The delta is the
+		// regenerated conc_runtime.kark (cancel/join_timeout glue) plus the kcc
+		// actor-handler argument check.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 17215 {
+			t.Errorf("whole-tree kir text = %d lines, want 17215:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

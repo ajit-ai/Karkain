@@ -76,3 +76,64 @@ claim more than its gate demonstrates.
 
 Close-out consolidation: ``TestPhase146D_Closeout`` asserts every Stable
 row above in a single invocation.
+
+Concurrency task control (P0.2)
+===============================
+
+Task cancellation and timed joins, verified through the real pipeline on
+both engines by ``pkg/cli/phase_p02_task_cancel_test.go``. Every row names
+the subtest that proves it; nothing here claims preemption, and
+``spawn``/``join``/``channel``/``actor`` signatures are unchanged.
+
+.. list-table:: Task control matrix
+   :widths: 30 12 12 46
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``cancel(task)`` - first request returns ``true``; a queued task never
+       runs and joins as ``-4``
+     - Stable
+     - Go + kcc
+     - ``TestPhaseP02_D_QueuedCancellation``
+   * - ``cancel(task)`` - a running task is cooperative, not preempted; the
+       running body's result stands
+     - Stable
+     - Go + kcc
+     - ``TestPhaseP02_E_RunningCancellationCooperative``
+   * - ``cancel(task)`` - repeated/completed/non-task handles return
+       ``false`` and are safe
+     - Stable
+     - Go + kcc
+     - ``TestPhaseP02_A_NormalCompletion``,
+       ``TestPhaseP02_F_RepeatedCancel``
+   * - ``join_timeout(task, ms)`` - ``true`` on completion, ``false`` on
+       timeout; never cancels; the task stays joinable
+     - Stable
+     - Go + kcc
+     - ``TestPhaseP02_B_TimeoutDoesNotCancel``
+   * - ``join_timeout(task, 0)`` - non-blocking completion check
+     - Stable
+     - Go + kcc
+     - ``TestPhaseP02_C_ZeroTimeoutCompleted``
+   * - Invalid handles and negative timeouts rejected safely
+     - Stable
+     - Go + kcc
+     - ``TestPhaseP02_G_InvalidHandlesAndArgs``
+   * - Existing concurrency semantics preserved (spawn/join grid ``285``;
+       channel producer/consumer ``5, 0, 8``)
+     - Stable
+     - Go + kcc
+     - ``TestPhaseP02_H_ExistingConcurrencyGoldens``
+   * - Actor regression (valid handler ``6``; invalid handler rejected)
+     - Stable
+     - Go + kcc
+     - ``TestPhaseP02_I_ActorRegression``
+   * - Preemptive interruption of a running task
+     - Not supported
+     - -
+     - Not a goal of P0.2: no scheduler redesign and no signal-based
+       interruption. Cancelling a running task sets a request the program
+       may observe; it never forces a stop.

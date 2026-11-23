@@ -501,6 +501,21 @@ engine for these builtins is post-106 (its parser already accepts `@simd_*`).
 
 - `actor`/`spawn`/`receive`/`channel`/`send` (phases 16/37), runtime
   `pkg/runtime/actor_system.go`.
+- `join(task)` waits for completion and returns the task's value.
+- `cancel(task)` returns `true` on the first accepted cancellation request and
+  `false` for a completed, already-cancelled or non-task handle, so repeated
+  calls are safe. A queued task never runs and joins as `-4`
+  (`KARKAIN_TASK_CANCELLED`). A running task is **not** preempted: the request
+  is cooperative state the program may observe, and the running body's result
+  stands. Implementation: one atomic request flag per task, no scheduler
+  redesign.
+- `join_timeout(task, ms)` returns `true` when the task completed within the
+  budget and `false` on timeout. A timeout **does not cancel** the task, which
+  keeps running and stays joinable; `0` is a non-blocking completion check;
+  negative timeouts and non-task handles are rejected safely. Timing uses a
+  monotonic deadline recomputed each wait iteration, so there is no busy-wait.
+- Both task-control builtins are available on the Go and kcc engines and are
+  gated by `pkg/cli/phase_p02_task_cancel_test.go`.
 
 ### 7.5 Coroutine / green-thread scheduler Ã°Å¸Å¸Â¡
 

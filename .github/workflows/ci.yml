@@ -204,6 +204,12 @@ jobs:
       - name: Run Phase 137 concurrency-parity gate
         run: go test ./pkg/cli/ -run 'TestPhase137' -count=1
 
+      - name: Run P0.2 task cancellation and timed-join gate
+        # Builds the CLI and the self-hosted compiler once (sync.Once) and then
+        # drives both engines over the cancellation/timed-join contract plus the
+        # P0.1 concurrency goldens (285 / 5,0,8 / actor cases).
+        run: go test ./pkg/cli/ -run 'TestPhaseP02_' -count=1 -timeout 30m
+
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1
 

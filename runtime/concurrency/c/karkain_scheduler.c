@@ -117,6 +117,18 @@ void karkain_thread_yield(void) { sched_yield(); }
 
 #endif
 
+/* Monotonic millisecond clock for bounded waits. Never goes backwards when the
+ * system wall clock is adjusted. */
+static long karkain_monotonic_ms(void) {
+#ifdef _WIN32
+    return (long)(GetTickCount64());
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long)((long long)ts.tv_sec * 1000 + ts.tv_nsec / 1000000L);
+#endif
+}
+
 /* ---------------------------------------------------------------------
  * Scheduler state
  * ------------------------------------------------------------------- */
@@ -293,6 +305,35 @@ int karkain_task_join(karkain_task_t* t) {
     return (int)status;
 }
 
+int karkain_task_cancel(karkain_task_t* t) {
+    if (!t) return 0;
+    /* A completed task is never cancellable. */
+    if (karkain_conc_atomic_load(&t->done)) return 0;
+    /* CAS makes repeated cancellation idempotent and races deterministic. */
+    if (!karkain_conc_atomic_cas(&t->cancel_requested, 0, 1)) return 0;
+    karkain_mutex_lock(&t->lock);
+    karkain_cond_broadcast(&t->cv);
+    karkain_mutex_unlock(&t->lock);
+    return 1;
+}
+
+int karkain_task_join_timeout(karkain_task_t* t, long ms) {
+    if (!t || ms < 0) return 0;
+    long deadline = karkain_monotonic_ms() + ms;
+    karkain_mutex_lock(&t->lock);
+    while (!karkain_conc_atomic_load(&t->done)) {
+        long now = karkain_monotonic_ms();
+        long remaining = deadline - now;
+        if (remaining <= 0) {
+            karkain_mutex_unlock(&t->lock);
+            return 0; /* timeout only: task stays valid and joinable */
+        }
+        karkain_cond_timedwait(&t->cv, &t->lock, remaining);
+    }
+    karkain_mutex_unlock(&t->lock);
+    return 1;
+}
+
 void karkain_wait_all(karkain_sched_t* s) {
     karkain_mutex_lock(&s->lock);
     while (karkain_conc_atomic_load(&s->pending) != 0) {
@@ -302,6 +343,21 @@ void karkain_wait_all(karkain_sched_t* s) {
 }
 
 static void karkain_run_task(karkain_sched_t* s, karkain_task_t* t) {
+    if (karkain_conc_atomic_load(&t->cancel_requested)) {
+        /* Cooperative cancellation of a QUEUED task: the body never runs.
+         * Completion bookkeeping still happens exactly once. */
+        free(t->ctx);
+        t->ctx = NULL;
+        karkain_conc_atomic_store(&t->status, KARKAIN_TASK_CANCELLED);
+        karkain_conc_atomic_store(&t->done, 1);
+        karkain_mutex_lock(&t->lock);
+        karkain_cond_broadcast(&t->cv);
+        karkain_mutex_unlock(&t->lock);
+        karkain_sched_pending_dec(s, 1);
+        return;
+    }
+    /* A cancellation arriving after this point is cooperative only: the
+     * running body is NOT preempted and its result stands. */
     t->fn(t, t->ctx, s);
     free(t->ctx); /* ctx is heap-owned by the runtime (codegen wrapper allocates) */
     t->ctx = NULL;

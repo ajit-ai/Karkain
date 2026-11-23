@@ -80,8 +80,11 @@ gates.
        ``std.numerics``, ``std.net``, ``std.http``, ``std.db``,
        ``std.generics``. Frozen under the SemVer policy.
    * - Concurrency runtime
-     - ``spawn``, ``channel``, ``actor`` — work-stealing scheduler with
-       full ``kcc`` parity (Phase 137).
+     - ``spawn``, ``join``, ``channel``, ``actor`` — work-stealing scheduler
+       with full ``kcc`` parity (Phase 137). Task control on both engines:
+       ``cancel(task)`` (cooperative; a queued task never runs, a running task
+       is not preempted) and ``join_timeout(task, ms)`` (bounded join that
+       never cancels; monotonic deadline, no busy-wait).
    * - First-class functions
      - First-class ``fn`` values, closures with capture-mutation,
        higher-order functions, factory patterns, and ``error[K114]``
