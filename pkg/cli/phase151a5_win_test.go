@@ -1003,9 +1003,11 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// RE-PINNED FOR V1.2.5B BASE64 ENCODE: 16620 -> 17095 (+221),
 	// measured on CI run 45019824294 (kcc whole-tree self-check job)
 	// (text=17095 verify=17095), never predicted.
-	// never predicted.
-	if text != 17095 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 17095; see the comment above for the measured chain. output follows: %s", text, out)
+	// RE-PINNED FOR P0.2 TASK CANCELLATION AND TIMED JOINS: 17095 -> 17215
+	// (+120), measured on CI run 45128095773 (kcc whole-tree self-check job)
+	// (text=17215 verify=17215), never predicted.
+	if text != 17215 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 17215; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }
