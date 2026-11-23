@@ -1006,8 +1006,12 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// RE-PINNED FOR P0.2 TASK CANCELLATION AND TIMED JOINS: 17095 -> 17215
 	// (+120), measured on CI run 45128095773 (kcc whole-tree self-check job)
 	// (text=17215 verify=17215), never predicted.
-	if text != 17215 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 17215; see the comment above for the measured chain. output follows: %s", text, out)
+	// RE-PINNED FOR PHASE 150 CHECKER INDEX: 17215 -> 17242 (+27), measured
+	// on CI run 45151383617 (kcc whole-tree self-check job) (text=17242
+	// verify=17242), never predicted. Delta is the Phase 150 map-index
+	// additions to checker.kark.
+	if text != 17242 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 17242; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }
