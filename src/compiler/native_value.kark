@@ -3976,6 +3976,16 @@ func natNativePlanFor(params, stmts, tbl) {
   if (nodeType(v) == NODE_INDEX()) {
       if (natNativeStrIndexSlot(plan, v) >= 0) { k = natKindString() }
   }
+  // v1.2.6 (mixed_concat_sha, RED): a `let` whose value is a string
+  // concatenation (`a + "x"`) needs the same kind inference as
+  // natNativeStrKind's `+` case (line 7904-7908). Without this arm, `k`
+  // stays natKindInt() and the later natNativeStrKind(b) check fails with
+  // K145 "sha256_hex() requires a string argument".
+  if (nodeType(v) == NODE_BINARY()) {
+      if (binaryOp(v) == "+" && natNativeStrKind(binaryLeft(v), stmts, plan) == 1) {
+          k = natKindString()
+      }
+  }
   // Step 9h-1: a record literal is ONE 8-byte unit whose value is the ADDRESS of its
   // field area, and the area follows the slot immediately. `ne` carries the field area
   // in UNITS -- the same convention the array clause uses for its element count -- so the
@@ -3996,6 +4006,7 @@ func natNativePlanFor(params, stmts, tbl) {
         if (callFunc(v) == "hex_decode_bytes") { k = natKindString() }
         if (callFunc(v) == "base64_encode_bytes") { k = natKindString() }
         if (callFunc(v) == "base64_decode_bytes") { k = natKindString() }
+        if (callFunc(v) == "sha256_hex") { k = natKindString() }
     }
   plan = appendArray(plan, next)
   plan = appendArray(plan, k)
@@ -4481,12 +4492,12 @@ func natNativeScanDecl(n, plan, tbl, fns, isMain) {
         return natNativeScanConcat(v, [], plan, natNativeDeclLine(n), fns)
     }
     if (vt == NODE_CALL()) {
-        if (callFunc(v) == "trim" || callFunc(v) == "hex_decode_bytes" || callFunc(v) == "base64_encode_bytes" || callFunc(v) == "base64_decode_bytes") {
+        if (callFunc(v) == "trim" || callFunc(v) == "hex_decode_bytes" || callFunc(v) == "base64_encode_bytes" || callFunc(v) == "base64_decode_bytes" || callFunc(v) == "sha256_hex") {
             if (len(callArgs(v)) != 1) {
-                return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(v))) + ")", natNativeDeclLine(n))
+                return natNativeRefuse(callFunc(v) + "() takes 1 argument (got " + str(len(callArgs(v))) + ")", natNativeDeclLine(n))
             }
             if (natNativeStrKind(callArgs(v)[0], [], plan) != 1) {
-                return natNativeRefuse("trim() requires a string argument", natNativeDeclLine(n))
+                return natNativeRefuse(callFunc(v) + "() requires a string argument", natNativeDeclLine(n))
             }
             int bad = natNativeScanValue(callArgs(v)[0], [], plan, natNativeDeclLine(n), tbl, 1, fns)
             if (bad != "") { return bad }
@@ -6095,12 +6106,12 @@ if (t == NODE_BINARY()) {
   }
   if (t == NODE_CALL()) {
       if (callFunc(expr) == "len") { return natNativeScanLen(expr, stmts, plan, line) }
-       if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes" || callFunc(expr) == "base64_encode_bytes" || callFunc(expr) == "base64_decode_bytes") {
+       if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes" || callFunc(expr) == "base64_encode_bytes" || callFunc(expr) == "base64_decode_bytes" || callFunc(expr) == "sha256_hex") {
            if (len(callArgs(expr)) != 1) {
-               return natNativeRefuse("trim() takes 1 argument (got " + str(len(callArgs(expr))) + ")", line)
+               return natNativeRefuse(callFunc(expr) + "() takes 1 argument (got " + str(len(callArgs(expr))) + ")", line)
            }
            if (natNativeStrKind(callArgs(expr)[0], stmts, plan) != 1) {
-               return natNativeRefuse("trim() requires a string argument", line)
+               return natNativeRefuse(callFunc(expr) + "() requires a string argument", line)
            }
            int bad = natNativeScanValue(callArgs(expr)[0], stmts, plan, line, tbl, 1, fns)
            if (bad != "") { return bad }
@@ -6164,7 +6175,7 @@ func natNativeScanReturn(expr, stmts, plan, line, tbl, fns) {
             "becomes the process exit status and must be an int", line)
     }
     if (nodeType(expr) == NODE_CALL()) {
-        if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes" || callFunc(expr) == "base64_encode_bytes" || callFunc(expr) == "base64_decode_bytes") {
+        if (callFunc(expr) == "trim" || callFunc(expr) == "hex_decode_bytes" || callFunc(expr) == "base64_encode_bytes" || callFunc(expr) == "base64_decode_bytes" || callFunc(expr) == "sha256_hex") {
             return natNativeRefuse("`return` of a string is not supported; a return value " +
                 "becomes the process exit status and must be an int", line)
         }
@@ -6494,6 +6505,8 @@ func natNativeLower(s, stmts, fnStmts, plan, roffs, tbl, rtErr, rtKindSlot, srcO
                     s = natEmitBase64EncodeCall(s, v, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
                 } else if (callFunc(v) == "base64_decode_bytes") {
                     s = natEmitBase64DecodeCall(s, v, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
+                } else if (callFunc(v) == "sha256_hex") {
+                    s = natEmitSha256Call(s, v, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
                  } else {
                      s = natEmitStrCall(s, v, plan, fns, binTemp, extrasBase, frame, 0, rctx, stmts, roffs, tbl, site, strTemp)
                  }
@@ -6701,6 +6714,9 @@ s = natEmitBase64EncodeCall(s, pv, plan, fns, binTemp, extrasBase, frame, rctx, 
 s = natCallPrintStr(s)
 } else if (callFunc(pv) == "base64_decode_bytes") {
 s = natEmitBase64DecodeCall(s, pv, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
+s = natCallPrintStr(s)
+} else if (callFunc(pv) == "sha256_hex") {
+s = natEmitSha256Call(s, pv, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp)
 s = natCallPrintStr(s)
 } else {
 // `len` lowers in place; a call to a USER function goes through the
@@ -7404,6 +7420,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
     // layout -- exactly as the map flag is.
     int usesStrProg = natNativeProgramUsesStr(fns, tbl)
     int usesCodecProg = natNativeProgramUsesCodec(fns, tbl)
+    int usesSha256 = natNativeProgramUsesSha256(fns, tbl)
     // helpers first: print_int, then print_str when the program can produce a
     // string, then the arena allocator when it allocates.
     s = natPrintIntBody(s, isWin, 0, 1)
@@ -7453,6 +7470,7 @@ func natNativeProgramOS(ast, targetOS, sourceBase, useRegAlloc) {
         if (usesHexDecode == 1) { s = natHexDecodeHelper(s, hexBadOff, hexOddOff) }
         if (usesBase64Encode == 1) { s = natBase64EncodeHelper(s, b64AlphaOff) }
         if (usesBase64Decode == 1) { s = natBase64DecodeHelper(s, b64dSymOff, b64dLenOff) }
+        if (usesSha256 == 1) { s = natSha256HexHelper(s) }
     }
     // Then the user functions, in SOURCE ORDER, each in the oracle's own shape: a
     // label, a frame prologue, parameter homing, the body, the `$ret` label, the
@@ -8058,7 +8076,8 @@ func natNativeArenaBytes(stmts, plan) {
     int hexSites = natNativeHexDecodeSites(stmts)
     int b64Sites = natNativeBase64EncodeSites(stmts)
     int b64dSites = natNativeBase64DecodeSites(stmts)
-    if (sites == 0 && hexSites == 0 && b64Sites == 0 && b64dSites == 0) { return 0 }
+    int shaSites = natNativeSha256Sites(stmts)
+    if (sites == 0 && hexSites == 0 && b64Sites == 0 && b64dSites == 0 && shaSites == 0) { return 0 }
     int dataBytes = sites * natNativeStrTotalBytes(stmts)
     if (hexSites > 0) {
         int hb = hexSites * (natNativeStrTotalBytes(stmts) + 16)
@@ -8071,6 +8090,13 @@ func natNativeArenaBytes(stmts, plan) {
     if (b64dSites > 0) {
         int bd = b64dSites * (natNativeStrTotalBytes(stmts) + 16)
         if (bd > dataBytes) { dataBytes = bd }
+    }
+    if (shaSites > 0) {
+        // The oracle ADDS the fixed 65-byte-per-site SHA-256 cost on top of the
+        // proportional codec/concat bound (program.go:1531-1533, 1584). A max
+        // would under-size a mixed program whose other allocations already
+        // exceed 65 * sites.
+        dataBytes = dataBytes + shaSites * 65
     }
     if (dataBytes < natArenaMinSize()) { dataBytes = natArenaMinSize() }
     return dataBytes + natArenaHeaderLen()
@@ -8982,6 +9008,27 @@ func natEmitBase64DecodeCall(s, e, plan, fns, binTemp, extrasBase, frame, rctx, 
     s = natMovRegReg(s, natRegRSI(), natRegRDX())
     return s
 }
+func natEmitSha256Call(s, e, plan, fns, binTemp, extrasBase, frame, rctx, stmts, roffs, tbl, codecTemp) {
+    int args = callArgs(e)
+    Value ictx = [fns, binTemp, extrasBase, frame, rctx]
+    s = natEmitStrValue(s, args[0], stmts, plan, roffs, tbl, ictx)
+    s = natStoreStack(s, natRegRDI(), codecTemp)
+    s = natStoreStack(s, natRegRSI(), codecTemp + 8)
+    s = natLoadStack(s, natRegRDI(), codecTemp)
+    s = natLoadStack(s, natRegRSI(), codecTemp + 8)
+    // karkain_sha256_hex(ptr,len) -> (RAX=ptr,RDX=64): SHA-256 cannot fail, so
+    // the diagnostic units are not staged and no rodata patch is recorded.
+    int isWin = 0
+    if (natStTargetOS(s) == natOSWindows()) { isWin = 1 }
+    if (isWin == 1) { s = natSubRegImm32(s, natRegRSP(), 8) }
+    s = natCall32(s)
+    Value rr = natRel32(s, "karkain_sha256_hex")
+    s = rr[0]
+    if (isWin == 1) { s = natAddRegImm32(s, natRegRSP(), 8) }
+    s = natMovRegReg(s, natRegRDI(), natRegRAX())
+    s = natMovRegReg(s, natRegRSI(), natRegRDX())
+    return s
+}
 func natNativeProgramUsesCodec(fns, tbl) {
     int fi = 0
     while (fi < natNativeFuncCount(fns)) {
@@ -9018,6 +9065,7 @@ func natNativeCodecIn(e) {
         if (callFunc(e) == "hex_decode_bytes") { return 1 }
         if (callFunc(e) == "base64_encode_bytes") { return 1 }
         if (callFunc(e) == "base64_decode_bytes") { return 1 }
+        if (callFunc(e) == "sha256_hex") { return 1 }
         int n = 0
         int i = 0
         while (i < len(callArgs(e))) {
@@ -9376,6 +9424,40 @@ func natNativeBase64DecodeIn(e) {
     if (nodeType(e) == NODE_BINARY()) { return natNativeBase64DecodeIn(binaryLeft(e)) + natNativeBase64DecodeIn(binaryRight(e)) }
     if (nodeType(e) == NODE_UNARY()) { return natNativeBase64DecodeIn(unaryOperand(e)) }
     if (nodeType(e) == NODE_INDEX()) { return natNativeBase64DecodeIn(indexLeft(e)) + natNativeBase64DecodeIn(indexExpr(e)) }
+    return 0
+}
+func natNativeSha256Sites(stmts) {
+    int n = 0
+    int i = 0
+    while (i < len(stmts)) {
+        Value st = stmts[i]
+        if (nodeType(st) == NODE_PRINT()) { n = n + natNativeSha256In(printVal(st)) }
+        if (natNativeIsDecl(st)) { n = n + natNativeSha256In(natNativeDeclValue(st)) }
+        if (nodeType(st) == NODE_RETURN()) { n = n + natNativeSha256In(retVal(st)) }
+        if (nodeType(st) == NODE_EXPR_STMT()) { n = n + natNativeSha256In(exprStmtExpr(st)) }
+        i = i + 1
+    }
+    return n
+}
+func natNativeSha256In(e) {
+    if (nodeType(e) == NODE_CALL()) {
+        if (callFunc(e) == "sha256_hex") { return 1 }
+        int n = 0
+        int i = 0
+        while (i < len(callArgs(e))) { n = n + natNativeSha256In(callArgs(e)[i]); i = i + 1 }
+        return n
+    }
+    if (nodeType(e) == NODE_BINARY()) { return natNativeSha256In(binaryLeft(e)) + natNativeSha256In(binaryRight(e)) }
+    if (nodeType(e) == NODE_UNARY()) { return natNativeSha256In(unaryOperand(e)) }
+    if (nodeType(e) == NODE_INDEX()) { return natNativeSha256In(indexLeft(e)) + natNativeSha256In(indexExpr(e)) }
+    return 0
+}
+func natNativeProgramUsesSha256(fns, tbl) {
+    int fi = 0
+    while (fi < natNativeFuncCount(fns)) {
+        if (natNativeSha256Sites(natNativeFuncBodyAt(fns, fi)) > 0) { return 1 }
+        fi = fi + 1
+    }
     return 0
 }
 func natNativeProgramUsesBase64Decode(fns, tbl) {

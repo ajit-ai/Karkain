@@ -137,3 +137,42 @@ the subtest that proves it; nothing here claims preemption, and
      - Not a goal of P0.2: no scheduler redesign and no signal-based
        interruption. Cancelling a running task sets a request the program
        may observe; it never forces a stop.
+
+Native ``sha256_hex`` (v1.2.6)
+==============================
+
+The direct runtime builtin ``sha256_hex`` is lowered by the self-hosted
+native driver. The contract is the digest value: 64 lowercase hex characters,
+with the C runtime's ``strlen`` truncation at the first NUL. Byte-identity
+with the Go native helper is not claimed; the gate compares executed stdout.
+
+.. list-table:: Native sha256 matrix
+   :widths: 30 12 12 46
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``sha256_hex(string)`` on ``native-x86_64-windows``
+     - Stable
+     - kcc native
+     - ``TestPhaseV126_ExecutedPEWithExactBytes``
+   * - C-backend and Go-native behavioral parity
+     - Stable
+     - kcc native + Go native + C
+     - ``TestPhaseV126_MatchesCBackend``,
+       ``TestPhaseV126_MatchesGoNativeBackend``
+   * - FIPS-derived K/IV constants present in the emitted image
+     - Stable
+     - kcc native
+     - ``TestPhaseV126_KAndIVConstantsAreInTheImage``
+   * - Arity/type/return/nested-codec refusals
+     - Stable
+     - kcc native
+     - ``TestPhaseV126_RefusalsAreByName``
+   * - ``import std.crypto`` through the native target
+     - Not supported
+     - -
+     - The qualified native subset has no stdlib runtime; the direct builtin
+       is supported, the module wrapper is not yet claimed.

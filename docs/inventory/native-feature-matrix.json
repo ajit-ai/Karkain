@@ -1,7 +1,7 @@
 {
   "schema": "karkain-native-feature-matrix-v1",
   "title": "Karkain native compilation path -- qualified feature matrix",
-  "verified": "2026-11-21",
+  "verified": "2026-11-23",
   "scope": "The Karkain-owned native path (kcc), i.e. `karkain build --target native-x86_64-<os>` with NO C compiler and NO Go toolchain in the program-compilation path. This is the v1.2.0 'Sovereignty I' qualification surface. It is NOT the C-backend path and NOT the WASM path.",
   "statuses": {
     "supported": "Lowered by the self-hosted driver, with a passing gate that executes or byte-compares it.",
@@ -38,6 +38,7 @@
     {"construct": "`len()` of an array", "status": "supported", "gate": "TestPhase151A9E_", "gate_file": "pkg/cli/phase151a9e_len_test.go"},
     {"construct": "string literal and printing it", "status": "supported", "gate": "TestPhase151A9F_", "gate_file": "pkg/cli/phase151a9f_string_test.go"},
     {"construct": "string concatenation", "status": "supported", "gate": "TestPhase151A9G_", "gate_file": "pkg/cli/phase151a9g_concat_test.go"},
+    {"construct": "sha256_hex builtin (64 lowercase hex digits, strlen-truncated)", "status": "supported", "gate": "TestPhaseV126_", "gate_file": "pkg/cli/phase_v126_sha256_test.go", "note": "Executed PE exact-byte goldens, C-backend and Go-native behavioral differentials, FIPS-derived K/IV constants present in the image, refusal rows, determinism. Byte-identity with the Go native helper is not claimed: kcc uses a frame-resident K table and true 32-bit ALU forms."},
     {"construct": "record literal and field access", "status": "supported", "gate": "TestPhase151A9H_", "gate_file": "pkg/cli/phase151a9h_records_test.go"},
     {"construct": "`push(array, value)` through the native CLI target", "status": "not_supported", "gate": "TestPushMain_ProgramsAreRefusedByThePEPatchGuard", "gate_file": "pkg/cli/phase_push_main_test.go", "note": "The driver's push() emission has a pre-existing bad rodata patch position; the PE patch guard now refuses it with `native pe: rodata patch ... does not fit the section body`. The former execution gate was corrected to pin the refusal rather than papering over it. This is not fixed by the for-in slice. The same refusal is also pinned by TestPhase151A9I_RefusalsAreByName in pkg/cli/phase151a9i_forin_test.go."},
     {"construct": "runtime error diagnostic (array bounds)", "status": "supported", "gate": "TestPhaseD5_", "gate_file": "pkg/cli/phase151d5_arrbounds_test.go"},

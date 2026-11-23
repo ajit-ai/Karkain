@@ -183,6 +183,12 @@ jobs:
       - name: Run v1.2.5c native base64-decode gate
         run: go test ./pkg/cli/ -run 'TestPhaseV125C_' -count=1 -timeout 30m
 
+      # v1.2.6, native sha256_hex in the self-hosted driver. Named explicitly
+      # for the same reason as the codec gates above: a gate that runs only
+      # inside a broader step is not a separately reported conclusion.
+      - name: Run v1.2.6 native sha256 gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV126_' -count=1 -timeout 30m
+
       - name: Run v1.2.3 native string index gate
         run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
 

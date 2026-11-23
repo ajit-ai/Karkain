@@ -1,0 +1,519 @@
+// v1.2.6: the native sha256_hex helper for the self-hosted kcc engine.
+//
+// Port of the Go oracle's emitSHA256Helper (pkg/native/sha256.go), which is
+// itself a byte-for-byte mirror of the C23 reference karkain_sha256 in
+// pkg/codegen/codegen.go. The behavioural authority is the C reference:
+// the digest stops at the first NUL (the strlen contract) and the output is
+// 64 lowercase hex digits. The contract here is the digest VALUE, not
+// byte-identity with the Go helper's image.
+//
+// Differences from the Go helper, each forced by the kcc primitive set:
+//   * The K table and the hex alphabet are materialised in the helper's own
+//     frame at entry. This helper records NO rodata reference, so it needs
+//     no rodata offset from its caller (the wiring passes only the emitter).
+//   * Word arithmetic uses the 32-bit ALU forms. Writing a 32-bit register
+//     zeroes its upper half on x86-64, so every intermediate is canonical
+//     and no masking pass is needed after an addition: add32 wraps at 2^32,
+//     which is exactly the SHA-256 word semantics.
+//   * Rotates use the 32-bit ROL directly (natRolRegImm32) instead of the
+//     oracle's 64-bit zero-extension identity, because kcc's ROL is already
+//     the 32-bit form.
+//   * Ch computes ~e as e XOR 0xFFFFFFFF with natXorRegReg32; kcc has no
+//     NotReg. The complement is formed on a COPY, so e survives for the
+//     rest of the round.
+//
+// Only caller-saved registers are used (RAX RCX RDX RSI RDI R8-R11), so
+// there is no push/pop anywhere and rsp stays put between the prologue and
+// the epilogue. The frame is 8 mod 16, the same convention the other codec
+// helpers use around natCallAlloc (which applies the Win64 compensating
+// sub/add itself).
+//
+// The sha$ labels are fixed rather than fresh: the helper is emitted at
+// most once per image, and every label below is marked exactly once. The
+// byteAt sequence is emitted once, inside the W[0..15] loop BODY (a runtime
+// loop), so its two labels are also unique.
+
+// natSha256Rol32 emits ROL32(dst <- src, n): a 32-bit move (which zeroes
+// the upper half of dst) followed by the 32-bit rotate. ROTR(n) is ROL(32-n).
+func natSha256Rol32(s, dst, src, n) {
+    s = natMovRegReg32(s, dst, src)
+    return natRolRegImm32(s, dst, n)
+}
+
+// natSha256S0: the message schedule's s0(x) = ROTR7(x) ^ ROTR18(x) ^ SHR3(x).
+// x arrives in R8 and is preserved; the result lands in R9. Scratch: RAX,
+// RDX, RDI. ROL25 = ROTR7, ROL14 = ROTR18.
+func natSha256S0(s) {
+    s = natSha256Rol32(s, natRegRAX(), natRegR8(), 25)
+    s = natSha256Rol32(s, natRegRDX(), natRegR8(), 14)
+    s = natMovRegReg32(s, natRegRDI(), natRegR8())
+    s = natShrRegImm32(s, natRegRDI(), 3)
+    s = natMovRegReg32(s, natRegR9(), natRegRAX())
+    s = natXorRegReg32(s, natRegR9(), natRegRDX())
+    return natXorRegReg32(s, natRegR9(), natRegRDI())
+}
+
+// natSha256S1: s1(x) = ROTR17(x) ^ ROTR19(x) ^ SHR10(x). x in R8, result in
+// R10 (deliberately NOT R9, which holds the running schedule sum). ROL15 =
+// ROTR17, ROL13 = ROTR19.
+func natSha256S1(s) {
+    s = natSha256Rol32(s, natRegRAX(), natRegR8(), 15)
+    s = natSha256Rol32(s, natRegRDX(), natRegR8(), 13)
+    s = natMovRegReg32(s, natRegRDI(), natRegR8())
+    s = natShrRegImm32(s, natRegRDI(), 10)
+    s = natMovRegReg32(s, natRegR10(), natRegRAX())
+    s = natXorRegReg32(s, natRegR10(), natRegRDX())
+    return natXorRegReg32(s, natRegR10(), natRegRDI())
+}
+
+// natSha256Ep1: the round's S1(e) = ROTR6(e) ^ ROTR11(e) ^ ROTR25(e).
+// x in R8, result in R9. ROL26 = ROTR6, ROL21 = ROTR11, ROL7 = ROTR25.
+func natSha256Ep1(s) {
+    s = natSha256Rol32(s, natRegRAX(), natRegR8(), 26)
+    s = natSha256Rol32(s, natRegRDX(), natRegR8(), 21)
+    s = natSha256Rol32(s, natRegRDI(), natRegR8(), 7)
+    s = natMovRegReg32(s, natRegR9(), natRegRAX())
+    s = natXorRegReg32(s, natRegR9(), natRegRDX())
+    return natXorRegReg32(s, natRegR9(), natRegRDI())
+}
+
+// natSha256Ep0: the round's S0(a) = ROTR2(a) ^ ROTR13(a) ^ ROTR22(a).
+// x in R8, result in R9. ROL30 = ROTR2, ROL19 = ROTR13, ROL10 = ROTR22.
+func natSha256Ep0(s) {
+    s = natSha256Rol32(s, natRegRAX(), natRegR8(), 30)
+    s = natSha256Rol32(s, natRegRDX(), natRegR8(), 19)
+    s = natSha256Rol32(s, natRegRDI(), natRegR8(), 10)
+    s = natMovRegReg32(s, natRegR9(), natRegRAX())
+    s = natXorRegReg32(s, natRegR9(), natRegRDX())
+    return natXorRegReg32(s, natRegR9(), natRegRDI())
+}
+
+// natSha256Ch: Ch(e,f,g) = (e & f) ^ (~e & g), with e in R8, f in R10, g in
+// R11 and the result in RDI. kcc has no NotReg, so ~e is e XOR 0xFFFFFFFF
+// on a COPY in RAX (mov r32, imm32 zero-extends, and xor32 keeps the upper
+// half zero). All three inputs survive.
+func natSha256Ch(s) {
+    s = natMovRegReg32(s, natRegRDI(), natRegR8())
+    s = natAndRegReg32(s, natRegRDI(), natRegR10())
+    s = natMovRegReg32(s, natRegRAX(), natRegR8())
+    s = natMovRegImm32(s, natRegRCX(), 4294967295)
+    s = natXorRegReg32(s, natRegRAX(), natRegRCX())
+    s = natAndRegReg32(s, natRegRAX(), natRegR11())
+    return natXorRegReg32(s, natRegRDI(), natRegRAX())
+}
+
+// natSha256Maj: Maj(a,b,c) = (a&b) ^ (a&c) ^ (b&c), with a in R8, b in R10,
+// c in R11 and the result in RDI. All three inputs survive.
+func natSha256Maj(s) {
+    s = natMovRegReg32(s, natRegRDI(), natRegR8())
+    s = natAndRegReg32(s, natRegRDI(), natRegR10())
+    s = natMovRegReg32(s, natRegRAX(), natRegR8())
+    s = natAndRegReg32(s, natRegRAX(), natRegR11())
+    s = natXorRegReg32(s, natRegRDI(), natRegRAX())
+    s = natMovRegReg32(s, natRegRAX(), natRegR10())
+    s = natAndRegReg32(s, natRegRAX(), natRegR11())
+    return natXorRegReg32(s, natRegRDI(), natRegRAX())
+}
+
+// natSha256ByteAt: RDX = the padded-message byte at index RAX, mirroring the
+// C reference's src < len ? msg[src] : pad[src-len]. Emitted exactly once
+// (inside the W[0..15] runtime loop body), so the two fixed labels are
+// unique. Clobbers RAX, RCX, RDX, RSI; the loop counters R8/R10 survive.
+func natSha256ByteAt(s, offIn, offMsgLen, offPad) {
+    s = natLoadStack(s, natRegRCX(), offMsgLen)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    s = natJb(s, "sha$in")
+    s = natSubRegReg(s, natRegRAX(), natRegRCX())
+    s = natLoadScaled8(s, natRegRDX(), natRegRSP(), natRegRAX(), 1, offPad)
+    s = natJmp(s, "sha$at")
+    s = natMark(s, "sha$in")
+    s = natLoadStack(s, natRegRSI(), offIn)
+    s = natLoadScaled8(s, natRegRDX(), natRegRSI(), natRegRAX(), 1, 0)
+    return natMark(s, "sha$at")
+}
+
+// natSha256HexHelper emits karkain_sha256_hex.
+//
+//   karkain_sha256_hex(ptr, len, filePtr, fileLen, line) -> (RAX=ptr, RDX=64)
+//
+// The caller stages the argument in RDI/RSI and the diagnostic units in
+// RDX/RCX/R8, then moves the returned pair into (RDI, RSI). The diagnostic
+// units are homed but never consumed: SHA-256 cannot fail. They are accepted
+// so the shared codec call site needs no special case.
+func natSha256HexHelper(s) {
+    // Frame layout, ordered and sized explicitly so an overlap is impossible
+    // by construction (the Go oracle's first draft overlapped W onto H and
+    // every vector failed; the named regions below are the lesson).
+    int offIn = 0
+    int offN = 8
+    int offFile = 16
+    int offFileN = 24
+    int offLine = 32
+    int offOut = 40
+    int offMsgLen = 48
+    int offPadLen = 56
+    int offTotal = 64
+    int offPos = 72
+    int offK = 80                  // 64 words * 8 -> 80..591
+    int offH = offK + 64*8         // 8 words      -> 592..655
+    int offW = offH + 8*8          // 64 words     -> 656..1167
+    int offPad = offW + 64*8       // <= 72 bytes  -> 1168..1239
+    int offV = offPad + 72         // 8 words      -> 1240..1303
+    int offO = offV + 8*8          // hex output   -> 1304..1367 (reuses V after rounds)
+    int offT = offO + 64           // 1368
+    int offT1 = offT + 8
+    int offT2 = offT1 + 8
+    int frameBytes = offT2 + 16    // 1400, 0 mod 16; fine for natCallAlloc
+    s = natMark(s, "karkain_sha256_hex")
+    s = natSubRegImm32(s, natRegRSP(), frameBytes)
+    s = natStoreStack(s, natRegRDI(), offIn)
+    s = natStoreStack(s, natRegRSI(), offN)
+    s = natStoreStack(s, natRegRDX(), offFile)
+    s = natStoreStack(s, natRegRCX(), offFileN)
+    s = natStoreStack(s, natRegR8(), offLine)
+
+    // --- strlen: truncate at the first NUL, exactly as the C23 reference
+    // does. A native string carries an explicit length, so without this scan
+    // a value containing a NUL would hash MORE bytes than strlen would and
+    // the two digests would silently diverge.
+    s = natXorRegReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offMsgLen)
+    s = natMark(s, "sha$strlen")
+    s = natLoadStack(s, natRegRAX(), offMsgLen)
+    s = natLoadStack(s, natRegRCX(), offN)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    s = natJae(s, "sha$strlen$done")
+    s = natLoadStack(s, natRegRSI(), offIn)
+    s = natLoadScaled8(s, natRegRDX(), natRegRSI(), natRegRAX(), 1, 0)
+    s = natTestRegReg(s, natRegRDX(), natRegRDX())
+    s = natJz(s, "sha$strlen$done")
+    s = natIncReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offMsgLen)
+    s = natJmp(s, "sha$strlen")
+    s = natMark(s, "sha$strlen$done")
+
+    // out = alloc(65): 64 hex digits plus the NUL the reference writes.
+    s = natMovRegImm32(s, natRegRDI(), 65)
+    s = natCallAlloc(s)
+    s = natStoreStack(s, natRegRAX(), offOut)
+
+    // --- K table, materialised in the frame (FIPS 180-4 section 4.2.2).
+    // Each constant is below 2^32, so mov r32, imm32 zero-extends and the
+    // 8-byte frame word is canonical. The decimals are the Go oracle's
+    // sha256KWords converted mechanically, not by hand.
+    // Positively-spelled K/IV constants would not type-check (Karkain ints
+    // are signed 32-bit), so the >2^31 entries are written as their two's
+    // complement negatives; mov r32, imm32 + natStoreStack store the same bits.
+    int[] kWords = [1116352408, 1899447441, -1245643825, -373957723, 961987163, 1508970993, -1841331548, -1424204075, -670586216, 310598401, 607225278, 1426881987, 1925078388, -2132889090, -1680079193, -1046744716, -459576895, -272742522, 264347078, 604807628, 770255983, 1249150122, 1555081692, 1996064986, -1740746414, -1473132947, -1341970488, -1084653625, -958395405, -710438585, 113926993, 338241895, 666307205, 773529912, 1294757372, 1396182291, 1695183700, 1986661051, -2117940946, -1838011259, -1564481375, -1474664885, -1035236496, -949202525, -778901479, -694614492, -200395387, 275423344, 430227734, 506948616, 659060556, 883997877, 958139571, 1322822218, 1537002063, 1747873779, 1955562222, 2024104815, -2067236844, -1933114872, -1866530822, -1538233109, -1090935817, -965641998]
+    int kIdx = 0
+    while (kIdx < 64) {
+        s = natMovRegImm32(s, natRegRAX(), kWords[kIdx])
+        s = natStoreStack(s, natRegRAX(), offK + kIdx*8)
+        kIdx = kIdx + 1
+    }
+
+
+
+    // --- padlen and total ---
+    // C: padlen = ((len + 9 + 63) / 64) * 64 - len, and total = len + padlen,
+    // which collapses to ((len+72)/64)*64. Index arithmetic stays 64-bit:
+    // every value here is a byte count far below 2^32.
+    s = natLoadStack(s, natRegRAX(), offMsgLen)
+    s = natAddRegImm32(s, natRegRAX(), 72)
+    s = natShrRegImm(s, natRegRAX(), 6)
+    s = natShlRegImm(s, natRegRAX(), 6)
+    s = natStoreStack(s, natRegRAX(), offTotal)
+    s = natLoadStack(s, natRegRCX(), offMsgLen)
+    s = natSubRegReg(s, natRegRAX(), natRegRCX())
+    s = natStoreStack(s, natRegRAX(), offPadLen)
+
+    // --- zero pad[0..padlen) ---
+    s = natLoadStack(s, natRegRAX(), offPadLen)
+    s = natXorRegReg(s, natRegRCX())
+    s = natXorRegReg(s, natRegRDX())
+    s = natMark(s, "sha$padz")
+    s = natCmpRegReg(s, natRegRCX(), natRegRAX())
+    s = natJae(s, "sha$padzd")
+    s = natStoreScaled8(s, natRegRDX(), natRegRSP(), natRegRCX(), 1, offPad)
+    s = natIncReg(s, natRegRCX())
+    s = natJmp(s, "sha$padz")
+    s = natMark(s, "sha$padzd")
+
+    // pad[0] = 0x80
+    s = natMovRegImm32(s, natRegRAX(), 128)
+    s = natStoreMem8Off(s, natRegRAX(), natRegRSP(), offPad)
+
+    // pad[padlen-8 .. padlen-1] = big-endian bit length. Unrolled because the
+    // shift must be an immediate; a shift-by-CL primitive would be a new
+    // emitter primitive and this slice adds none.
+    s = natLoadStack(s, natRegRSI(), offPadLen)
+    s = natSubRegImm32(s, natRegRSI(), 8)
+    int jj = 0
+    while (jj < 8) {
+        s = natLoadStack(s, natRegRAX(), offMsgLen)
+        s = natShlRegImm(s, natRegRAX(), 3)
+        int shiftAmt = 56 - 8*jj
+        if (shiftAmt > 0) { s = natShrRegImm(s, natRegRAX(), shiftAmt) }
+        s = natMovRegImm32(s, natRegRCX(), 255)
+        s = natAndRegReg(s, natRegRAX(), natRegRCX())
+        s = natStoreScaled8(s, natRegRAX(), natRegRSP(), natRegRSI(), 1, offPad + jj)
+        jj = jj + 1
+    }
+
+    // --- initial hash value (FIPS 180-4 section 5.3.3) ---
+    int[] ivWords = [1779033703, -1150833019, 1013904242, -1521486534, 1359893119, -1694144372, 528734635, 1541459225]
+    int ivIdx = 0
+    while (ivIdx < 8) {
+        s = natMovRegImm32(s, natRegRAX(), ivWords[ivIdx])
+        s = natStoreStack(s, natRegRAX(), offH + ivIdx*8)
+        ivIdx = ivIdx + 1
+    }
+
+    // --- block loop: pos walks 0..total in steps of 64 ---
+    s = natXorRegReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offPos)
+    s = natMark(s, "sha$block")
+    s = natLoadStack(s, natRegRAX(), offPos)
+    s = natLoadStack(s, natRegRCX(), offTotal)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    s = natJae(s, "sha$block$done")
+
+    // --- W[0..15]: the padded message read as big-endian 32-bit words ---
+    s = natXorRegReg(s, natRegR8())
+    s = natMark(s, "sha$wt")
+    s = natMovRegImm32(s, natRegRCX(), 16)
+    s = natCmpRegReg(s, natRegR8(), natRegRCX())
+    s = natJae(s, "sha$wt$done")
+    s = natXorRegReg(s, natRegR9())
+    s = natXorRegReg(s, natRegR10())
+    s = natMark(s, "sha$wi")
+    s = natMovRegImm32(s, natRegRCX(), 4)
+    s = natCmpRegReg(s, natRegR10(), natRegRCX())
+    s = natJae(s, "sha$wi$done")
+    s = natMovRegReg(s, natRegRDX(), natRegR8())
+    s = natShlRegImm(s, natRegRDX(), 2)
+    s = natAddRegReg(s, natRegRDX(), natRegR10())
+    s = natLoadStack(s, natRegRAX(), offPos)
+    s = natAddRegReg(s, natRegRAX(), natRegRDX())
+    s = natSha256ByteAt(s, offIn, offMsgLen, offPad)
+    s = natShlRegImm32(s, natRegR9(), 8)
+    s = natOrRegReg32(s, natRegR9(), natRegRDX())
+    s = natIncReg(s, natRegR10())
+    s = natJmp(s, "sha$wi")
+    s = natMark(s, "sha$wi$done")
+    s = natStoreScaled64(s, natRegR9(), natRegRSP(), natRegR8(), 8, offW)
+    s = natIncReg(s, natRegR8())
+    s = natJmp(s, "sha$wt")
+    s = natMark(s, "sha$wt$done")
+
+    // --- W[16..63]: W[t] = s1(W[t-2]) + W[t-7] + s0(W[t-15]) + W[t-16] ---
+    // t lives in R11 and is never overwritten, so the store index survives
+    // the operand loads. s0 lands in R9 (the accumulator) and s1 in R10, so
+    // neither sigma overwrites the running sum. add32 wraps at 2^32 and
+    // zeroes the upper half: the canonical SHA-256 word, no mask needed.
+    s = natMovRegImm32(s, natRegR11(), 16)
+    s = natMark(s, "sha$wx")
+    s = natMovRegImm32(s, natRegRCX(), 64)
+    s = natCmpRegReg(s, natRegR11(), natRegRCX())
+    s = natJae(s, "sha$wx$done")
+    s = natMovRegReg(s, natRegRDX(), natRegR11())
+    s = natSubRegImm32(s, natRegRDX(), 15)
+    s = natLoadScaled64(s, natRegR8(), natRegRSP(), natRegRDX(), 8, offW)
+    s = natSha256S0(s)
+    s = natMovRegReg(s, natRegRDX(), natRegR11())
+    s = natSubRegImm32(s, natRegRDX(), 7)
+    s = natLoadScaled64(s, natRegRAX(), natRegRSP(), natRegRDX(), 8, offW)
+    s = natAddRegReg32(s, natRegR9(), natRegRAX())
+    s = natMovRegReg(s, natRegRDX(), natRegR11())
+    s = natSubRegImm32(s, natRegRDX(), 16)
+    s = natLoadScaled64(s, natRegRAX(), natRegRSP(), natRegRDX(), 8, offW)
+    s = natAddRegReg32(s, natRegR9(), natRegRAX())
+    s = natMovRegReg(s, natRegRDX(), natRegR11())
+    s = natSubRegImm32(s, natRegRDX(), 2)
+    s = natLoadScaled64(s, natRegR8(), natRegRSP(), natRegRDX(), 8, offW)
+    s = natSha256S1(s)
+    s = natAddRegReg32(s, natRegR9(), natRegR10())
+    s = natStoreScaled64(s, natRegR9(), natRegRSP(), natRegR11(), 8, offW)
+    s = natIncReg(s, natRegR11())
+    s = natJmp(s, "sha$wx")
+    s = natMark(s, "sha$wx$done")
+
+    // --- a..h = H[0..7] at the start of every block. This MUST read H, not
+    // V: V is the working state and holds whatever the previous block left
+    // there (uninitialised stack on the first block).
+    int vIdx = 0
+    while (vIdx < 8) {
+        s = natLoadStack(s, natRegRAX(), offH + vIdx*8)
+        s = natStoreStack(s, natRegRAX(), offV + vIdx*8)
+        vIdx = vIdx + 1
+    }
+
+    // --- 64 rounds ---
+    // t1 = h + S1(e) + Ch(e,f,g) + K[t] + W[t]; t2 = S0(a) + Maj(a,b,c);
+    // h=g; g=f; f=e; e=d+t1; d=c; c=b; b=a; a=t1+t2.
+    // a..h live in the frame at offV+0..+56: there are eight of them plus
+    // t1, t2 and the round counter, and the shift at the end of each round
+    // reads all eight at once. Keeping them in memory is what makes the
+    // 64-round body a loop rather than 64 copies.
+    s = natXorRegReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offT)
+    s = natMark(s, "sha$round")
+    s = natLoadStack(s, natRegRAX(), offT)
+    s = natMovRegImm32(s, natRegRCX(), 64)
+    s = natCmpRegReg(s, natRegRAX(), natRegRCX())
+    s = natJae(s, "sha$round$done")
+
+    // t1 = h
+    s = natLoadStack(s, natRegRAX(), offV + 7*8)
+    s = natStoreStack(s, natRegRAX(), offT1)
+    // t1 += S1(e)
+    s = natLoadStack(s, natRegR8(), offV + 4*8)
+    s = natSha256Ep1(s)
+    s = natLoadStack(s, natRegRDX(), offT1)
+    s = natAddRegReg32(s, natRegRDX(), natRegR9())
+    s = natStoreStack(s, natRegRDX(), offT1)
+    // t1 += Ch(e,f,g)
+    s = natLoadStack(s, natRegR8(), offV + 4*8)
+    s = natLoadStack(s, natRegR10(), offV + 5*8)
+    s = natLoadStack(s, natRegR11(), offV + 6*8)
+    s = natSha256Ch(s)
+    s = natLoadStack(s, natRegRDX(), offT1)
+    s = natAddRegReg32(s, natRegRDX(), natRegRDI())
+    s = natStoreStack(s, natRegRDX(), offT1)
+    // t1 += K[t] (the frame-resident table, one 8-byte word per constant)
+    s = natLoadStack(s, natRegRAX(), offT)
+    s = natLoadScaled64(s, natRegRDX(), natRegRSP(), natRegRAX(), 8, offK)
+    s = natLoadStack(s, natRegRAX(), offT1)
+    s = natAddRegReg32(s, natRegRAX(), natRegRDX())
+    s = natStoreStack(s, natRegRAX(), offT1)
+    // t1 += W[t]
+    s = natLoadStack(s, natRegRAX(), offT)
+    s = natLoadScaled64(s, natRegRDX(), natRegRSP(), natRegRAX(), 8, offW)
+    s = natLoadStack(s, natRegRAX(), offT1)
+    s = natAddRegReg32(s, natRegRAX(), natRegRDX())
+    s = natStoreStack(s, natRegRAX(), offT1)
+
+    // t2 starts at ZERO (seeding it with a would add an extra +a to every
+    // round -- the Go oracle records that exact first-draft defect).
+    s = natXorRegReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offT2)
+    // t2 += S0(a)
+    s = natLoadStack(s, natRegR8(), offV + 0*8)
+    s = natSha256Ep0(s)
+    s = natLoadStack(s, natRegRDX(), offT2)
+    s = natAddRegReg32(s, natRegRDX(), natRegR9())
+    s = natStoreStack(s, natRegRDX(), offT2)
+    // t2 += Maj(a,b,c)
+    s = natLoadStack(s, natRegR8(), offV + 0*8)
+    s = natLoadStack(s, natRegR10(), offV + 1*8)
+    s = natLoadStack(s, natRegR11(), offV + 2*8)
+    s = natSha256Maj(s)
+    s = natLoadStack(s, natRegRDX(), offT2)
+    s = natAddRegReg32(s, natRegRDX(), natRegRDI())
+    s = natStoreStack(s, natRegRDX(), offT2)
+
+    // The eight assignments run in REVERSE dependency order so no value is
+    // overwritten before it is read: h=g first, a=t1+t2 last.
+    s = natLoadStack(s, natRegRAX(), offV + 6*8)
+    s = natStoreStack(s, natRegRAX(), offV + 7*8)
+    s = natLoadStack(s, natRegRAX(), offV + 5*8)
+    s = natStoreStack(s, natRegRAX(), offV + 6*8)
+    s = natLoadStack(s, natRegRAX(), offV + 4*8)
+    s = natStoreStack(s, natRegRAX(), offV + 5*8)
+    // e = d + t1
+    s = natLoadStack(s, natRegRAX(), offT1)
+    s = natLoadStack(s, natRegRDX(), offV + 3*8)
+    s = natAddRegReg32(s, natRegRDX(), natRegRAX())
+    s = natStoreStack(s, natRegRDX(), offV + 4*8)
+    s = natLoadStack(s, natRegRAX(), offV + 2*8)
+    s = natStoreStack(s, natRegRAX(), offV + 3*8)
+    s = natLoadStack(s, natRegRAX(), offV + 1*8)
+    s = natStoreStack(s, natRegRAX(), offV + 2*8)
+    s = natLoadStack(s, natRegRAX(), offV + 0*8)
+    s = natStoreStack(s, natRegRAX(), offV + 1*8)
+    // a = t1 + t2
+    s = natLoadStack(s, natRegRAX(), offT1)
+    s = natLoadStack(s, natRegRDX(), offT2)
+    s = natAddRegReg32(s, natRegRAX(), natRegRDX())
+    s = natStoreStack(s, natRegRAX(), offV + 0*8)
+
+    s = natLoadStack(s, natRegRAX(), offT)
+    s = natIncReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offT)
+    s = natJmp(s, "sha$round")
+    s = natMark(s, "sha$round$done")
+
+    // H[i] += a..h[i]
+    int hIdx = 0
+    while (hIdx < 8) {
+        s = natLoadStack(s, natRegRAX(), offV + hIdx*8)
+        s = natLoadStack(s, natRegRDX(), offH + hIdx*8)
+        s = natAddRegReg32(s, natRegRDX(), natRegRAX())
+        s = natStoreStack(s, natRegRDX(), offH + hIdx*8)
+        hIdx = hIdx + 1
+    }
+
+    s = natLoadStack(s, natRegRAX(), offPos)
+    s = natAddRegImm32(s, natRegRAX(), 64)
+    s = natStoreStack(s, natRegRAX(), offPos)
+    s = natJmp(s, "sha$block")
+    s = natMark(s, "sha$block$done")
+
+    // --- the 64 lowercase hex digits ---
+    // The C reference walks each 32-bit word from its top nibble down:
+    // word i occupies out[8i .. 8i+7], most-significant nibble first. The
+    // shifts must be immediates, so the nibble loop is unrolled at emission
+    // time (8 words x 8 nibbles). The digit is '0'+n for n<10 and 'a'+n-10
+    // otherwise, computed arithmetically -- no alphabet is stored anywhere.
+    s = natXorRegReg(s, natRegRAX())
+    s = natStoreStack(s, natRegRAX(), offO)
+    int wordIdx = 0
+    while (wordIdx < 8) {
+        s = natLoadStack(s, natRegR8(), offH + wordIdx*8)
+        int nibIdx = 0
+        while (nibIdx < 8) {
+            s = natMovRegReg32(s, natRegRAX(), natRegR8())
+            int shiftAmt = 4 * (7 - nibIdx)
+            if (shiftAmt > 0) { s = natShrRegImm32(s, natRegRAX(), shiftAmt) }
+            s = natMovRegImm32(s, natRegRCX(), 15)
+            s = natAndRegReg32(s, natRegRAX(), natRegRCX())
+            // digit = n < 10 ? '0'+n : 'a'+n-10; in a 32-bit register.
+            s = natMovRegReg32(s, natRegRCX(), natRegRAX())
+            s = natCmpRegImm32(s, natRegRCX(), 10)
+            // The labels must be UNIQUE per unrolled iteration: this loop runs
+            // at EMISSION time (8 words x 8 nibbles), so a fixed name would be
+            // marked 64 times and natFinish would refuse it as a duplicate.
+            int hexTag = wordIdx * 8 + nibIdx
+            string hexL = "sha$hex$letter" + str(hexTag)
+            string hexD = "sha$hex$done" + str(hexTag)
+            s = natJae(s, hexL)
+            s = natMovRegImm32(s, natRegRDX(), 48)
+            s = natAddRegReg32(s, natRegRDX(), natRegRAX())
+            s = natJmp(s, hexD)
+            s = natMark(s, hexL)
+            s = natMovRegImm32(s, natRegRDX(), 97)
+            s = natAddRegReg32(s, natRegRDX(), natRegRAX())
+            s = natSubRegImm32(s, natRegRDX(), 10)
+            s = natMark(s, hexD)
+            s = natLoadStack(s, natRegRAX(), offOut)
+            s = natLoadStack(s, natRegRCX(), offO)
+            s = natStoreScaled8(s, natRegRDX(), natRegRAX(), natRegRCX(), 1, 0)
+            s = natLoadStack(s, natRegRAX(), offO)
+            s = natIncReg(s, natRegRAX())
+            s = natStoreStack(s, natRegRAX(), offO)
+            nibIdx = nibIdx + 1
+        }
+        wordIdx = wordIdx + 1
+    }
+    // out[64] = 0: the reference NUL-terminates, and the caller is handed a
+    // length of 64, so the terminator is never part of the value.
+    s = natLoadStack(s, natRegRAX(), offOut)
+    s = natXorRegReg(s, natRegRDX())
+    s = natStoreMem8Off(s, natRegRDX(), natRegRAX(), 64)
+
+    // Result: (RAX = out, RDX = 64). The caller moves the pair into (RDI, RSI).
+    s = natLoadStack(s, natRegRAX(), offOut)
+    s = natMovRegImm32(s, natRegRDX(), 64)
+    s = natAddRegImm32(s, natRegRSP(), frameBytes)
+    return natRet(s)
+}
