@@ -262,7 +262,9 @@ func ckDeclare(tab, name, kind, count) {
     tab[6] = appendArray(tab[6], [])
     if (len(tab) > 12) {
         int pos = len(tab[0]) - 1
-        tab[12][name] = pos + 1
+        Value idx = tab[12]
+        idx[name] = pos + 1
+        tab[12] = idx
     }
 }
 
