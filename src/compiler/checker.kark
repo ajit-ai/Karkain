@@ -100,6 +100,8 @@ func isCheckerBuiltin(name) {
     if (name == "chanSend") { return 1 }
     if (name == "chanClose") { return 1 }
     if (name == "join") { return 1 }
+    if (name == "cancel") { return 1 }
+    if (name == "join_timeout") { return 1 }
     if (name == "wait_all") { return 1 }
     if (name == "actor") { return 1 }
     if (name == "actorSend") { return 1 }
@@ -156,6 +158,9 @@ func checkerBuiltinArity(name) {
     if (name == "net_write") { return 2 }
     if (name == "net_close") { return 1 }
     if (name == "net_last_error") { return 0 }
+    // P0.2: bounded joins take (task, milliseconds); cancel takes a task.
+    if (name == "cancel") { return 1 }
+    if (name == "join_timeout") { return 2 }
     return -1
 }
 
@@ -1103,6 +1108,16 @@ func checkCall(tab, e, loop) {
         int want = checkerBuiltinArity(name)
         if (want >= 0 && want != argc) {
             ckAddError(tab, "K104", callLine(e), "builtin '" + name + "' expects " + str(want) + " arguments but got " + str(argc))
+        }
+        // P0.1/P0.2 parity: actor() takes a quoted handler name. Reject the
+        // unquoted form here (the Go resolver does the same) rather than only
+        // at runtime through karkain_conc_invalid_actor().
+        if (name == "actor") {
+            if (argc == 0) {
+                ckAddError(tab, "K104", callLine(e), "actor() requires a quoted handler function name")
+            } else if (nodeType(args[0]) != NODE_STRING_LIT()) {
+                ckAddError(tab, "K104", callLine(e), "actor() handler must be a quoted function name, e.g. actor(\"handler\", state)")
+            }
         }
         return
     }

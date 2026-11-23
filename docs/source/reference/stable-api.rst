@@ -46,6 +46,17 @@ Stable syntax
      - Integers, floats, booleans, strings, ``None`` / ``Option``, arrays,
        maps, struct values, lambda-free function calls, parenthesized
        expressions, arithmetic/comparison/logical operators.
+   * - Concurrency
+     - ``spawn`` / ``join`` / ``channel`` / ``actor`` with full ``kcc``
+       parity (Phase 137), plus task control on both engines: ``cancel(task)``
+       returns ``true`` on the first accepted request (``false`` for a
+       completed, already-cancelled or non-task handle) and is cooperative -
+       a queued task never runs, a running task is not preempted;
+       ``join_timeout(task, ms)`` returns ``true`` if the task completed
+       within the budget and ``false`` on timeout, never cancels, leaves the
+       task joinable, treats ``0`` as a non-blocking check, rejects negative
+       timeouts/foreign handles, and uses a monotonic deadline (no
+       busy-wait).
    * - Runtime error model
      - Checked division/modulo by zero and array/string indexing report
        ``runtime error: <kind> at <file>:<line>`` and stack traces on both

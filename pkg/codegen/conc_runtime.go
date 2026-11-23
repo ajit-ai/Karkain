@@ -12,7 +12,8 @@ import (
 func concBuiltin(fn string) bool {
 	switch fn {
 	case "channel", "send", "chanSend", "chanClose", "join", "wait_all",
-		"actor", "actorSend", "actorState", "setActorState", "actorStop":
+		"actor", "actorSend", "actorState", "setActorState", "actorStop",
+		"cancel", "join_timeout":
 		return true
 	}
 	return false
@@ -374,6 +375,13 @@ static karkain_sched_t* karkain_conc_sched_handle(void) {
 static Value karkain_conc_mk_handle(void* p) {
     Value v; v.type = TYPE_INT; v.intVal = (long long)(intptr_t)p; return v;
 }
+/* Invalid actor construction must not yield a nil handle: actorSend/actorState
+ * cast the handle straight to a pointer and would dereference NULL. */
+static Value karkain_conc_invalid_actor(void) {
+    fprintf(stderr, "runtime error: actor() handler must be a quoted name of a declared function\n");
+    exit(1);
+    Value v; v.type = TYPE_INT; v.intVal = 0; return v;
+}
 static void* karkain_conc_handle_ptr(Value v) {
     return (void*)(intptr_t)v.intVal;
 }
@@ -411,6 +419,14 @@ static Value karkain_conc_close(Value ch) {
     return make_int(r);
 }
 
+/* P0.2: cooperative task cancellation and bounded join. */
+static Value karkain_conc_cancel(Value t) {
+    return make_bool(karkain_task_cancel((karkain_task_t*)karkain_conc_handle_ptr(t)));
+}
+static Value karkain_conc_join_timeout(Value t, Value ms) {
+    long msec = (ms.type == TYPE_INT || ms.type == TYPE_BOOL) ? (long)ms.intVal : -1;
+    return make_bool(karkain_task_join_timeout((karkain_task_t*)karkain_conc_handle_ptr(t), msec));
+}
 /* join(t): blocks until the task completes, returns its status (0 ok, <0 failed). */
 static Value karkain_conc_join(Value t) {
     long st = karkain_task_join((karkain_task_t*)karkain_conc_handle_ptr(t));
@@ -477,6 +493,10 @@ func (g *Generator) genConcCall(n *parser.CallExpr, args []string) string {
 		return fmt.Sprintf("karkain_conc_close(%s)", args[0])
 	case "join":
 		return fmt.Sprintf("karkain_conc_join(%s)", args[0])
+	case "cancel":
+		return fmt.Sprintf("karkain_conc_cancel(%s)", args[0])
+	case "join_timeout":
+		return fmt.Sprintf("karkain_conc_join_timeout(%s, %s)", args[0], args[1])
 	case "wait_all":
 		return "(karkain_conc_wait_all(), mk_nil())"
 	case "actor":
@@ -490,7 +510,7 @@ func (g *Generator) genConcCall(n *parser.CallExpr, args []string) string {
 			}
 		}
 		if idx < 0 {
-			return "mk_nil() /* unknown actor handler */"
+			return "karkain_conc_invalid_actor()"
 		}
 		return fmt.Sprintf("karkain_conc_actor(%d, %s)", idx, args[1])
 	case "actorSend":

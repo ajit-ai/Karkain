@@ -3,6 +3,7 @@ package sema
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"karkain/pkg/parser"
@@ -99,6 +100,7 @@ var builtinNames = map[string]bool{
 	// Phase 107: concurrency builtins (channels, tasks, actors).
 	"channel": true, "send": true, "chanSend": true, "chanClose": true,
 	"join": true, "wait_all": true,
+	"cancel": true, "join_timeout": true,
 	"actor": true, "actorSend": true, "actorState": true,
 	"setActorState": true, "actorStop": true,
 }
@@ -847,6 +849,45 @@ func (r *Resolver) checkCallExpr(n *parser.CallExpr, locals map[string]bool, cal
 		return
 	}
 	if r.builtin[name] || r.funcs[name] || r.types[name] || locals[name] {
+		// Phase 107: actor() takes a quoted handler name. An identifier here used
+		// to lower to mk_nil(), which actorSend/actorState then dereferenced as a
+		// pointer and crashed with 0xc0000005. Reject the invalid form here so it
+		// is a compile-time diagnostic rather than a runtime access violation.
+		if name == "actor" {
+			if len(n.Args) == 0 {
+				r.errors = append(r.errors, ResolveError{
+					Line: n.Line, Col: n.Col, EndCol: n.EndCol,
+					Msg: "actor() requires a quoted handler function name",
+				})
+			} else if sl, ok := n.Args[0].(*parser.StringLiteral); !ok {
+				r.errors = append(r.errors, ResolveError{
+					Line: n.Line, Col: n.Col, EndCol: n.EndCol,
+					Msg: "actor() handler must be a quoted function name, e.g. actor(\"handler\", state)",
+				})
+			} else if !r.funcs[sl.Value] {
+				r.errors = append(r.errors, ResolveError{
+					Line: n.Line, Col: n.Col, EndCol: n.EndCol,
+					Msg: fmt.Sprintf("actor() handler '%s' is not a declared function", sl.Value),
+				})
+			}
+		}
+		// P0.2: task cancellation and bounded joins. Arity is checked here so a
+		// malformed call is a compile-time diagnostic rather than an out-of-range
+		// args[0]/args[1] in codegen. A negative literal timeout is rejected.
+		if name == "cancel" && len(n.Args) != 1 {
+			r.errors = append(r.errors, ResolveError{Line: n.Line, Col: n.Col, EndCol: n.EndCol,
+				Msg: "cancel() takes 1 argument (a task handle)"})
+		}
+		if name == "join_timeout" {
+			if len(n.Args) != 2 {
+				r.errors = append(r.errors, ResolveError{Line: n.Line, Col: n.Col, EndCol: n.EndCol,
+					Msg: "join_timeout() takes 2 arguments (a task handle and a non-negative millisecond timeout)"})
+			} else if il, ok := n.Args[1].(*parser.IntLiteral); ok && func() bool { v, e := strconv.ParseInt(il.Value, 10, 64); return e == nil && v < 0 }() {
+				r.errors = append(r.errors, ResolveError{Line: n.Line, Col: n.Col, EndCol: n.EndCol,
+					Msg: "join_timeout() timeout must be non-negative"})
+			}
+		}
+
 		// When any declaration is public, enforce visibility: a private name
 		// must be called from the same source file it is defined in.
 		// Public names are callable from any file.

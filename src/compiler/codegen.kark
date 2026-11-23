@@ -98,6 +98,9 @@ func concIsBuiltin(name) {
     if (name == "actorState") { return 1 }
     if (name == "setActorState") { return 1 }
     if (name == "actorStop") { return 1 }
+    // P0.2: task cancellation and bounded joins.
+    if (name == "cancel") { return 1 }
+    if (name == "join_timeout") { return 1 }
     return 0
 }
 
@@ -397,6 +400,13 @@ func emitConcGlue(state) {
     emitLine(state, "static void* karkain_conc_handle_ptr(Value v) {")
     emitLine(state, "    return (void*)(intptr_t)v.intVal;")
     emitLine(state, "}")
+    emitLine(state, "/* Invalid actor construction must not yield a nil handle: actorSend/actorState")
+    emitLine(state, " * cast the handle straight to a pointer and would dereference NULL. */")
+    emitLine(state, "static Value karkain_conc_invalid_actor(void) {")
+    emitLine(state, "    fprintf(stderr, \"runtime error: actor() handler must be a quoted name of a declared function\\n\");")
+    emitLine(state, "    exit(1);")
+    emitLine(state, "    Value v; v.type = TYPE_INT; v.intVal = 0; return v;")
+    emitLine(state, "}")
     emitNewline(state)
     emitLine(state, "/* channel(cap): cap < 0 -> unbounded, cap >= 0 -> bounded. channel() (no arg)")
     emitLine(state, " * is emitted as make_int(-1) by emitConcCall. */")
@@ -435,6 +445,15 @@ func emitConcGlue(state) {
     emitLine(state, "static Value karkain_conc_join(Value t) {")
     emitLine(state, "    long st = karkain_task_join((karkain_task_t*)karkain_conc_handle_ptr(t));")
     emitLine(state, "    return make_int(st);")
+    emitLine(state, "}")
+    emitNewline(state)
+    emitLine(state, "/* P0.2: cooperative task cancellation and bounded join. */")
+    emitLine(state, "static Value karkain_conc_cancel(Value t) {")
+    emitLine(state, "    return make_bool(karkain_task_cancel((karkain_task_t*)karkain_conc_handle_ptr(t)));")
+    emitLine(state, "}")
+    emitLine(state, "static Value karkain_conc_join_timeout(Value t, Value ms) {")
+    emitLine(state, "    long msec = (ms.type == TYPE_INT || ms.type == TYPE_BOOL) ? (long)ms.intVal : -1;")
+    emitLine(state, "    return make_bool(karkain_task_join_timeout((karkain_task_t*)karkain_conc_handle_ptr(t), msec));")
     emitLine(state, "}")
     emitNewline(state)
     emitLine(state, "static void karkain_conc_wait_all(void) { /* Value-wrapper: usable as expression */")
@@ -519,6 +538,20 @@ func emitConcCall(state, node) {
         emit(state, ")")
         return
     }
+    if (fname == "cancel") {
+        emit(state, "karkain_conc_cancel(")
+        if (argc > 0) { emitC11Expr(state, args[0]) }
+        emit(state, ")")
+        return
+    }
+    if (fname == "join_timeout") {
+        emit(state, "karkain_conc_join_timeout(")
+        if (argc > 0) { emitC11Expr(state, args[0]) }
+        emit(state, ", ")
+        if (argc > 1) { emitC11Expr(state, args[1]) }
+        emit(state, ")")
+        return
+    }
     if (fname == "wait_all") {
         emit(state, "(karkain_conc_wait_all(), mk_nil())")
         return
@@ -535,7 +568,7 @@ func emitConcCall(state, node) {
             }
         }
         if (idx < 0) {
-            emit(state, "mk_nil() /* unknown actor handler */")
+            emit(state, "karkain_conc_invalid_actor()")
             return
         }
         emit(state, "karkain_conc_actor(" + str(idx) + ", ")

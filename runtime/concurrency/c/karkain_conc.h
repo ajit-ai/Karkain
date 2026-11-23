@@ -134,6 +134,9 @@ void karkain_channel_destroy(karkain_channel_t* c);             /* release + fre
  * Tasks (spawned functions)
  * ------------------------------------------------------------------- */
 
+/* Cooperative cancellation result status for a queued task. */
+#define KARKAIN_TASK_CANCELLED (-4)
+
 typedef struct karkain_task karkain_task_t;
 typedef void (*karkain_run_fn)(karkain_task_t* t, void* ctx, struct karkain_sched* s);
 
@@ -142,6 +145,7 @@ struct karkain_task {
     void* ctx;
     long done;          /* 0 running, 1 complete (atomic) */
     long status;        /* 0 success, <0 failure code (atomic, set before done) */
+    long cancel_requested; /* 0 none, 1 accepted (atomic CAS) */
     karkain_mutex_t lock;
     karkain_cond_t cv;
     struct karkain_task* next; /* free-list link (owned by scheduler) */
@@ -214,6 +218,8 @@ int  karkain_conc_finish(void);    /* wait for pending==0, stop workers, 0 on su
 
 karkain_task_t* karkain_sched_spawn(karkain_sched_t* s, karkain_run_fn fn, void* ctx);
 int  karkain_task_join(karkain_task_t* t);  /* returns status; blocks until done */
+int  karkain_task_cancel(karkain_task_t* t); /* 1 accepted, 0 otherwise */
+int  karkain_task_join_timeout(karkain_task_t* t, long ms); /* 1 done, 0 timeout/invalid */
 void karkain_wait_all(karkain_sched_t* s);  /* blocks until pending==0 */
 
 #ifdef __cplusplus
