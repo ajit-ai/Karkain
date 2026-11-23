@@ -185,7 +185,8 @@ func createCheckerTab() {
     tab = appendArray(tab, [])  // 11: function parameter names (for lifetime analysis, Phase 1.2)
     // Phase 150: global symbol name -> position in tab[0], used to accelerate
     // ckKind/ckCount lookups (avoids O(n) linear scans).
-    tab = appendArray(tab, {})  // 12: global symbol index (name -> position)
+    map[string]int symIndex = {}
+    tab = appendArray(tab, symIndex)  // 12: global symbol index (name -> position)
     return tab
 }
 
