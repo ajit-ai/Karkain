@@ -1010,8 +1010,11 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// on CI run 45151383617 (kcc whole-tree self-check job) (text=17242
 	// verify=17242), never predicted. Delta is the Phase 150 map-index
 	// additions to checker.kark.
-	if text != 17242 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 17242; see the comment above for the measured chain. output follows: %s", text, out)
+	// RE-PINNED FOR v1.2.7: 17242 -> 17924 (+682), measured on CI
+	// (kcc whole-tree self-check job) (text=17924 verify=17924), never
+	// predicted. Delta is the v1.2.7 native driver additions.
+	if text != 17924 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 17924; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

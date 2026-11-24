@@ -303,8 +303,13 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// measured on CI run 45151383617 (kcc whole-tree self-check job)
 		// (text=17242 verify=17242), never predicted. The delta is the
 		// Phase 150 map-index additions to checker.kark.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 17242 {
-			t.Errorf("whole-tree kir text = %d lines, want 17242:\n%s", got, out)
+		// RE-PINNED FOR v1.2.7: 17242 -> 17924 (+682), measured on CI run
+		// (kcc whole-tree self-check job) (text=17924 verify=17924), never
+		// predicted. The delta is the v1.2.7 native driver additions
+		// (string equality, slicing, arena-scope) plus the regenerated
+		// helper glue.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 17924 {
+			t.Errorf("whole-tree kir text = %d lines, want 17924:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
