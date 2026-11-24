@@ -11,6 +11,15 @@ active forward plan.
 NAT-FORIN and Phase 1.3 corrections merged. The active continuation is
 v1.2.x, beginning with v1.2.1 `std.path`/`std.json` gates and v1.2.2
 control-document refresh.
+
+**Reconciliation (2026-11-23):** `VERSION` is now `1.2.0` and v1.2.0 is
+released and tagged. The "no v1.3.0 increment until v1.2.0 is tagged"
+precondition (§4) is now satisfied; `docs/release/v1.3.0-CHECKLIST.md` remains
+**PREPARED, not open** (owner froze scope 2026-10-29) and `VERSION` in this
+document is **not** v1.3.0. The NAT-CALL closure is partial per §4.1's
+carried-over conditions 2–3; the remaining "no-C `stdlib_v2`" and "native
+calls build+execute" halves are v1.3.0 work, not completed. Evidence:
+`NAT-CALL-BASELINE.md`, `v1.3.0-CHECKLIST.md`, control-system changelog 2026-11-23.
 **Companion documents** (this file does not replace them):
 
 | Document | Role |
@@ -156,7 +165,7 @@ Notes on this matrix:
 |---|---|
 | **1.1.0** | only the owner ceremony: tag `v1.1.0` on current `main`, CI archives + checksums, `verify-install`/`rc-journey` against the shipped binary, docs marker flip |
 | **1.2.0** | hello with `gcc`/`clang`/`cl` **absent from `PATH`**; native images byte-identical Go↔kcc where the gate requires parity; Go described as *reference only* in `installation.rst`; full QA battery. **Amended 2026-10-10 (owner-authorized):** the `stdlib_v2` and `std.net` no-C requirements are **carried over to v1.3.0 as UNMET** — see `docs/release/v1.2.0-CHECKLIST.md` §2.1 and §4 for the measured blockers and the v1.3.0 work items. **Amended 2026-10-29 (owner-authorized):** `stage2 == stage3` and the no-Go self-bootstrap closure are **also carried over to v1.3.0 as UNMET** (§2.3) — increment 154 is implemented (`62a6323`) but the proof is capacity/runner-blocked. Effective gate: conditions **1, 4, 7, 8** |
-| **1.3.0** | OS stdlib modules ship (both engines); **native function-call lowering plus a genuine `import std.*` program that builds and executes through the C-free native path** (carried over from v1.2.0 Condition 2); **a native networking capability with an explicit platform-support decision, and a real `std.net` program that builds and runs without a C compiler on each platform claimed as supported** (carried over from v1.2.0 Condition 3); PM/scaffolding owned by kcc; generics v2 + `const` folding; linear types enforced; atomic surface with litmus goldens; **zero** Go-engine-only core rows |
+| **1.3.0** | OS stdlib modules ship (both engines); **native function-call lowering plus a genuine `import std.*` program that builds and executes through the C-free native path** (carried over from v1.2.0 Condition 2, *partially* delivered: NAT-CALL merged+gated — `TestPhaseNATCall_` green on origin/main, but `import std.crypto` through the native target is **Not supported** per feature-matrix and NAT-STDLIB is unmerged — see `docs/release/v1.3.0-CHECKLIST.md`); **a native networking capability with an explicit platform-support decision, and a real `std.net` program that builds and runs without a C compiler on each platform claimed as supported** (carried over from v1.2.0 Condition 3, *not started*); PM/scaffolding owned by kcc; generics v2 + `const` folding; linear types enforced; atomic surface with litmus goldens; **zero** Go-engine-only core rows |
 | **1.4.0** | DWARF consumed (breakpoints/step); `prof`/SIMD/DWARF parity on kcc; KIR consumed by the backend; every known wrong-code class fixed or a loud `K1xx` |
 | **1.5.0** | `--target freestanding` links with no libc; WASM GC/components + `wit`; MSI/DEB/RPM/DMG artifacts install in clean environments; riscv64 real; Android triple |
 | **1.6.0** | full self-build ≤ 2.5 GB; one measured SSA→emit pass with a published bench delta; CLI startup budget; public registry **only if operated** |

@@ -26,6 +26,12 @@ import (
 //   - a string or float comparison. The oracle's emitCond has a string path
 //     and a float path; the self-hosted driver's string layer is main-only and
 //     it has no float statement lowering yet.
+//
+// CORRECTIVE CHANGE (v1.2.7, NAT-STREQ): the STRING half of that bullet no
+// longer holds. String `==`/`!=` in a condition IS lowered now, by name
+// (natNativeScanStrEqCond), and the refusal row that pinned the old boundary
+// was REPLACED with string ORDERING rather than deleted -- see the table below.
+// The float half still holds.
 //   - a STRING binding inside a branch. The rodata cursor is threaded per
 //     statement list in this driver, so a literal in a branch would need a
 //     cursor the recursion does not carry. An integer binding inside a branch
@@ -228,13 +234,21 @@ var natIfRefusals = []struct {
 		want: "found '+'",
 	},
 	{
-		// A string comparison is NOT lowered here. The oracle has a string
-		// path in emitCond; the self-hosted driver's string layer is main-only
-		// and its comparison path is not ported yet. The message names the
-		// operand's KIND, which is more useful than a node number.
-		name: "string_condition",
-		src:  "func main() {\n    let s = \"hi\"\n    if s == \"hi\" {\n        print(1)\n    }\n}\n",
-		want: "is string; only an int may appear in an arithmetic expression",
+		// CORRECTIVE CHANGE against the frozen NAT-IF baseline (v1.2.7,
+		// NAT-STREQ). This row used to pin `if s == "hi"` as refused, because
+		// the self-hosted driver's comparison path was not ported. v1.2.7 ported
+		// STRING EQUALITY, so the program is now ACCEPTED and the row failed with
+		// "kcc ACCEPTED a program it cannot lower (exit 0)" -- measured before
+		// this edit. The row is REPLACED, not deleted: this table's property is
+		// "a construct the driver cannot lower is refused BY NAME and writes no
+		// image", and the boundary the slice actually draws is ORDERING.
+		// `==`/`!=` compare content; `<`, `<=`, `>`, `>=` over strings have no
+		// defined semantics in this value model and are refused by name.
+		// The accepted half is gated by TestPhaseV127Streq_ (nested and
+		// loop-contained cases included).
+		name: "string_ordering_condition",
+		src:  "func main() {\n    let s = \"hi\"\n    if s < \"ho\" {\n        print(1)\n    }\n}\n",
+		want: "string ordering ('<') is not supported",
 	},
 	{
 		name: "float_condition",
@@ -567,10 +581,10 @@ func TestPhaseNATIf_TheRegisterAllocatorBoundaryIsPinned(t *testing.T) {
 	// At the threshold: different, and the difference is recorded here.
 	kccSHA, goSHA = build(5)
 	if kccSHA == goSHA {
-		t.Errorf("a 5-local program with a branch produced IDENTICAL images.\n"+
-			"  The oracle's Phase-150C register allocator engages at 5 simultaneously-"+
-			"live int locals in a function with control flow, so the two engines are "+
-			"expected to differ. If they do not, the allocator's rule changed and "+
+		t.Errorf("a 5-local program with a branch produced IDENTICAL images.\n" +
+			"  The oracle's Phase-150C register allocator engages at 5 simultaneously-" +
+			"live int locals in a function with control flow, so the two engines are " +
+			"expected to differ. If they do not, the allocator's rule changed and " +
 			"this boundary must be re-measured rather than assumed.")
 	}
 }

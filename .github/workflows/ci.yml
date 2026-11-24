@@ -192,6 +192,19 @@ jobs:
       - name: Run v1.2.3 native string index gate
         run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
 
+      # v1.2.7 (NAT-STREQ) -- string equality in a condition.
+      - name: Run v1.2.7 native string equality gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV127Streq_' -count=1 -timeout 30m
+
+      # v1.2.7 (NAT-STRSLICE) -- open-ended string slicing.
+      - name: Run v1.2.7 native string slice gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV127Strslice_' -count=1 -timeout 30m
+
+      # v1.2.7 -- the arena-scope invariant that lets the allocation-site
+      # counters walk only a function's top-level statement list.
+      - name: Run v1.2.7 native arena-scope invariant gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV127ArenaScope_' -count=1 -timeout 30m
+
       - name: Run Phase 133 first-class-fn gate
         run: go test ./pkg/cli/ -run 'TestPhase133|TestPhase130' -count=1
 
