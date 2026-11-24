@@ -1449,9 +1449,16 @@ func assembleProject(path) {
     if (len(names) == 0) {
         content = content + siblingContent(dir, base)
     } else {
-        int i = 0
-        while (i < len(names)) {
-            Value name = names[i]
+        int allNames = names
+        int processed = []
+        int qi = 0
+        while (qi < len(allNames)) {
+            Value name = allNames[qi]
+            if (arrHas(processed, name) == 1) {
+                qi = qi + 1
+                continue
+            }
+            processed = appendArray(processed, name)
             string m = ""
             if (hasPrefix(name, "std.") == 1) {
                 m = resolveStdlibModule(trimPrefix(name, "std."), dir)
@@ -1463,7 +1470,16 @@ func assembleProject(path) {
                 return ""
             }
             content = content + m
-            i = i + 1
+            int trans = moduleImportNames(m)
+            int ti = 0
+            while (ti < len(trans)) {
+                Value tname = trans[ti]
+                if (arrHas(allNames, tname) == 0) {
+                    allNames = appendArray(allNames, tname)
+                }
+                ti = ti + 1
+            }
+            qi = qi + 1
         }
     }
     content = content + rootSrc

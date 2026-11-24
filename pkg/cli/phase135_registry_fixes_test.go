@@ -66,9 +66,9 @@ func TestPhase135_RelativeRegistryPaths(t *testing.T) {
 	// From a project subdirectory the relative URL must anchor to the
 	// project dir (pre-fix it resolved against the subdirectory and failed).
 	sub := mkdirSub(t, appDir)
-	out, err = runBin(t, bin, sub, "fetch")
+	out, err = runBin(t, bin, sub, "update")
 	if err != nil {
-		t.Fatalf("fetch from subdir with relative dep url failed: %v\n%s", err, out)
+		t.Fatalf("update from subdir with relative dep url failed: %v\n%s", err, out)
 	}
 	if _, lerr := os.Stat(filepath.Join(appDir, "karkain.lock")); lerr != nil {
 		t.Fatalf("fetch from subdir should write the project lockfile: %v", lerr)
@@ -89,9 +89,9 @@ func TestPhase135_RelativeRegistryPaths(t *testing.T) {
 		t.Fatalf("add without registry failed: %v\n%s", err, out)
 	}
 	sub2 := mkdirSub(t, app2Dir)
-	out, err = runBin(t, bin, sub2, "fetch", "--registry", "./reg")
+	out, err = runBin(t, bin, sub2, "update", "--registry", "./reg")
 	if err != nil {
-		t.Fatalf("fetch --registry ./reg from subdir failed: %v\n%s", err, out)
+		t.Fatalf("update --registry ./reg from subdir failed: %v\n%s", err, out)
 	}
 
 	// update --registry ./reg from a subdir resolves the same way.
