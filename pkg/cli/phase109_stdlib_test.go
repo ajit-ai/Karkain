@@ -157,10 +157,10 @@ func TestPhase109_StdlibAssemblyPullsModules(t *testing.T) {
 		t.Fatalf("resolveSourcesRun(stdlib_v2): %v", err)
 	}
 	for _, marker := range []string{
-		"func str_to_upper", // stdlib/string/string.kark
-		"func array_sum",    // stdlib/collections/collections.kark
-		"func hex_encode",   // stdlib/encoding/encoding.kark
-		"func sha256",       // stdlib/crypto/crypto.kark
+		"string str_to_upper", // stdlib/string/string.kark
+		"int array_sum",    // stdlib/collections/collections.kark
+		"string hex_encode",   // stdlib/encoding/encoding.kark
+		"string sha256",       // stdlib/crypto/crypto.kark
 	} {
 		if !strings.Contains(text, marker) {
 			t.Errorf("assembled unit missing stdlib marker %q", marker)
