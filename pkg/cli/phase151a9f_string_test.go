@@ -99,16 +99,16 @@ var nat9fCases = []nat9dCase{
 }
 var nat9fRefusals = []struct{ name, src, want string }{
 	{
-		// CORRECTIVE CHANGE against the frozen 9f baseline. The row used to pin
-		// `let c = a + b` as refused because 9f had no arena; the committed
-		// Phase 2.1 work added the arena and now lowers that program, so the row
-		// failed with an image where a refusal was expected. It was REPLACED,
-		// not deleted: a string used as a CONDITION is still outside the subset,
-		// and naming it keeps this table's property ("a shape the driver cannot
-		// lower is refused by name") honest.
-		name: "string_comparison_not_lowered",
-		src:  "func main() {\n    let s = \"hi\"\n    if (s == \"hi\") { print(1) }\n}\n",
-		want: "`s` is string; only an int may appear",
+		// CORRECTIVE CHANGE against the frozen 9f baseline (v1.2.7, NAT-STREQ).
+		// This row used to pin `if (s == "hi")` as refused because 9f had no
+		// string comparison; v1.2.7 ported string equality, so the program is
+		// now ACCEPTED and the row failed with an image where a refusal was
+		// expected. It was REPLACED, not deleted: a string used as an ORDERING
+		// condition is still outside the subset, and naming it keeps this table's
+		// property ("a shape the driver cannot lower is refused by name") honest.
+		name: "string_ordering_not_lowered",
+		src:  "func main() {\n    let s = \"hi\"\n    if (s < \"ho\") { print(1) }\n}\n",
+		want: "string ordering ('<') is not supported",
 	},
 	{
 		// v1.2.3 now lowers `s[i]` to a one-byte string view, so this row was

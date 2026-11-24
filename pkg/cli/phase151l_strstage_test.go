@@ -426,11 +426,9 @@ func TestPhaseNATStrStage_TheStageIsReservedInEveryFunction(t *testing.T) {
 //
 // Three of the oracle's five operations are lowered by the driver today --
 // a concatenation, a push() and a string field assignment -- and each must
-// reserve the area. The other two, a string equality and a string slice, are
-// REFUSED by the driver by name, so the driver never emits an image for them;
-// the ORACLE's frame is measured for them anyway, because the coverage claim
-// is about the oracle's contract and not about what the driver happens to
-// lower today.
+// reserve the area. CORRECTIVE CHANGE (v1.2.7): string equality and string
+// slicing are now lowered too, so all five operations reserve the area and the
+// driver images show the 2560-byte difference.
 func TestPhaseNATStrStage_TheCoverageIsTheOracleFiveOperations(t *testing.T) {
 	karkain := phase130Karkain(t)
 
@@ -484,17 +482,21 @@ func TestPhaseNATStrStage_TheCoverageIsTheOracleFiveOperations(t *testing.T) {
 			// oracle's scanStringViewOps looks for.
 			op:   "func main() {\n    let s = \"x\"\n    while (s == \"y\") { print(1) }\n}\n",
 			twin: "func main() {\n    let s = \"x\"\n    print(s)\n}\n",
-			// The driver refuses a string comparison: its condition scanner
-			// requires an int operand.
-			refused: true,
+			// CORRECTIVE CHANGE (v1.2.7, NAT-STREQ): string equality is now
+			// LOWERED, so this operation is no longer refused. The staging area
+			// is reserved for it (usesStrEq), and the driver image must show the
+			// 2560-byte difference.
+			refused: false,
 		},
 		{
 			name: "string_slice",
 			op:   "func main() {\n    let s = \"abc\"\n    print(s[0:2])\n}\n",
 			twin: "func main() {\n    let s = \"abc\"\n    print(s)\n}\n",
-			// The driver refuses a slice: a slice expression is neither an
-			// integer literal nor a local.
-			refused: true,
+			// CORRECTIVE CHANGE (v1.2.7, NAT-STRSLICE): string slicing is now
+			// LOWERED, so this operation is no longer refused. The staging area
+			// is reserved for it (usesStrSlice), and the driver image must show
+			// the 2560-byte difference.
+			refused: false,
 		},
 	}
 
@@ -811,9 +813,9 @@ func TestPhaseNATStrStage_TheRefusalsAreNamed(t *testing.T) {
 			want: "not lowered",
 		},
 		{
-			name: "string_slice",
-			src:  "func main() {\n    let s = \"abc\"\n    print(s[0:2])\n}\n",
-			want: "kind 46",
+			name: "string_slice_chained",
+			src:  "func main() {\n    let s = \"abc\"\n    print(s[0:2][0:1])\n}\n",
+			want: "chained string slicing is not lowered",
 		},
 	}
 	for _, c := range cases {

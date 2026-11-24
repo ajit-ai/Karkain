@@ -86,7 +86,9 @@ top of every generated C23 translation unit. It is emitted from
 - Phase 109 encoding/crypto builtins: ``hex_encode_bytes``,
   ``hex_decode_bytes``, ``base64_encode_bytes``,
   ``base64_decode_bytes``, ``utf8_valid_bytes``, ``sha256_hex``,
-  ``sha512_hex``, ``map_keys_of``.
+  ``sha512_hex``, ``map_keys_of``. The self-hosted native driver lowers
+  ``sha256_hex`` directly (v1.2.6); ``sha512_hex`` remains a C-runtime
+  builtin on that path.
 - Phase 106 SIMD helpers (``karkain_simd_*``) using GNU vector
   operators; Phase 70 SSE fallback for scalar operands.
 - Phase 107 concurrency runtime (see below).

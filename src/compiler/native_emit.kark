@@ -387,6 +387,65 @@ func natCmpRegReg(s, dst, src) {
     return natModrm(s, 3, src, dst)
 }
 
+// Phase 152-B2: 32-bit ALU forms. These are the 64-bit primitives above with
+// REX.W cleared: writing a 32-bit register zeroes its upper half on x86-64,
+// so every intermediate is canonical with no masking pass. The opcode selectors
+// (0x89/0x01/0x29/0x21/0x09/0x31/0xC1) already exist in the shared table;
+// only the REX.W bit differs.
+func natMovRegReg32(s, dst, src) {
+    s = natRex(s, 0, src, dst)
+    s = natByte(s, natMask(18))
+    return natModrm(s, 3, src, dst)
+}
+func natAddRegReg32(s, dst, src) {
+    s = natRex(s, 0, src, dst)
+    s = natByte(s, natMask(9))
+    return natModrm(s, 3, src, dst)
+}
+func natSubRegReg32(s, dst, src) {
+    s = natRex(s, 0, src, dst)
+    s = natByte(s, natMask(10))
+    return natModrm(s, 3, src, dst)
+}
+func natAndRegReg32(s, dst, src) {
+    s = natRex(s, 0, src, dst)
+    s = natByte(s, natMask(63))
+    return natModrm(s, 3, src, dst)
+}
+func natOrRegReg32(s, dst, src) {
+    s = natRex(s, 0, src, dst)
+    s = natByte(s, natMask(75))
+    return natModrm(s, 3, src, dst)
+}
+func natXorRegReg32(s, dst, src) {
+    s = natRex(s, 0, src, dst)
+    s = natByte(s, natMask(20))
+    return natModrm(s, 3, src, dst)
+}
+func natShlRegImm32(s, dst, n) {
+    s = natRex(s, 0, 4, dst)
+    s = natByte(s, natMask(64))
+    s = natModrm(s, 3, 4, dst)
+    return natByte(s, n)
+}
+func natShrRegImm32(s, dst, n) {
+    s = natRex(s, 0, 5, dst)
+    s = natByte(s, natMask(64))
+    s = natModrm(s, 3, 5, dst)
+    return natByte(s, n)
+}
+func natRolRegImm32(s, dst, n) {
+    s = natRex(s, 0, 0, dst)
+    s = natByte(s, natMask(64))
+    s = natModrm(s, 3, 0, dst)
+    return natByte(s, n)
+}
+func natCmpRegReg32(s, dst, src) {
+    s = natRex(s, 0, src, dst)
+    s = natByte(s, natMask(32))
+    return natModrm(s, 3, src, dst)
+}
+
 // natJcc emits a near condition-code jump: 0F 8x cd. The near form is
 // uniform with natJnz, which is what the oracle uses for every conditional
 // branch; a short (8-bit displacement) form would be a different byte.

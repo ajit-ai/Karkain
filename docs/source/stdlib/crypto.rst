@@ -54,6 +54,15 @@ Both engines produce byte-identical digests for the same input, so hashes of
 ``examples/stdlib_v2``-style programs match exactly whether compiled with the
 Go front end or the self-hosted ``kcc`` engine.
 
+Native-target status
+--------------------
+
+The direct runtime builtin ``sha256_hex`` is lowered by the self-hosted native
+driver (v1.2.6) and returns the same 64-character lowercase digest, including
+the C runtime's ``strlen`` truncation at the first NUL. Importing
+``std.crypto`` itself through a ``native-x86_64-*`` target is not yet part of
+the qualified native subset; use the direct builtin for native programs.
+
 Example
 -------
 

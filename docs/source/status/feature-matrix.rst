@@ -137,3 +137,112 @@ the subtest that proves it; nothing here claims preemption, and
      - Not a goal of P0.2: no scheduler redesign and no signal-based
        interruption. Cancelling a running task sets a request the program
        may observe; it never forces a stop.
+
+Native ``sha256_hex`` (v1.2.6)
+==============================
+
+The direct runtime builtin ``sha256_hex`` is lowered by the self-hosted
+native driver. The contract is the digest value: 64 lowercase hex characters,
+with the C runtime's ``strlen`` truncation at the first NUL. Byte-identity
+with the Go native helper is not claimed; the gate compares executed stdout.
+
+.. list-table:: Native sha256 matrix
+   :widths: 30 12 12 46
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``sha256_hex(string)`` on ``native-x86_64-windows``
+     - Stable
+     - kcc native
+     - ``TestPhaseV126_ExecutedPEWithExactBytes``
+   * - C-backend and Go-native behavioral parity
+     - Stable
+     - kcc native + Go native + C
+     - ``TestPhaseV126_MatchesCBackend``,
+       ``TestPhaseV126_MatchesGoNativeBackend``
+   * - FIPS-derived K/IV constants present in the emitted image
+     - Stable
+     - kcc native
+     - ``TestPhaseV126_KAndIVConstantsAreInTheImage``
+   * - Arity/type/return/nested-codec refusals
+     - Stable
+     - kcc native
+     - ``TestPhaseV126_RefusalsAreByName``
+   * - ``import std.crypto`` through the native target
+     - Not supported
+     - -
+     - The qualified native subset has no stdlib runtime; the direct builtin
+       is supported, the module wrapper is not yet claimed.
+
+Native ``==``/``!=`` over strings (v1.2.7, NAT-STREQ)
+======================================================
+
+String equality in a condition is lowered by the self-hosted native driver.
+It compares content (length first, then bytes), not pointers. The string staging
+area is reserved program-wide, including inside ``if``/``while``/``for`` bodies,
+so a loop's index slot is not clobbered by an equality in its body.
+
+.. list-table:: Native string equality matrix
+   :widths: 30 12 12 46
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``==`` / ``!=`` over strings in a condition
+     - Stable
+     - kcc native
+     - ``TestPhaseV127Streq_ExecutedPEWithExactBytes``
+   * - String equality inside a loop body
+     - Stable
+     - kcc native
+     - ``TestPhaseV127Streq_ExecutedPEWithExactBytes``
+   * - ``<``, ``<=``, ``>``, ``>=`` over strings
+     - Not supported
+     - -
+     - Refused by name (``string ordering ('<') is not supported``)
+
+Native ``s[a:b]`` string slicing (v1.2.7, NAT-STRSLICE)
+========================================================
+
+The view form: the result is ``(s.ptr + a, b - a)`` with no allocation, and
+bounds are ``0 <= a <= b <= len`` with a loud ``Int3`` on violation. Present
+bounds are integer expressions, not only literals. An absent bound is an EMPTY
+node and the emitter substitutes 0 / len(s).
+
+.. list-table:: Native string slice matrix
+   :widths: 30 12 12 46
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``s[a:b]`` (both bounds present)
+     - Stable
+     - kcc native
+     - ``TestPhaseV127Strslice_ExecutedPEWithExactBytes``
+   * - ``s[a:]``, ``s[:b]``, ``s[:]``
+     - Stable
+     - kcc native
+     - ``TestPhaseV127Strslice_ExecutedPEWithExactBytes``
+   * - Bounds as integer expressions
+     - Stable
+     - kcc native
+     - ``TestPhaseV127Strslice_ExecutedPEWithExactBytes``
+   * - Out-of-bounds or negative index
+     - Stable
+     - kcc native
+     - ``TestPhaseV127Strslice_RefusalsAreByName``
+   * - Slice of an integer
+     - Not supported
+     - -
+     - Refused by name (``a string slice target must be a string``)
+   * - Chained slicing
+     - Not supported
+     - -
+     - Refused by name (``chained string slicing is not lowered``)
