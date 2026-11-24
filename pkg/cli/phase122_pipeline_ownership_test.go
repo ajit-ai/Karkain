@@ -299,8 +299,12 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// job) (text=17215 verify=17215), never predicted. The delta is the
 		// regenerated conc_runtime.kark (cancel/join_timeout glue) plus the kcc
 		// actor-handler argument check.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 17215 {
-			t.Errorf("whole-tree kir text = %d lines, want 17215:\n%s", got, out)
+		// RE-PINNED FOR PHASE 150 CHECKER INDEX: 17215 -> 17242 (+27),
+		// measured on CI run 45151383617 (kcc whole-tree self-check job)
+		// (text=17242 verify=17242), never predicted. The delta is the
+		// Phase 150 map-index additions to checker.kark.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 17242 {
+			t.Errorf("whole-tree kir text = %d lines, want 17242:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
