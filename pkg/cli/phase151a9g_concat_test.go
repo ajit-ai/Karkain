@@ -120,8 +120,8 @@ var nat9gRefusals = []struct{ name, src, want string }{
 	// being a refusal. It is REPLACED, not deleted, by a still-refused shape:
 	// a string SLICE has no lowering and must be named rather than mis-lowered.
 	{name: "string_slice_not_lowered",
-		src:  "func main() {\n    let s = \"hi\"\n    print(s[0:1])\n}\n",
-		want: "expression of kind 46"},
+		src:  "func main() {\n    let s = \"hi\"\n    print(s[0:2][0:1])\n}\n",
+		want: "chained string slicing is not lowered"},
 	{name: "len_of_concat_refused",
 		src:  "func main() {\n    let a = \"ab\"\n    print(len(a + \"cd\"))\n}\n",
 		want: "error[K145]"},
