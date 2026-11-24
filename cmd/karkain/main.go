@@ -355,10 +355,17 @@ func handlePackageCommand(args []string) int {
 			return cli.ExitPackage
 		}
 		fmt.Println("Fetching dependencies...")
-		// Resolve (writes karkain.lock) then fetch exactly the locked versions.
-		_, rerr := kpkg.ResolveAndLock(projectDir)
+		// fetch = restore the EXACT versions/sources already recorded in
+		// karkain.lock. It must NOT re-resolve: re-resolution is `update`'s job.
+		// Re-resolving here silently changed versions and broke reproducibility
+		// (KPM-001).
+		lf, rerr := kpkg.ReadLocked(projectDir)
 		if rerr != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", rerr)
+			fmt.Fprintf(os.Stderr, "Error: cannot read lockfile: %v\n", rerr)
+			return cli.ExitPackage
+		}
+		if lf == nil {
+			fmt.Fprintln(os.Stderr, "Error: no karkain.lock found; run 'karkain pkg update' first to resolve dependencies")
 			return cli.ExitPackage
 		}
 		if _, ferr := kpkg.FetchLockedWithRegistry(projectDir, regFlag); ferr != nil {
@@ -711,7 +718,17 @@ func handlePackageCommand(args []string) int {
 			}
 			vulns := kpkg.AuditDependencies(projectDir)
 			if vulns == nil {
-				vulns = []kpkg.VulnReport{}
+				// No advisory database configured (KPM-005).
+				data, jerr := json.MarshalIndent(struct {
+					Status         string `json:"status"`
+					Vulnerabilities []kpkg.VulnReport `json:"vulnerabilities"`
+				}{Status: "not_implemented", Vulnerabilities: []kpkg.VulnReport{}}, "", "  ")
+				if jerr != nil {
+					fmt.Fprintln(os.Stderr, "Error: json encoding failed")
+					return cli.ExitPackage
+				}
+				fmt.Println(string(data))
+				return cli.ExitPackage
 			}
 			data, jerr := json.MarshalIndent(struct {
 				Vulnerabilities []kpkg.VulnReport `json:"vulnerabilities"`
@@ -737,6 +754,13 @@ func handlePackageCommand(args []string) int {
 		}
 		fmt.Println("Scanning for vulnerabilities...")
 		vulns := kpkg.AuditDependencies(projectDir)
+		if vulns == nil {
+			// No advisory database is configured, so an empty result is
+			// NOT evidence of safety (KPM-005). Report as not implemented
+			// rather than "no vulnerabilities".
+			fmt.Println("Vulnerability scanning is not implemented (no advisory database configured)")
+			return cli.ExitPackage
+		}
 		if len(vulns) == 0 {
 			fmt.Println("No known vulnerabilities found")
 		} else {
@@ -780,8 +804,8 @@ func handlePackageCommand(args []string) int {
 			return cli.ExitPackage
 		}
 		if containsFlag(rest, "--signatures") {
-			fmt.Println("Verifying package signatures... (signature verification not yet implemented)")
-			return cli.ExitSuccess
+			fmt.Println("Verifying package signatures... (signature verification not implemented)")
+			return cli.ExitPackage
 		}
 		fmt.Println("Verifying package integrity...")
 		results := kpkg.VerifyIntegrity(projectDir)
