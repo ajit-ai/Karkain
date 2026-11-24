@@ -103,17 +103,22 @@ func TestPhase135_LocalRegistryE2E(t *testing.T) {
 		t.Fatalf("manifest should declare the registry dependency, got:\n%s", manifestRaw)
 	}
 
-	// 4. Fetch resolves + verifies + caches; lockfile pins the version.
-	out, err = runBinEnv(t, bin, appDir, env, "fetch")
+	// 4. Update resolves + verifies + caches; lockfile pins the version.
+	out, err = runBinEnv(t, bin, appDir, env, "update")
 	if err != nil {
-		t.Fatalf("karkain fetch failed: %v\n%s", err, out)
+		t.Fatalf("karkain update failed: %v\n%s", err, out)
 	}
 	lockRaw, lerr := os.ReadFile(filepath.Join(appDir, "karkain.lock"))
 	if lerr != nil {
-		t.Fatalf("fetch should write karkain.lock: %v", lerr)
+		t.Fatalf("update should write karkain.lock: %v", lerr)
 	}
 	if !strings.Contains(string(lockRaw), "superhello") {
 		t.Fatalf("lockfile should pin superhello, got:\n%s", lockRaw)
+	}
+	// Fetch then restores exactly the locked version (idempotent, no re-resolve).
+	out, err = runBinEnv(t, bin, appDir, env, "fetch")
+	if err != nil {
+		t.Fatalf("karkain fetch failed: %v\n%s", err, out)
 	}
 
 	// 5. The consumer genuinely compiles against the published package and runs.
@@ -146,6 +151,11 @@ func TestPhase135_LocalRegistryNegatives(t *testing.T) {
 	writeAppMain(t, missDir, "missing")
 	if out, err := runBinEnv(t, bin, missDir, env, "add", "missing", "1.0.0"); err != nil {
 		t.Fatalf("add missing should record the dep (fetch is what fails): %v\n%s", err, out)
+	}
+	// Resolve + lock first so fetch has a lockfile to restore from (KPM-001:
+	// fetch no longer re-resolves).
+	if _, uerr := runBinEnv(t, bin, missDir, env, "update"); uerr != nil {
+		// update may still succeed (resolver records the dep); that is fine.
 	}
 	out, err := runBinEnv(t, bin, missDir, env, "fetch")
 	if err == nil {
@@ -216,6 +226,9 @@ func TestPhase135_LocalRegistryNegatives(t *testing.T) {
 	mmDir := filepath.Join(root, "appmismatch")
 	if out, err := runBinEnv(t, bin, mmDir, env, "add", "superhello", "9.9.9"); err != nil {
 		t.Fatalf("add superhello 9.9.9 should record the dep: %v\n%s", err, out)
+	}
+	if _, uerr := runBinEnv(t, bin, mmDir, env, "update"); uerr != nil {
+		// update may still succeed (resolver records the dep); that is fine.
 	}
 	out, err = runBinEnv(t, bin, mmDir, env, "fetch")
 	if err == nil {
