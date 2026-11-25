@@ -2310,6 +2310,8 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 		return KindInt, nil
 	case *parser.Float64Literal:
 		return KindFloat, nil
+	case *parser.AtomicOp:
+		return KindInt, nil
 	case *parser.StructLiteral:
 		if _, ok := b.structs[x.TypeName]; ok {
 			return KindStruct, nil
@@ -6046,6 +6048,11 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		return KindInt, nil
 	case *parser.Float64Literal:
 		return KindFloat, nil
+	case *parser.AtomicOp:
+		// v1.2.13: atomics are refused on the native target (no lock
+		// prefix / fence emission). Classified as int so the classifier
+		// does not report a type error before the capability refusal fires.
+		return KindInt, nil
 	case *parser.Identifier:
 		k, ok := b.kinds[x.Name]
 		if !ok {
@@ -6275,6 +6282,13 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 		return nil
 	case *parser.Float64Literal:
 		return b.emitFloat(x, depth)
+	case *parser.AtomicOp:
+		// v1.2.13: atomics are a capability boundary on the native target.
+		// The native runtime has no lock prefix / fence emission, so an
+		// atomic operation is refused BY NAME rather than emitting a call
+		// to a label that does not exist. The C23 path keeps the full
+		// @atomic_* surface via C11 stdatomic.
+		return fmt.Errorf("error[K145]: '@atomic_%s' is not available on the native target (the native runtime has no atomic primitives). The C23 path keeps the full atomic surface -- build with --target c23", x.Op)
 	case *parser.BinaryExpr:
 		return b.emitBinary(x, depth)
 	case *parser.UnaryExpr:
