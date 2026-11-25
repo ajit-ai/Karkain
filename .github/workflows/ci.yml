@@ -156,6 +156,9 @@ jobs:
         run: go test ./pkg/cli/ -run 'TestPhaseV129_' -count=1 -timeout 10m
       - name: Run v1.2.10 native net platform decision gate
         run: go test ./pkg/cli/ -run 'TestPhaseV1210_' -count=1 -timeout 10m
+      - name: Run v1.2.13 native atomic platform decision gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1213_' -count=1 -timeout 10m
+
 
 
 

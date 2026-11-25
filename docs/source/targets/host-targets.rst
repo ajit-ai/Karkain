@@ -131,6 +131,16 @@ runtime would require a per-OS socket syscall layer (Winsock via the PEB
 bootstrap on Windows, BSD sockets elsewhere) that the native backend does
 not carry. Until that layer exists, networking stays on the C23 path.
 
+Atomics (``@atomic_*``)
+-----------------------
+
+The C-free native target has **no atomic primitives** — no ``lock``
+prefix, no ``cmpxchg``, no memory fences. Consequently ``@atomic_load``,
+``@atomic_store``, ``@atomic_fetch_add``, ``@atomic_fetch_sub``,
+``@atomic_exchange`` and ``@atomic_cas`` are **deliberately unavailable**
+on ``native-x86_64-*`` and are refused BY NAME with ``error[K145]``. The
+C23 path keeps the full ``@atomic_*`` surface via C11 ``<stdatomic.h>``.
+
 The self-hosted driver lowers ``for x in arr`` for an **array variable**,
 including nested loops, ``break``/``continue`` and an index inside the loop
 body. The iterator must be a variable with a frame-resident header: a literal

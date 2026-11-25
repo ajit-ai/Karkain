@@ -70,6 +70,7 @@
     {"construct": "recursion", "status": "not_supported", "gate": "", "gate_file": "", "note": "The subset has no `if`, so a recursive function cannot terminate: both engines stack-overflow identically. Parity, not support."},
     {"construct": "standard-library import", "status": "not_supported", "gate": "", "gate_file": "", "note": "The native path has no stdlib runtime: `import std.*` is refused by the driver. This is closure condition 2 of v1.2.0, carried to v1.3.0 as UNMET."},
     {"construct": "networking (`std.net`)", "status": "not_supported", "gate": "TestNativeSocketBuiltinsRefused", "gate_file": "pkg/native/phase152a_safety_test.go", "note": "Closure condition 3 of v1.2.0, carried to v1.3.0 as UNMET."},
+    {"construct": "atomics (`@atomic_*`)", "status": "not_supported", "gate": "TestPhaseV1213_", "gate_file": "pkg/cli/phase_v1213_atomic_test.go", "note": "v1.2.13 platform decision: native runtime has no atomic primitives (no lock prefix / fence emission). C23 path keeps full `@atomic_*` surface via C11 stdatomic."},
     {"construct": "concurrency (spawn/actor/channel)", "status": "not_supported", "gate": "", "gate_file": "", "note": "The native path has no concurrency runtime."}
   ],
   "platforms": [
