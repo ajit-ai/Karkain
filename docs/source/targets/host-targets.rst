@@ -116,6 +116,21 @@ hint (exit 6).
 All three targets are kcc-owned: ``kccNativeOwnedTargets`` has no member
 left to refuse, and nothing refuses with ``error[K116]`` any more.
 
+Networking capability (v1.2.10 platform decision)
+-------------------------------------------------
+
+The C-free native target has **no socket syscalls** — only ``write`` and
+``exit``. Consequently ``std.net`` (and the ``net_*`` builtins) are
+**deliberately unavailable** on ``native-x86_64-*`` and are refused BY NAME
+with ``error[K145]`` naming the missing builtin and the C23 alternative.
+The C23 path keeps the full ``std.net`` surface and builds and runs the
+same program on every host.
+
+This is a **capability decision, not a gap**: adding sockets to the native
+runtime would require a per-OS socket syscall layer (Winsock via the PEB
+bootstrap on Windows, BSD sockets elsewhere) that the native backend does
+not carry. Until that layer exists, networking stays on the C23 path.
+
 The self-hosted driver lowers ``for x in arr`` for an **array variable**,
 including nested loops, ``break``/``continue`` and an index inside the loop
 body. The iterator must be a variable with a frame-resident header: a literal
