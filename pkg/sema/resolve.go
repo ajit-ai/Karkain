@@ -95,7 +95,10 @@ var builtinNames = map[string]bool{
 	// Phase 125A: networking builtins (TCP connect/listen/accept/read/write/close).
 	"net_connect": true, "net_listen": true, "net_accept": true,
 	"net_read": true, "net_write": true, "net_close": true, "net_last_error": true,
-	"Some": true, "None": true, "Ok": true, "Err": true,
+	// v1.2.17: C23 transport HTTPS (WinHTTP/Schannel on Windows, OpenSSL elsewhere).
+	"https_request":  true,
+	"tls_last_error": true,
+	"Some":           true, "None": true, "Ok": true, "Err": true,
 	"assert": true, "assert_eq": true, "assert_ne": true,
 	// Phase 107: concurrency builtins (channels, tasks, actors).
 	"channel": true, "send": true, "chanSend": true, "chanClose": true,

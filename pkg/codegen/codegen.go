@@ -66,6 +66,7 @@ type Generator struct {
 	lastClosureInit  string                      // Phase 54: env-instance init emitted at binding site
 	quantumRegisters []string                    // Phase 14: declared quantum registers, in declaration order
 	needsHTTP        bool                        // Phase 55b: track if http.get is used (strip stub otherwise)
+	needsTLS         bool                        // v1.2.17: https_request uses the C23 TLS runtime
 	sourceFile       string                      // Phase 55b: source file for #line directives
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
@@ -499,6 +500,12 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 	for _, stmt := range prog.Statements {
 		g.scanNodeForHTTP(stmt)
 	}
+	// v1.2.17: detect https_request calls; the TLS runtime and its link
+	// libraries are emitted only when a program actually uses them.
+	g.needsTLS = false
+	for _, stmt := range prog.Statements {
+		g.scanNodeForTLS(stmt)
+	}
 	// Pre-scan: collect user-declared function names for deterministic symbol
 	// mangling and user-functions-first builtin shadowing.
 	g.userFuncs = make(map[string]bool)
@@ -552,6 +559,13 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		sb.WriteString("#define KARKAIN_TRACE 1\n")
 	}
 	sb.WriteString(g.generateCHeader())
+	// v1.2.17: transport TLS is emitted after the net runtime (which lives in
+	// generateCHeader) and only for programs that call https_request. A program
+	// without TLS must not reference OpenSSL/WinHTTP symbols or need their
+	// link libraries -- the bootstrap compiler is such a program.
+	if g.needsTLS {
+		sb.WriteString(tlsRuntimeC())
+	}
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
 	// Phase 107: concurrency runtime core (compiler-neutral C). The Value glue
@@ -3847,6 +3861,14 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "net_last_error" {
 			return "karkain_net_last_error()"
+		}
+		if n.Function == "https_request" {
+			return fmt.Sprintf("karkain_https_request(%s, %s, %s, %s, %s, %s)",
+				g.genExpr(n.Args[0]), g.genExpr(n.Args[1]), g.genExpr(n.Args[2]),
+				g.genExpr(n.Args[3]), g.genExpr(n.Args[4]), g.genExpr(n.Args[5]))
+		}
+		if n.Function == "tls_last_error" {
+			return "karkain_tls_last_error()"
 		}
 		if n.Function == "http.get" {
 			g.needsHTTP = true

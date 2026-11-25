@@ -229,6 +229,12 @@ jobs:
         # so a hand-edit or source drift fails fast with the regen command.
         run: go test ./pkg/codegen/ -run 'TestConcRuntimeKarkFresh' -count=1
 
+      - name: Run TLS runtime freshness gate
+        # v1.2.17: src/compiler/tls_runtime.kark is generated from
+        # runtime/tls/c/* -- this pins the mapping so a hand-edit or drift
+        # fails fast with the regen command.
+        run: go test ./pkg/codegen/ -run 'TestTLSKarkFresh' -count=1
+
       - name: Run Phase 137 concurrency-parity gate
         run: go test ./pkg/cli/ -run 'TestPhase137' -count=1
 
@@ -237,6 +243,13 @@ jobs:
         # drives both engines over the cancellation/timed-join contract plus the
         # P0.1 concurrency goldens (285 / 5,0,8 / actor cases).
         run: go test ./pkg/cli/ -run 'TestPhaseP02_' -count=1 -timeout 30m
+
+      - name: Run v1.2.17 C23 TLS/HTTPS gate
+        # Real TLS handshake against an in-process crypto/tls server on both
+        # engines; verify=0 loopback body, verify=1 rejection and the
+        # TLS-free generated-C wiring check. Native/WASM are C23-excluded by
+        # the existing v1.2.10 platform decision.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1217_' -count=1 -timeout 20m
 
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1

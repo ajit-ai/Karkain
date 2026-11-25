@@ -358,3 +358,30 @@ func http_write_response(conn, status, reason, body) {
 func http_close(fd) {
     return net_close(fd)
 }
+// ---------------------------------------------------------------------------
+// v1.2.17: HTTPS client (C23 path)
+// ---------------------------------------------------------------------------
+//
+// https_get / https_post are thin canonical wrappers over the https_request
+// builtin. The builtin performs a real TLS handshake (WinHTTP/Schannel on
+// Windows, OpenSSL elsewhere) and returns the complete HTTP response text, or
+// an empty string on failure.
+//
+// verify=1 validates the server chain and hostname using the platform trust
+// store. verify=0 disables certificate checks for loopback/self-signed test
+// servers only; the connection is still encrypted. The native and WASM
+// targets have no sockets and refuse these calls by name (v1.2.10 decision).
+
+// https_get issues a TLS GET and returns the raw response (headers + body).
+func https_get(host, port, path, verify) {
+    return https_request("GET", host, port, path, "", verify)
+}
+
+// https_post issues a TLS POST and returns the raw response.
+func https_post(host, port, path, body, verify) {
+    return https_request("POST", host, port, path, body, verify)
+}
+// https_last_error returns the last TLS failure string ("" on success).
+func https_last_error() {
+    return tls_last_error()
+}
