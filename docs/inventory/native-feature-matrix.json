@@ -95,7 +95,7 @@
       "owner": "kcc",
       "container": "Mach-O 64-bit PIE with a rebase opcode stream",
       "emission": "proven",
-      "execution": "NOT proven anywhere: this repository has no macOS runner (every CI job is ubuntu or windows) and no Intel-Mac host. Every Mach-O claim since increment 149 has been structural.",
+      "execution": "Proven on macos-13 (Intel) CI runner via TestNativeMachOExec (v1.2.15). Structural validation remains the fallback where no runner exists.",
       "structural_validator": "pkg/native ParseMachO (the Go oracle's own Mach-O validator, including the rebase-stream decoder)"
     }
   ],

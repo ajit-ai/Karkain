@@ -179,13 +179,11 @@ kcc through the same driver and is compared byte for byte against the Go
 oracle; its **execution** evidence comes from the Linux CI leg, because
 this development host is windows/amd64 with no WSL and no Docker.
 
-The macOS row is marked self-hosted on **structural** evidence only:
-``parseMachO`` validates ``MH_PIE``, the segment set and protections,
-page-aligned placement, the entry, and decodes the rebase stream, but no
-Mach-O image has been **executed**, because this repository has no macOS
-runner and no Intel-Mac host in its history. Every Mach-O claim since
-increment 149 has been structural, and the v1.2.0 release does not change
-that.
+The macOS row is marked self-hosted on **execution** evidence as of
+v1.2.15: a ``macos-13`` CI leg runs ``TestNativeMachOExec``, which
+executes the Mach-O image and checks exact stdout bytes. Where no runner
+exists (Apple Silicon, or a host without Rosetta), the structural pins
+in ``TestNativeMachO`` remain the evidence.
 
 .. seealso::
 
