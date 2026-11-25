@@ -127,8 +127,7 @@ func TestNativeMapNegatives(t *testing.T) {
 		{"insert_in_loop", "func main() {\n    let m = {}\n    let i = 0\n    while (i < 3) {\n        m[i] = i\n        i = i + 1\n    }\n    print(len(m))\n}\n", "map insertion inside a loop"},
 		{"insert_in_for", "func main() {\n    let m = {}\n    for (let i = 0; i < 3; i = i + 1) {\n        m[i] = i\n    }\n    print(len(m))\n}\n", "map insertion inside a loop"},
 		{"insert_in_forin", "func main() {\n    let m = {}\n    let a = [1, 2]\n    for x in a {\n        m[x] = x\n    }\n    print(len(m))\n}\n", "map insertion inside a loop"},
-		{"len_of_int", "func main() {\n    let n = 5\n    print(len(n))\n}\n", "len() requires an array or a map"},
-		{"index_a_string", "func main() {\n    let s = \"hi\"\n    print(s[0])\n}\n", "index target must be an array or a map"},
+		{"len_of_int", "func main() {\n    let n = 5\n    print(len(n))\n}\n", "len() requires an array, map or string"},
 	}
 	for _, c := range cases {
 		c := c

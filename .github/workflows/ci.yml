@@ -152,6 +152,9 @@ jobs:
 
       - name: Run Phase 124 compute-target gate
         run: go test ./pkg/cli/ -run 'TestPhase124' -count=1
+      - name: Run v1.2.9 native stdlib gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV129_' -count=1 -timeout 10m
+
 
       # Foundation audit regression gate: the self-hosted compiler source must
       # build into a usable kcc. A defect here (an undefined AST accessor)

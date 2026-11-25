@@ -114,6 +114,17 @@ against).
 | KIR-REMEASURE | Re-measure the whole-tree KIR pin | `completed` **(re-measured 2026-11-10 on the dev host)** | - | The pin moved **14385 → 14477 → 14597**: 14385 (NAT-CALL), 14477 (the `push()` slice, which moved it and did **not** re-pin it, leaving `main` and `develop` with a red gate), 14597 (NAT-IF). Measured with `karkain kir --verify src/compiler/kir.kark` in the gate's own invocation (`text=14597 verify=14597`, 1724 s on this host) and never predicted. Both assertions re-pinned: `pkg/cli/phase122_pipeline_ownership_test.go` and `pkg/cli/phase151a5_win_test.go`. **The dev host DID complete the measurement this time** — the earlier failure was not the intermittent crash but a missing `libgmp-10.dll` on `PATH` (`C:\msys64\ucrt64\bin`), which made `kcc.exe` die with `0xC0000135` and the CLI report it as exit 3 with no output; see `docs/audit/NAT-IF-BASELINE.md` §8.3 |
 | B2-SEED | Seed-closure burn on CI runners | `blocked` | Six consecutive runner deaths (latest 2026-10-29, run `40815666047`) ~35 s into the stage-2 transpile, with no witness line, timer, OOM or crash fingerprint. **The same class independently reproduced by the increment 154 step on the same run** (`exit 143`, 110 s, its first-ever execution) | `bootstrap-closure` and `phase154-closure` CI jobs are **discovery-only and not required checks**; the mechanism itself is proven on a dev host (143) |
 
+### 4.4 v1.2.x gap-closing slices (owner-authorized 2026-11-25)
+
+Owner decision: v1.3.0 is the final release; the post-2.0 deferrals below are
+pulled into the v1.2.x line so v1.3.0 GA ships complete.
+
+| ID | Item | Status | Evidence / gate |
+|----|------|--------|-----------------|
+| v1.2.31 | async/await in both engines (pulled from post-2.0) | `proposed` | Design decision (stackless vs thread-per-task) + implementation + litmus gates; SPEC.md 4.5 already reserved |
+| v1.2.32 | REL-001 sanitizer investigation (libasan/clang ASan build) | `proposed` | `REL-001-CRASH-INVESTIGATION.md` names the decisive experiment; needs authorized build increment |
+| v1.2.33 | Security/capability model (`unsafe {}`, SBOM, CVE SLA) | `proposed` | Closes SEC-001; increment 165 (Docker/cosign) + SBOM + CVE docs |
+
 ### 4.3 Later versions (planned, not baselined)
 
 | ID | Item | Status | Notes |

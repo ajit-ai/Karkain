@@ -134,8 +134,8 @@ that property is why the 1.0/1.1 lines shipped at all.
 | v1.4.0 | Tooling/debugging/observability | 153, 157, 163, 164, 175, 176 | Planned |
 | v1.5.0 | Platforms + packaging | 166–172 | Planned |
 | v1.6.0 | Performance/memory/registry | 162, 174, 179* | Planned |
-| v2.0.0 | Breaking layout + hardware | 177, 178, 180 | Planned |
-| post-2.0 | Advanced/future | 181–184 | Future |
+| v2.0.0 | Breaking layout + hardware | 177, 178, 180 | **Carried / retired** — v1.3.0 is the final release; breaking changes are deferred or folded into v1.3.0 GA if owner-approved |
+| post-2.0 | Advanced/future | 181-184 | Future (async/await pulled into v1.2.x per owner decision) |
 
 **\* 179** is conditional on an operated registry service. If no service is
 operated it stays **Planned and unclaimed** — it is never asserted as shipped.
@@ -170,7 +170,7 @@ Notes on this matrix:
 | **1.5.0** | `--target freestanding` links with no libc; WASM GC/components + `wit`; MSI/DEB/RPM/DMG artifacts install in clean environments; riscv64 real; Android triple |
 | **1.6.0** | full self-build ≤ 2.5 GB; one measured SSA→emit pass with a published bench delta; CLI startup budget; public registry **only if operated** |
 | **2.0.0** | C-layout structs + `packed`/alignment with goldens re-pinned as the reviewed diff; `volatile`/MMIO/`asm()` with K108-style rejects; deprecation removals + migration guide |
-| post-2.0 | each of Apple distribution, TLS/AEAD, async/await and JIT needs a real runner, a costed dependency decision, or a measured win before it is claimed |
+| post-2.0 | each of Apple distribution, TLS/AEAD and JIT needs a real runner, a costed dependency decision, or a measured win before it is claimed (async/await pulled into v1.2.x per owner decision) |
 
 ## 4. Increment queue — 1.2.0 "Sovereignty I" (open)
 
@@ -449,7 +449,7 @@ any of them. They gate native/PM work, so they open 1.3.0 as increment 155.
   the increment that touches the same area.
 * **Never claimed** (stays `Planned` in `docs/source/status/planned.rst` with
   "no code exists" until a gate can run on real hardware or an operated
-  service): public package registry, TLS, AES-GCM/ChaCha/RSA, async/await, JIT
+  service): public package registry, TLS, AES-GCM/ChaCha/RSA, JIT (async/await pulled into v1.2.x per owner decision)
   tier, quantum authoring surface, GPU/NPU hardware validation, HPC/space
   profiles, Android/iOS distribution, and any device scale without a runner or
   an acknowledged emulator.
