@@ -1,22 +1,22 @@
-# run-full-qa.ps1 - Karkain 1.2.0 master QA gate
+# run-full-qa.ps1 - Karkain v1.2.x master QA gate (v1.2.16 closeout)
 #
-# Orchestrates the existing test machinery (no duplicated suites) for the
-# Phase 119 release preparation. Stages run in order and abort at the first
-# failure; the failing stage is printed last. Exit code 0 = all stages green.
+# Orchestrates the existing test machinery (no duplicated suites). Stages run
+# in order and abort at the first failure; the failing stage is printed last.
+# Exit code 0 = all selected stages green. This script is the SOURCE of the
+# QA battery, not a claim that every stage passed on this host: v1.2.16 was
+# measured stage-by-stage and the exact PASS/SKIP/blocked verdicts are in
+# docs/audit/V1.2.16-QA-BATTERY.md.
 #
 # Stages:
 #   build      go build ./...
 #   vet        go vet ./...
-#   units      go test over all non-CLI packages (-count=1 -p 1)
-#   cligates   phase-114/115/116/117/118 CLI gates + conformance + probes
-#              (monolithic gcc-gated; -p 1 to avoid the host's OOM class).
-#              The stage's -timeout is 90m because it bundles EIGHT gate
-#              families and the Phase-114 corpus alone runs in BOTH engines:
-#              measured 1925 s for the bundle before the version-flip release,
-#              and the bundle exceeded Go's 10-minute default and then a
-#              40-minute one on this ~4 GB host. A timeout here is a HARNESS
-#              artifact, not a regression -- the CI runs these gates as
-#              separate steps with their own per-step timeouts.
+#   units      go test over all non-CLI packages (-count=1 -p 1 -timeout 20m)
+#   cli114     TestPhase114_ (BOTH engines; -timeout 30m, measured ~1553 s)
+#   cli115     TestPhase115_ (-timeout 20m)
+#   cli116     TestPhase116_ (-timeout 20m)
+#   cli117     TestPhase117_ (-timeout 20m)
+#   cli118     TestPhase118_ (-timeout 20m)
+#   cli119     TestPhase119_ (-timeout 20m)
 #   conformance conformance corpus (Go gate)
 #   probes     probes corpus (Go gate)
 #   examples   build karkain.exe into a temp dir, run verify-examples.ps1
@@ -25,13 +25,24 @@
 #   install    scripts/install.ps1 + scripts/verify-install.ps1 (temp prefix)
 #   journey    scripts/verify-rc-journey.ps1 (11-step external journey)
 #
-# Usage:
-#   powershell -ExecutionPolicy Bypass -File scripts\qa\run-full-qa.ps1
-#   powershell -ExecutionPolicy Bypass -File scripts\qa\run-full-qa.ps1 -Stage cligates
+# The former monolithic `cligates` stage is REPLACED, not renamed. On this
+# host the bundle ended as `Exit code: 143 (SIGTERM)` from the 590 s shell cap,
+# and the isolated families are what carry evidence. Heavy gates are never
+# combined: CI already runs each family as its own step, and the local runner
+# now does the same. `-Stage cligates` is an explicit error rather than a
+# silent no-op.
+#
+# Usage (one long family per invocation on capacity-limited hosts):
+#   powershell -ExecutionPolicy Bypass -File scripts\qa\run-full-qa.ps1 -Stage build
+#   powershell -ExecutionPolicy Bypass -File scripts\qa\run-full-qa.ps1 -Stage cli114
+#   powershell -ExecutionPolicy Bypass -File scripts\qa\run-full-qa.ps1 -Stage conformance
 #   powershell -ExecutionPolicy Bypass -File scripts\qa\run-full-qa.ps1 -Skip docs,fresh
 #
 # Prerequisites: Go toolchain, C compiler (gcc/clang) on PATH for the
 # C-transpile/kcc stages; Python+Sphinx for the docs stage (SKIP otherwise).
+# The PATH prelude below adds Git, WindowsPowerShell and MinGW when present;
+# without it this host reports `git: executable file not found in %PATH%`
+# and `no cross-linker available for target 'x86_64-windows'`.
 
 param(
     [string]$Stage = "",
@@ -41,6 +52,11 @@ param(
 $ErrorActionPreference = "Stop"
 $Visible = $env:KARKAIN_QA_VERBOSE
 
+if ($Stage -eq "cligates") {
+    Write-Host "[qa] -Stage cligates was replaced by cli114..cli119 plus conformance/probes; run one family at a time (see the header)." -ForegroundColor Red
+    exit 2
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Root = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 
@@ -48,6 +64,23 @@ $Passed = @()
 $Failed = $null
 
 function Log([string]$Msg) { Write-Host "[qa] $Msg" -ForegroundColor Cyan }
+
+# v1.2.16 PATH prelude. Measured on this host: Git, WindowsPowerShell and
+# MinGW all exist, but the default PATH exposed none of them to the QA
+# children, so pm tests failed with `git ... executable file not found` and
+# the CLI gates failed with `no cross-linker available`. Add each directory
+# only when it exists and only once, so a machine with a different toolchain
+# layout is not given a hard-coded prerequisite.
+function Add-QAPath([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    if (($env:PATH -split ';') -contains $Path) { return }
+    $env:PATH = "$Path;$env:PATH"
+    Log "PATH += $Path"
+}
+Add-QAPath 'C:\Program Files\Git\cmd'
+Add-QAPath 'C:\Windows\System32\WindowsPowerShell\v1.0'
+Add-QAPath 'C:\msys64\mingw64\bin'
 
 # Best-effort scratch-directory cleanup. See scripts\install.ps1 for why this
 # is not `Remove-Item`: on some hosts Remove-Item cannot delete a DIRECTORY
@@ -97,14 +130,24 @@ $UnitPkgs = @(
     "./pkg/target/...", "./pkg/lsp/...", "./pkg/bootstrap/..."
 )
 
-if (-not $Stage) {
-    Run-Stage build  { go build ./... }
-    Run-Stage vet    { go vet ./... }
-}
-Run-Stage units      { go test @UnitPkgs -count=1 -p 1 }
-Run-Stage cligates   { go test ./pkg/cli -run "TestPhase114_|TestPhase115_|TestPhase116_|TestPhase117_|TestPhase118_|TestPhase119_|TestConformanceCorpus_RunsClean|TestProbesCorpus_RunsEveryProbe" -count=1 -p 1 -timeout 90m }
-Run-Stage conformance{ go test ./pkg/cli -run "TestConformanceCorpus_RunsClean" -count=1 -p 1 }
-Run-Stage probes     { go test ./pkg/cli -run "TestProbesCorpus_RunsEveryProbe" -count=1 -p 1 }
+# build and vet are deliberately NOT wrapped in `if (-not $Stage)`: Run-Stage
+# already filters by -Stage, and the old wrapper made `-Stage build` and
+# `-Stage vet` report "ALL STAGES GREEN" without executing anything.
+Run-Stage build     { go build ./... }
+Run-Stage vet       { go vet ./... }
+Run-Stage units      { go test @UnitPkgs -count=1 -p 1 -timeout 20m }
+# CLI families are separate stages, never one monolithic bundle. The 590 s
+# shell cap is a harness limit, not a compiler result: the full Phase-114
+# family was measured at 1553 s, so a combined invocation cannot complete
+# here. CI already executes these as separate steps.
+Run-Stage cli114     { go test ./pkg/cli -run "^TestPhase114_" -count=1 -p 1 -timeout 30m }
+Run-Stage cli115     { go test ./pkg/cli -run "^TestPhase115_" -count=1 -p 1 -timeout 20m }
+Run-Stage cli116     { go test ./pkg/cli -run "^TestPhase116_" -count=1 -p 1 -timeout 20m }
+Run-Stage cli117     { go test ./pkg/cli -run "^TestPhase117_" -count=1 -p 1 -timeout 20m }
+Run-Stage cli118     { go test ./pkg/cli -run "^TestPhase118_" -count=1 -p 1 -timeout 20m }
+Run-Stage cli119     { go test ./pkg/cli -run "^TestPhase119_" -count=1 -p 1 -timeout 20m }
+Run-Stage conformance{ go test ./pkg/cli -run "^TestConformanceCorpus_RunsClean$" -count=1 -p 1 -timeout 20m }
+Run-Stage probes     { go test ./pkg/cli -run "^TestProbesCorpus_RunsEveryProbe$" -count=1 -p 1 -timeout 20m }
 Run-Stage examples   {
     if (-not $Failed) {
         $tmp = Join-Path $env:TEMP ("karkain-qa-" + [guid]::NewGuid().ToString("N"))
