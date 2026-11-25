@@ -131,6 +131,12 @@ runtime would require a per-OS socket syscall layer (Winsock via the PEB
 bootstrap on Windows, BSD sockets elsewhere) that the native backend does
 not carry. Until that layer exists, networking stays on the C23 path.
 
+Transport TLS (v1.2.17) follows the same decision: ``https_request``,
+``https_get`` and ``https_post`` are C23-only (WinHTTP/Schannel on Windows,
+OpenSSL on POSIX). The native target cannot open a socket, so it cannot
+perform a TLS handshake either; native programs that use these names are
+refused by the same capability boundary as ``std.net``.
+
 Atomics (``@atomic_*``)
 -----------------------
 

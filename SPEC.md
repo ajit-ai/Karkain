@@ -782,6 +782,7 @@ gated by `pkg/cli/phase102_foundation_test.go`.
 | Runtime error diagnostics | Y | div/mod-by-zero, array/string OOB (Phase 100) |
 | Stack traces on runtime error | Y | identical frames on both engines (Phase 101) |
 | Multi-error reporting | Y | ALL recoverable parse + resolve diagnostics in one invocation, exit 3, on both engine paths (Phase 105) |
+| HTTPS / TLS (C23 path) | Y | `https_request(method, host, port, path, body, verify)` builtin + `std.http` `https_get`/`https_post` on both engines; WinHTTP/Schannel on Windows, OpenSSL on POSIX; `verify=1` validates chain and hostname, `verify=0` disables cert checks for loopback tests only; native/WASM have no sockets (v1.2.17) |
 | Incremental build | Y | `karkain build --incremental` dependency-aware content cache; `karkain clean` purges (Phase 105) |
 | `float64()` / `bool()` / `string()` casts | N | not accepted by either engine |
 | Closures / `fn` codegen | Y | `let f = fn(...)` lambdas incl. captures, siblings, nested, optional return type, capture MUTATION (Phase 130); byte-identical on both engines (pinned `examples/01-fundamentals/15_closures.kark` + `examples/closures/`) — first-class fn values / higher-order calls documented post-130 |

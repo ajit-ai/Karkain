@@ -45,6 +45,7 @@ type SplitResult struct {
 	UsesConcurrency bool
 	Profiling       bool
 	SimdNeedsAVX    bool
+	NeedsTLS        bool // v1.2.17: TLS runtime is in Header/RuntimeSrc; link libs must follow
 	// RootFile is the assembly root (main lives here by filtering).
 	RootFile string
 }
@@ -94,12 +95,20 @@ func GenerateSplit(cfg Config, prog *parser.Program, files []string, rootFile st
 		ModuleTUs:       map[string]string{},
 		UsesConcurrency: g.usesConcurrency,
 		Profiling:       g.profiling,
+		SimdNeedsAVX:    g.simdNeedsAVX,
+		NeedsTLS:        g.needsTLS,
 		RootFile:        rootFile,
 	}
 
 	// Runtime texts: preamble + SIMD runtime through the header transform,
 	// plus fixed AVX kernel bodies and the shared-global definitions.
+	// v1.2.17: the TLS runtime must be part of the shared header so every
+	// module TU that calls an https_* wrapper sees the prototype/body. The
+	// monolith path does the same in GenerateAndCompile.
 	runtimeText := g.generateCHeader() + simdRuntimeC()
+	if g.needsTLS {
+		runtimeText += tlsRuntimeC()
+	}
 	res.Header = HeaderForRuntime(runtimeText) + avxKernelProtos()
 	res.RuntimeSrc = "#include \"" + RuntimeHeaderName + "\"\n\n" +
 		RuntimeSourceFor() +

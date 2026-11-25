@@ -246,3 +246,47 @@ node and the emitter substitutes 0 / len(s).
      - Not supported
      - -
      - Refused by name (``chained string slicing is not lowered``)
+
+C23 TLS/HTTPS (v1.2.17)
+=======================
+
+Transport TLS is available on the C23 path on both front ends. Native and
+WASM targets have no socket syscalls (v1.2.10 decision) and refuse these
+names; no native or byte-identity claim is made.
+
+.. list-table:: TLS matrix
+   :widths: 34 14 20 32
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``https_request`` builtin
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1217_LoopbackTLSBothEngines``
+   * - ``https_get`` / ``https_post``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1217_LoopbackTLSBothEngines``
+   * - ``verify=1`` chain + hostname check
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1217_VerifyRejectsSelfSigned``
+   * - ``verify=0`` loopback self-signed
+     - Stable (test only)
+     - Go + kcc C23
+     - ``TestPhaseV1217_LoopbackTLSBothEngines``
+   * - ``tls_last_error`` / ``https_last_error``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1217_VerifyRejectsSelfSigned``
+   * - Native / WASM TLS
+     - Not supported
+     - -
+     - v1.2.10 socket boundary (no socket syscalls)
+   * - Runtime source mapping
+     - Stable
+     - Go + kcc C23
+     - ``TestTLSKarkFresh``

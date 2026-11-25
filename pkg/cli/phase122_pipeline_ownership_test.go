@@ -308,8 +308,13 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// predicted. The delta is the v1.2.7 native driver additions
 		// (string equality, slicing, arena-scope) plus the regenerated
 		// helper glue.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 17924 {
-			t.Errorf("whole-tree kir text = %d lines, want 17924:\n%s", got, out)
+		// RE-PINNED FOR v1.2.17 C23 TLS/HTTPS: 17924 -> 18187 (+263),
+		// measured on CI run 45656354614 (kcc whole-tree self-check job)
+		// (text=18187 verify=18187), never predicted. Delta is the new
+		// https_request/tls_last_error builtins in checker/sema/codegen plus
+		// the generated tls_runtime.kark embedded for kcc.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 18187 {
+			t.Errorf("whole-tree kir text = %d lines, want 18187:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

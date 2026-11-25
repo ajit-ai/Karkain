@@ -29,6 +29,18 @@ func winsockLibFlag() string {
 	return ""
 }
 
+// tlsLibFlags returns the platform libraries required by a generated C23
+// program that calls https_request. WinHTTP supplies Schannel-backed TLS on
+// Windows; OpenSSL supplies it elsewhere. The flags are appended to every kcc
+// link path because the kcc compiler cannot tell the gate from the driver
+// whether a program uses the builtin.
+func tlsLibFlags() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"-lwinhttp"}
+	}
+	return []string{"-lssl", "-lcrypto"}
+}
+
 // EngineKind selects which front end powers the check/build/run commands.
 // Phase 95: the self-hosted compiler (kcc, bootstrapped from src/compiler) is
 // the primary engine for lex + parse + C codegen. The Go front end remains the
@@ -209,7 +221,9 @@ func buildKCC(root string, w io.Writer) (string, error) {
 
 	stage1 := filepath.Join(srcDir, "main.c")
 	bin := filepath.Join(root, "kcc.exe")
-	linkCmd := exec.Command("gcc", "-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", stage1, "-o", bin, "-lgmp", "-lm", winsockLibFlag())
+	linkArgs := []string{"-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", stage1, "-o", bin, "-lgmp", "-lm", winsockLibFlag()}
+	linkArgs = append(linkArgs, tlsLibFlags()...)
+	linkCmd := exec.Command("gcc", linkArgs...)
 	linkCmd.Dir = srcDir
 	if out, err := linkCmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("stage-1 link failed: %v\n%s", err, string(out))
@@ -395,7 +409,9 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 	}
 	// Phase 137: -std=c2x like the Go reference backend (the embedded
 	// concurrency runtime needs C11 atomics on this link path too).
-	linkCmd := exec.Command("gcc", "-std=c2x", "-x", "c", "-D_POSIX_C_SOURCE=200809L", artifact, "-o", exe, "-lgmp", "-lm", winsockLibFlag())
+	linkArgs := []string{"-std=c2x", "-x", "c", "-D_POSIX_C_SOURCE=200809L", artifact, "-o", exe, "-lgmp", "-lm", winsockLibFlag()}
+	linkArgs = append(linkArgs, tlsLibFlags()...)
+	linkCmd := exec.Command("gcc", linkArgs...)
 	if lout, err := linkCmd.CombinedOutput(); err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}
 	}
@@ -807,7 +823,9 @@ func KCCRunCommand(w io.Writer, file string, cfg codegen.Config, verbose bool) C
 	exe := filepath.Join(sandbox, base+".exe")
 	// Phase 137: -std=c2x like the Go reference backend (the embedded
 	// concurrency runtime needs C11 atomics on this link path too).
-	linkCmd := exec.Command("gcc", "-std=c2x", "-x", "c", "-D_POSIX_C_SOURCE=200809L", c23, "-o", exe, "-lgmp", "-lm", winsockLibFlag())
+	linkArgs := []string{"-std=c2x", "-x", "c", "-D_POSIX_C_SOURCE=200809L", c23, "-o", exe, "-lgmp", "-lm", winsockLibFlag()}
+	linkArgs = append(linkArgs, tlsLibFlags()...)
+	linkCmd := exec.Command("gcc", linkArgs...)
 	if lout, err := linkCmd.CombinedOutput(); err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}
 	}

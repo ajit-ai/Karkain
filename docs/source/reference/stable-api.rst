@@ -135,7 +135,9 @@ Stable stdlib modules
    * - ``std.net``
      - TCP networking (Address/Endpoint/Connection/Listener, 10 functions).
    * - ``std.http``
-     - HTTP/1.1 client/server building blocks (Request/Response, 20 functions).
+     - HTTP/1.1 client/server building blocks (Request/Response, 20 functions)
+       plus ``https_get`` / ``https_post`` / ``https_last_error`` (C23 TLS,
+       v1.2.17; 23 functions total).
    * - ``std.db``
      - Backend-neutral database layer (SQL subset, persistence, 20 functions).
    * - ``std.path``
