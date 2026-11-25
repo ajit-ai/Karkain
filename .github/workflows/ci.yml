@@ -1291,6 +1291,23 @@ jobs:
       # Linux CI leg runs; they are honest skips, not silent losses. Do not
       # "fix" that gate by weakening it -- PE and ELF execution are covered on
       # their respective legs.
+  native-macos:
+    # Phase v1.2.15: Mach-O execution proof. Runs the Mach-O execution
+    # goldens on darwin/amd64 (macos-13 runner), the only CI leg that can
+    # execute Mach-O images. Free for public repositories.
+    name: Native Mach-O execution (macOS)
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run native Mach-O execution gate
+        run: go test ./pkg/native/ -run 'TestNativeMachOExec' -count=1 -timeout 25m -v
+
+
   toolchain-matrix:
     # Phase 139: cross-linker presence matrix. Informational ONLY (never red):
     # it reports which foreign toolchains the runner happens to carry so
