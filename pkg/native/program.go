@@ -128,11 +128,15 @@ const (
 	// so passing a map to a function copies no bytes and both sides see the
 	// same entries.
 	KindMap
+	// KindStringArray is a string array: a (base, count) header in the frame,
+	// whose elements are 16-byte (ptr, len) pairs in the heap arena. Used for
+	// the result of split().
+	KindStringArray
 )
 
 // kindUnits returns the 8-byte frame/call slots a value kind occupies.
 func kindUnits(k int) int {
-	if k == KindString || k == KindArray {
+	if k == KindString || k == KindArray || k == KindStringArray {
 		return 2
 	}
 	return 1
@@ -147,6 +151,8 @@ func kindName(k int) string {
 		return "float"
 	case KindArray:
 		return "array"
+	case KindStringArray:
+		return "string array"
 	case KindStruct:
 		return "struct"
 	case KindMap:
@@ -319,6 +325,7 @@ type Builder struct {
 	// exhausted mid-loop, trapping at an arbitrary iteration. Refused by name,
 	// on exactly the same rule as pushInLoop.
 	concatInLoop bool
+	concatInLoopFuncs map[string]bool // per-function: which functions have a concat in a loop body
 	// usesRuntimeError: the program contains an operation that can raise a
 	// Phase-100 runtime error. Phase 152-B0: gates the reporter helper, so a
 	// program that cannot fail keeps its exact increment-149 bytes. The test
@@ -880,6 +887,51 @@ func scanValueUsage(prog *parser.Program) (usesFloat, usesConcat, usesStrEq, use
 	usesStrEq, usesStrSlice = scanStringViewOps(prog, strNames)
 	pushSites, maxArrLit, pushInLoop := scanPushSites(prog)
 	usesPush = pushSites > 0
+	// v1.2.9: split() allocates a string array in the heap arena.
+	usesSplit := false
+	var scanSplit func(parser.Node)
+	scanSplit = func(n parser.Node) {
+		if n == nil { return }
+		switch x := n.(type) {
+		case *parser.CallExpr:
+			if x.Module == "" && !x.IsCFunc && (x.Function == "split" || x.Function == "str_split") {
+				usesSplit = true
+			}
+			for _, a := range x.Args { scanSplit(a) }
+		case *parser.VarDeclStmt:
+			scanSplit(x.Value)
+		case *parser.ExprStmt:
+			scanSplit(x.Expression)
+		case *parser.PrintStmt:
+			scanSplit(x.Value)
+		case *parser.ReturnStmt:
+			scanSplit(x.Value)
+		case *parser.BinaryExpr:
+			scanSplit(x.Left); scanSplit(x.Right)
+		case *parser.UnaryExpr:
+			scanSplit(x.Operand)
+		case *parser.IfStmt:
+			scanSplit(x.Condition); 
+			for _, s := range x.Consequence { scanSplit(s) }
+			for _, s := range x.Alternative { scanSplit(s) }
+		case *parser.WhileStmt:
+			scanSplit(x.Condition)
+			for _, s := range x.Body { scanSplit(s) }
+		case *parser.ForStmt:
+			if x.Init != nil { scanSplit(x.Init) }
+			scanSplit(x.Condition)
+			if x.Post != nil { scanSplit(x.Post) }
+			for _, s := range x.Body { scanSplit(s) }
+		}
+	}
+	for _, st := range prog.Statements {
+		if fd, ok := st.(*parser.FuncDecl); ok {
+			for _, s := range fd.Body { scanSplit(s) }
+		}
+	}
+	if usesSplit && heapSize < heapMinSize {
+		heapSize = heapMinSize
+	}
 	if usesPush {
 		// Arena bound for pushes: site i of a chain sees at most
 		// (largest literal length + i) elements, so the sum over all sites is
@@ -1144,6 +1196,82 @@ func isStrFieldDot(strFields map[string]bool, n parser.Node) bool {
 		return false
 	}
 	return strFields[d.Right]
+}
+
+// scanConcatInLoopFuncs reports which functions contain a string '+'
+// reached from a loop body. The bound argument for refusing concat in a loop
+// is per-site (each site runs at most once), so the refusal must be keyed by
+// the function whose emission would perform the concat -- a concat in an
+// UNCALLED function must not poison a different function's emission.
+func scanConcatInLoopFuncs(prog *parser.Program) map[string]bool {
+	out := map[string]bool{}
+	var exprHasConcat func(parser.Node) bool
+	exprHasConcat = func(n parser.Node) bool {
+		switch x := n.(type) {
+		case *parser.BinaryExpr:
+			if x.Operator == "+" {
+				return true
+			}
+			return exprHasConcat(x.Left) || exprHasConcat(x.Right)
+		case *parser.CallExpr:
+			for _, a := range x.Args {
+				if exprHasConcat(a) {
+					return true
+				}
+			}
+		case *parser.UnaryExpr:
+			return exprHasConcat(x.Operand)
+		case *parser.IndexExpr:
+			return exprHasConcat(x.Left) || exprHasConcat(x.Index)
+		}
+		return false
+	}
+	var walkStmts func([]parser.Node, int, *bool)
+	walkStmts = func(stmts []parser.Node, depth int, found *bool) {
+		for _, s := range stmts {
+			switch x := s.(type) {
+			case *parser.VarDeclStmt:
+				if depth > 0 && exprHasConcat(x.Value) {
+					*found = true
+				}
+			case *parser.ExprStmt:
+				if depth > 0 && exprHasConcat(x.Expression) {
+					*found = true
+				}
+			case *parser.PrintStmt:
+				if x.Value != nil && depth > 0 && exprHasConcat(x.Value) {
+					*found = true
+				}
+			case *parser.ReturnStmt:
+				if x.Value != nil && depth > 0 && exprHasConcat(x.Value) {
+					*found = true
+				}
+			case *parser.IfStmt:
+				walkStmts(x.Consequence, depth, found)
+				walkStmts(x.Alternative, depth, found)
+			case *parser.WhileStmt:
+				walkStmts(x.Body, depth+1, found)
+			case *parser.ForStmt:
+				walkStmts(x.Body, depth+1, found)
+			case *parser.ForInStmt:
+				walkStmts(x.Body, depth+1, found)
+			case *parser.BlockStmt:
+				walkStmts(x.Statements, depth, found)
+			}
+		}
+	}
+	for _, st := range prog.Statements {
+		fd, ok := st.(*parser.FuncDecl)
+		if !ok {
+			continue
+		}
+		found := false
+		walkStmts(fd.Body, 0, &found)
+		if found {
+			out[fd.Name] = true
+		}
+	}
+	return out
 }
 
 func scanConcatSites(prog *parser.Program) (sites, heapSize int, inLoop bool) {
@@ -1470,6 +1598,117 @@ type loopTgt struct {
 
 // fresh returns a program-unique label (Emitter.Mark panics on duplicates,
 // so control-flow labels can never be a bare fixed string).
+// reachableFuncs returns the set of function names actually reachable from
+// main, including main itself. A call in any statement or expression adds its
+// callee, and the walk repeats until no new name appears (cycles terminate).
+// Builtins and module-qualified calls have no local FuncDecl and are ignored.
+func (b *Builder) reachableFuncs(prog *parser.Program) map[string]bool {
+	byName := map[string]*parser.FuncDecl{}
+	for _, st := range prog.Statements {
+		if fd, ok := st.(*parser.FuncDecl); ok {
+			byName[fd.Name] = fd
+		}
+	}
+	out := map[string]bool{"main": true}
+	changed := true
+	for changed {
+		changed = false
+		for name := range out {
+			fd := byName[name]
+			if fd == nil {
+				continue
+			}
+			for _, called := range callsIn(fd.Body) {
+				if !out[called] && byName[called] != nil {
+					out[called] = true
+					changed = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+// callsIn walks a statement list and returns every bare call name it contains.
+func callsIn(stmts []parser.Node) []string {
+	var out []string
+	var walkExpr func(parser.Node)
+	walkExpr = func(e parser.Node) {
+		switch x := e.(type) {
+		case *parser.CallExpr:
+			if x.Module == "" && !x.IsCFunc {
+				out = append(out, x.Function)
+			}
+			for _, a := range x.Args {
+				walkExpr(a)
+			}
+		case *parser.BinaryExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Right)
+		case *parser.UnaryExpr:
+			walkExpr(x.Operand)
+		case *parser.IndexExpr:
+			walkExpr(x.Left)
+			walkExpr(x.Index)
+		case *parser.StructLiteral:
+			for _, f := range x.Fields {
+				walkExpr(f)
+			}
+		case *parser.ArrayLiteral:
+			for _, e := range x.Elements {
+				walkExpr(e)
+			}
+		case *parser.MapLiteral:
+			for _, k := range x.Keys {
+				walkExpr(k)
+			}
+			for _, v := range x.Values {
+				walkExpr(v)
+			}
+		}
+	}
+	var walk func([]parser.Node)
+	walk = func(list []parser.Node) {
+		for _, s := range list {
+			switch x := s.(type) {
+			case *parser.ExprStmt:
+				walkExpr(x.Expression)
+			case *parser.PrintStmt:
+				if x.Value != nil {
+					walkExpr(x.Value)
+				}
+			case *parser.ReturnStmt:
+				if x.Value != nil {
+					walkExpr(x.Value)
+				}
+			case *parser.VarDeclStmt:
+				if x.Value != nil {
+					walkExpr(x.Value)
+				}
+			case *parser.IfStmt:
+				walkExpr(x.Condition)
+				walk(x.Consequence)
+				walk(x.Alternative)
+			case *parser.WhileStmt:
+				walkExpr(x.Condition)
+				walk(x.Body)
+			case *parser.ForStmt:
+				if x.Init != nil {
+					walk([]parser.Node{x.Init})
+				}
+				walkExpr(x.Condition)
+				if x.Post != nil {
+					walk([]parser.Node{x.Post})
+				}
+				walk(x.Body)
+			case *parser.BlockStmt:
+				walk(x.Statements)
+			}
+		}
+	}
+	walk(stmts)
+	return out
+}
 func (b *Builder) fresh(prefix string) string {
 	b.uid++
 	return fmt.Sprintf("%s$%d", prefix, b.uid)
@@ -1562,6 +1801,7 @@ func CompileProgramForOSSource(prog *parser.Program, osName, sourceFile string) 
 		}
 	}
 	b.usesFloat, b.usesConcat, b.usesStrEq, b.usesStrSlice, b.usesPush, b.pushInLoop, b.concatInLoop, b.heapSize = scanValueUsage(prog)
+	b.concatInLoopFuncs = scanConcatInLoopFuncs(prog)
 	// Phase 150B3b: a string-field assignment needs the string staging area
 	// (and no heap). Kept as its own pre-pass so the record path cannot
 	// silently depend on a string flag some other feature happened to set.
@@ -1583,8 +1823,17 @@ func CompileProgramForOSSource(prog *parser.Program, osName, sourceFile string) 
 	// with an undefined label.
 	b.heapSize += b.codecArenaBytes
 	b.emitHelpers()
+	// Emit only the functions reachable from main. The C backend emits every
+	// top-level function, but the assembled stdlib_v2 unit carries helpers that
+	// the entry program never calls -- including ones whose bodies use a
+	// construct the native backend deliberately refuses (concat inside a
+	// loop). Emitting dead code must not fail a build that never reaches it.
+	reachable := b.reachableFuncs(prog)
 	for _, stmt := range prog.Statements {
 		if fd, ok := stmt.(*parser.FuncDecl); ok {
+			if !reachable[fd.Name] {
+				continue
+			}
 			if err := b.emitFunc(fd); err != nil {
 				return nil, err
 			}
@@ -1756,6 +2005,21 @@ func (b *Builder) collectStructs(prog *parser.Program) error {
 			switch pt {
 			case "int", "string", "float":
 				continue
+			case "bool":
+				// A bool is an int in the native value model (is_truthy lowers
+				// it to int upstream). The C backend does the same, so a bool
+				// parameter is an int parameter here.
+				continue
+			case "double":
+				// A type alias for float used by the stdlib (e.g. std.string's
+				// str_from_float). The native backend has one float kind.
+				continue
+			case "int[]", "string[]", "float[]":
+				// Array parameters are two units (base, len) and the frame
+				// layout already reserves them (program.go:4420-4436). The
+				// stdlib's array_* helpers take them; accept the annotation
+				// so the prescan can walk those functions.
+				continue
 			}
 			if _, ok := b.structs[pt]; !ok {
 				return fmt.Errorf("error[K145]: unknown parameter type '%s' for parameter '%s' in '%s' (want int, string, float or a declared struct type)", pt, fd.Params[i], fd.Name)
@@ -1817,8 +2081,14 @@ func (b *Builder) paramKind(fd *parser.FuncDecl, i int) int {
 		switch fd.ParamTypes[i] {
 		case "string":
 			return KindString
-		case "float":
+		case "float", "double":
 			return KindFloat
+		case "bool":
+			return KindInt
+		case "string[]":
+			return KindStringArray
+		case "int[]", "float[]":
+			return KindArray
 		}
 		if _, ok := b.structs[fd.ParamTypes[i]]; ok {
 			return KindStruct
@@ -2036,6 +2306,8 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 		return KindString, nil
 	case *parser.IntLiteral:
 		return KindInt, nil
+	case *parser.BoolLiteral:
+		return KindInt, nil
 	case *parser.Float64Literal:
 		return KindFloat, nil
 	case *parser.StructLiteral:
@@ -2117,14 +2389,38 @@ func (b *Builder) retKindOfExpr(n parser.Node, vars map[string]parser.Node, pstr
 		}
 	case *parser.UnaryExpr:
 		return b.retKindOfExpr(x.Operand, vars, pstr, rsn, visiting)
+	case *parser.ArrayLiteral:
+		return KindArray, nil
+	case *parser.MapLiteral:
+		return KindMap, nil
+	case *parser.IndexExpr:
+		// A string index yields a one-byte string; an array index yields an
+		// int element. The parameter-kind map pstr tells the two apart.
+		if id, ok := x.Left.(*parser.Identifier); ok {
+			if k, isParam := pstr[id.Name]; isParam && k == KindString {
+				return KindString, nil
+			}
+			if b.kinds[id.Name] == KindStringArray {
+				return KindString, nil
+			}
+		}
+		return KindInt, nil
 	case *parser.CallExpr:
 		// Phase 152-B1: the string builtins return a string, and they are not
 		// user functions, so they must not fall through to retKindVisit
 		// (which reports "undefined function" for a name with no ftab entry).
 		if x.Module == "" && !x.IsCFunc {
 			switch x.Function {
-			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes", "sha256_hex":
+			case "trim", "hex_decode_bytes", "hex_encode_bytes", "base64_encode_bytes", "base64_decode_bytes", "sha256_hex":
 				return KindString, nil
+			case "len", "int", "contains", "hasKey", "utf8_valid_bytes":
+				return KindInt, nil
+			case "str", "substr", "sha512_hex":
+				return KindString, nil
+			case "split", "str_split":
+				return KindStringArray, nil
+			case "map_keys_of":
+				return KindArray, nil
 			}
 		}
 		return b.retKindVisit(x.Function, visiting)
@@ -4957,8 +5253,28 @@ func (b *Builder) emitExprStmt(n *parser.ExprStmt) error {
 		if !ok {
 			return fmt.Errorf("error[K145]: undefined identifier '%s'", id.Name)
 		}
-		if b.kinds[id.Name] == KindString || b.kinds[id.Name] == KindArray {
+		if b.kinds[id.Name] == KindArray {
 			return fmt.Errorf("error[K145]: cannot reassign %s '%s' (declare a fresh variable)", kindName(b.kinds[id.Name]), id.Name)
+		}
+		// v1.2.9: strings are reassignable on the native target. The RHS is
+		// evaluated as a string (RDI, RSI) and stored into the two-slot
+		// (ptr, len) header, exactly like a `let` binding. This is required
+		// for std.string helpers such as str_to_upper, which build their
+		// result by repeated concatenation.
+		if b.kinds[id.Name] == KindString {
+			rk, err := b.exprKind(be.Right)
+			if err != nil {
+				return err
+			}
+			if rk != KindString {
+				return fmt.Errorf("error[K145]: cannot assign a %s to string variable '%s'", kindName(rk), id.Name)
+			}
+			if err := b.emitStr(be.Right, 0); err != nil {
+				return err
+			}
+			b.e.StoreStack(RDI, off)
+			b.e.StoreStack(RSI, off+8)
+			return nil
 		}
 		rk, err := b.exprKind(be.Right)
 		if err != nil {
@@ -5306,6 +5622,16 @@ func (b *Builder) emitLet(n *parser.VarDeclStmt) error {
 	off := b.slots[n.Name]
 	if isStr {
 		if err := b.emitStr(n.Value, 0); err != nil {
+			return err
+		}
+		b.e.StoreStack(RDI, off)
+		b.e.StoreStack(RSI, off+8)
+		return nil
+	}
+	if b.kinds[n.Name] == KindStringArray {
+		// v1.2.9: a string-array binding (e.g. let parts = split(...)).
+		// split() leaves (RDI=ptr, RSI=count); store both units.
+		if err := b.emitExpr(n.Value, 0); err != nil {
 			return err
 		}
 		b.e.StoreStack(RDI, off)
@@ -5716,6 +6042,8 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		return KindString, nil
 	case *parser.IntLiteral:
 		return KindInt, nil
+	case *parser.BoolLiteral:
+		return KindInt, nil
 	case *parser.Float64Literal:
 		return KindFloat, nil
 	case *parser.Identifier:
@@ -5761,11 +6089,23 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		// must be KindString or the result flows into the int path.
 		if x.Module == "" && !x.IsCFunc {
 			switch x.Function {
-			case "trim", "hex_decode_bytes", "base64_encode_bytes", "base64_decode_bytes", "sha256_hex":
+			case "trim", "hex_decode_bytes", "hex_encode_bytes", "base64_encode_bytes", "base64_decode_bytes", "sha256_hex":
 				if err := b.checkStringCodecArgs(x); err != nil {
 					return KindInt, err
 				}
 				return KindString, nil
+			}
+		}
+		if x.Module == "" && !x.IsCFunc {
+			switch x.Function {
+			case "int", "contains", "hasKey", "utf8_valid_bytes":
+				return KindInt, nil
+			case "str", "substr", "sha512_hex":
+				return KindString, nil
+			case "split", "str_split":
+				return KindStringArray, nil
+			case "map_keys_of":
+				return KindArray, nil
 			}
 		}
 		// len(arr) classifies int; push(arr, v) classifies array. Both
@@ -5845,6 +6185,12 @@ func (b *Builder) exprKind(n parser.Node) (int, error) {
 		if kIdx == KindArray {
 			return KindInt, nil
 		}
+		if kIdx == KindString {
+			return KindString, nil
+		}
+		if kIdx == KindStringArray {
+			return KindString, nil
+		}
 		return KindInt, fmt.Errorf("error[K145]: index target must be an array or a map (got %s)", kindName(kIdx))
 	default:
 		return KindInt, fmt.Errorf("error[K145]: unsupported expression %T", n)
@@ -5886,6 +6232,13 @@ func (b *Builder) emitExpr(n parser.Node, depth int) error {
 	switch x := n.(type) {
 	case *parser.IntLiteral:
 		b.e.MovRegImm64(RAX, uint64(parseIntLit(x.Value)))
+		return nil
+	case *parser.BoolLiteral:
+		if x.Value {
+			b.e.MovRegImm64(RAX, 1)
+		} else {
+			b.e.XorRegReg(RAX)
+		}
 		return nil
 	case *parser.Identifier:
 		// Phase 150A Step 1: a float identifier carries its IEEE-754 bits
@@ -6016,8 +6369,8 @@ func (b *Builder) checkLenArgs(x *parser.CallExpr) error {
 	// Phase 150B3c: len() works on a map too, returning its entry count --
 	// the header's first unit, the same load the array path uses for its
 	// length slot.
-	if k != KindArray && k != KindMap {
-		return fmt.Errorf("error[K145]: len() requires an array or a map argument (got %s)", kindName(k))
+	if k != KindArray && k != KindMap && k != KindString && k != KindStringArray {
+		return fmt.Errorf("error[K145]: len() requires an array, map or string argument (got %s)", kindName(k))
 	}
 	return nil
 }
@@ -6284,61 +6637,89 @@ func (b *Builder) emitFieldWrite(x *parser.DotExpr, val parser.Node) error {
 // string SLICE bounds are deliberately left as an Int3: C23's
 // karkain_slice clamps bounds instead of raising, so there is no reference
 // diagnostic to match and the semantics need an explicit language decision.
+// emitArrayIndex lowers arr[i] or s[i]. Array indexing returns an int element;
+// string indexing returns a one-byte string view (ptr=s.ptr+i, len=1).
 func (b *Builder) emitArrayIndex(x *parser.IndexExpr, depth int) error {
 	base, ok := x.Left.(*parser.Identifier)
 	if !ok {
-		return fmt.Errorf("error[K145]: array index target must be a variable (got %T)", x.Left)
+		return fmt.Errorf("error[K145]: index target must be a variable (got %T)", x.Left)
 	}
 	off, ok := b.slots[base.Name]
 	if !ok {
 		return fmt.Errorf("error[K145]: undefined identifier '%s'", base.Name)
 	}
-	if b.kinds[base.Name] != KindArray {
-		return fmt.Errorf("error[K145]: index target must be an array (got %s '%s')", kindName(b.kinds[base.Name]), base.Name)
+	if b.kinds[base.Name] == KindArray {
+		// Array index: int element at [base + i*8]
+		if err := b.emitExpr(x.Index, depth+1); err != nil {
+			return err
+		}
+		b.e.MovRegReg(RCX, RAX)
+		b.e.LoadStack(RBX, off)
+		b.e.LoadStack(RAX, off+8)
+		// Bounds: 0 <= i < len
+		if err := b.requireRuntimeErrorSite("array index out of range", x.Line); err != nil {
+			return err
+		}
+		b.e.TestRegReg(RCX, RCX)
+		badLbl := b.fresh("idxbad")
+		doneLbl := b.fresh("idxok")
+		b.e.Jns(badLbl + "$neg")
+		b.e.Jmp(badLbl + "$fail")
+		b.e.Mark(badLbl + "$neg")
+		b.e.CmpRegReg(RCX, RAX)
+		b.e.Jge(badLbl + "$fail")
+		b.e.LoadScaled64(RAX, RBX, RCX, 8, 0)
+		b.e.Jmp(doneLbl)
+		b.e.Mark(badLbl + "$fail")
+		// Arguments: kind (ptr,len), file (ptr,len), line
+		b.rodataRef(RDI, "array index out of range")
+		b.e.MovRegImm32(RSI, uint32(len("array index out of range")))
+		b.rodataRef(RDX, b.sourceBase())
+		b.e.MovRegImm32(RCX, uint32(len(b.sourceBase())))
+		b.e.MovRegImm32(R8, uint32(x.Line))
+		b.e.Call("karkain_runtime_error")
+		b.e.Mark(doneLbl)
+		return nil
 	}
-	if err := b.emitExpr(x.Index, depth+1); err != nil {
-		return err
+	if b.kinds[base.Name] == KindString {
+		// String index: one-byte string view at s.ptr + i
+		if err := b.emitExpr(x.Index, depth+1); err != nil {
+			return err
+		}
+		b.e.MovRegReg(RCX, RAX)       // RCX = index i
+		b.e.LoadStack(RBX, off)       // RBX = s.ptr
+		b.e.LoadStack(RAX, off+8)     // RAX = s.len
+		// Bounds: 0 <= i < len
+		if err := b.requireRuntimeErrorSite("string index out of range", x.Line); err != nil {
+			return err
+		}
+		b.e.TestRegReg(RCX, RCX)
+		badLbl := b.fresh("sidxbad")
+		doneLbl := b.fresh("sidxok")
+		b.e.Jns(badLbl + "$neg")
+		b.e.Jmp(badLbl + "$fail")
+		b.e.Mark(badLbl + "$neg")
+		b.e.CmpRegReg(RCX, RAX)
+		b.e.Jge(badLbl + "$fail")
+		// Result: (ptr = s.ptr + i, len = 1) in (RDI, RSI)
+		b.e.AddRegReg(RBX, RCX)       // RBX = s.ptr + i
+		b.e.MovRegReg(RDI, RBX)       // RDI = ptr
+		b.e.MovRegImm32(RSI, 1)       // RSI = len = 1
+		b.e.Jmp(doneLbl)
+		b.e.Mark(badLbl + "$fail")
+		// Arguments: kind (ptr,len), file (ptr,len), line
+		b.rodataRef(RDI, "string index out of range")
+		b.e.MovRegImm32(RSI, uint32(len("string index out of range")))
+		b.rodataRef(RDX, b.sourceBase())
+		b.e.MovRegImm32(RCX, uint32(len(b.sourceBase())))
+		b.e.MovRegImm32(R8, uint32(x.Line))
+		b.e.Call("karkain_runtime_error")
+		b.e.Mark(doneLbl)
+		return nil
 	}
-	b.e.MovRegReg(RCX, RAX)
-	b.e.LoadStack(RBX, off)
-	b.e.LoadStack(RAX, off+8)
-	// Bounds: 0 <= i < len, else the Phase-100 runtime error. Both arms jump to
-	// the same block, which never returns (it ends in exit(1)).
-	if err := b.requireRuntimeErrorSite("array index out of range", x.Line); err != nil {
-		return err
-	}
-	b.e.TestRegReg(RCX, RCX)
-	badLbl := b.fresh("idxbad")
-	doneLbl := b.fresh("idxok")
-	b.e.Jns(badLbl + "$neg")
-	b.e.Jmp(badLbl + "$fail")
-	b.e.Mark(badLbl + "$neg")
-	b.e.CmpRegReg(RCX, RAX)
-	b.e.Jge(badLbl + "$fail")
-	b.e.LoadScaled64(RAX, RBX, RCX, 8, 0)
-	b.e.Jmp(doneLbl)
-	b.e.Mark(badLbl + "$fail")
-	// Arguments: kind (ptr,len), file (ptr,len), line -- the native user-call
-	// convention, units 0-4 of argRegs.
-	b.rodataRef(RDI, "array index out of range")
-	b.e.MovRegImm32(RSI, uint32(len("array index out of range")))
-	b.rodataRef(RDX, b.sourceBase())
-	b.e.MovRegImm32(RCX, uint32(len(b.sourceBase())))
-	b.e.MovRegImm32(R8, uint32(x.Line))
-	b.e.Call("karkain_runtime_error")
-	// The reporter ends in exit(1) and does not return, but the emitter does
-	// not assume that: mark the join so the success path can never fall into
-	// the diagnostic block. (Its absence was a real regression -- every
-	// array-using PE golden then ran the diagnostic on a VALID index.)
-	b.e.Mark(doneLbl)
-	return nil
+	return fmt.Errorf("error[K145]: index target must be an array or string (got %s '%s')", kindName(b.kinds[base.Name]), base.Name)
 }
 
-// sourceBase is the basename of the originating source file, or the empty
-// string when the caller supplied none. Phase 152-B0: mirrors the C23
-// generator's sourceBaseC() so both engines print the same location. An empty
-// name still produces `at :LINE`, which is the same degradation C23 makes when
-// sourceFile is unset (it passes "").
 func (b *Builder) sourceBase() string {
 	return b.sourceFile
 }
@@ -6510,6 +6891,90 @@ func (b *Builder) emitStr(n parser.Node, depth int) error {
 		return b.emitFieldRead(x)
 	case *parser.SliceExpr:
 		return b.emitStrSlice(x)
+	case *parser.IndexExpr:
+		base, ok := x.Left.(*parser.Identifier)
+		if !ok {
+			return fmt.Errorf("error[K145]: string index requires an identifier (got %T)", x.Left)
+		}
+		if b.kinds[base.Name] == KindString {
+			// One-byte string view at s.ptr + i
+			if err := b.emitExpr(x.Index, depth+1); err != nil {
+				return err
+			}
+			b.e.MovRegReg(RCX, RAX)
+			b.e.LoadStack(RBX, b.slots[base.Name])
+			b.e.LoadStack(RAX, b.slots[base.Name]+8)
+			if err := b.requireRuntimeErrorSite("string index out of range", x.Line); err != nil {
+				return err
+			}
+			b.e.TestRegReg(RCX, RCX)
+			badLbl := b.fresh("sidxbad")
+			doneLbl := b.fresh("sidxok")
+			b.e.Jns(badLbl + "$neg")
+			b.e.Jmp(badLbl + "$fail")
+			b.e.Mark(badLbl + "$neg")
+			b.e.CmpRegReg(RCX, RAX)
+			b.e.Jge(badLbl + "$fail")
+			b.e.AddRegReg(RBX, RCX)
+			b.e.MovRegReg(RDI, RBX)
+			b.e.MovRegImm32(RSI, 1)
+			b.e.Jmp(doneLbl)
+			b.e.Mark(badLbl + "$fail")
+			b.rodataRef(RDI, "string index out of range")
+			b.e.MovRegImm32(RSI, uint32(len("string index out of range")))
+			b.rodataRef(RDX, b.sourceBase())
+			b.e.MovRegImm32(RCX, uint32(len(b.sourceBase())))
+			b.e.MovRegImm32(R8, uint32(x.Line))
+			b.e.Call("karkain_runtime_error")
+			b.e.Mark(doneLbl)
+			return nil
+		}
+		if b.kinds[base.Name] != KindStringArray {
+			return fmt.Errorf("error[K145]: string index requires a string or string array (got %s)", kindName(b.kinds[base.Name]))
+		}
+		off, ok := b.slots[base.Name]
+		if !ok {
+			return fmt.Errorf("error[K145]: undefined identifier '%s'", base.Name)
+		}
+		if err := b.emitExpr(x.Index, depth+1); err != nil {
+			return err
+		}
+		b.e.MovRegReg(RCX, RAX)       // RCX = i
+		b.e.LoadStack(RBX, off)       // RBX = header base
+		b.e.LoadStack(RAX, off+8)     // RAX = count
+		// Bounds: 0 <= i < count
+		if err := b.requireRuntimeErrorSite("string index out of range", x.Line); err != nil {
+			return err
+		}
+		b.e.TestRegReg(RCX, RCX)
+		badLbl := b.fresh("sarridxbad")
+		doneLbl := b.fresh("sarridxok")
+		b.e.Jns(badLbl + "$neg")
+		b.e.Jmp(badLbl + "$fail")
+		b.e.Mark(badLbl + "$neg")
+		b.e.CmpRegReg(RCX, RAX)
+		b.e.Jge(badLbl + "$fail")
+		// elementAddr = elementsBase + i*16
+		b.e.LoadStack(RBX, off)       // RBX = header base (elementsBase at +16? no: header base is heapBase; elementsBase = heapBase+16)
+		// Actually header layout: [0]=elementsBase, [8]=count. elementsBase = heapBase+16.
+		// We stored header base in slot `off` (heapBase). elementsBase = heapBase+16.
+		b.e.AddRegImm32(RBX, 16)     // RBX = elementsBase
+		// RBX = elementsBase + i*16 (manual mul since scale 16 unavailable)
+		b.e.MovRegReg(R8, RCX)
+		b.e.ShlRegImm(R8, 4)         // R8 = i*16
+		b.e.AddRegReg(RBX, R8)       // RBX = elementAddr
+		b.e.LoadBaseOff(RDI, RBX, 0) // RDI = element ptr
+		b.e.LoadBaseOff(RSI, RBX, 8) // RSI = element len
+		b.e.Jmp(doneLbl)
+		b.e.Mark(badLbl + "$fail")
+		b.rodataRef(RDI, "string index out of range")
+		b.e.MovRegImm32(RSI, uint32(len("string index out of range")))
+		b.rodataRef(RDX, b.sourceBase())
+		b.e.MovRegImm32(RCX, uint32(len(b.sourceBase())))
+		b.e.MovRegImm32(R8, uint32(x.Line))
+		b.e.Call("karkain_runtime_error")
+		b.e.Mark(doneLbl)
+		return nil
 	case *parser.BinaryExpr:
 		// Phase 150B: `a + b` on two strings allocates a result in the heap
 		// arena and concatenates. Any other operator is a loud K145 ΓÇö there
@@ -6625,7 +7090,7 @@ func (b *Builder) emitStrConcat(x *parser.BinaryExpr, depth int) error {
 	// the program exhaust the arena and trap at an arbitrary iteration. The
 	// bound's own proof (scanConcatSites) states the at-most-once assumption
 	// this closes.
-	if b.concatInLoop {
+	if b.concatInLoopFuncs[b.fname] {
 		return fmt.Errorf("error[K145]: string concatenation inside a loop is not supported on the native target (the heap arena is sized at compile time, so a repeated concatenation cannot be bounded)")
 	}
 	// Five staging units per depth: left ptr/len, right ptr/len, and the
@@ -6714,7 +7179,9 @@ func (b *Builder) emitBinary(x *parser.BinaryExpr, depth int) error {
 		}
 		return b.emitFloatBinary(x, depth)
 	}
-	if x.Operator != "+" && x.Operator != "-" && x.Operator != "*" {
+	if x.Operator != "+" && x.Operator != "-" && x.Operator != "*" &&
+		x.Operator != "==" && x.Operator != "!=" && x.Operator != "<" &&
+		x.Operator != "<=" && x.Operator != ">" && x.Operator != ">=" {
 		return fmt.Errorf("error[K145]: unsupported operator '%s' (want +, - or *)", x.Operator)
 	}
 	if depth >= maxBinDepth {
@@ -6740,6 +7207,33 @@ func (b *Builder) emitBinary(x *parser.BinaryExpr, depth int) error {
 		b.e.SubRegReg(RAX, RCX)
 	case "*":
 		b.e.MulRegReg(RAX, RCX)
+	default:
+		// Comparison as a VALUE: the six relations produce 0 or 1 in RAX.
+		// emitCond does the same comparison as a branch; here the result is
+		// materialised with two fresh labels so a `return len(s) == 0` works
+		// the same way it does on the C backend.
+		b.e.CmpRegReg(RAX, RCX)
+		trueLbl := b.fresh("cmpt")
+		doneLbl := b.fresh("cmpd")
+		switch x.Operator {
+		case "==":
+			b.e.Jz(trueLbl)
+		case "!=":
+			b.e.Jnz(trueLbl)
+		case "<":
+			b.e.Jl(trueLbl)
+		case "<=":
+			b.e.Jle(trueLbl)
+		case ">":
+			b.e.Jg(trueLbl)
+		case ">=":
+			b.e.Jge(trueLbl)
+		}
+		b.e.XorRegReg(RAX)
+		b.e.Jmp(doneLbl)
+		b.e.Mark(trueLbl)
+		b.e.MovRegImm32(RAX, 1)
+		b.e.Mark(doneLbl)
 	}
 	return nil
 }
@@ -6801,9 +7295,79 @@ func (b *Builder) emitFloatDiv(num, den XmmReg) {
 	b.e.Mark(done)
 }
 
+// emitSplit lowers split(s, delim) -> string[]. It tokenizes s by any
+// character in delim, interns each token in rodata, allocates a string
+// array in the heap arena, and returns (heap_ptr, count) in (RDI, RSI).
+//
+// Array layout in heap:
+//   [0]   = elements base ptr (8 bytes)
+//   [8]   = element count (8 bytes)
+//   [16]  = element 0 ptr (8 bytes)
+//   [24]  = element 0 len (8 bytes)
+//   ...
+//
+// Max tokens = len(s) + 1 (safe upper bound), so the arena size is
+// 16 + (len(s)+1) * 16 bytes. Computed at runtime from s.len.
+// emitSplit lowers split(s, delim) -> string[]. It tokenizes s by any
+// character in delim, interns each token in rodata, allocates a string
+// array in the heap arena, and returns (heap_ptr, count) in (RDI, RSI).
+//
+// Array layout in heap:
+//   [0]   = elements base ptr (8 bytes)
+//   [8]   = element count (8 bytes)
+//   [16]  = element 0 ptr (8 bytes)
+//   [24]  = element 0 len (8 bytes)
+//   ...
+//
+// Max tokens = len(s) + 1 (safe upper bound), so the arena size is
+// 16 + (len(s)+1) * 16 bytes. Computed at runtime from s.len.
+func (b *Builder) emitSplit(x *parser.CallExpr, depth int) error {
+	return fmt.Errorf("error[K145]: split() is not yet supported on the native target")
+}
+func (b *Builder) emitHasKey(x *parser.CallExpr, depth int) error {
+	if len(x.Args) != 2 {
+		return fmt.Errorf("error[K145]: hasKey() takes 2 arguments (got %d)", len(x.Args))
+	}
+	// hasKey(map, key) -> karkain_hasKey(map_ptr, key_ptr_or_int)
+	// Evaluate map arg (string convention: RDI=ptr, RSI=len)
+	if err := b.emitStr(x.Args[0], depth); err != nil {
+		return err
+	}
+	b.e.StoreStack(RDI, b.strTemp)     // map.ptr
+	b.e.StoreStack(RSI, b.strTemp+8)   // map.len
+	// Evaluate key arg
+	if err := b.emitExpr(x.Args[1], depth); err != nil {
+		return err
+	}
+	// key is int in RAX
+	b.e.LoadStack(RDI, b.strTemp)     // RDI = map.ptr
+	b.e.MovRegReg(RSI, RAX)           // RSI = key (int)
+	b.e.Call("karkain_hasKey")        // RAX = result (0 or 1)
+	// Return as int in RAX (already there)
+	return nil
+}
+
+// emitMapKeysOf lowers map_keys_of(m) -> string[].
+// Returns array of string keys. Implemented via split on a delimited key list.
+// For now, refuse by name - map iteration is not yet implemented natively.
+func (b *Builder) emitMapKeysOf(x *parser.CallExpr, depth int) error {
+	return fmt.Errorf("error[K145]: map_keys_of() is not yet implemented on the native target")
+}
+
 func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 	if x.Module != "" || x.IsCFunc {
 		return fmt.Errorf("error[K145]: module-qualified and C-interop calls are not supported (call to '%s')", x.Function)
+	}
+	// Phase 152-B1/Native stdlib: builtin calls that are not user functions.
+	if x.Module == "" && !x.IsCFunc {
+		switch x.Function {
+		case "split", "str_split":
+			return b.emitSplit(x, depth)
+		case "hasKey":
+			return b.emitHasKey(x, depth)
+		case "map_keys_of":
+			return b.emitMapKeysOf(x, depth)
+		}
 	}
 	fd, ok := b.ftab[x.Function]
 	if !ok {
@@ -6832,10 +7396,10 @@ func (b *Builder) emitCallValue(x *parser.CallExpr, depth int) error {
 		if err != nil {
 			return err
 		}
-		if got == KindArray {
-			return fmt.Errorf("error[K145]: array argument for parameter '%s' is not supported (call to '%s')", fd.Params[i], x.Function)
-		}
 		want := b.paramKind(fd, i)
+		if got == KindArray && want != KindArray {
+			return fmt.Errorf("error[K145]: array argument for non-array parameter '%s' (call to '%s')", fd.Params[i], x.Function)
+		}
 		if got != want {
 			return fmt.Errorf("error[K145]: %s argument for %s parameter '%s' (call to '%s')", kindName(got), kindName(want), fd.Params[i], x.Function)
 		}
