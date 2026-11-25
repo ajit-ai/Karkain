@@ -121,6 +121,7 @@ pulled into the v1.2.x line so v1.3.0 GA ships complete.
 
 | ID | Item | Status | Evidence / gate |
 |----|------|--------|-----------------|
+| v1.2.16 | QA battery + release ceremony closeout (verification/docs/harness only) | `verified` locally, PR pending | `docs/audit/V1.2.16-QA-BATTERY.md`; `scripts/qa/run-full-qa.ps1` PATH prelude + split `cli114`–`cli119`; no compiler source, no byte-identity/KIR claim |
 | v1.2.31 | async/await in both engines (pulled from post-2.0) | `proposed` | Design decision (stackless vs thread-per-task) + implementation + litmus gates; SPEC.md 4.5 already reserved |
 | v1.2.32 | REL-001 sanitizer investigation (libasan/clang ASan build) | `proposed` | `REL-001-CRASH-INVESTIGATION.md` names the decisive experiment; needs authorized build increment |
 | v1.2.33 | Security/capability model (`unsafe {}`, SBOM, CVE SLA) | `proposed` | Closes SEC-001; increment 165 (Docker/cosign) + SBOM + CVE docs |
@@ -158,27 +159,34 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 **v1.2.x** (`x = 1, 2, 3, … n`). Older non-v1.2.x labels in this register are
 historical audit records, not the active plan.
 
-**Current slice: P0.2 — task cancellation and timed joins** — **COMPLETE in
-the working tree; commit/PR deliberately withheld** under the slice's own
-no-commit instruction (2026-11-23; record
-`docs/audit/P0.2-TASK-CANCEL-BASELINE.md`). Per §2 this is not yet the
-register's `completed` status: the gate and the CI step exist and the gate
-passed locally on both engines, but the commit and the step's first CI
-execution follow the owner's commit instruction.
-`cancel(task)` and `join_timeout(task, ms)` are lowered on both engines and
-gated by `pkg/cli/phase_p02_task_cancel_test.go` (A–I); the P0.1 goldens
-(spawn/join grid `285`, channel producer/consumer `5, 0, 8`, actor
-valid/invalid-handler cases) still pass, and `spawn`/`join`/`channel`/`actor`
-are unchanged. Cancellation is cooperative: a queued task never runs, a running
-task is not preempted. **Superseded (2026-11-23):** the recommendation recorded
-here as v1.2.3 was implemented and followed by v1.2.4, v1.2.4b and
-v1.2.5a–v1.2.5c, so its rationale is history, not guidance.
+**Current slice: v1.2.16 — QA battery + release ceremony closeout** —
+**COMPLETE in the working tree; commit/PR pending** (2026-11-25; record
+`docs/audit/V1.2.16-QA-BATTERY.md`). This is verification, documentation and
+QA-harness work only: no language, compiler, backend or KIR source moved.
+The original battery stopped at `units` (`build` 33.1 s and `vet` 17.6 s PASS;
+`units` FAIL from `git` missing on `PATH` and the 692/699 MiB K127 guard);
+the full Phase-114 family ran 1553.108 s exit 0 in isolation, and
+`conformance`, `probes`, `examples`, `install`, `journey` and `fresh` were
+measured PASS separately while `docs` SKIPped without Sphinx. The old
+`phase115`–`phase119 exit=0` rows were `[no tests to run]` and are retired;
+the corrected MinGW rerun FAILED at `TestPhase115_FreshCheckout` and the
+isolated rerun ended in SIGTERM. The harness now adds Git, WindowsPowerShell
+and MinGW to `PATH` when present, replaces the monolithic `cligates` stage
+with `cli114`–`cli119`, and fixes the `-Stage build`/`-Stage vet` no-op.
+**No full-QA-green, byte-identity or KIR-pin claim is made.**
 
-**Recommended next implementation: v1.2.6 — native `sha256_hex`**, the next
-queued native-stdlib slice after the v1.2.5a–c codecs. It requires the owner's
-authorisation before implementation begins.
+**Recommended next implementation: v1.2.17 — TLS/HTTPS**, the first
+ecosystem-blocker slice after the v1.2.16 PR exists. It is **not started**:
+per the strict v1.2.x sequence it may begin only after the owner merges and
+pulls v1.2.16, and it still requires the owner's authorisation before code is
+written. **Historical, not guidance:** earlier recommendations here named
+v1.2.3 (`s[i]`), v1.2.6 (`sha256_hex`) and P0.2 (task cancellation); all were
+implemented and superseded by the measured v1.2.9–v1.2.15 merge history
+(PRs #30–#36).
 
-Why this one, from evidence:
+**Historical rationale for the superseded v1.2.6 recommendation** (retained
+because the evidence was correct for that slice; it is not the reason for the
+current v1.2.17 recommendation):
 
 1. It is the next *measured* unlowered `std` primitive in a module whose
    semantics are already gated. `std.crypto` is one of the 13 VERIFIED modules
@@ -295,6 +303,7 @@ owner-authorized amendment. An agent may propose one; it may not record one.
 | 2026-11-23 | **NAT-NET evidence** (repo audit): not started - no implementation, no gate file, no branch, no CI step, no platform-support decision found (STD-002: `MM-K-time` unassessable). → open |
 | 2026-11-23 | **TYPE-DESIGN re-corrected** (Rule 3): slice `bbecf1c` - 'feat(types): type-first declarations across .kark sources and both engines' - shipped on main/develop. CI step `TestTypeFirst` on origin/main (ci.yml:91), gate `pkg/sema/typefirst_test.go`. Status stays `proposed` (design decisions D-1..D-6 await owner sign-off; the `let` immutability flip, D-3, is a major-version boundary) |
 | 2026-11-23 | **Recommended v1.3.0 resume (added here as a plan, not an increment):** NAT-STDLIB (merge or re-gate `feature/v1.3.0-natstdlib*`; close the `import std.*` half of Condition 2) → NAT-NET (open to Condition 3) → TYPE-FOUNDATION (owner sign-off of D-1..D-6, then implementation) → **156** verdicts (recorded evidence, no default verdicts) → **158** (`secure_eq`/HMAC/streaming digests with vectors, `std.crypto` extension surface) → **159** (`Deque[T]`/`Set[T]` goldens, const folding) → **160** (linear-type negative gates) → **161** (atomics + litmus goldens) → **154** proof (capacity/runner-blocked, REL-002). Every v1.3.0 queue item keeps its own gate-file+CI-step requirement per the AGENTS.md gate rule |
+| 2026-11-25 | **v1.2.16 closeout (verification/docs/harness only).** Added the exact QA-battery record `docs/audit/V1.2.16-QA-BATTERY.md`: original battery `build`/`vet` PASS then `units` FAIL (git missing from `PATH`; 692/699 MiB K127 guard); full Phase-114 family 1553.108 s exit 0; separately measured `conformance`/`probes`/`examples`/`install`/`journey`/`fresh` PASS and `docs` SKIP; monolithic `cligates` shell-SIGTERM and retired `[no tests to run]` `phase115`–`phase119` rows; corrected MinGW rerun FAILED at `TestPhase115_FreshCheckout` and isolated rerun SIGTERM. `scripts/qa/run-full-qa.ps1` now adds Git/WindowsPowerShell/MinGW to `PATH`, replaces `cligates` with anchored `cli114`–`cli119` stages, rejects `-Stage cligates`, and fixes the `-Stage build`/`-Stage vet` no-op. No byte-identity or KIR-pin claim; no compiler source moved. §5.1 recommendation updated from the long-superseded v1.2.6/P0.2 text to **v1.2.17 — TLS/HTTPS**, gated on the owner merging/pulling the v1.2.16 PR; §9.4 demoted to historical and points at §5.1. `v1.3.0-CHECKLIST.md` §2.2 v1.2.6–v1.2.15 rows reconciled to their merged PR evidence and v1.2.16 recorded without a full-green claim. |
 
 ## 9. Issue register
 
@@ -382,14 +391,12 @@ apparent complexity, or preference for new features.
 
 ### 9.4 Single recommendation, runner-up, deferrals
 
-> **Superseded in part on 2026-11-23.** The recommendation below (v1.2.3,
-> `s[i]`) was implemented, followed by v1.2.4, v1.2.4b, v1.2.5a–v1.2.5c and
-> **P0.2 (task cancellation and timed joins; implemented and gated, commit
-> withheld by instruction)**. Its rationale is
-> retained unedited as the 2026-11-21 record — it was correct then. The current
-> recommendation is in §5.1: **v1.2.6 — native `sha256_hex`**, subject to owner
-> authorisation. The deferral list below is unchanged and still current except
-> where §5.1 restates it.
+> **Superseded on 2026-11-25.** The recommendation below (v1.2.3, `s[i]`) was
+> implemented and followed by v1.2.4, v1.2.4b, v1.2.5a–v1.2.5c, P0.2 and the
+> v1.2.6–v1.2.15 merge line (PRs #30–#36). Its rationale is retained unedited
+> as the 2026-11-21 record — it was correct then. The current recommendation
+> is in §5.1: **v1.2.17 — TLS/HTTPS**, after the v1.2.16 PR is merged and
+> pulled. The deferral list below is unchanged except where §5.1 restates it.
 
 **Recommended next slice: v1.2.3 — native string byte indexing (`s[i]`).** This
 supersedes the older STD-001 recommendation. Measured repository state shows
@@ -429,9 +436,9 @@ than as a competing item.
   PERF-001 (real but not release-blocking), LANG-001 / LANG-002 (owner decision,
   major boundary), GOV-003 (no incident has required it yet).
 
-**This section is the register's authority for the recommendation.** If section
-5 and section 9.4 ever disagree, this one wins, because it is the newer record
-and carries the evidence.
+**Historical note.** This section was the register's authority when written on
+2026-11-21. It is no longer: §5.1 is the newer record and is now authoritative
+for the current recommendation. If §5 and §9.4 disagree, §5 wins.
 
 ### 9.5 v1.2.0 condition status, reconciled 2026-10-15
 
