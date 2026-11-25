@@ -312,6 +312,13 @@ func buildSplitFlow(targetFile string, cfg codegen.Config, verbose bool, cacheDi
 	if serr != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("Build Error: %v", serr)}, true
 	}
+	// v1.2.17: SplitToolchain is generator-free and cannot know that an
+	// imported module (e.g. std.http) uses https_request. The split result
+	// carries that flag from the whole-program prescan; append the platform
+	// TLS libraries here or the module TUs fail with implicit declarations.
+	if split.NeedsTLS {
+		linkLibs = append(linkLibs, tlsLibFlags()...)
+	}
 	if split.UsesConcurrency || split.Profiling {
 		return CommandResult{}, false
 	}

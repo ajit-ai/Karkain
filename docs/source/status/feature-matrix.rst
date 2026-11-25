@@ -246,6 +246,7 @@ node and the emitter substitutes 0 / len(s).
      - Not supported
      - -
      - Refused by name (``chained string slicing is not lowered``)
+
 C23 TLS/HTTPS (v1.2.17)
 =======================
 
