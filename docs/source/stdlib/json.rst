@@ -60,3 +60,29 @@ Example
        print(json_get_int(j, "count"))     // 42
        print(json_has_field(j, "name"))    // true
    }
+
+JSON DOM (v1.2.20)
+------------------------
+
+The six flat helpers remain for compatibility. v1.2.20 adds a recursive
+DOM on the C23 path, available on both the Go front end and kcc.
+
+``json_dom_parse(text)``
+    Parse JSON text into a Value tree. Objects become maps, arrays become
+    arrays, scalars become Karkain values and JSON null becomes the
+    ``__json_null__`` sentinel. Returns an empty string on failure.
+
+``json_dom_type(node)``
+    Return ``null``, ``bool``, ``number``, ``string``, ``array`` or ``object``.
+
+``json_dom_get(node, path)``
+    Query a dotted path with array indices, for example ``a.b[0].c``.
+
+``json_dom_serialize(node)``
+    Serialize the DOM node back to JSON with correct escaping.
+
+``json_dom_error()``
+    Return the last deterministic JSON failure string, or empty on success.
+
+Native and WASM have no JSON builtins; those targets refuse the surface by
+the existing platform boundaries.

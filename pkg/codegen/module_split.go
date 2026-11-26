@@ -47,6 +47,7 @@ type SplitResult struct {
 	SimdNeedsAVX    bool
 	NeedsTLS        bool // v1.2.17: TLS runtime is in Header/RuntimeSrc; link libs must follow
 	NeedsOS         bool // v1.2.19: OS metric runtime is in the shared header
+	NeedsJSON       bool // v1.2.20: JSON DOM runtime is in the shared header
 	// RootFile is the assembly root (main lives here by filtering).
 	RootFile string
 }
@@ -99,6 +100,7 @@ func GenerateSplit(cfg Config, prog *parser.Program, files []string, rootFile st
 		SimdNeedsAVX:    g.simdNeedsAVX,
 		NeedsTLS:        g.needsTLS,
 		NeedsOS:         g.needsOS,
+		NeedsJSON:       g.needsJSON,
 		RootFile:        rootFile,
 	}
 
@@ -113,6 +115,9 @@ func GenerateSplit(cfg Config, prog *parser.Program, files []string, rootFile st
 	}
 	if g.needsOS {
 		runtimeText += osmetricsRuntimeC()
+	}
+	if g.needsJSON {
+		runtimeText += jsonRuntimeC()
 	}
 	res.Header = HeaderForRuntime(runtimeText) + avxKernelProtos()
 	res.RuntimeSrc = "#include \"" + RuntimeHeaderName + "\"\n\n" +

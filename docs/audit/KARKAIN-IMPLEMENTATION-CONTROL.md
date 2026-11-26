@@ -114,17 +114,23 @@ against).
 | KIR-REMEASURE | Re-measure the whole-tree KIR pin | `completed` **(re-measured 2026-11-10 on the dev host)** | - | The pin moved **14385 → 14477 → 14597**: 14385 (NAT-CALL), 14477 (the `push()` slice, which moved it and did **not** re-pin it, leaving `main` and `develop` with a red gate), 14597 (NAT-IF). Measured with `karkain kir --verify src/compiler/kir.kark` in the gate's own invocation (`text=14597 verify=14597`, 1724 s on this host) and never predicted. Both assertions re-pinned: `pkg/cli/phase122_pipeline_ownership_test.go` and `pkg/cli/phase151a5_win_test.go`. **The dev host DID complete the measurement this time** — the earlier failure was not the intermittent crash but a missing `libgmp-10.dll` on `PATH` (`C:\msys64\ucrt64\bin`), which made `kcc.exe` die with `0xC0000135` and the CLI report it as exit 3 with no output; see `docs/audit/NAT-IF-BASELINE.md` §8.3 |
 | B2-SEED | Seed-closure burn on CI runners | `blocked` | Six consecutive runner deaths (latest 2026-10-29, run `40815666047`) ~35 s into the stage-2 transpile, with no witness line, timer, OOM or crash fingerprint. **The same class independently reproduced by the increment 154 step on the same run** (`exit 143`, 110 s, its first-ever execution) | `bootstrap-closure` and `phase154-closure` CI jobs are **discovery-only and not required checks**; the mechanism itself is proven on a dev host (143) |
 
-### 4.4 v1.2.x gap-closing slices (owner-authorized 2026-11-25)
+### 4.4 v1.2.x gap-closing slices (owner-authorized 2026-11-25, amended 2026-11-26)
 
 Owner decision: v1.3.0 is the final release; the post-2.0 deferrals below are
-pulled into the v1.2.x line so v1.3.0 GA ships complete.
+pulled into the v1.2.x line so v1.3.0 GA ships complete. On 2026-11-26 the
+owner added three system-level closure increments after v1.2.33: portable
+OS/process APIs, optimization/build profiles and the bootstrap closure proof.
+They are proposed, not started; no existing number was renumbered.
 
 | ID | Item | Status | Evidence / gate |
 |----|------|--------|-----------------|
-| v1.2.16 | QA battery + release ceremony closeout (verification/docs/harness only) | `verified` locally, PR pending | `docs/audit/V1.2.16-QA-BATTERY.md`; `scripts/qa/run-full-qa.ps1` PATH prelude + split `cli114`–`cli119`; no compiler source, no byte-identity/KIR claim |
+| v1.2.16 | QA battery + release ceremony closeout (verification/docs/harness only) | `completed` (PR #37 merged) | `docs/audit/V1.2.16-QA-BATTERY.md`; `scripts/qa/run-full-qa.ps1` PATH prelude + split `cli114`–`cli119`; no compiler source, no byte-identity/KIR claim |
 | v1.2.31 | async/await in both engines (pulled from post-2.0) | `proposed` | Design decision (stackless vs thread-per-task) + implementation + litmus gates; SPEC.md 4.5 already reserved |
 | v1.2.32 | REL-001 sanitizer investigation (libasan/clang ASan build) | `proposed` | `REL-001-CRASH-INVESTIGATION.md` names the decisive experiment; needs authorized build increment |
 | v1.2.33 | Security/capability model (`unsafe {}`, SBOM, CVE SLA) | `proposed` | Closes SEC-001; increment 165 (Docker/cosign) + SBOM + CVE docs |
+| v1.2.34 | Portable OS/process API completion (process control, signals, portable env/time, dynamic-library boundary, filesystem metadata) | `proposed` (owner-added 2026-11-26) | Must close the system-programming gap left by v1.2.19: real process control and portable OS APIs on both engines, native/WASM decisions named |
+| v1.2.35 | Optimization/build profiles (`dev`/`release`/`size`, pass selection, benchmarks, profile-gated determinism) | `proposed` (owner-added 2026-11-26) | Closes `MM-J10` and the unowned optimization-profile gap; correctness corpus green under every profile |
+| v1.2.36 | Bootstrap closure proof (increment 154 full proof inside v1.2.x) | `proposed` (owner-added 2026-11-26) | `stage2 == stage3` with non-zero byte count, Go pin retired in child env, runner-stable; until closed, condition 9 remains carried to v1.3.0 as UNMET |
 
 ### 4.3 Later versions (planned, not baselined)
 
@@ -175,14 +181,7 @@ and MinGW to `PATH` when present, replaces the monolithic `cligates` stage
 with `cli114`–`cli119`, and fixes the `-Stage build`/`-Stage vet` no-op.
 **No full-QA-green, byte-identity or KIR-pin claim is made.**
 
-**Current slice: v1.2.19 — OS metric/process enumeration APIs — COMPLETE for
-the C23 path** (PR #39 merged at `937feb0`; record
-`docs/audit/V1.2.19-OS-METRICS-BASELINE.md`). `std.os` now provides real PID,
-CPU, memory, uptime and process-list queries on both engines; native/WASM
-remain excluded.
-**Recommended next implementation: v1.2.20 — JSON full DOM**, the next
-ordered ecosystem blocker. It is **not started** and requires owner
-authorisation. **Historical, not guidance:** earlier recommendations here named
+**Current slice: v1.2.20 — JSON full DOM — COMPLETE for the C23 path** (PR #40 merged at `2e839a0`; record `docs/audit/V1.2.20-JSON-FULL-DOM-BASELINE.md`). `std.json` now provides a recursive DOM with typed nodes, nested path queries, escaped serialization and deterministic errors on both engines; native/WASM remain excluded. **Recommended next implementation: v1.2.21 — UDP + WebSocket**, the next ordered ecosystem blocker. It is **not started** and requires owner authorisation. **Historical, not guidance:** earlier recommendations here named
 v1.2.3 (`s[i]`), v1.2.6 (`sha256_hex`) and P0.2 (task cancellation); all were
 implemented and superseded by the measured v1.2.9–v1.2.15 merge history
 (PRs #30–#36).
@@ -314,6 +313,9 @@ owner-authorized amendment. An agent may propose one; it may not record one.
 | 2026-11-26 | **PR #39 MERGED** at `origin/main` `937feb0`; `main`/`develop` re-synced. The strict v1.2.x sequence gate for **v1.2.19 — OS metric/process enumeration APIs** is satisfied; inventory is being taken before code. No tag or release action taken. |
 | 2026-11-26 | **v1.2.19 OS metrics / process enumeration COMPLETE for C23.** New single-source runtime `runtime/osmetrics/c/*` with seven `os_*` builtins (PID, CPU count, total/available memory, monotonic uptime, sorted self-containing process list, last error), embedded by Go and generated into `src/compiler/osmetrics_runtime.kark` for kcc; freshness gate wired. Canonical `stdlib/os/os.kark` wrappers fill the previously Planned `std.os` slot. `needsOS` gating covers monolith and split flows. Gate `TestPhaseV1219_` PASS 28.927s on both engines with predicate assertions, runtime wiring and native K145 refusal. Three defects found and fixed: module file had to be `os.kark`; `strings.Fields` dropped the empty `os_error()` line; the 63-entry cap also gated the self-add and evicted the current PID. Two CI steps wired. Native/WASM excluded; no byte-identity claim; KIR pin CI-measured only. Audit: `docs/audit/V1.2.19-OS-METRICS-BASELINE.md`. |
 | 2026-11-26 | **v1.2.19 first-CI corrective change against the frozen baseline** (CI run `45736831726`, no new increment). Three measured defects: (1) Sphinx `-W` found the `std.os` stable-api row one indent too deep plus two short RST title underlines — corrected structurally; (2) whole-tree KIR pin stale — CI measured `text=18517 verify=18517` and both assertion sites were re-pinned from that measurement only; (3) the Linux gate mixed gcc warnings into program stdout — stdout/stderr are now separate buffers and the parser locates the first seven consecutive integer lines. Post-fix: `TestPhaseV1219_` PASS 22.153 s locally, freshness gates, build and vet PASS. Record: `V1.2.19-OS-METRICS-BASELINE.md` §6. |
+| 2026-11-26 | **Owner-approved plan amendment: three additional v1.2.x system-level increments.** PR #40 (v1.2.19) merged at `origin/main` `2e839a0`; `main`/`develop` re-synced. Added **v1.2.34** portable OS/process API completion, **v1.2.35** optimization/build profiles and **v1.2.36** bootstrap closure proof to §4.4 and `v1.3.0-CHECKLIST.md` §2.2. All three are `proposed`, not started; no existing number was renumbered and v1.2.20 remains the next scheduled increment. The v1.2.x line now ends at v1.2.36 before v1.3.0 GA; full QA battery remains GA condition 10, not a version. |
+| 2026-11-26 | **v1.2.20 JSON full DOM COMPLETE for C23.** New single-source runtime `runtime/json/c/*` with five builtins (`json_parse`, `json_type`, `json_serialize`, `json_get_path`, `json_last_error`), embedded by Go and generated into `src/compiler/json_runtime.kark`; freshness gate wired. Canonical `stdlib/json/json.kark` keeps the six flat helpers and adds five `json_dom_*` wrappers. `needsJSON` covers monolith and split flows. Gate `TestPhaseV1220_` PASS 33.196s on both engines with raw Go↔kcc parity, escape round-trip, deterministic errors, runtime wiring and native K145 refusal; two CI steps wired. Three defects found and fixed: Go/kcc Value-struct divergence (fixed via shared Value API), wiring negative case imported std.json, native refusal names a different `json_*` builtin. No byte-identity claim; KIR pin CI-measured only. Audit: `docs/audit/V1.2.20-JSON-FULL-DOM-BASELINE.md`. |
+| 2026-11-26 | **v1.2.20 first-CI corrections against the frozen baseline** (CI run `45747053835`, no new increment). Two measured failures: Sphinx `-W` reported `json.rst:63` explicit markup ending without a blank line (fixed); whole-tree KIR pin was stale — CI reported `text=18972 verify=18972` against `18517`; both assertion sites re-pinned from that measurement only, never predicted. Delta +455 from `json_*` builtins and generated `json_runtime.kark`. Documentation-only correction plus pin re-pin; no code or gate changed. Record: `V1.2.20-JSON-FULL-DOM-BASELINE.md` §§6–7. |
 
 ## 9. Issue register
 

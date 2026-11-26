@@ -30,6 +30,7 @@ func createCodegenState(target) {
     state = appendArray(state, [])       // 19: actor handler order (Phase 137)
     state = appendArray(state, 0)        // 20: uses-TLS flag (v1.2.17)
     state = appendArray(state, 0)        // 21: uses-OS-metrics flag (v1.2.19)
+    state = appendArray(state, 0)        // 22: uses-JSON flag (v1.2.20)
     return state
 }
 
@@ -73,6 +74,10 @@ func tlsMarkUses(state) { state[20] = 1 }
 // v1.2.19: OS metric runtime is emitted only when an os_* builtin is used.
 func osUses(state) { return state[21] }
 func osMarkUses(state) { state[21] = 1 }
+
+// v1.2.20: JSON runtime is emitted only when a json_* builtin is used.
+func jsonUses(state) { return state[22] }
+func jsonMarkUses(state) { state[22] = 1 }
 
 func concAddSpawn(state, name) {
     if (name == "") { return }
@@ -130,6 +135,7 @@ func collectConcPrescan(state, stmts) {
     state[19] = []
     state[20] = 0
     state[21] = 0
+    state[22] = 0
     concScanStmts(state, stmts)
 }
 
@@ -223,6 +229,7 @@ func concScanExpr(state, e) {
         if (concIsBuiltin(fname) == 1) { concMarkUses(state) }
         if (fname == "https_request") { tlsMarkUses(state) }
         if (fname == "os_pid" || fname == "os_cpu_count" || fname == "os_total_mem_mb" || fname == "os_available_mem_mb" || fname == "os_uptime_ms" || fname == "os_process_list" || fname == "os_last_error") { osMarkUses(state) }
+        if (fname == "json_parse" || fname == "json_type" || fname == "json_serialize" || fname == "json_get_path" || fname == "json_last_error") { jsonMarkUses(state) }
         if (fname == "actor") {
             Value args = callArgs(e)
             if (len(args) > 0 && getNodeType(args[0]) == "StringLiteral") {
@@ -1591,6 +1598,25 @@ func emitC11Expr(state, node) {
             emit(state, "karkain_os_process_list()")
         } else if (fname == "os_last_error") {
             emit(state, "karkain_os_last_error()")
+        } else if (fname == "json_parse") {
+            emit(state, "karkain_json_parse(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ")")
+        } else if (fname == "json_type") {
+            emit(state, "karkain_json_type(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ")")
+        } else if (fname == "json_serialize") {
+            emit(state, "karkain_json_serialize(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ")")
+        } else if (fname == "json_get_path") {
+            emit(state, "karkain_json_get_path(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            if (argc > 1) { emit(state, ", ") emitC11Expr(state, args[1]) }
+            emit(state, ")")
+        } else if (fname == "json_last_error") {
+            emit(state, "karkain_json_last_error()")
         } else if (codegenLocalNameHas(state, fname) == 1) {
             // Phase 133: a bare call through a LOCAL name dispatches
             // indirectly — the local may hold a function cell (factories,
@@ -2373,6 +2399,9 @@ func generateC11(ast, sourceName) {
     }
     if (osUses(state) == 1) {
         emitOSMetricsRuntime(state)
+    }
+    if (jsonUses(state) == 1) {
+        emitJSONRuntime(state)
     }
 
     // Phase 123: generate enum declarations (C int-tag constants / payload

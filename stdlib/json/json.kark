@@ -80,3 +80,35 @@ int json_array_length(string json) {
     }
     return count
 }
+// ---------------------------------------------------------------------------
+// v1.2.20: JSON DOM (C23 path)
+// ---------------------------------------------------------------------------
+//
+// The six flat helpers above remain unchanged. These wrappers expose the real
+// recursive-descent DOM: parse into a Value tree, inspect node types, query a
+// dotted/indexed path, serialize back to JSON and read deterministic errors.
+
+// json_dom_parse parses text into a tree (empty string on failure).
+func json_dom_parse(text) {
+    return json_parse(text)
+}
+
+// json_dom_type returns null/bool/number/string/array/object.
+func json_dom_type(node) {
+    return json_type(node)
+}
+
+// json_dom_serialize serializes a DOM node back to JSON text.
+func json_dom_serialize(node) {
+    return json_serialize(node)
+}
+
+// json_dom_get queries a path such as "a.b[0].c".
+func json_dom_get(node, path) {
+    return json_get_path(node, path)
+}
+
+// json_dom_error returns the last JSON failure string ("" on success).
+func json_dom_error() {
+    return json_last_error()
+}
