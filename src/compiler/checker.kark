@@ -120,6 +120,12 @@ func isCheckerBuiltin(name) {
     if (name == "rc_release") { return 1 }
     if (name == "rc_strong_count") { return 1 }
     if (name == "rc_get") { return 1 }
+    if (name == "arena_new") { return 1 }
+    if (name == "arena_alloc") { return 1 }
+    if (name == "arena_reset") { return 1 }
+    if (name == "arena_free") { return 1 }
+    if (name == "arena_capacity") { return 1 }
+    if (name == "arena_used") { return 1 }
     if (name == "Some") { return 1 }
     if (name == "None") { return 1 }
     if (name == "Ok") { return 1 }

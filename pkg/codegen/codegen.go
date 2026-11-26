@@ -72,6 +72,7 @@ type Generator struct {
 	needsUDPWS       bool                        // v1.2.21: udp_*/ws_* builtins use the C23 UDP/WebSocket runtime
 	needsSQLite      bool                        // v1.2.22: sqlite_* builtins use the vendored SQLite runtime
 	needsRC          bool                        // v1.2.24: rc_* builtins use the reference-counting runtime
+	needsArena       bool                        // v1.2.25: arena_* builtins use the arena region runtime
 	sourceFile       string                      // Phase 55b: source file for #line directives
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
@@ -536,6 +537,11 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 	for _, stmt := range prog.Statements {
 		g.scanNodeForRC(stmt)
 	}
+	// v1.2.25: arena builtins are emitted only on use.
+	g.needsArena = false
+	for _, stmt := range prog.Statements {
+		g.scanNodeForArena(stmt)
+	}
 	// Pre-scan: collect user-declared function names for deterministic symbol
 	// mangling and user-functions-first builtin shadowing.
 	g.userFuncs = make(map[string]bool)
@@ -613,6 +619,9 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	}
 	if g.needsRC {
 		sb.WriteString(rcRuntimeC())
+	}
+	if g.needsArena {
+		sb.WriteString(arenaRuntimeC())
 	}
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
@@ -4013,6 +4022,24 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "rc_get" {
 			return fmt.Sprintf("make_int(karkain_rc_get_int((karkain_rc_box_t *)%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "arena_new" {
+			return fmt.Sprintf("make_int((long long)karkain_region_new(%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "arena_alloc" {
+			return fmt.Sprintf("make_int((long long)karkain_region_alloc((karkain_region_t *)%s.intVal, %s.intVal))", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "arena_reset" {
+			return fmt.Sprintf("make_int((karkain_region_reset((karkain_region_t *)%s.intVal), 0))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "arena_free" {
+			return fmt.Sprintf("make_int((karkain_region_free((karkain_region_t *)%s.intVal), 0))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "arena_capacity" {
+			return fmt.Sprintf("make_int((long long)karkain_region_capacity((karkain_region_t *)%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "arena_used" {
+			return fmt.Sprintf("make_int((long long)karkain_region_used((karkain_region_t *)%s.intVal))", g.genExpr(n.Args[0]))
 		}
 		if n.Function == "http.get" {
 			g.needsHTTP = true

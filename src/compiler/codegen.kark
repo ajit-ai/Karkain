@@ -34,6 +34,7 @@ func createCodegenState(target) {
     state = appendArray(state, 0)        // 23: uses-UDP/WS flag (v1.2.21)
     state = appendArray(state, 0)        // 24: uses-SQLite flag (v1.2.22)
     state = appendArray(state, 0)        // 25: uses-RC flag (v1.2.24)
+    state = appendArray(state, 0)        // 26: uses-Arena flag (v1.2.25)
     return state
 }
 
@@ -91,6 +92,8 @@ func sqliteUses(state) { return state[24] }
 func sqliteMarkUses(state) { state[24] = 1 }
 func rcUses(state) { return state[25] }
 func rcMarkUses(state) { state[25] = 1 }
+func arenaUses(state) { return state[26] }
+func arenaMarkUses(state) { state[26] = 1 }
 
 func concAddSpawn(state, name) {
     if (name == "") { return }
@@ -248,7 +251,9 @@ func concScanExpr(state, e) {
         if (fname == "udp_send" || fname == "udp_send_on" || fname == "udp_bind" || fname == "udp_recv" || fname == "udp_last_error" || fname == "ws_accept" || fname == "ws_send_text" || fname == "ws_recv_text" || fname == "ws_last_error") { udpwsMarkUses(state) }
         if (fname == "sqlite_open" || fname == "sqlite_exec" || fname == "sqlite_query" || fname == "sqlite_close" || fname == "sqlite_last_error") { sqliteMarkUses(state) }
     if (fname == "rc_new" || fname == "rc_retain" || fname == "rc_release" || fname == "rc_strong_count" || fname == "rc_get") { rcMarkUses(state) }
+    if (fname == "arena_new" || fname == "arena_alloc" || fname == "arena_reset" || fname == "arena_free" || fname == "arena_capacity" || fname == "arena_used") { arenaMarkUses(state) }
     if (fname == "rc_new" || fname == "rc_retain" || fname == "rc_release" || fname == "rc_strong_count" || fname == "rc_get") { rcMarkUses(state) }
+    if (fname == "arena_new" || fname == "arena_alloc" || fname == "arena_reset" || fname == "arena_free" || fname == "arena_capacity" || fname == "arena_used") { arenaMarkUses(state) }
         if (fname == "actor") {
             Value args = callArgs(e)
             if (len(args) > 0 && getNodeType(args[0]) == "StringLiteral") {
@@ -1714,6 +1719,32 @@ func emitC11Expr(state, node) {
             emit(state, "make_int(karkain_rc_get_int((karkain_rc_box_t *)(")
             if (argc > 0) { emitC11Expr(state, args[0]) }
             emit(state, ").intVal))")
+        } else if (fname == "arena_new") {
+            emit(state, "make_int((long long)karkain_region_new(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ".intVal))")
+        } else if (fname == "arena_alloc") {
+            emit(state, "make_int((long long)karkain_region_alloc((karkain_region_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal, (")
+            if (argc > 1) { emitC11Expr(state, args[1]) }
+            emit(state, ").intVal))")
+        } else if (fname == "arena_reset") {
+            emit(state, "make_int((karkain_region_reset((karkain_region_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal), 0))")
+        } else if (fname == "arena_free") {
+            emit(state, "make_int((karkain_region_free((karkain_region_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal), 0))")
+        } else if (fname == "arena_capacity") {
+            emit(state, "make_int((long long)karkain_region_capacity((karkain_region_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
+        } else if (fname == "arena_used") {
+            emit(state, "make_int((long long)karkain_region_used((karkain_region_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
         } else if (codegenLocalNameHas(state, fname) == 1) {
             // Phase 133: a bare call through a LOCAL name dispatches
             // indirectly — the local may hold a function cell (factories,
@@ -2508,6 +2539,9 @@ func generateC11(ast, sourceName) {
     }
     if (rcUses(state) == 1) {
         emitRCRuntime(state)
+    }
+    if (arenaUses(state) == 1) {
+        emitArenaRuntime(state)
     }
 
     // Phase 123: generate enum declarations (C int-tag constants / payload
