@@ -67,6 +67,9 @@ func (t *Type) String() string {
 		}
 		return "Option"
 	case TypeResult:
+		if t.Elem != nil {
+			return "Result<" + t.Elem.String() + ">"
+		}
 		return "Result"
 	case TypeStruct, TypeEnum, TypeFunc:
 		if t.Name != "" {
@@ -150,6 +153,65 @@ func InferTypeValue(node parser.Node) *Type {
 		return &Type{Kind: TypeResult, Name: "Result"}
 	}
 	return nil
+}
+
+// InferTypeValueWithContext is the bidirectional half of S7: an expected type
+// refines expressions whose own shape is ambiguous (an empty array literal,
+// some/ok constructors without an element annotation, an int literal used
+// where a float is expected). It is METADATA ONLY — like InferTypeValue it
+// never feeds Resolver.funcReturnTypes or the strict declaration checker
+// (see the S4a corrective note in resolve.go). When the expression already
+// has a concrete type, that type wins unless it is a numeric literal that the
+// expected type legitimately widens.
+func InferTypeValueWithContext(node parser.Node, expected *Type) *Type {
+	if expected == nil {
+		return InferTypeValue(node)
+	}
+	switch n := node.(type) {
+	case *parser.ArrayLiteral:
+		if expected.Kind == TypeArray {
+			elem := expected.Elem
+			if elem == nil && len(n.Elements) > 0 {
+				elem = InferTypeValue(n.Elements[0])
+			}
+			name := expected.Name
+			if name == "" {
+				name = "[]"
+			}
+			return &Type{Kind: TypeArray, Name: name, Elem: elem}
+		}
+	case *parser.OptionSomeExpr:
+		if expected.Kind == TypeOption {
+			elem := expected.Elem
+			if elem == nil {
+				elem = InferTypeValue(n.Value)
+			}
+			return &Type{Kind: TypeOption, Name: "Option", Elem: elem}
+		}
+	case *parser.ResultOkExpr:
+		if expected.Kind == TypeResult {
+			elem := expected.Elem
+			if elem == nil {
+				elem = InferTypeValue(n.Value)
+			}
+			return &Type{Kind: TypeResult, Name: "Result", Elem: elem}
+		}
+	case *parser.StructLiteral:
+		if n.TypeName == "" && expected.Kind == TypeStruct {
+			return expected
+		}
+	case *parser.IntLiteral:
+		// Numeric widening is a contextual decision, not a rewrite of the
+		// expression: int -> float64 is metadata here; emitted code is
+		// unchanged and the strict checker still uses the annotation string.
+		if expected.Kind == TypeFloat64 {
+			return expected
+		}
+	}
+	if inferred := InferTypeValue(node); inferred != nil {
+		return inferred
+	}
+	return expected
 }
 
 // Equal reports whether two Types are structurally equal.

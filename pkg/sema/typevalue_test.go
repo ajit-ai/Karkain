@@ -84,6 +84,52 @@ func TestTypeValue_ReturnInfer(t *testing.T) {
 	}
 }
 
+// v1.2.26 S7: an expected type refines ambiguous initializer shapes. These
+// are metadata assertions only — no strict type-checking behavior may change.
+func TestTypeValue_ContextualInfer(t *testing.T) {
+	optInt := &Type{Kind: TypeOption, Name: "Option", Elem: ParseTypeString("int")}
+	resInt := &Type{Kind: TypeResult, Name: "Result", Elem: ParseTypeString("int")}
+	cases := []struct {
+		name     string
+		node     parser.Node
+		expected *Type
+		want     string
+	}{
+		{"empty array from annotation", &parser.ArrayLiteral{}, ParseTypeString("string[]"), "string[]"},
+		{"some element from annotation", &parser.OptionSomeExpr{Value: &parser.IntLiteral{Value: "1"}}, optInt, "Option<int>"},
+		{"ok element from annotation", &parser.ResultOkExpr{Value: &parser.IntLiteral{Value: "1"}}, resInt, "Result<int>"},
+		{"numeric widening", &parser.IntLiteral{Value: "1"}, ParseTypeString("float64"), "float64"},
+		{"no expected falls back", &parser.IntLiteral{Value: "1"}, nil, "int"},
+		{"concrete literal wins over unrelated expected", &parser.StringLiteral{Value: "x"}, ParseTypeString("int"), "string"},
+	}
+	for _, c := range cases {
+		got := InferTypeValueWithContext(c.node, c.expected)
+		if got == nil || got.String() != c.want {
+			t.Errorf("%s: got %v, want %q", c.name, got, c.want)
+		}
+	}
+	arr := InferTypeValueWithContext(&parser.ArrayLiteral{}, ParseTypeString("string[]"))
+	if arr.Elem == nil || arr.Elem.String() != "string" {
+		t.Errorf("empty array did not inherit element type: %v", arr.Elem)
+	}
+}
+
+func TestTypeValue_ContextualInferInResolver(t *testing.T) {
+	src := "func main() { string[] xs = [\"a\"] }"
+	prog := parseTestProg(t, src)
+	r := NewResolver(prog, nil)
+	r.Resolve()
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	vd, ok := fn.Body[0].(*parser.VarDeclStmt)
+	if !ok {
+		t.Fatalf("first statement is not a VarDeclStmt: %T", fn.Body[0])
+	}
+	tv, ok := vd.TypeValue.(*Type)
+	if !ok || tv == nil || tv.String() != "string[]" {
+		t.Fatalf("TypeValue not contextually inferred: %v", vd.TypeValue)
+	}
+}
+
 // v1.2.26 S4a corrective: inferred return types are metadata on FuncDecl only.
 // Writing them into Resolver.funcReturnTypes (which feeds typecheck.go's
 // checkDecl) made previously accepted declarations such as `int x = f()`
