@@ -50,6 +50,7 @@ type SplitResult struct {
 	NeedsJSON       bool // v1.2.20: JSON DOM runtime is in the shared header
 	NeedsUDPWS      bool // v1.2.21: UDP/WebSocket runtime is in the shared header
 	NeedsSQLite     bool // v1.2.22: SQLite programs fall back to the monolith C path
+	NeedsRC         bool // v1.2.24: RC runtime is in the shared header
 	// RootFile is the assembly root (main lives here by filtering).
 	RootFile string
 }
@@ -105,6 +106,7 @@ func GenerateSplit(cfg Config, prog *parser.Program, files []string, rootFile st
 		NeedsJSON:       g.needsJSON,
 		NeedsUDPWS:      g.needsUDPWS,
 		NeedsSQLite:     g.needsSQLite,
+		NeedsRC:         g.needsRC,
 		RootFile:        rootFile,
 	}
 
@@ -125,6 +127,9 @@ func GenerateSplit(cfg Config, prog *parser.Program, files []string, rootFile st
 	}
 	if g.needsUDPWS {
 		runtimeText += udpwsRuntimeC()
+	}
+	if g.needsRC {
+		runtimeText += rcRuntimeC()
 	}
 	res.Header = HeaderForRuntime(runtimeText) + avxKernelProtos()
 	res.RuntimeSrc = "#include \"" + RuntimeHeaderName + "\"\n\n" +

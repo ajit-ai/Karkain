@@ -309,6 +309,12 @@ jobs:
         # consumption, Option/Result match completeness. No GC, no refcount.
         run: go test ./pkg/cli/ -run 'TestPhaseV1223_' -count=1 -timeout 20m
 
+      - name: Run v1.2.24 RC builtin gate
+        # Reference-counting builtins (rc_new/retain/release/strong_count/get)
+        # on both engines, backed by the C23 RC runtime. Manual surface only;
+        # automatic retain/release insertion is the follow-up slice.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1224B_' -count=1 -timeout 20m
+
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1
 
