@@ -317,8 +317,13 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// on CI run 45736831726 (kcc whole-tree self-check job)
 		// (text=18517 verify=18517), never predicted. Delta is the new os_*
 		// builtins in checker/sema/codegen plus generated osmetrics_runtime.kark.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 18517 {
-			t.Errorf("whole-tree kir text = %d lines, want 18517:\n%s", got, out)
+		// RE-PINNED FOR v1.2.20 JSON FULL DOM: 18517 -> 18972 (+455),
+		// measured on CI run 45747053835 (kcc whole-tree self-check job)
+		// (text=18972 verify=18972), never predicted. Delta is the new
+		// json_* builtins in checker/sema/codegen plus generated
+		// json_runtime.kark.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 18972 {
+			t.Errorf("whole-tree kir text = %d lines, want 18972:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
