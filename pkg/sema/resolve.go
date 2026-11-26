@@ -258,11 +258,19 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 				n.ReturnTypeValue = ParseTypeString(n.ReturnType)
 			} else {
 				// v1.2.26 S4: infer return type from the first return statement.
+				// The inferred type is recorded ONLY as structured metadata on
+				// FuncDecl.ReturnTypeValue. It must NOT be written into
+				// r.funcReturnTypes: that map feeds the strict declaration
+				// type-checker (typecheck.go checkDecl), and doing so made
+				// previously-accepted `int x = f()` declarations (where f has
+				// no explicit annotation and returns a string/array/Value) fail
+				// across the compiler's own sources (124 name-resolution errors
+				// in the kcc whole-tree self-check). Type checking stays
+				// behavior-preserving; inference is additive.
 				for _, st := range n.Body {
 					if rs, ok := st.(*parser.ReturnStmt); ok && rs.Value != nil {
 						if t := InferTypeValue(rs.Value); t != nil {
 							n.ReturnTypeValue = t
-							r.funcReturnTypes[n.Name] = t.String()
 						}
 						break
 					}

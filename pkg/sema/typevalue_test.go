@@ -83,3 +83,23 @@ func TestTypeValue_ReturnInfer(t *testing.T) {
 		t.Errorf("got %q, want int", rtv.String())
 	}
 }
+
+// v1.2.26 S4a corrective: inferred return types are metadata on FuncDecl only.
+// Writing them into Resolver.funcReturnTypes (which feeds typecheck.go's
+// checkDecl) made previously accepted declarations such as `int x = f()`
+// fail when f has no explicit annotation and returns a string/array/Value —
+// 124 name-resolution errors in the kcc whole-tree self-check of the
+// compiler's own sources. Inference must stay additive.
+func TestTypeValue_ReturnInferDoesNotChangeStrictChecking(t *testing.T) {
+	src := "func f() { return \"hi\" } func main() { int x = f(); print(x) }"
+	prog := parseTestProg(t, src)
+	r := NewResolver(prog, nil)
+	if errs := r.Resolve(); len(errs) != 0 {
+		t.Fatalf("inferred return type changed strict declaration checking: %v", errs)
+	}
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	rtv, ok := fn.ReturnTypeValue.(*Type)
+	if !ok || rtv == nil || rtv.String() != "string" {
+		t.Fatalf("ReturnTypeValue not inferred as string: %v", fn.ReturnTypeValue)
+	}
+}
