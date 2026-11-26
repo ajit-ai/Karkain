@@ -37,6 +37,13 @@ type varEntry struct {
 	// Empty if the binding is not a reference binding. Used to detect
 	// dangling references through intermediate bindings.
 	borrowsFrom string
+	// v1.2.23 Phase 1 (linear types): true when this binding's type is a
+	// `linear type`. Linear bindings must be consumed exactly once.
+	linear bool
+	// v1.2.23 Phase 1 (linear types): number of times this binding has been
+	// used (identifier reads + move + borrow + field access). Checked at
+	// scope exit against exactly 1 for linear bindings.
+	uses int
 }
 
 type borrowRecord struct {
@@ -124,16 +131,31 @@ func (bc *BorrowChecker) popScope() {
 	}
 	// Mark every binding introduced in this scope as dead in the parent. Any
 	// later reference to these names (with no live shadow) is a use-after-scope.
-parent := bc.scope.parent
-if parent != nil && !bc.scope.fnRoot {
+	parent := bc.scope.parent
+	if parent != nil && !bc.scope.fnRoot {
 		for _, name := range bc.scope.decls {
 			parent.dead[name] = true
 		}
 	}
-	// Propagate usage counts to parent for linear type checking
-	if parent != nil {
-		for name, count := range bc.scope.usage {
-			parent.usage[name] += count
+	// v1.2.23 Phase 1 (linear types): every linear binding declared in this
+	// scope must have been consumed exactly once. Counts live on the binding
+	// itself (entry.uses), not on the scope map, so shadowed bindings never
+	// conflate. This runs at every scope exit, including the global scope,
+	// so the old whole-program checkLinearTypes pass is no longer needed.
+	for name, entry := range bc.scope.vars {
+		if !entry.linear {
+			continue
+		}
+		if entry.uses == 0 {
+			bc.errors = append(bc.errors, BorrowError{
+				Message: "error[K160] linear type variable '" + name + "' of type '" + entry.typeName + "' was never used",
+				Line:    entry.line,
+			})
+		} else if entry.uses > 1 {
+			bc.errors = append(bc.errors, BorrowError{
+				Message: "error[K160] linear type variable '" + name + "' of type '" + entry.typeName + "' was used " + itoa(entry.uses) + " times (must be exactly 1)",
+				Line:    entry.line,
+			})
 		}
 	}
 	bc.scope = parent
@@ -145,6 +167,7 @@ func (bc *BorrowChecker) declare(name string, typeName string, line uint16) {
 		typeName:  typeName,
 		line:      line,
 		declScope: bc.scope,
+		linear:    bc.linearTypes[typeName],
 	}
 	bc.scope.decls = append(bc.scope.decls, name)
 }
@@ -171,6 +194,12 @@ func (bc *BorrowChecker) trackUsage(name string) {
 	if bc.scope == nil {
 		return
 	}
+	// v1.2.23 Phase 1 (linear types): count on the resolved binding, not by
+	// name, so shadowed bindings never conflate. The scope-level usage map is
+	// retained for compatibility but is no longer the authority.
+	if entry := bc.lookup(name); entry != nil {
+		entry.uses++
+	}
 	bc.scope.usage[name]++
 }
 
@@ -194,41 +223,11 @@ func (bc *BorrowChecker) Check(prog *parser.Program) []BorrowError {
 		bc.checkNode(stmt)
 	}
 
-	// Third pass: verify linear types were used exactly once
-	bc.checkLinearTypes()
+	// v1.2.23 Phase 1: linear usage is verified per-scope at every popScope
+	// (including this global scope), so no separate whole-program pass remains.
 
 	bc.popScope()
 	return bc.errors
-}
-
-func (bc *BorrowChecker) checkLinearTypes() {
-	if bc.scope == nil {
-		return
-	}
-	for name, count := range bc.scope.usage {
-		entry := bc.scope.lookupOwn(name)
-		if entry == nil {
-			continue
-		}
-		typeName := entry.typeName
-		if typeName == "" {
-			continue
-		}
-		if !bc.linearTypes[typeName] {
-			continue
-		}
-		if count == 0 {
-			bc.errors = append(bc.errors, BorrowError{
-				Message: "linear type variable '" + name + "' of type '" + typeName + "' was never used",
-				Line:    entry.line,
-			})
-		} else if count > 1 {
-			bc.errors = append(bc.errors, BorrowError{
-				Message: "linear type variable '" + name + "' of type '" + typeName + "' was used " + itoa(count) + " times (must be exactly 1)",
-				Line:    entry.line,
-			})
-		}
-	}
 }
 
 func itoa(n int) string {
@@ -337,7 +336,14 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 		}
 	case *parser.StructLiteral:
 		for _, field := range n.Fields {
-			bc.checkNode(field)
+			// StructLiteral.Fields are BinaryExpr{Left: Identifier(fieldName),
+			// Operator: "=", Right: value}. Only the value side counts as a
+			// use; the field-name identifier is a label, not a binding.
+			if be, ok := field.(*parser.BinaryExpr); ok && be.Operator == "=" {
+				bc.checkNode(be.Right)
+			} else {
+				bc.checkNode(field)
+			}
 		}
 	case *parser.AddressOf:
 		bc.checkNode(n.Operand)
@@ -352,9 +358,9 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 	case *parser.ForInStmt:
 		bc.checkNode(n.Iter)
 		bc.pushScope()
-		bc.declare(n.VarName, "", 0)
+		bc.declare(n.VarName, "", uint16(n.Line))
 		if n.KeyName != "" {
-			bc.declare(n.KeyName, "", 0)
+			bc.declare(n.KeyName, "", uint16(n.Line))
 		}
 		bc.checkBlock(n.Body)
 		bc.popScope()
@@ -366,7 +372,7 @@ func (bc *BorrowChecker) checkNode(node parser.Node) {
 			if i < len(n.ParamTypes) {
 				typeName = n.ParamTypes[i]
 			}
-			bc.declare(param, typeName, 0)
+			bc.declare(param, typeName, uint16(n.Line))
 		}
 		for _, stmt := range n.Body {
 			bc.checkNode(stmt)
@@ -416,7 +422,7 @@ func (bc *BorrowChecker) checkVarDecl(n *parser.VarDeclStmt) {
 	if typeName == "" {
 		typeName = bc.inferMatchType(n.Value)
 	}
-	bc.declare(n.Name, typeName, 0)
+	bc.declare(n.Name, typeName, uint16(n.Line))
 	// Phase 49 escape analysis marks n.Escapes; capture it so the borrow
 	// checker records whether the value outlives its declaring scope.
 	if bc.scope != nil {
@@ -455,7 +461,7 @@ func (bc *BorrowChecker) checkMatchExpr(n *parser.MatchExpr) {
 		bc.pushScope()
 		// Bind pattern variables
 		if arm.Pattern.Binding != "" {
-			bc.declare(arm.Pattern.Binding, "", 0)
+			bc.declare(arm.Pattern.Binding, "", uint16(n.Line))
 		}
 		bc.checkNode(arm.Body)
 		bc.popScope()
@@ -564,6 +570,8 @@ func (bc *BorrowChecker) checkMove(n *parser.MoveExpr) {
 		return
 	}
 	entry.ownership = Moved
+	// v1.2.23 Phase 1 (linear types): a move consumes the binding.
+	entry.uses++
 }
 
 // checkReturnLifetime (Phase 1.2, v1.3.0) walks a return value and rejects
@@ -712,6 +720,10 @@ func (bc *BorrowChecker) inferMatchType(node parser.Node) string {
 		return "Result"
 	case *parser.ResultErrExpr:
 		return "Result"
+	case *parser.StructLiteral:
+		// v1.2.23 Phase 1: a linear struct literal's type is its TypeName,
+		// so `let h = Handle{id: 7}` infers typeName "Handle".
+		return n.TypeName
 	case *parser.CallExpr:
 		// Could be a function returning Option/Result
 	case *parser.IndirectCallExpr:

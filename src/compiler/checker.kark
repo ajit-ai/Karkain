@@ -243,6 +243,9 @@ func createCheckerTab() {
     // ckKind/ckCount lookups (avoids O(n) linear scans).
     map[string]int symIndex = {}
     tab = appendArray(tab, symIndex)  // 12: global symbol index (name -> position)
+    tab = appendArray(tab, [])        // 13: linear type names (v1.2.23 Phase 1)
+    tab = appendArray(tab, [])        // 14: current function linear locals (v1.2.23 Phase 1)
+    tab = appendArray(tab, [])        // 15: use counts parallel to 14 (v1.2.23 Phase 1)
     return tab
 }
 
@@ -250,6 +253,34 @@ func ckErrors(tab)  { return tab[3] }
 func ckLocals(tab)  { return tab[4] }
 func ckConsts(tab)  { return tab[5] }
 func ckParams(tab)  { return tab[11] }
+func ckLinearTypes(tab) { return tab[13] }
+func ckLinearAdd(tab, name) {
+    if (name == "") { return }
+    tab[13] = appendArray(tab[13], name)
+}
+func ckIsLinearType(tab, name) {
+    int i = 0
+    while (i < len(ckLinearTypes(tab))) {
+        if (ckLinearTypes(tab)[i] == name) { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+func ckLinearLocals(tab) { return tab[14] }
+func ckLinearCounts(tab) { return tab[15] }
+func ckLinearLocalAdd(tab, name) {
+    if (name == "") { return }
+    tab[14] = appendArray(tab[14], name)
+    tab[15] = appendArray(tab[15], 0)
+}
+func ckLinearLocalIndex(tab, name) {
+    int i = 0
+    while (i < len(ckLinearLocals(tab))) {
+        if (ckLinearLocals(tab)[i] == name) { return i }
+        i = i + 1
+    }
+    return -1
+}
 func ckParamAdd(tab, name) {
     if (name == "") { return }
     tab[11] = appendArray(tab[11], name)
@@ -486,6 +517,15 @@ func collectDecls(tab, stmts) {
                 }
             }
         }
+        if (nt == "LinearType") {
+            string name = linearTypeDeclName(s)
+            if (name != "" && ckKind(tab, name) != "") {
+                ckAddError(tab, "K107", linearTypeDeclLine(s), "duplicate type definition '" + name + "'")
+            } else {
+                ckDeclare(tab, name, "linear", 0)
+                ckLinearAdd(tab, name)
+            }
+        }
         if (nt == "EnumDecl") {
             int name = enumDeclName(s)
             if (name != "" && ckKind(tab, name) != "") {
@@ -515,6 +555,17 @@ func collectLocals(tab, list) {
             string nm = varDeclName(s)
             if (nm == "") { nm = letDeclName(s) }
             ckLocalAdd(tab, nm)
+            // v1.2.23 Phase 1: track linear locals for use-count enforcement.
+            string lt = ""
+            if (nt == "VarDecl") { lt = varDeclType(s) } else { lt = letDeclType(s) }
+            Value vv = varDeclValue(s)
+            if (nt == "LetDecl") { vv = letDeclValue(s) }
+            if (lt == "" && getNodeType(vv) == "StructLiteral") {
+                lt = structLitName(vv)
+            }
+            if (lt != "" && ckIsLinearType(tab, lt) == 1) {
+                ckLinearLocalAdd(tab, nm)
+            }
         } else if (nt == "ConstDecl") {
             int nm = constDeclName(s)
             ckLocalAdd(tab, nm)
@@ -626,7 +677,9 @@ func checkFuncDecl(tab, node, inherit) {
     // Only top-level declarations skip the copy (their lets must not leak).
     int saved = ckLocals(tab)
     tab[4] = []
-    tab[11] = []    if (inherit == 1) {
+    tab[11] = []
+    tab[14] = []
+    tab[15] = []    if (inherit == 1) {
         int si = 0
         while (si < len(saved)) {
             ckLocalAdd(tab, saved[si])
@@ -659,6 +712,18 @@ func checkFuncDecl(tab, node, inherit) {
     checkStmts(tab, funcBody(node), 0)
     // Phase 133: reject returns of closures capturing locals (K114).
     ckCheckEscapeUnit(tab, funcBody(node))
+    // v1.2.23 Phase 1: linear locals must be used exactly once.
+    int li = 0
+    while (li < len(ckLinearLocals(tab))) {
+        string ln = ckLinearLocals(tab)[li]
+        int cnt = ckLinearCounts(tab)[li]
+        if (cnt == 0) {
+            ckAddError(tab, "K160", 0, "linear type variable '" + ln + "' was never used")
+        } else if (cnt > 1) {
+            ckAddError(tab, "K160", 0, "linear type variable '" + ln + "' was used " + str(cnt) + " times (must be exactly 1)")
+        }
+        li = li + 1
+    }
     tab[4] = saved
 }
 
@@ -1073,7 +1138,7 @@ func checkExpr(tab, e, loop) {
         int tn = structLitName(e)
         if (tn != "") {
             int k = ckKind(tab, tn)
-            if (k != "struct" && k != "enum") {
+            if (k != "struct" && k != "enum" && k != "linear") {
                 ckAddError(tab, "K106", structLitLine(e), "use of undefined type '" + tn + "' in struct literal")
             }
         }
@@ -1099,7 +1164,9 @@ func checkExpr(tab, e, loop) {
     if (nt == "Lambda") {
         int outer = ckLocals(tab)
         tab[4] = []
-    tab[11] = []        int j = 0
+    tab[11] = []
+    tab[14] = []
+    tab[15] = []        int j = 0
         while (j < len(outer)) {
             ckLocalAdd(tab, outer[j])
             j = j + 1
@@ -1123,7 +1190,14 @@ func checkExpr(tab, e, loop) {
         return
     }
     if (nt == "Move") {
-        checkExpr(tab, borrowOp(e), loop)
+        // v1.2.23 Phase 1: a move consumes the linear binding.
+        Value mo = borrowOp(e)
+        if (getNodeType(mo) == "Ident") {
+            string mn = identName(mo)
+            int li = ckLinearLocalIndex(tab, mn)
+            if (li >= 0) { tab[15][li] = tab[15][li] + 1 }
+        }
+        checkExpr(tab, mo, loop)
         return
     }
     if (nt == "ResultOk" || nt == "ResultErr" || nt == "OptionSome" || nt == "OptionNone") {
@@ -1163,7 +1237,14 @@ func checkIdent(tab, e) {
     if (name == "") { return }
     if (name == "true" || name == "false" || name == "nil" || name == "THIS" || name == "self") { return }
 
-    if (ckLocalHas(tab, name) == 1) { return }
+    if (ckLocalHas(tab, name) == 1) {
+        // v1.2.23 Phase 1: count uses of linear locals.
+        int li = ckLinearLocalIndex(tab, name)
+        if (li >= 0) {
+            tab[15][li] = tab[15][li] + 1
+        }
+        return
+    }
     if (ckConstHas(tab, name) == 1) { return }
     if (ckKind(tab, name) != "") { return }
     if (isCheckerBuiltin(name) == 1) { return }
@@ -1203,7 +1284,14 @@ func checkCall(tab, e, loop) {
         return
     }
 
-    if (ckLocalHas(tab, name) == 1) { return }
+    if (ckLocalHas(tab, name) == 1) {
+        // v1.2.23 Phase 1: count uses of linear locals.
+        int li = ckLinearLocalIndex(tab, name)
+        if (li >= 0) {
+            tab[15][li] = tab[15][li] + 1
+        }
+        return
+    }
 
     int kind = ckKind(tab, name)
     if (kind != "") {

@@ -695,6 +695,19 @@ func makeStructDecl(name, fields, line) {
 func structDeclName(n)       { return n[1] }
 func structDeclFields(n)     { return n[2] }
 func structDeclLine(n)       { return n[3] }
+
+// v1.2.23 Phase 1: linear type declaration node (mirrors makeStructDecl).
+func makeLinearTypeDecl(name, fields, line) {
+    Value n = makeNode(NODE_LINEAR_TYPE())
+    n = appendArray(n, name)
+    n = appendArray(n, fields)
+    n = appendArray(n, line)
+    return n
+}
+
+func linearTypeDeclName(n)   { return n[1] }
+func linearTypeDeclFields(n) { return n[2] }
+func linearTypeDeclLine(n)   { return n[3] }
 func structDeclGenericParams(n) {
     if (len(n) > 4) { return n[4] }
     return []
