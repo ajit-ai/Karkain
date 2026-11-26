@@ -4023,6 +4023,18 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Function == "rc_get" {
 			return fmt.Sprintf("make_int(karkain_rc_get_int((karkain_rc_box_t *)%s.intVal))", g.genExpr(n.Args[0]))
 		}
+		if n.Function == "rc_weak_new" {
+			return fmt.Sprintf("make_int((long long)karkain_rc_weak_new((karkain_rc_box_t *)%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "rc_weak_count" {
+			return fmt.Sprintf("make_int((long long)karkain_rc_weak_count((karkain_rc_weak_t *)%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "rc_weak_upgrade" {
+			return fmt.Sprintf("make_int((long long)karkain_rc_weak_upgrade((karkain_rc_weak_t *)%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "rc_weak_release" {
+			return fmt.Sprintf("make_int((karkain_rc_weak_release((karkain_rc_weak_t *)%s.intVal), 0))", g.genExpr(n.Args[0]))
+		}
 		if n.Function == "arena_new" {
 			return fmt.Sprintf("make_int((long long)karkain_region_new(%s.intVal))", g.genExpr(n.Args[0]))
 		}
