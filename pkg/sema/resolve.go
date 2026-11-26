@@ -292,6 +292,15 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 			if n.Const && n.Name != "" {
 				r.consts[n.Name] = true
 			}
+			// v1.2.26 S2: lower the string annotation to a structured Type value.
+			if n.Type != "" {
+				n.TypeValue = ParseTypeString(n.Type)
+			} else if n.Value != nil {
+				// best-effort inference from struct literal
+				if sl, ok := n.Value.(*parser.StructLiteral); ok && sl.TypeName != "" {
+					n.TypeValue = ParseTypeString(sl.TypeName)
+				}
+			}
 		}
 	}
 	r.anyPublic = anyPublic
