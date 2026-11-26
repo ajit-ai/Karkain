@@ -1350,14 +1350,12 @@ jobs:
     # goldens on darwin/amd64 (macos-13 runner), the only CI leg that can
     # execute Mach-O images. Free for public repositories.
     #
-    # v1.2.16 CI hygiene: the macOS runner was sitting QUEUED on every PR and
-    # every develop push without starting, so it held the check board hostage
-    # without producing evidence. Run the proof only on the canonical push to
-    # main (which happens when the owner merges this PR); PR and develop runs
-    # SKIP honestly. This does NOT weaken the evidence: the gate still has to
-    # pass on main before release, and the structural Mach-O gates remain in
-    # the required Test job on every run.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # v1.2.16 CI hygiene made this job main-push-only; the macOS runner still
+    # sits QUEUED for long periods on PR check boards. v1.2.22 CI hygiene makes
+    # it manual-only: PRs, develop pushes and main pushes SKIP honestly, and the
+    # gate runs on workflow_dispatch when execution evidence is requested. The
+    # structural Mach-O gates remain in the required Test job on every run.
+    if: github.event_name == 'workflow_dispatch'
     name: Native Mach-O execution (macOS)
     runs-on: macos-13
     steps:
