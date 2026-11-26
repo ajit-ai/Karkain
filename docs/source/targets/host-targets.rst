@@ -148,6 +148,11 @@ UDP datagrams and WebSocket text frames (v1.2.21) follow the same rule:
 the native target and are K108-rejected on WASM; the loopback gate proves real
 datagrams and RFC 6455 frames on both front ends.
 
+The real SQLite driver (v1.2.22) is also C23-only: ``std.db.db_sqlite_*``
+compiles the vendored SQLite amalgamation into the generated program. The
+native runtime has no FFI/SQLite linkage and refuses the surface by name;
+WASM remains K108-gated.
+
 Atomics (``@atomic_*``)
 -----------------------
 

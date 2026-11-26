@@ -879,3 +879,26 @@ func db_open(path) {
     }
     return db_load(d, content)
 }
+// ---------------------------------------------------------------------------
+// v1.2.22: real SQLite driver (C23 path)
+// ---------------------------------------------------------------------------
+
+func db_sqlite_open(path) {
+    return sqlite_open(path)
+}
+
+func db_sqlite_exec(handle, sql) {
+    return sqlite_exec(handle, sql)
+}
+
+func db_sqlite_query(handle, sql) {
+    return sqlite_query(handle, sql)
+}
+
+func db_sqlite_close(handle) {
+    return sqlite_close(handle)
+}
+
+func db_sqlite_error() {
+    return sqlite_last_error()
+}

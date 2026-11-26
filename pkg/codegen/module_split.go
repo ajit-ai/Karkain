@@ -49,6 +49,7 @@ type SplitResult struct {
 	NeedsOS         bool // v1.2.19: OS metric runtime is in the shared header
 	NeedsJSON       bool // v1.2.20: JSON DOM runtime is in the shared header
 	NeedsUDPWS      bool // v1.2.21: UDP/WebSocket runtime is in the shared header
+	NeedsSQLite     bool // v1.2.22: SQLite programs fall back to the monolith C path
 	// RootFile is the assembly root (main lives here by filtering).
 	RootFile string
 }
@@ -103,6 +104,7 @@ func GenerateSplit(cfg Config, prog *parser.Program, files []string, rootFile st
 		NeedsOS:         g.needsOS,
 		NeedsJSON:       g.needsJSON,
 		NeedsUDPWS:      g.needsUDPWS,
+		NeedsSQLite:     g.needsSQLite,
 		RootFile:        rootFile,
 	}
 

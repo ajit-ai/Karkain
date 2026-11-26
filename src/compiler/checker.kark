@@ -110,6 +110,11 @@ func isCheckerBuiltin(name) {
     if (name == "ws_send_text") { return 1 }
     if (name == "ws_recv_text") { return 1 }
     if (name == "ws_last_error") { return 1 }
+    if (name == "sqlite_open") { return 1 }
+    if (name == "sqlite_exec") { return 1 }
+    if (name == "sqlite_query") { return 1 }
+    if (name == "sqlite_close") { return 1 }
+    if (name == "sqlite_last_error") { return 1 }
     if (name == "Some") { return 1 }
     if (name == "None") { return 1 }
     if (name == "Ok") { return 1 }
@@ -204,6 +209,11 @@ func checkerBuiltinArity(name) {
     if (name == "ws_send_text") { return 2 }
     if (name == "ws_recv_text") { return 2 }
     if (name == "ws_last_error") { return 0 }
+    if (name == "sqlite_open") { return 1 }
+    if (name == "sqlite_exec") { return 2 }
+    if (name == "sqlite_query") { return 2 }
+    if (name == "sqlite_close") { return 1 }
+    if (name == "sqlite_last_error") { return 0 }
     // P0.2: bounded joins take (task, milliseconds); cancel takes a task.
     if (name == "cancel") { return 1 }
     if (name == "join_timeout") { return 2 }

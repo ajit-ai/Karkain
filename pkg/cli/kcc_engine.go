@@ -41,6 +41,29 @@ func tlsLibFlags() []string {
 	return []string{"-lssl", "-lcrypto"}
 }
 
+// sqliteSourceArgs adds the vendored amalgamation when the generated C text
+// actually calls a sqlite_* builtin. kcc cannot otherwise know whether the
+// program needs a database driver, and unconditional compilation would slow
+// every unrelated build.
+func sqliteSourceArgs(cFile string) ([]string, error) {
+	data, err := os.ReadFile(cFile)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Contains(data, []byte("karkain_sqlite_open(")) {
+		return nil, nil
+	}
+	src, err := codegen.WriteSQLiteVendor(filepath.Dir(cFile))
+	if err != nil {
+		return nil, err
+	}
+	args := []string{src}
+	if runtime.GOOS != "windows" {
+		args = append(args, "-Wno-discarded-qualifiers", "-ldl", "-lpthread")
+	}
+	return args, nil
+}
+
 // EngineKind selects which front end powers the check/build/run commands.
 // Phase 95: the self-hosted compiler (kcc, bootstrapped from src/compiler) is
 // the primary engine for lex + parse + C codegen. The Go front end remains the
@@ -223,6 +246,11 @@ func buildKCC(root string, w io.Writer) (string, error) {
 	bin := filepath.Join(root, "kcc.exe")
 	linkArgs := []string{"-std=c99", "-x", "c", "-D_POSIX_C_SOURCE=200809L", stage1, "-o", bin, "-lgmp", "-lm", winsockLibFlag()}
 	linkArgs = append(linkArgs, tlsLibFlags()...)
+	sqliteArgs, serr := sqliteSourceArgs(stage1)
+	if serr != nil {
+		return "", fmt.Errorf("stage-1 SQLite source setup failed: %v", serr)
+	}
+	linkArgs = append(linkArgs, sqliteArgs...)
 	linkCmd := exec.Command("gcc", linkArgs...)
 	linkCmd.Dir = srcDir
 	if out, err := linkCmd.CombinedOutput(); err != nil {
@@ -411,6 +439,11 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 	// concurrency runtime needs C11 atomics on this link path too).
 	linkArgs := []string{"-std=c2x", "-x", "c", "-D_POSIX_C_SOURCE=200809L", artifact, "-o", exe, "-lgmp", "-lm", winsockLibFlag()}
 	linkArgs = append(linkArgs, tlsLibFlags()...)
+	sqliteArgs, serr := sqliteSourceArgs(artifact)
+	if serr != nil {
+		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("SQLite source setup failed: %v", serr)}
+	}
+	linkArgs = append(linkArgs, sqliteArgs...)
 	linkCmd := exec.Command("gcc", linkArgs...)
 	if lout, err := linkCmd.CombinedOutput(); err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}
@@ -825,6 +858,11 @@ func KCCRunCommand(w io.Writer, file string, cfg codegen.Config, verbose bool) C
 	// concurrency runtime needs C11 atomics on this link path too).
 	linkArgs := []string{"-std=c2x", "-x", "c", "-D_POSIX_C_SOURCE=200809L", c23, "-o", exe, "-lgmp", "-lm", winsockLibFlag()}
 	linkArgs = append(linkArgs, tlsLibFlags()...)
+	sqliteArgs, serr := sqliteSourceArgs(c23)
+	if serr != nil {
+		return CommandResult{ExitCode: ExitCompile, Message: fmt.Sprintf("SQLite source setup failed: %v", serr)}
+	}
+	linkArgs = append(linkArgs, sqliteArgs...)
 	linkCmd := exec.Command("gcc", linkArgs...)
 	if lout, err := linkCmd.CombinedOutput(); err != nil {
 		return CommandResult{ExitCode: ExitEnv, Message: fmt.Sprintf("gcc link failed: %v\n%s", err, string(lout))}

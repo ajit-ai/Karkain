@@ -241,6 +241,11 @@ jobs:
         # fails fast with the regen command.
         run: go test ./pkg/codegen/ -run 'TestJSONKarkFresh' -count=1
 
+      - name: Run SQLite runtime freshness gate
+        # v1.2.22: the small generated binding and the vendored amalgamation
+        # hashes are both pinned by TestSQLiteKarkFresh.
+        run: go test ./pkg/codegen/ -run 'TestSQLiteKarkFresh' -count=1
+
       - name: Run UDP/WS runtime freshness gate
         # v1.2.21: src/compiler/udpws_runtime.kark is generated from
         # runtime/udpws/c/* -- pin the source-to-generated mapping.
@@ -291,6 +296,12 @@ jobs:
         # loopback on both engines; runtime wiring and native K145 refusal.
         # No external services; native/WASM remain C23-excluded.
         run: go test ./pkg/cli/ -run 'TestPhaseV1221_' -count=1 -timeout 20m
+
+      - name: Run v1.2.22 real SQLite driver gate
+        # Vendored SQLite amalgamation compiled on both engines: in-memory
+        # CREATE/INSERT/SELECT, temp-file reopen, deterministic errors,
+        # runtime gating and native K145 refusal. No external DB server.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1222_' -count=1 -timeout 20m
 
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1
@@ -1350,14 +1361,12 @@ jobs:
     # goldens on darwin/amd64 (macos-13 runner), the only CI leg that can
     # execute Mach-O images. Free for public repositories.
     #
-    # v1.2.16 CI hygiene: the macOS runner was sitting QUEUED on every PR and
-    # every develop push without starting, so it held the check board hostage
-    # without producing evidence. Run the proof only on the canonical push to
-    # main (which happens when the owner merges this PR); PR and develop runs
-    # SKIP honestly. This does NOT weaken the evidence: the gate still has to
-    # pass on main before release, and the structural Mach-O gates remain in
-    # the required Test job on every run.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # v1.2.16 CI hygiene made this job main-push-only; the macOS runner still
+    # sits QUEUED for long periods on PR check boards. v1.2.22 CI hygiene makes
+    # it manual-only: PRs, develop pushes and main pushes SKIP honestly, and the
+    # gate runs on workflow_dispatch when execution evidence is requested. The
+    # structural Mach-O gates remain in the required Test job on every run.
+    if: github.event_name == 'workflow_dispatch'
     name: Native Mach-O execution (macOS)
     runs-on: macos-13
     steps:

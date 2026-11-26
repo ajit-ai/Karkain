@@ -32,6 +32,7 @@ func createCodegenState(target) {
     state = appendArray(state, 0)        // 21: uses-OS-metrics flag (v1.2.19)
     state = appendArray(state, 0)        // 22: uses-JSON flag (v1.2.20)
     state = appendArray(state, 0)        // 23: uses-UDP/WS flag (v1.2.21)
+    state = appendArray(state, 0)        // 24: uses-SQLite flag (v1.2.22)
     return state
 }
 
@@ -83,6 +84,10 @@ func jsonMarkUses(state) { state[22] = 1 }
 // v1.2.21: UDP/WebSocket runtime is emitted only when udp_*/ws_* is used.
 func udpwsUses(state) { return state[23] }
 func udpwsMarkUses(state) { state[23] = 1 }
+
+// v1.2.22: SQLite binding is emitted only when a sqlite_* builtin is used.
+func sqliteUses(state) { return state[24] }
+func sqliteMarkUses(state) { state[24] = 1 }
 
 func concAddSpawn(state, name) {
     if (name == "") { return }
@@ -142,6 +147,7 @@ func collectConcPrescan(state, stmts) {
     state[21] = 0
     state[22] = 0
     state[23] = 0
+    state[24] = 0
     concScanStmts(state, stmts)
 }
 
@@ -237,6 +243,7 @@ func concScanExpr(state, e) {
         if (fname == "os_pid" || fname == "os_cpu_count" || fname == "os_total_mem_mb" || fname == "os_available_mem_mb" || fname == "os_uptime_ms" || fname == "os_process_list" || fname == "os_last_error") { osMarkUses(state) }
         if (fname == "json_parse" || fname == "json_type" || fname == "json_serialize" || fname == "json_get_path" || fname == "json_last_error") { jsonMarkUses(state) }
         if (fname == "udp_send" || fname == "udp_send_on" || fname == "udp_bind" || fname == "udp_recv" || fname == "udp_last_error" || fname == "ws_accept" || fname == "ws_send_text" || fname == "ws_recv_text" || fname == "ws_last_error") { udpwsMarkUses(state) }
+        if (fname == "sqlite_open" || fname == "sqlite_exec" || fname == "sqlite_query" || fname == "sqlite_close" || fname == "sqlite_last_error") { sqliteMarkUses(state) }
         if (fname == "actor") {
             Value args = callArgs(e)
             if (len(args) > 0 && getNodeType(args[0]) == "StringLiteral") {
@@ -1662,6 +1669,26 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "ws_last_error") {
             emit(state, "karkain_ws_last_error()")
+        } else if (fname == "sqlite_open") {
+            emit(state, "karkain_sqlite_open(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ")")
+        } else if (fname == "sqlite_exec") {
+            emit(state, "karkain_sqlite_exec(")
+            int sq1 = 0
+            while (sq1 < argc) { if (sq1 > 0) { emit(state, ", ") } emitC11Expr(state, args[sq1]) sq1 = sq1 + 1 }
+            emit(state, ")")
+        } else if (fname == "sqlite_query") {
+            emit(state, "karkain_sqlite_query(")
+            int sq2 = 0
+            while (sq2 < argc) { if (sq2 > 0) { emit(state, ", ") } emitC11Expr(state, args[sq2]) sq2 = sq2 + 1 }
+            emit(state, ")")
+        } else if (fname == "sqlite_close") {
+            emit(state, "karkain_sqlite_close(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ")")
+        } else if (fname == "sqlite_last_error") {
+            emit(state, "karkain_sqlite_last_error()")
         } else if (codegenLocalNameHas(state, fname) == 1) {
             // Phase 133: a bare call through a LOCAL name dispatches
             // indirectly — the local may hold a function cell (factories,
@@ -2450,6 +2477,9 @@ func generateC11(ast, sourceName) {
     }
     if (udpwsUses(state) == 1) {
         emitUDPWSRuntime(state)
+    }
+    if (sqliteUses(state) == 1) {
+        emitSQLiteRuntime(state)
     }
 
     // Phase 123: generate enum declarations (C int-tag constants / payload

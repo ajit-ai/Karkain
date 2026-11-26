@@ -57,8 +57,14 @@ func TestPhaseV1210_NativeNetRefused(t *testing.T) {
 	cmd := exec.Command(karkain, "build", probe, "--engine", "go", "--target", "native-x86_64-windows", "-o", out)
 	cmd.Env = append(os.Environ(), "KARKAIN_ENGINE=go")
 	msg, _ := cmd.CombinedOutput()
-	if !strings.Contains(string(msg), "socket") {
-		t.Errorf("expected socket refusal, got:\n%s", string(msg))
+	// Importing std.net now also brings udp_* wrappers into the assembly. The
+	// native driver refuses the first unsupported network builtin it reaches,
+	// so the contract is K145 naming a network/udp/socket symbol, not one
+	// exact word. This still fails a silent fallback.
+	s := string(msg)
+	named := strings.Contains(s, "socket") || strings.Contains(s, "net_") || strings.Contains(s, "udp_")
+	if !strings.Contains(s, "error[K145]") || !named {
+		t.Errorf("expected K145 refusal naming a network builtin, got:\n%s", s)
 	}
 	if _, err := os.Stat(out); err == nil {
 		t.Errorf("refusal should not write an image")

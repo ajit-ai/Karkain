@@ -159,6 +159,11 @@ func isBuiltinFunc(name) {
     if (name == "ws_send_text") { return 1 }
     if (name == "ws_recv_text") { return 1 }
     if (name == "ws_last_error") { return 1 }
+    if (name == "sqlite_open") { return 1 }
+    if (name == "sqlite_exec") { return 1 }
+    if (name == "sqlite_query") { return 1 }
+    if (name == "sqlite_close") { return 1 }
+    if (name == "sqlite_last_error") { return 1 }
     // Phase 137: concurrency builtins (existence-only, like the Go resolver).
     if (name == "channel") { return 1 }
     if (name == "chanSend") { return 1 }
@@ -247,6 +252,11 @@ func builtinArity(name) {
     if (name == "ws_send_text") { return 2 }
     if (name == "ws_recv_text") { return 2 }
     if (name == "ws_last_error") { return 0 }
+    if (name == "sqlite_open") { return 1 }
+    if (name == "sqlite_exec") { return 2 }
+    if (name == "sqlite_query") { return 2 }
+    if (name == "sqlite_close") { return 1 }
+    if (name == "sqlite_last_error") { return 0 }
     if (name == "cancel") { return 1 }
     if (name == "join_timeout") { return 2 }
     return -1
