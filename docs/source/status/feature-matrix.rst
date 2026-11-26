@@ -446,3 +446,42 @@ both engines. Native and WASM have no sockets and remain excluded.
      - Not supported
      - -
      - ``TestPhaseV1221_NativeRefused``, K108 boundary
+
+Real SQLite driver (v1.2.22)
+======================================
+
+A real SQLite 3.46.1 driver is available on the C23 path on both engines.
+Native and WASM have no FFI/SQLite linkage and remain excluded.
+
+.. list-table:: SQLite driver matrix
+   :widths: 40 14 18 28
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``db_sqlite_open`` / ``db_sqlite_exec``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1222_InMemoryBothEngines``
+   * - ``db_sqlite_query`` array rows
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1222_InMemoryBothEngines``
+   * - Temp-file reopen
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1222_FileReopen``
+   * - Deterministic ``sqlite:`` errors
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1222_DeterministicErrors``
+   * - Runtime gating
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1222_RuntimeWiring``
+   * - Native / WASM
+     - Not supported
+     - -
+     - ``TestPhaseV1222_NativeRefused``, K108 boundary

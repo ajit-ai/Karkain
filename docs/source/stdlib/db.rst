@@ -1,115 +1,72 @@
 std.db
 ======
 
-Backend-neutral database layer with SQL subset support.
+``std.db`` exposes two database layers:
 
-Phase 125A added a functional database layer where every operation returns a
-NEW Database value (immutable snapshots). The current backend is ``db2`` (a
-small embedded, deterministic file/line store).
+1. the original pure-Karkain SQL-text engine (``db2`` / ``embedded``), which
+   is deterministic and immutable-snapshot based;
+2. v1.2.22's real SQLite driver (``db_sqlite_*``), available on the C23 path.
 
-.. note::
+The SQL-text engine is backend-neutral and does not require an external
+library. The SQLite driver vendors SQLite 3.46.1 in-tree.
 
-   The persistence format is a simple deterministic text format:
-   ``#karkain-db-v1`` followed by ``c`` table definitions and ``r`` rows.
+SQL-text engine
+---------------
 
-Database value shape
----------------------
+Database value shape:
 
 ``{ path, tables, ok, error, count, cols, rows, tx }``
 
-* ``path`` — file path or ``:memory:``
-* ``tables`` — map: table name → ``{ cols, rows }``
-* ``ok`` — last operation succeeded (1 = yes, 0 = no)
-* ``error`` — last error message ("" on success)
-* ``count`` — last operation affected/returned row count
-* ``cols`` — last SELECT column names
-* ``rows`` — last SELECT rows (decoded values)
-* ``tx`` — 1 inside a read-committed transaction, else 0
+Supported SQL subset:
 
-SQL subset
-----------
+```text
+CREATE TABLE name ( col1, col2, ... )
+INSERT INTO name VALUES ( v1, v2, ... )
+UPDATE name SET col = value WHERE col = value
+DELETE FROM name WHERE col = value
+SELECT * FROM name
+SELECT col1, col2 FROM name
+DROP TABLE name
+```
 
-Keywords are case-insensitive; table/column names are not.
+Keywords are case-insensitive; identifiers are case-sensitive. Values are
+typed by shape; there is no parameter binding, no joins, only one equality
+WHERE clause, and pipe-delimited persistence cannot store ``|`` or newlines.
 
-``CREATE TABLE name ( col1, col2, ... )``
-``INSERT INTO name VALUES ( v1, v2, ... )``
-``UPDATE name SET col = value WHERE col = value``
-``DELETE FROM name WHERE col = value``
-``SELECT * FROM name``
-``SELECT col1, col2 FROM name``
-``DROP TABLE name``
+Functions:
 
-.. note::
+``db_engine()`` / ``db_backend()`` / ``db_open(path)`` / ``db_close(db)`` /
+``db_save(db)`` / ``db_load(content)`` / ``db_format(db)`` /
+``db_execute(db, sql)`` / ``db_query(db, sql)`` / ``db_result(db)`` /
+``db_last_error(db)`` / ``db_last_count(db)`` /
+``db_create(db, name, cols)`` / ``db_insert(db, name, values)`` /
+``db_select(db, name, cols, where)`` / ``db_update(db, name, col, value, where_col, where_value)`` /
+``db_delete(db, name, col, value)`` / ``db_drop(db, name)`` /
+``db_begin(db)`` / ``db_commit(db)`` / ``db_rollback(db, snapshot)`` /
+``db_prepare(db, sql)`` / ``db_execute_stmt(db, stmt)``.
 
-   Values are typed by shape at insert time. No parameter binding, no joins,
-   one WHERE clause. Values may not contain ``|`` or newlines (pipe-delimited
-   format).
+SQLite driver (v1.2.22)
+-----------------------
 
-Core functions
---------------
+The real driver is C23-only on both the Go front end and kcc. Native and WASM
+have no FFI/SQLite linkage and refuse the surface by name.
 
-``db_engine()`` 
-    Report current backend name
-``db_backend(name)`` 
-    Select backend (returns new Database value)
-``db_open(path)`` 
-    Open database (returns Database value)
-``db_close(db)`` 
-    Close database
-``db_save(db)`` 
-    Save database to file
-``db_load(path)`` 
-    Load database from file
+``db_sqlite_open(path)``
+    Open ``":memory:"`` or a file-backed database; returns a positive handle
+    or 0 on failure.
 
-Table operations
-----------------
+``db_sqlite_exec(handle, sql)``
+    Execute complete SQL text; returns 0 on success or a SQLite status code.
 
-``db_create_table(db, name, cols)`` 
-    Create table
-``db_drop_table(db, name)`` 
-    Drop table
-``db_table_exists(db, name)`` 
-    Check if table exists
-``db_list_tables(db)`` 
-    List table names
+``db_sqlite_query(handle, sql)``
+    Return an array of rows; each row is an array of integer/float/string
+    cells.
 
-Data operations
-----------------
+``db_sqlite_close(handle)``
+    Close the handle; returns 0 on success.
 
-``db_insert(db, name, values)`` 
-    Insert row(s)
-``db_select(db, name, cols, where)`` 
-    SELECT query
-``db_update(db, name, set, where)`` 
-    UPDATE query
-``db_delete(db, name, where)`` 
-    DELETE query
-``db_query(db, sql)`` 
-    Execute raw SQL query
-
-Transaction support
--------------------
-
-``db_begin(db)`` 
-    Begin transaction
-``db_commit(db)`` 
-    Commit transaction
-``db_rollback(db)`` 
-    Rollback transaction
-
-Utility functions
------------------
-
-``db_format_row(values)`` 
-    Format values as pipe-delimited row
-``db_parse_row(line)`` 
-    Parse pipe-delimited row
-``db_format_sql(sql)`` 
-    Format SQL for persistence
-``db_last_error(db)`` 
-    Get last error message
-``db_last_count(db)`` 
-    Get last operation row count
+``db_sqlite_error()``
+    Return the last ``sqlite:``-prefixed diagnostic, or empty on success.
 
 Example
 -------
@@ -119,10 +76,14 @@ Example
    import std.db
 
    func main() {
-       let db = db_open(":memory:")
-       db = db_create_table(db, "users", ["id", "name"])
-       db = db_insert(db, "users", ["1", "alice"])
-       db = db_save(db)
+       let h = db_sqlite_open(":memory:")
+       db_sqlite_exec(h, "CREATE TABLE t (id INTEGER, name TEXT)")
+       db_sqlite_exec(h, "INSERT INTO t VALUES (1, 'alice')")
+       let rows = db_sqlite_query(h, "SELECT id, name FROM t")
+       print(len(rows))
+       print(rows[0][0])
+       print(rows[0][1])
+       print(db_sqlite_close(h))
    }
 
-See ``examples/06-database/`` for CRUD and persistence examples.
+See ``examples/06-database/`` for SQL-text CRUD and persistence examples.

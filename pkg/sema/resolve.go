@@ -108,6 +108,9 @@ var builtinNames = map[string]bool{
 	// v1.2.21: UDP datagrams and WebSocket text frames (C23 path only).
 	"udp_send": true, "udp_send_on": true, "udp_bind": true, "udp_recv": true, "udp_last_error": true,
 	"ws_accept": true, "ws_send_text": true, "ws_recv_text": true, "ws_last_error": true,
+	// v1.2.22: real SQLite driver (C23 path only).
+	"sqlite_open": true, "sqlite_exec": true, "sqlite_query": true,
+	"sqlite_close": true, "sqlite_last_error": true,
 	"Some": true, "None": true, "Ok": true, "Err": true,
 	"assert": true, "assert_eq": true, "assert_ne": true,
 	// Phase 107: concurrency builtins (channels, tasks, actors).

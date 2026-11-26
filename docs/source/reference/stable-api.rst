@@ -144,7 +144,9 @@ Stable stdlib modules
    * - ``std.os``
      - OS metrics and process enumeration (7 functions, v1.2.19; C23 path only).
    * - ``std.db``
-     - Backend-neutral database layer (SQL subset, persistence, 20 functions).
+     - Backend-neutral SQL-text engine (20 functions) plus v1.2.22 SQLite driver:
+       ``db_sqlite_open`` / ``db_sqlite_exec`` / ``db_sqlite_query`` /
+       ``db_sqlite_close`` / ``db_sqlite_error`` (25 total, C23 path only).
    * - ``std.path``
      - Cross-platform path manipulation (9 functions, increment 155).
    * - ``std.env``

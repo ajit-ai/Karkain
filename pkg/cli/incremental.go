@@ -319,7 +319,10 @@ func buildSplitFlow(targetFile string, cfg codegen.Config, verbose bool, cacheDi
 	if split.NeedsTLS {
 		linkLibs = append(linkLibs, tlsLibFlags()...)
 	}
-	if split.UsesConcurrency || split.Profiling {
+	// SQLite programs compile the vendored amalgamation as an extra source;
+	// the split object flow does not model extra sources yet. Fall back to the
+	// monolith C path rather than emitting a program missing sqlite3 symbols.
+	if split.UsesConcurrency || split.Profiling || split.NeedsSQLite {
 		return CommandResult{}, false
 	}
 

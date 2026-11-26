@@ -241,6 +241,11 @@ jobs:
         # fails fast with the regen command.
         run: go test ./pkg/codegen/ -run 'TestJSONKarkFresh' -count=1
 
+      - name: Run SQLite runtime freshness gate
+        # v1.2.22: the small generated binding and the vendored amalgamation
+        # hashes are both pinned by TestSQLiteKarkFresh.
+        run: go test ./pkg/codegen/ -run 'TestSQLiteKarkFresh' -count=1
+
       - name: Run UDP/WS runtime freshness gate
         # v1.2.21: src/compiler/udpws_runtime.kark is generated from
         # runtime/udpws/c/* -- pin the source-to-generated mapping.
@@ -291,6 +296,12 @@ jobs:
         # loopback on both engines; runtime wiring and native K145 refusal.
         # No external services; native/WASM remain C23-excluded.
         run: go test ./pkg/cli/ -run 'TestPhaseV1221_' -count=1 -timeout 20m
+
+      - name: Run v1.2.22 real SQLite driver gate
+        # Vendored SQLite amalgamation compiled on both engines: in-memory
+        # CREATE/INSERT/SELECT, temp-file reopen, deterministic errors,
+        # runtime gating and native K145 refusal. No external DB server.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1222_' -count=1 -timeout 20m
 
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1

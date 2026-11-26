@@ -70,6 +70,7 @@ type Generator struct {
 	needsOS          bool                        // v1.2.19: os_* builtins use the C23 OS metric runtime
 	needsJSON        bool                        // v1.2.20: json_* builtins use the C23 JSON DOM runtime
 	needsUDPWS       bool                        // v1.2.21: udp_*/ws_* builtins use the C23 UDP/WebSocket runtime
+	needsSQLite      bool                        // v1.2.22: sqlite_* builtins use the vendored SQLite runtime
 	sourceFile       string                      // Phase 55b: source file for #line directives
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
@@ -524,6 +525,11 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 	for _, stmt := range prog.Statements {
 		g.scanNodeForUDPWS(stmt)
 	}
+	// v1.2.22: SQLite builtins trigger the binding plus vendored amalgamation.
+	g.needsSQLite = false
+	for _, stmt := range prog.Statements {
+		g.scanNodeForSQLite(stmt)
+	}
 	// Pre-scan: collect user-declared function names for deterministic symbol
 	// mangling and user-functions-first builtin shadowing.
 	g.userFuncs = make(map[string]bool)
@@ -595,6 +601,9 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	}
 	if g.needsUDPWS {
 		sb.WriteString(udpwsRuntimeC())
+	}
+	if g.needsSQLite {
+		sb.WriteString(sqliteRuntimeC())
 	}
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
@@ -733,12 +742,32 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		return fmt.Errorf("no supported C compiler found (GCC, Clang, or MSVC cl.exe required)")
 	}
 
+	// v1.2.22: compile the vendored SQLite amalgamation with the generated
+	// translation unit. Its helper declarations are already in the preamble,
+	// so no external header path is needed.
+	if g.needsSQLite {
+		sqliteC, werr := WriteSQLiteVendor(filepath.Dir(tmpCFile))
+		if werr != nil {
+			return fmt.Errorf("failed to write vendored SQLite source: %w", werr)
+		}
+		flags = append(flags, sqliteC)
+		tg, terr := g.selectedTarget()
+		if terr != nil {
+			tg = target.Host()
+		}
+		flags = append(flags, SQLiteLibFlags(tg.OS)...)
+	}
+
 	if g.cfg.Verbose {
 		fmt.Printf("=== [4] C COMPILER INVOCATION ===\n%s %s\n", compiler, strings.Join(flags, " "))
 	}
 
-	// Set a 10-second timeout for the compilation process
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// SQLite amalgamation compilation exceeds the historical 10-second budget.
+	compileTimeout := 10 * time.Second
+	if g.needsSQLite {
+		compileTimeout = 20 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), compileTimeout)
 	defer cancel()
 
 	compileCmd := exec.CommandContext(ctx, compiler, flags...)
@@ -3944,6 +3973,21 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "ws_last_error" {
 			return "karkain_ws_last_error()"
+		}
+		if n.Function == "sqlite_open" {
+			return fmt.Sprintf("karkain_sqlite_open(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "sqlite_exec" {
+			return fmt.Sprintf("karkain_sqlite_exec(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "sqlite_query" {
+			return fmt.Sprintf("karkain_sqlite_query(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "sqlite_close" {
+			return fmt.Sprintf("karkain_sqlite_close(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "sqlite_last_error" {
+			return "karkain_sqlite_last_error()"
 		}
 		if n.Function == "http.get" {
 			g.needsHTTP = true
