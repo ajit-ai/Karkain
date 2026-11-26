@@ -169,6 +169,12 @@ func isBuiltinFunc(name) {
     if (name == "rc_release") { return 1 }
     if (name == "rc_strong_count") { return 1 }
     if (name == "rc_get") { return 1 }
+    if (name == "arena_new") { return 1 }
+    if (name == "arena_alloc") { return 1 }
+    if (name == "arena_reset") { return 1 }
+    if (name == "arena_free") { return 1 }
+    if (name == "arena_capacity") { return 1 }
+    if (name == "arena_used") { return 1 }
     // Phase 137: concurrency builtins (existence-only, like the Go resolver).
     if (name == "channel") { return 1 }
     if (name == "chanSend") { return 1 }
@@ -267,6 +273,12 @@ func builtinArity(name) {
     if (name == "rc_release") { return 1 }
     if (name == "rc_strong_count") { return 1 }
     if (name == "rc_get") { return 1 }
+    if (name == "arena_new") { return 1 }
+    if (name == "arena_alloc") { return 2 }
+    if (name == "arena_reset") { return 1 }
+    if (name == "arena_free") { return 1 }
+    if (name == "arena_capacity") { return 1 }
+    if (name == "arena_used") { return 1 }
     if (name == "cancel") { return 1 }
     if (name == "join_timeout") { return 2 }
     return -1

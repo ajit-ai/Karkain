@@ -51,6 +51,7 @@ type SplitResult struct {
 	NeedsUDPWS      bool // v1.2.21: UDP/WebSocket runtime is in the shared header
 	NeedsSQLite     bool // v1.2.22: SQLite programs fall back to the monolith C path
 	NeedsRC         bool // v1.2.24: RC runtime is in the shared header
+	NeedsArena      bool // v1.2.25: arena runtime is in the shared header
 	// RootFile is the assembly root (main lives here by filtering).
 	RootFile string
 }
@@ -107,6 +108,7 @@ func GenerateSplit(cfg Config, prog *parser.Program, files []string, rootFile st
 		NeedsUDPWS:      g.needsUDPWS,
 		NeedsSQLite:     g.needsSQLite,
 		NeedsRC:         g.needsRC,
+		NeedsArena:      g.needsArena,
 		RootFile:        rootFile,
 	}
 
@@ -130,6 +132,9 @@ func GenerateSplit(cfg Config, prog *parser.Program, files []string, rootFile st
 	}
 	if g.needsRC {
 		runtimeText += rcRuntimeC()
+	}
+	if g.needsArena {
+		runtimeText += arenaRuntimeC()
 	}
 	res.Header = HeaderForRuntime(runtimeText) + avxKernelProtos()
 	res.RuntimeSrc = "#include \"" + RuntimeHeaderName + "\"\n\n" +

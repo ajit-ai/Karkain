@@ -315,6 +315,12 @@ jobs:
         # automatic retain/release insertion is the follow-up slice.
         run: go test ./pkg/cli/ -run 'TestPhaseV1224B_' -count=1 -timeout 20m
 
+      - name: Run v1.2.25 arena builtin gate
+        # Arena region builtins (arena_new/alloc/reset/free/capacity/used)
+        # on both engines, backed by the C23 arena runtime. Manual surface only;
+        # region language surface is the follow-up slice.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1225B_' -count=1 -timeout 20m
+
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1
 
