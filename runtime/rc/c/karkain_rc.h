@@ -37,4 +37,11 @@ long karkain_rc_strong_count(karkain_rc_box_t *b);
 // Raw payload pointer (NULL for null/freed). Does not change the count.
 void *karkain_rc_payload(karkain_rc_box_t *b);
 
+// Convenience: box a 64-bit integer value. The box owns the payload and frees
+// it on last release. Returns 0 on allocation failure.
+karkain_rc_box_t *karkain_rc_new_int(long value);
+
+// Convenience: read the integer payload of a box (0 for null/freed).
+long karkain_rc_get_int(karkain_rc_box_t *b);
+
 #endif // KARKAIN_RC_H

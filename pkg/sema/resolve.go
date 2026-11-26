@@ -111,6 +111,9 @@ var builtinNames = map[string]bool{
 	// v1.2.22: real SQLite driver (C23 path only).
 	"sqlite_open": true, "sqlite_exec": true, "sqlite_query": true,
 	"sqlite_close": true, "sqlite_last_error": true,
+	// v1.2.24: reference-counting builtins (C23 path only).
+	"rc_new": true, "rc_retain": true, "rc_release": true,
+	"rc_strong_count": true, "rc_get": true,
 	"Some": true, "None": true, "Ok": true, "Err": true,
 	"assert": true, "assert_eq": true, "assert_ne": true,
 	// Phase 107: concurrency builtins (channels, tasks, actors).

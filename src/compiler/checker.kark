@@ -115,6 +115,11 @@ func isCheckerBuiltin(name) {
     if (name == "sqlite_query") { return 1 }
     if (name == "sqlite_close") { return 1 }
     if (name == "sqlite_last_error") { return 1 }
+    if (name == "rc_new") { return 1 }
+    if (name == "rc_retain") { return 1 }
+    if (name == "rc_release") { return 1 }
+    if (name == "rc_strong_count") { return 1 }
+    if (name == "rc_get") { return 1 }
     if (name == "Some") { return 1 }
     if (name == "None") { return 1 }
     if (name == "Ok") { return 1 }

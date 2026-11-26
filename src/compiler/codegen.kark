@@ -33,6 +33,7 @@ func createCodegenState(target) {
     state = appendArray(state, 0)        // 22: uses-JSON flag (v1.2.20)
     state = appendArray(state, 0)        // 23: uses-UDP/WS flag (v1.2.21)
     state = appendArray(state, 0)        // 24: uses-SQLite flag (v1.2.22)
+    state = appendArray(state, 0)        // 25: uses-RC flag (v1.2.24)
     return state
 }
 
@@ -88,6 +89,8 @@ func udpwsMarkUses(state) { state[23] = 1 }
 // v1.2.22: SQLite binding is emitted only when a sqlite_* builtin is used.
 func sqliteUses(state) { return state[24] }
 func sqliteMarkUses(state) { state[24] = 1 }
+func rcUses(state) { return state[25] }
+func rcMarkUses(state) { state[25] = 1 }
 
 func concAddSpawn(state, name) {
     if (name == "") { return }
@@ -244,6 +247,8 @@ func concScanExpr(state, e) {
         if (fname == "json_parse" || fname == "json_type" || fname == "json_serialize" || fname == "json_get_path" || fname == "json_last_error") { jsonMarkUses(state) }
         if (fname == "udp_send" || fname == "udp_send_on" || fname == "udp_bind" || fname == "udp_recv" || fname == "udp_last_error" || fname == "ws_accept" || fname == "ws_send_text" || fname == "ws_recv_text" || fname == "ws_last_error") { udpwsMarkUses(state) }
         if (fname == "sqlite_open" || fname == "sqlite_exec" || fname == "sqlite_query" || fname == "sqlite_close" || fname == "sqlite_last_error") { sqliteMarkUses(state) }
+    if (fname == "rc_new" || fname == "rc_retain" || fname == "rc_release" || fname == "rc_strong_count" || fname == "rc_get") { rcMarkUses(state) }
+    if (fname == "rc_new" || fname == "rc_retain" || fname == "rc_release" || fname == "rc_strong_count" || fname == "rc_get") { rcMarkUses(state) }
         if (fname == "actor") {
             Value args = callArgs(e)
             if (len(args) > 0 && getNodeType(args[0]) == "StringLiteral") {
@@ -1689,6 +1694,26 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "sqlite_last_error") {
             emit(state, "karkain_sqlite_last_error()")
+        } else if (fname == "rc_new") {
+            emit(state, "make_int((long long)karkain_rc_new_int((")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
+        } else if (fname == "rc_retain") {
+            emit(state, "make_int((long long)karkain_rc_retain((karkain_rc_box_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
+        } else if (fname == "rc_release") {
+            emit(state, "make_int((long long)karkain_rc_release((karkain_rc_box_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
+        } else if (fname == "rc_strong_count") {
+            emit(state, "make_int((long long)karkain_rc_strong_count((karkain_rc_box_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
+        } else if (fname == "rc_get") {
+            emit(state, "make_int(karkain_rc_get_int((karkain_rc_box_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
         } else if (codegenLocalNameHas(state, fname) == 1) {
             // Phase 133: a bare call through a LOCAL name dispatches
             // indirectly — the local may hold a function cell (factories,
@@ -2480,6 +2505,9 @@ func generateC11(ast, sourceName) {
     }
     if (sqliteUses(state) == 1) {
         emitSQLiteRuntime(state)
+    }
+    if (rcUses(state) == 1) {
+        emitRCRuntime(state)
     }
 
     // Phase 123: generate enum declarations (C int-tag constants / payload

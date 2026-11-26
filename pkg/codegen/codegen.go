@@ -71,6 +71,7 @@ type Generator struct {
 	needsJSON        bool                        // v1.2.20: json_* builtins use the C23 JSON DOM runtime
 	needsUDPWS       bool                        // v1.2.21: udp_*/ws_* builtins use the C23 UDP/WebSocket runtime
 	needsSQLite      bool                        // v1.2.22: sqlite_* builtins use the vendored SQLite runtime
+	needsRC          bool                        // v1.2.24: rc_* builtins use the reference-counting runtime
 	sourceFile       string                      // Phase 55b: source file for #line directives
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
@@ -530,6 +531,11 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 	for _, stmt := range prog.Statements {
 		g.scanNodeForSQLite(stmt)
 	}
+	// v1.2.24: RC builtins are emitted only on use.
+	g.needsRC = false
+	for _, stmt := range prog.Statements {
+		g.scanNodeForRC(stmt)
+	}
 	// Pre-scan: collect user-declared function names for deterministic symbol
 	// mangling and user-functions-first builtin shadowing.
 	g.userFuncs = make(map[string]bool)
@@ -604,6 +610,9 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	}
 	if g.needsSQLite {
 		sb.WriteString(sqliteRuntimeC())
+	}
+	if g.needsRC {
+		sb.WriteString(rcRuntimeC())
 	}
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
@@ -3989,6 +3998,21 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "sqlite_last_error" {
 			return "karkain_sqlite_last_error()"
+		}
+		if n.Function == "rc_new" {
+			return fmt.Sprintf("make_int((long long)karkain_rc_new_int(%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "rc_retain" {
+			return fmt.Sprintf("make_int((long long)karkain_rc_retain((karkain_rc_box_t *)%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "rc_release" {
+			return fmt.Sprintf("make_int((long long)karkain_rc_release((karkain_rc_box_t *)%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "rc_strong_count" {
+			return fmt.Sprintf("make_int((long long)karkain_rc_strong_count((karkain_rc_box_t *)%s.intVal))", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "rc_get" {
+			return fmt.Sprintf("make_int(karkain_rc_get_int((karkain_rc_box_t *)%s.intVal))", g.genExpr(n.Args[0]))
 		}
 		if n.Function == "http.get" {
 			g.needsHTTP = true

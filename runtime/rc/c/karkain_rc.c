@@ -54,3 +54,17 @@ void *karkain_rc_payload(karkain_rc_box_t *b) {
     if (b == 0) { return 0; }
     return b->payload;
 }
+
+static void free_int_payload(void *p) { free(p); }
+
+karkain_rc_box_t *karkain_rc_new_int(long value) {
+    long *p = (long *)malloc(sizeof(long));
+    if (p == 0) { return 0; }
+    *p = value;
+    return karkain_rc_new(p, free_int_payload);
+}
+
+long karkain_rc_get_int(karkain_rc_box_t *b) {
+    if (b == 0 || b->payload == 0) { return 0; }
+    return *(long *)b->payload;
+}
