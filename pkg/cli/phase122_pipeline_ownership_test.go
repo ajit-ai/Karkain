@@ -349,8 +349,14 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// measured on CI run 45832880439 (Phase 122 job) (text=20343
 		// verify=20343), never predicted. Delta is the `mut` marker handling in
 		// src/compiler/parser.kark.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 20343 {
-			t.Errorf("whole-tree kir text = %d lines, want 20343:\n%s", got, out)
+		// RE-PINNED FOR v1.2.26 S7/S8/S6: 20343 -> 20463 (+120), measured on
+		// CI run 45862435137 (Phase 122 job) (text=20463 verify=20463), never
+		// predicted. Delta is the S8 constant-folding evaluator in codegen.kark
+		// and the S6 inference helpers plus the generic-parameter annotation
+		// arm in checker.kark/parser.kark. The earlier comment chain is kept
+		// verbatim as the historical record.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 20463 {
+			t.Errorf("whole-tree kir text = %d lines, want 20463:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
