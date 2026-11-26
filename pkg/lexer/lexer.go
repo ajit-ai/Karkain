@@ -140,6 +140,9 @@ const (
 	TokenEnum   TokenType = "ENUM"
 	TokenFn     TokenType = "FN" // Phase 48: lambda/function pointers
 	TokenPub    TokenType = "PUB" // Phase 80: visibility modifiers
+	// v1.2.26 S4b: trait/impl declarations (Go engine first slice).
+	TokenTrait TokenType = "TRAIT"
+	TokenImpl  TokenType = "IMPL"
 )
 
 var keywords = map[string]TokenType{
@@ -701,6 +704,10 @@ func lookupIdent(ident string) TokenType {
 		return TokenFn
 	case "public":
 		return TokenPub
+	case "trait":
+		return TokenTrait
+	case "impl":
+		return TokenImpl
 	case "in":
 		return TokenIn
 	case "break":
