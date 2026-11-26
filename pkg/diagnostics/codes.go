@@ -40,13 +40,14 @@ const (
 	CodeK007 Code = "K007" // equivalent to E-K-PKG (package/dependency)
 	CodeK008 Code = "K008" // equivalent to E-K-ENV (infrastructure)
 	CodeK100 Code = "K100" // equivalent to W-K-UNUSED (unused variable)
+	CodeK160 Code = "K160" // linear type: must be used exactly once (memory safety Phase 1)
 )
 
 // knownCompileCode reports whether c is a registered compiler error code.
 func knownCompileCode(c Code) bool {
 	switch c {
 	case CodeSyntax, CodeResolve, CodeBorrow, CodeSema, CodeType, CodeCodegen, CodePackage, CodeEnv,
-		CodeK001, CodeK002, CodeK003, CodeK004, CodeK005, CodeK006, CodeK007, CodeK008:
+		CodeK001, CodeK002, CodeK003, CodeK004, CodeK005, CodeK006, CodeK007, CodeK008, CodeK160:
 		return true
 	}
 	return false

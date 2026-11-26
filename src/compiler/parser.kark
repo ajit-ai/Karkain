@@ -766,6 +766,29 @@ func parseWithState(state) {
             // Not a @target attribute Ã¢â‚¬â€ fall through to the expression path.
         }
 
+        // linear type Name { field type, ... }  (v1.2.23 Phase 1)
+        if (kind == TK_LINEAR()) {
+            psAdvance(state) // consume 'linear'
+            if (psCurKind(state) == TK_TYPE()) { psAdvance(state) } // consume 'type'
+            int name = psCurLiteral(state)
+            psAdvance(state) // name
+            if (psCurKind(state) == TK_LBRACE()) { psAdvance(state) }
+            Value fields = []
+            while (psCurKind(state) != TK_RBRACE() && psCurKind(state) != TK_EOF()) {
+                int fieldName = psCurLiteral(state)
+                psAdvance(state)
+                int fieldType = psCurLiteral(state)
+                psAdvance(state)
+                fields = appendArray(fields, fieldName + ":" + fieldType)
+                if (psCurKind(state) == TK_COMMA()) { psAdvance(state) }
+                if (psCurKind(state) == TK_SEMICOLON()) { psAdvance(state) }
+            }
+            if (psCurKind(state) == TK_RBRACE()) { psAdvance(state) }
+            Value lt = makeLinearTypeDecl(name, fields, psLine(state))
+            if (lt != []) { stmts = appendArray(stmts, lt) }
+            continue
+        }
+
         // type Name struct { field type, ... }
         if (kind == TK_TYPE()) {
             Value sd = parseStructDecl(state)

@@ -180,7 +180,7 @@ Stable diagnostic expectations
 ==============================
 
 * ``error[K...]`` numeric codes on the front end; ``karkain explain <code>``
-  documents each code (K001–K008, K100, K101–K116, K145, including K114 escape
+  documents each code (K001–K008, K100, K101–K116, K145, K160, including K114 escape
   rejection, K115 generic-arity/misuse, and K116 engine-capability refusal).
 * ``K116`` is a capability refusal, not a program defect: the self-hosted engine
   (kcc) has no machine-code backend, so a C-free native target

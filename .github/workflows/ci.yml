@@ -303,6 +303,12 @@ jobs:
         # runtime gating and native K145 refusal. No external DB server.
         run: go test ./pkg/cli/ -run 'TestPhaseV1222_' -count=1 -timeout 20m
 
+      - name: Run v1.2.23 memory safety Phase 1 gate
+        # Linear types + K160 on both engines: used exactly once passes,
+        # used twice / never used / non-main local rejected with K160, move as
+        # consumption, Option/Result match completeness. No GC, no refcount.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1223_' -count=1 -timeout 20m
+
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1
 

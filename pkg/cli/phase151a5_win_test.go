@@ -1033,8 +1033,10 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// on CI run 45769925067 (Phase 122 job) (text=19769 verify=19769),
 	// never predicted. Delta is the sqlite_* builtins and generated
 	// sqlite_runtime.kark.
-	if text != 19769 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 19769; see the comment above for the measured chain. output follows: %s", text, out)
+	// RE-PINNED FOR v1.2.23 MEMORY SAFETY: 19769 -> 19887 (+118), measured
+	// on CI (Phase 122 job) (text=19887 verify=19887), never predicted.
+	if text != 19887 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 19887; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

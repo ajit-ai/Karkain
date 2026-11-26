@@ -109,6 +109,7 @@ func TK_DOUBLE()       { return 148 }
 func TK_CHAR()         { return 149 }
 func TK_CHAR_LIT()     { return 150 }
 func TK_VALUE()        { return 151 }
+func TK_LINEAR()       { return 152 }
 
 // ============================================================
 // Token: [kind, startOffset, length, line, col]
@@ -376,6 +377,7 @@ func lookupKeyword(ident) {
     if (ident == "enum")     { return TK_ENUM() }
     if (ident == "fn")       { return TK_FN() }
     if (ident == "public")   { return TK_PUB() }
+if (ident == "linear")   { return TK_LINEAR() }
     return TK_IDENT()
 }
 
