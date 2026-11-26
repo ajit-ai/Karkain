@@ -334,8 +334,12 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// measured on CI (Phase 122 job) (text=19887 verify=19887), never
 		// predicted. Delta is the linear-type checker additions in
 		// src/compiler/checker.kark.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 19887 {
-			t.Errorf("whole-tree kir text = %d lines, want 19887:\n%s", got, out)
+		// RE-PINNED FOR v1.2.24 SLICE 2 (RC builtins): 19887 -> 20077 (+190),
+		// measured on CI run 45811616911 (Phase 122 job) (text=20077
+		// verify=20077), never predicted. Delta is the rc_* builtins in
+		// checker/sema/codegen.kark plus generated rc_runtime.kark.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 20077 {
+			t.Errorf("whole-tree kir text = %d lines, want 20077:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
