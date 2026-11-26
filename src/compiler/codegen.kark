@@ -250,9 +250,9 @@ func concScanExpr(state, e) {
         if (fname == "json_parse" || fname == "json_type" || fname == "json_serialize" || fname == "json_get_path" || fname == "json_last_error") { jsonMarkUses(state) }
         if (fname == "udp_send" || fname == "udp_send_on" || fname == "udp_bind" || fname == "udp_recv" || fname == "udp_last_error" || fname == "ws_accept" || fname == "ws_send_text" || fname == "ws_recv_text" || fname == "ws_last_error") { udpwsMarkUses(state) }
         if (fname == "sqlite_open" || fname == "sqlite_exec" || fname == "sqlite_query" || fname == "sqlite_close" || fname == "sqlite_last_error") { sqliteMarkUses(state) }
-    if (fname == "rc_new" || fname == "rc_retain" || fname == "rc_release" || fname == "rc_strong_count" || fname == "rc_get") { rcMarkUses(state) }
+    if (fname == "rc_new" || fname == "rc_retain" || fname == "rc_release" || fname == "rc_strong_count" || fname == "rc_get" || fname == "rc_weak_new" || fname == "rc_weak_count" || fname == "rc_weak_upgrade" || fname == "rc_weak_release") { rcMarkUses(state) }
     if (fname == "arena_new" || fname == "arena_alloc" || fname == "arena_reset" || fname == "arena_free" || fname == "arena_capacity" || fname == "arena_used") { arenaMarkUses(state) }
-    if (fname == "rc_new" || fname == "rc_retain" || fname == "rc_release" || fname == "rc_strong_count" || fname == "rc_get") { rcMarkUses(state) }
+    if (fname == "rc_new" || fname == "rc_retain" || fname == "rc_release" || fname == "rc_strong_count" || fname == "rc_get" || fname == "rc_weak_new" || fname == "rc_weak_count" || fname == "rc_weak_upgrade" || fname == "rc_weak_release") { rcMarkUses(state) }
     if (fname == "arena_new" || fname == "arena_alloc" || fname == "arena_reset" || fname == "arena_free" || fname == "arena_capacity" || fname == "arena_used") { arenaMarkUses(state) }
         if (fname == "actor") {
             Value args = callArgs(e)
@@ -1745,6 +1745,22 @@ func emitC11Expr(state, node) {
             emit(state, "make_int((long long)karkain_region_used((karkain_region_t *)(")
             if (argc > 0) { emitC11Expr(state, args[0]) }
             emit(state, ").intVal))")
+        } else if (fname == "rc_weak_new") {
+            emit(state, "make_int((long long)karkain_rc_weak_new((karkain_rc_box_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
+        } else if (fname == "rc_weak_count") {
+            emit(state, "make_int((long long)karkain_rc_weak_count((karkain_rc_weak_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
+        } else if (fname == "rc_weak_upgrade") {
+            emit(state, "make_int((long long)karkain_rc_weak_upgrade((karkain_rc_weak_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal))")
+        } else if (fname == "rc_weak_release") {
+            emit(state, "make_int((karkain_rc_weak_release((karkain_rc_weak_t *)(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ").intVal), 0))")
         } else if (codegenLocalNameHas(state, fname) == 1) {
             // Phase 133: a bare call through a LOCAL name dispatches
             // indirectly — the local may hold a function cell (factories,
