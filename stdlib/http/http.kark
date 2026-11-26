@@ -385,3 +385,39 @@ func https_post(host, port, path, body, verify) {
 func https_last_error() {
     return tls_last_error()
 }
+// ---------------------------------------------------------------------------
+// v1.2.18: Concurrent HTTP server (C23 path)
+// ---------------------------------------------------------------------------
+//
+// spawn(...) requires a NAMED top-level function, so the per-connection
+// body is a named worker and the accept loop spawns it. The worker reads one
+// request, writes a deterministic response and closes the socket. Tasks are
+// detached; the caller keeps the accept loop running.
+
+// http_echo_worker serves exactly one connection and closes it.
+func http_echo_worker(conn) {
+    let req = http_read_request(conn, 65536)
+    let reason = req["error"]
+    if (len(reason) > 0) {
+        http_close(conn)
+        return
+    }
+    let body = "hello " + req["path"]
+    http_write_response(conn, 200, "OK", body)
+    http_close(conn)
+}
+
+// http_serve_echo listens on host:port and serves each connection in a
+// spawned task. It prints "http server ready" once the listener is bound so
+// a driver can synchronize without sleeping.
+func http_serve_echo(host, port) {
+    let srv = http_listen(host, port)
+    print("http server ready")
+    while true {
+        let conn = http_accept(srv)
+        if (conn < 0) {
+            break
+        }
+        spawn(http_echo_worker, conn)
+    }
+}

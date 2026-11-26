@@ -137,7 +137,8 @@ Stable stdlib modules
    * - ``std.http``
      - HTTP/1.1 client/server building blocks (Request/Response, 20 functions)
        plus ``https_get`` / ``https_post`` / ``https_last_error`` (C23 TLS,
-       v1.2.17; 23 functions total).
+       v1.2.17; 23 functions total) plus ``http_echo_worker`` /
+       ``http_serve_echo`` (v1.2.18; 25 functions total).
    * - ``std.db``
      - Backend-neutral database layer (SQL subset, persistence, 20 functions).
    * - ``std.path``

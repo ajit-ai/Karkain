@@ -251,6 +251,12 @@ jobs:
         # the existing v1.2.10 platform decision.
         run: go test ./pkg/cli/ -run 'TestPhaseV1217_' -count=1 -timeout 20m
 
+      - name: Run v1.2.18 concurrent HTTP server gate
+        # C23-only: a silent first connection proves the accept loop spawns
+        # per-connection tasks instead of blocking serially. Both engines;
+        # native/WASM remain excluded by the v1.2.10 socket decision.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1218_' -count=1 -timeout 20m
+
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1
 

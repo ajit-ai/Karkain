@@ -110,3 +110,25 @@ Example
    }
 
 See ``examples/07-web/`` for HTTP loopback and codec examples.
+
+Concurrent HTTP server (v1.2.18)
+---------------------------------
+
+``http_serve_echo(host, port)`` binds a listener and serves each connection
+in a spawned ``http_echo_worker`` task. The worker reads one request, writes
+``200 OK`` with body ``"hello " + req["path"]`` and closes the socket.
+Because ``spawn`` requires a named top-level function, the worker is public
+in this module. Tasks are detached; the accept loop continues until a
+listener error.
+
+The server is C23-only. Native targets have no socket syscalls (v1.2.10)
+and WASM rejects concurrency builtins with K108; plain HTTP only — the
+v1.2.17 HTTPS surface is a client.
+
+.. code-block:: kark
+
+   import std.http
+
+   func main() {
+       http_serve_echo("127.0.0.1", 8080)
+   }
