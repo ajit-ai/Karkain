@@ -342,8 +342,11 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// measured on CI (Phase 122 job) (text=20255 verify=20255), never
 		// predicted. Delta is the arena_* builtins in checker/sema/codegen.kark
 		// plus generated arena_runtime.kark.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 20255 {
-			t.Errorf("whole-tree kir text = %d lines, want 20255:\n%s", got, out)
+		// RE-PINNED FOR v1.2.24 SLICE 3 (weak refs): 20255 -> 20341 (+86),
+		// measured on CI (Phase 122 job) (text=20341 verify=20341), never
+		// predicted. Delta is the rc_weak_* builtins in checker/sema/codegen.kark.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 20341 {
+			t.Errorf("whole-tree kir text = %d lines, want 20341:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
