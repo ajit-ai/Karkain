@@ -1275,11 +1275,11 @@ func depCacheName(name, version, rev, source, url) {
 // Presence is probed with openFile (regular files); directories are never
 // probed for existence at all (see depSourceDir).
 func findProjectRoot(dir) {
-    int probe = dir
+    string probe = dir
     int up = 0
     while (up < 14) {
         if (openFile(probe + "/karkain.toml") != "") { return probe }
-        int parent = dirName(probe)
+        string parent = dirName(probe)
         if (parent == probe) { return "" }
         probe = parent
         up = up + 1
@@ -1289,11 +1289,11 @@ func findProjectRoot(dir) {
 
 // findWorkspaceRoot walks up for karkain.workspace.json.
 func findWorkspaceRoot(dir) {
-    int probe = dir
+    string probe = dir
     int up = 0
     while (up < 14) {
         if (openFile(probe + "/karkain.workspace.json") != "") { return probe }
-        int parent = dirName(probe)
+        string parent = dirName(probe)
         if (parent == probe) { return "" }
         probe = parent
         up = up + 1
@@ -1372,13 +1372,13 @@ func pmPathSeen(seen, p) {
 // skipped (Go check/build/run parity), joined paths deduped, the root file
 // itself excluded.
 func projectDepSources(path) {
-    int dir = dirName(path)
-    int projectDir = findProjectRoot(dir)
+    string dir = dirName(path)
+    string projectDir = findProjectRoot(dir)
     if (projectDir == "") { return "" }
     string manifest = readFile(projectDir + "/karkain.toml")
     if (manifest == "") { return "" }
     string lockText = readFile(projectDir + "/karkain.lock")
-    int wsRoot = findWorkspaceRoot(dir)
+    string wsRoot = findWorkspaceRoot(dir)
     int recs = manifestDepRecords(manifest)
     int[] names = []
     int i = 0
@@ -1396,13 +1396,13 @@ func projectDepSources(path) {
                 Value ver = recs[j + 3]
                 Value src = recs[j + 1]
                 Value url = recs[j + 2]
-                int lk = lockLookup(lockText, names[i])
+                Value lk = lockLookup(lockText, names[i])
                 if (src == "registry" && ver == "") { ver = lk[0] }
                 string rv = ""
                 if (src == "git") { rv = lk[1] }
-                int d = depSourceDir(projectDir, wsRoot, names[i], src, url, ver, rv)
+                string d = depSourceDir(projectDir, wsRoot, names[i], src, url, ver, rv)
                 if (d != "") {
-                    int ps = depDirPaths(d)
+                    Value ps = depDirPaths(d)
                     int k = 0
                     while (k < len(ps)) {
                         files = appendArray(files, ps[k])
