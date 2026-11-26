@@ -755,6 +755,7 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 		if terr != nil {
 			tg = target.Host()
 		}
+		flags = append(flags, SQLiteCFlags(tg.OS)...)
 		flags = append(flags, SQLiteLibFlags(tg.OS)...)
 	}
 

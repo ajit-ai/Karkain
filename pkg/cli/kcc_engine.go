@@ -59,7 +59,7 @@ func sqliteSourceArgs(cFile string) ([]string, error) {
 	}
 	args := []string{src}
 	if runtime.GOOS != "windows" {
-		args = append(args, "-ldl", "-lpthread")
+		args = append(args, "-Wno-discarded-qualifiers", "-ldl", "-lpthread")
 	}
 	return args, nil
 }

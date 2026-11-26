@@ -326,8 +326,12 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// measured on CI run 45758961870 (Phase 122 job) (text=19515
 		// verify=19515), never predicted. Delta is the udp_*/ws_* builtins
 		// plus generated udpws_runtime.kark.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 19515 {
-			t.Errorf("whole-tree kir text = %d lines, want 19515:\n%s", got, out)
+		// RE-PINNED FOR v1.2.22 SQLITE DRIVER: 19515 -> 19769 (+254),
+		// measured on CI run 45769925067 (Phase 122 job) (text=19769
+		// verify=19769), never predicted. Delta is the sqlite_* builtins
+		// plus generated sqlite_runtime.kark.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 19769 {
+			t.Errorf("whole-tree kir text = %d lines, want 19769:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

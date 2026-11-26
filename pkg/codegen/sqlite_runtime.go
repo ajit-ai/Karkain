@@ -148,6 +148,16 @@ func SQLiteLibFlags(os target.OS) []string {
 	return []string{"-ldl", "-lpthread"}
 }
 
+// SQLiteCFlags suppresses a known -Wdiscarded-qualifiers diagnostic emitted by
+// the vendored 3.46.1 amalgamation under GCC. Without it, compiler warnings
+// leak into gates that capture stdout+stderr and break frozen goldens.
+func SQLiteCFlags(os target.OS) []string {
+	if os == target.OSWindows {
+		return nil
+	}
+	return []string{"-Wno-discarded-qualifiers"}
+}
+
 // WriteSQLiteVendor writes the vendored amalgamation beside the generated C
 // so a single gcc invocation can compile both sources into one executable.
 func WriteSQLiteVendor(dir string) (string, error) {
