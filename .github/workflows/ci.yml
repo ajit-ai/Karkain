@@ -321,6 +321,13 @@ jobs:
         # region language surface is the follow-up slice.
         run: go test ./pkg/cli/ -run 'TestPhaseV1225B_' -count=1 -timeout 20m
 
+      - name: Run v1.2.26 type system slice 1 gate
+        # Type system foundation S1: `let mut` mutability tracking in the AST
+        # on both engines (additive, non-breaking). Type value representation
+        # ships in pkg/sema/typevalue.go. Full inference/interfaces/const
+        # folding are later slices of v1.2.26.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1226_' -count=1 -timeout 20m
+
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1
 

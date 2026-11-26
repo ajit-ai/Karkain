@@ -1308,6 +1308,9 @@ func parseVarDecl(state) {
     int isConst = 0
     if (psCurKind(state) == TK_CONST()) { isConst = 1 }
     psAdvance(state) // consume let/var/const
+    // v1.2.26 S1: accept an explicit `mut` marker (recorded for the Go AST;
+    // kcc ignores it semantically for now).
+    if (psCurKind(state) == TK_MUT()) { psAdvance(state) }
 
     int name = psCurLiteral(state)
     psAdvance(state) // consume name

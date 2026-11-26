@@ -41,6 +41,7 @@ type VarDeclStmt struct {
 	Value    Node
 	Type     string // Optional type information (e.g., "*int", "[4]f32")
 	Const    bool   // Phase 112: true for `const` declarations (immutable binding)
+	Mut      bool   // v1.2.26: true for `let mut` / `var mut` (explicit mutability)
 	IsMatrix bool   // True if this is a matrix declaration
 	IsSIMD   bool   // True if this is a fixed-lane SIMD vector ([4]f32)
 	Align    int    // Cache-line alignment attribute (0 = none)

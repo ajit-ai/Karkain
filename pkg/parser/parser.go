@@ -688,6 +688,12 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 	isConst := p.curToken.Type == lexer.TokenConst // Phase 112: detect const keyword
 	kwLit := p.curToken.Literal(p.src)
 	p.nextToken() // consume 'let', 'var', or 'const'
+	// v1.2.26: explicit mutability annotation `let mut x = ...`.
+	isMut := false
+	if p.curToken.Type == lexer.TokenMut {
+		isMut = true
+		p.nextToken() // consume 'mut'
+	}
 	// Phase 117: a declared variable must have a real identifier name. Without
 	// this guard `let = 42` silently declared a variable literally named "=",
 	// which the resolver then tolerated as an unused name.
@@ -832,7 +838,7 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 		p.nextToken() // consume '='
 	} else {
 		p.addError(fmt.Sprintf("expected '=' after '%s %s'", kwLit, name))
-		node := &VarDeclStmt{Name: name, Const: isConst, Align: align, Col: nameCol, EndCol: nameEndCol}
+		node := &VarDeclStmt{Name: name, Const: isConst, Mut: isMut, Align: align, Col: nameCol, EndCol: nameEndCol}
 		setNodeLine(node, line)
 		return node
 	}
@@ -840,7 +846,7 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 	// Check if the value is a matrix declaration
 	if p.curToken.Type == lexer.TokenMatrix {
 		matrixDecl := p.parseMatrixDeclInternal()
-		node := &VarDeclStmt{Name: name, Value: matrixDecl, IsMatrix: true, Col: nameCol, EndCol: nameEndCol}
+		node := &VarDeclStmt{Name: name, Value: matrixDecl, IsMatrix: true, Mut: isMut, Col: nameCol, EndCol: nameEndCol}
 		setNodeLine(node, line)
 		return node
 	}
@@ -861,7 +867,7 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 			}
 		}
 		fn.Captures = captures
-		node := &VarDeclStmt{Name: name, Value: fn, Col: nameCol, EndCol: nameEndCol}
+		node := &VarDeclStmt{Name: name, Value: fn, Mut: isMut, Col: nameCol, EndCol: nameEndCol}
 		setNodeLine(node, line)
 		return node
 	}
@@ -878,12 +884,12 @@ func (p *Parser) parseVarDecl() *VarDeclStmt {
 
 	// If we have a type, store it in the variable declaration
 	if typeName != "" {
-		node := &VarDeclStmt{Name: name, Value: val, Type: typeName, Const: isConst, IsSIMD: isSIMD, Align: align, Col: nameCol, EndCol: nameEndCol}
+		node := &VarDeclStmt{Name: name, Value: val, Type: typeName, Const: isConst, Mut: isMut, IsSIMD: isSIMD, Align: align, Col: nameCol, EndCol: nameEndCol}
 		setNodeLine(node, line)
 		return node
 	}
 
-	node := &VarDeclStmt{Name: name, Value: val, Const: isConst, Align: align, Col: nameCol, EndCol: nameEndCol}
+	node := &VarDeclStmt{Name: name, Value: val, Const: isConst, Mut: isMut, Align: align, Col: nameCol, EndCol: nameEndCol}
 	setNodeLine(node, line)
 	return node
 }
