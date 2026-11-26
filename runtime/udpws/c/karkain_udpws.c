@@ -15,8 +15,13 @@ static void karkain_udpws_err(const char* msg) {
     snprintf(_karkain_udpws_error, sizeof(_karkain_udpws_error), "%s", msg ? msg : "udp/ws failure");
 }
 
-Value karkain_udp_last_error(void) { return make_string(_karkain_udpws_error); }
-Value karkain_ws_last_error(void) { return make_string(_karkain_udpws_error); }
+Value karkain_udp_last_error(void) {
+    return make_string(_karkain_udpws_error);
+}
+
+Value karkain_ws_last_error(void) {
+    return make_string(_karkain_udpws_error);
+}
 
 static int karkain_udp_resolve(const char* host, int port, struct sockaddr_storage* out, socklen_t* outlen) {
     karkain_net_init();
