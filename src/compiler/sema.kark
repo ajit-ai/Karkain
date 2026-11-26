@@ -150,6 +150,15 @@ func isBuiltinFunc(name) {
     if (name == "json_serialize") { return 1 }
     if (name == "json_get_path") { return 1 }
     if (name == "json_last_error") { return 1 }
+    if (name == "udp_send") { return 1 }
+    if (name == "udp_send_on") { return 1 }
+    if (name == "udp_bind") { return 1 }
+    if (name == "udp_recv") { return 1 }
+    if (name == "udp_last_error") { return 1 }
+    if (name == "ws_accept") { return 1 }
+    if (name == "ws_send_text") { return 1 }
+    if (name == "ws_recv_text") { return 1 }
+    if (name == "ws_last_error") { return 1 }
     // Phase 137: concurrency builtins (existence-only, like the Go resolver).
     if (name == "channel") { return 1 }
     if (name == "chanSend") { return 1 }
@@ -229,6 +238,15 @@ func builtinArity(name) {
     if (name == "json_serialize") { return 1 }
     if (name == "json_get_path") { return 2 }
     if (name == "json_last_error") { return 0 }
+    if (name == "udp_send") { return 3 }
+    if (name == "udp_send_on") { return 4 }
+    if (name == "udp_bind") { return 2 }
+    if (name == "udp_recv") { return 2 }
+    if (name == "udp_last_error") { return 0 }
+    if (name == "ws_accept") { return 1 }
+    if (name == "ws_send_text") { return 2 }
+    if (name == "ws_recv_text") { return 2 }
+    if (name == "ws_last_error") { return 0 }
     if (name == "cancel") { return 1 }
     if (name == "join_timeout") { return 2 }
     return -1

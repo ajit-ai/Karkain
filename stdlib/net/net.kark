@@ -85,3 +85,26 @@ bool net_fd_open(fd) {
     }
     return false
 }
+// ---------------------------------------------------------------------------
+// v1.2.21: UDP datagrams (C23 path)
+// ---------------------------------------------------------------------------
+
+func udp_send_to(host, port, data) {
+    return udp_send(host, port, data)
+}
+
+func udp_send_from(fd, host, port, data) {
+    return udp_send_on(fd, host, port, data)
+}
+
+func udp_bind_on(host, port) {
+    return udp_bind(host, port)
+}
+
+func udp_recv_from(fd, max) {
+    return udp_recv(fd, max)
+}
+
+func udp_error() {
+    return udp_last_error()
+}

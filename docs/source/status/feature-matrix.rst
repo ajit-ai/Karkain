@@ -407,3 +407,42 @@ WASM have no JSON builtins and remain excluded.
      - Not supported
      - -
      - ``TestPhaseV1220_NativeRefused``, K108 boundary
+
+UDP and WebSocket (v1.2.21)
+====================================
+
+Real UDP datagrams and RFC 6455 text frames are available on the C23 path on
+both engines. Native and WASM have no sockets and remain excluded.
+
+.. list-table:: UDP/WebSocket matrix
+   :widths: 40 14 18 28
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``udp_send`` / ``udp_bind`` / ``udp_recv``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1221_UDPLoopback``
+   * - ``udp_send_on`` bound-socket send
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1221_UDPLoopback``
+   * - ``ws_connect`` handshake
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1221_WebSocketLoopback``
+   * - ``ws_send`` / ``ws_recv`` text frames
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1221_WebSocketLoopback``
+   * - Runtime gating
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1221_RuntimeWiring``
+   * - Native / WASM
+     - Not supported
+     - -
+     - ``TestPhaseV1221_NativeRefused``, K108 boundary

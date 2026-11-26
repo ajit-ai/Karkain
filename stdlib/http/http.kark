@@ -421,3 +421,41 @@ func http_serve_echo(host, port) {
         spawn(http_echo_worker, conn)
     }
 }
+// ---------------------------------------------------------------------------
+// v1.2.21: WebSocket text frames (C23 path, ws:// only)
+// ---------------------------------------------------------------------------
+
+func ws_accept_key(key) {
+    return ws_accept(key)
+}
+
+func ws_send(fd, text) {
+    return ws_send_text(fd, text)
+}
+
+func ws_recv(fd, max) {
+    return ws_recv_text(fd, max)
+}
+
+func ws_error() {
+    return ws_last_error()
+}
+
+func ws_connect(host, port, path, key) {
+    let fd = net_connect(host, port)
+    if (fd < 0) {
+        return fd
+    }
+    let req = "GET " + path + " HTTP/1.1\r\nHost: " + host + ":" + str(port) + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + key + "\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    let written = net_write(fd, req)
+    if (written < 0) {
+        net_close(fd)
+        return -1
+    }
+    let resp = http_read_until(fd, "\r\n\r\n", 4096)
+    if (contains(resp, ws_accept(key)) == 0) {
+        net_close(fd)
+        return -1
+    }
+    return fd
+}

@@ -105,6 +105,9 @@ var builtinNames = map[string]bool{
 	// v1.2.20: JSON DOM builtins (C23 path only).
 	"json_parse": true, "json_type": true, "json_serialize": true,
 	"json_get_path": true, "json_last_error": true,
+	// v1.2.21: UDP datagrams and WebSocket text frames (C23 path only).
+	"udp_send": true, "udp_send_on": true, "udp_bind": true, "udp_recv": true, "udp_last_error": true,
+	"ws_accept": true, "ws_send_text": true, "ws_recv_text": true, "ws_last_error": true,
 	"Some": true, "None": true, "Ok": true, "Err": true,
 	"assert": true, "assert_eq": true, "assert_ne": true,
 	// Phase 107: concurrency builtins (channels, tasks, actors).

@@ -143,6 +143,11 @@ OS metrics and process enumeration (v1.2.19) follow the same rule:
 The native runtime has no OS process/metric syscalls and refuses the ``os_*``
 builtins by name (``TestPhaseV1219_NativeRefused``).
 
+UDP datagrams and WebSocket text frames (v1.2.21) follow the same rule:
+``std.net.udp_*`` and ``std.http.ws_*`` are C23-only. They refuse by name on
+the native target and are K108-rejected on WASM; the loopback gate proves real
+datagrams and RFC 6455 frames on both front ends.
+
 Atomics (``@atomic_*``)
 -----------------------
 
