@@ -98,7 +98,11 @@ var builtinNames = map[string]bool{
 	// v1.2.17: C23 transport HTTPS (WinHTTP/Schannel on Windows, OpenSSL elsewhere).
 	"https_request":  true,
 	"tls_last_error": true,
-	"Some":           true, "None": true, "Ok": true, "Err": true,
+	// v1.2.19: OS metrics / process enumeration (C23 path only).
+	"os_pid": true, "os_cpu_count": true, "os_total_mem_mb": true,
+	"os_available_mem_mb": true, "os_uptime_ms": true,
+	"os_process_list": true, "os_last_error": true,
+	"Some": true, "None": true, "Ok": true, "Err": true,
 	"assert": true, "assert_eq": true, "assert_ne": true,
 	// Phase 107: concurrency builtins (channels, tasks, actors).
 	"channel": true, "send": true, "chanSend": true, "chanClose": true,

@@ -137,6 +137,12 @@ OpenSSL on POSIX). The native target cannot open a socket, so it cannot
 perform a TLS handshake either; native programs that use these names are
 refused by the same capability boundary as ``std.net``.
 
+OS metrics and process enumeration (v1.2.19) follow the same rule:
+``os_current_pid``, ``os_cpu_total``, ``os_memory_total_mb``,
+``os_memory_available_mb``, ``os_uptime`` and ``os_processes`` are C23-only.
+The native runtime has no OS process/metric syscalls and refuses the ``os_*``
+builtins by name (``TestPhaseV1219_NativeRefused``).
+
 Atomics (``@atomic_*``)
 -----------------------
 

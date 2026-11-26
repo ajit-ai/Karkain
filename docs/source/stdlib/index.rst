@@ -95,9 +95,9 @@ standard-library boundary. See
 line (increment 156): rewritten with canonical Karkain syntax.
 
 Modules that do not exist in the repository at all — ``std.memory``,
-``std.filesystem``, ``std.process``, ``std.os``,
-``std.concurrency``, ``std.diagnostics`` — are tracked in
-:doc:`not-implemented <not-implemented>`.
+``std.process``, ``std.concurrency``, ``std.diagnostics`` — are tracked in
+:doc:`not-implemented <not-implemented>`. ``std.os`` now exists as the v1.2.19
+C23 OS metric / process enumeration module; see :doc:`os`.
 
 The following modules were added in the v1.2.x line (increment 155):
 ``std.path``, ``std.env``, ``std.time``, ``std.random``, ``std.json``.
@@ -144,6 +144,7 @@ Invariants shared by every implemented module
    log
    config
    process
+   os
    core
    math
    not-implemented

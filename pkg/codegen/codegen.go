@@ -67,6 +67,7 @@ type Generator struct {
 	quantumRegisters []string                    // Phase 14: declared quantum registers, in declaration order
 	needsHTTP        bool                        // Phase 55b: track if http.get is used (strip stub otherwise)
 	needsTLS         bool                        // v1.2.17: https_request uses the C23 TLS runtime
+	needsOS          bool                        // v1.2.19: os_* builtins use the C23 OS metric runtime
 	sourceFile       string                      // Phase 55b: source file for #line directives
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
@@ -506,6 +507,11 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 	for _, stmt := range prog.Statements {
 		g.scanNodeForTLS(stmt)
 	}
+	// v1.2.19: OS metric/process builtins are emitted only on use.
+	g.needsOS = false
+	for _, stmt := range prog.Statements {
+		g.scanNodeForOS(stmt)
+	}
 	// Pre-scan: collect user-declared function names for deterministic symbol
 	// mangling and user-functions-first builtin shadowing.
 	g.userFuncs = make(map[string]bool)
@@ -565,6 +571,11 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	// link libraries -- the bootstrap compiler is such a program.
 	if g.needsTLS {
 		sb.WriteString(tlsRuntimeC())
+	}
+	// v1.2.19: OS metric runtime follows the same gating rule. No program
+	// that does not call an os_* builtin gains these symbols or headers.
+	if g.needsOS {
+		sb.WriteString(osmetricsRuntimeC())
 	}
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
@@ -3869,6 +3880,9 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "tls_last_error" {
 			return "karkain_tls_last_error()"
+		}
+		if isOSBuiltin(n.Function) {
+			return fmt.Sprintf("%s()", "karkain_os_"+strings.TrimPrefix(n.Function, "os_"))
 		}
 		if n.Function == "http.get" {
 			g.needsHTTP = true

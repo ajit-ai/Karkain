@@ -29,6 +29,7 @@ func createCodegenState(target) {
     state = appendArray(state, [])       // 18: spawn target order (Phase 137)
     state = appendArray(state, [])       // 19: actor handler order (Phase 137)
     state = appendArray(state, 0)        // 20: uses-TLS flag (v1.2.17)
+    state = appendArray(state, 0)        // 21: uses-OS-metrics flag (v1.2.19)
     return state
 }
 
@@ -68,6 +69,10 @@ func concMarkUses(state) { state[17] = 1 }
 // flags and never references OpenSSL/WinHTTP symbols.
 func tlsUses(state) { return state[20] }
 func tlsMarkUses(state) { state[20] = 1 }
+
+// v1.2.19: OS metric runtime is emitted only when an os_* builtin is used.
+func osUses(state) { return state[21] }
+func osMarkUses(state) { state[21] = 1 }
 
 func concAddSpawn(state, name) {
     if (name == "") { return }
@@ -124,6 +129,7 @@ func collectConcPrescan(state, stmts) {
     state[18] = []
     state[19] = []
     state[20] = 0
+    state[21] = 0
     concScanStmts(state, stmts)
 }
 
@@ -216,6 +222,7 @@ func concScanExpr(state, e) {
         string fname = callFunc(e)
         if (concIsBuiltin(fname) == 1) { concMarkUses(state) }
         if (fname == "https_request") { tlsMarkUses(state) }
+        if (fname == "os_pid" || fname == "os_cpu_count" || fname == "os_total_mem_mb" || fname == "os_available_mem_mb" || fname == "os_uptime_ms" || fname == "os_process_list" || fname == "os_last_error") { osMarkUses(state) }
         if (fname == "actor") {
             Value args = callArgs(e)
             if (len(args) > 0 && getNodeType(args[0]) == "StringLiteral") {
@@ -1570,6 +1577,20 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "tls_last_error") {
             emit(state, "karkain_tls_last_error()")
+        } else if (fname == "os_pid") {
+            emit(state, "karkain_os_pid()")
+        } else if (fname == "os_cpu_count") {
+            emit(state, "karkain_os_cpu_count()")
+        } else if (fname == "os_total_mem_mb") {
+            emit(state, "karkain_os_total_mem_mb()")
+        } else if (fname == "os_available_mem_mb") {
+            emit(state, "karkain_os_available_mem_mb()")
+        } else if (fname == "os_uptime_ms") {
+            emit(state, "karkain_os_uptime_ms()")
+        } else if (fname == "os_process_list") {
+            emit(state, "karkain_os_process_list()")
+        } else if (fname == "os_last_error") {
+            emit(state, "karkain_os_last_error()")
         } else if (codegenLocalNameHas(state, fname) == 1) {
             // Phase 133: a bare call through a LOCAL name dispatches
             // indirectly — the local may hold a function cell (factories,
@@ -2349,6 +2370,9 @@ func generateC11(ast, sourceName) {
     }
     if (tlsUses(state) == 1) {
         emitTlsRuntime(state)
+    }
+    if (osUses(state) == 1) {
+        emitOSMetricsRuntime(state)
     }
 
     // Phase 123: generate enum declarations (C int-tag constants / payload

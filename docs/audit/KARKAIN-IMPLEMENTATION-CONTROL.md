@@ -175,14 +175,14 @@ and MinGW to `PATH` when present, replaces the monolithic `cligates` stage
 with `cli114`–`cli119`, and fixes the `-Stage build`/`-Stage vet` no-op.
 **No full-QA-green, byte-identity or KIR-pin claim is made.**
 
-**Current slice: v1.2.18 — concurrent HTTP server — COMPLETE for the C23
-path** (PR #38 merged at `da2af00`; record
-`docs/audit/V1.2.18-CONCURRENT-HTTP-SERVER.md`). `std.http` now exposes
-`http_serve_echo` with a named per-connection `spawn` worker; the gate proves
-concurrency with a silent first client on both engines.
-**Recommended next implementation: v1.2.19 — OS metric/process enumeration
-APIs**, the next ordered ecosystem blocker. It is **not started** and
-requires the owner's authorisation. **Historical, not guidance:** earlier recommendations here named
+**Current slice: v1.2.19 — OS metric/process enumeration APIs — COMPLETE for
+the C23 path** (PR #39 merged at `937feb0`; record
+`docs/audit/V1.2.19-OS-METRICS-BASELINE.md`). `std.os` now provides real PID,
+CPU, memory, uptime and process-list queries on both engines; native/WASM
+remain excluded.
+**Recommended next implementation: v1.2.20 — JSON full DOM**, the next
+ordered ecosystem blocker. It is **not started** and requires owner
+authorisation. **Historical, not guidance:** earlier recommendations here named
 v1.2.3 (`s[i]`), v1.2.6 (`sha256_hex`) and P0.2 (task cancellation); all were
 implemented and superseded by the measured v1.2.9–v1.2.15 merge history
 (PRs #30–#36).
@@ -311,6 +311,8 @@ owner-authorized amendment. An agent may propose one; it may not record one.
 | 2026-11-26 | **v1.2.17 first-CI corrective change against the frozen baseline** (CI run `45656354614`, no new increment). Three measured defects: (1) whole-tree KIR pin stale — CI measured `text=18187 verify=18187` vs `17924`; both assertion sites re-pinned from that measurement, never predicted. (2) Sphinx `-W` warning `feature-matrix.rst:249: Explicit markup ends without a blank line` — blank line added. (3) Phase-114 corpus failed on imported `std.http`: the Go split path did not carry the whole-program `needsTLS` flag into the shared runtime header or link libraries, so module TUs called `karkain_https_request` with no prototype. Fixed by `SplitResult.NeedsTLS`, appending `tlsRuntimeC()` to the shared runtime text and the platform TLS libraries to the split link line. Post-fix: Phase-114 GoEngine/coverage PASS 581.688 s, KCCParity PASS 694.995 s, build/vet/freshness gates PASS. Record: `V1.2.17-TLS-HTTPS-BASELINE.md` §6. |
 | 2026-11-26 | **PR #38 MERGED** at `origin/main` `da2af00`; `main`/`develop` re-synced. The strict v1.2.x sequence gate for **v1.2.18 — concurrent HTTP server** is satisfied; inventory is being taken before any code is written. No tag or release action taken. |
 | 2026-11-26 | **v1.2.18 concurrent HTTP server COMPLETE for C23.** No new builtin or runtime: `stdlib/http/http.kark` gained named `http_echo_worker` and `http_serve_echo`, whose accept loop spawns the worker per connection. Gate `pkg/cli/phase_v1218_http_server_test.go` (`TestPhaseV1218_`) PASS 26.487s on both engines; the first client connects but stays silent, and the second must receive `hello /second` within 3 s, which a serial server cannot do. `TestPhaseV1218_RuntimeWiring` PASS. Two harness defects found and fixed: `io.Discard` pipes made `Wait()` hang after killing the compiler (now `nil` + `WaitDelay`), and the wiring negative case had to be a no-import program because importing `std.http` legitimately pulls the spawn runtime. Dedicated CI step wired. Native/WASM excluded; no byte-identity claim; KIR pin CI-measured only. Audit: `docs/audit/V1.2.18-CONCURRENT-HTTP-SERVER.md`. |
+| 2026-11-26 | **PR #39 MERGED** at `origin/main` `937feb0`; `main`/`develop` re-synced. The strict v1.2.x sequence gate for **v1.2.19 — OS metric/process enumeration APIs** is satisfied; inventory is being taken before code. No tag or release action taken. |
+| 2026-11-26 | **v1.2.19 OS metrics / process enumeration COMPLETE for C23.** New single-source runtime `runtime/osmetrics/c/*` with seven `os_*` builtins (PID, CPU count, total/available memory, monotonic uptime, sorted self-containing process list, last error), embedded by Go and generated into `src/compiler/osmetrics_runtime.kark` for kcc; freshness gate wired. Canonical `stdlib/os/os.kark` wrappers fill the previously Planned `std.os` slot. `needsOS` gating covers monolith and split flows. Gate `TestPhaseV1219_` PASS 28.927s on both engines with predicate assertions, runtime wiring and native K145 refusal. Three defects found and fixed: module file had to be `os.kark`; `strings.Fields` dropped the empty `os_error()` line; the 63-entry cap also gated the self-add and evicted the current PID. Two CI steps wired. Native/WASM excluded; no byte-identity claim; KIR pin CI-measured only. Audit: `docs/audit/V1.2.19-OS-METRICS-BASELINE.md`. |
 
 ## 9. Issue register
 
