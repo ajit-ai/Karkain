@@ -114,6 +114,8 @@ var builtinNames = map[string]bool{
 	// v1.2.24: reference-counting builtins (C23 path only).
 	"rc_new": true, "rc_retain": true, "rc_release": true,
 	"rc_strong_count": true, "rc_get": true,
+	"rc_weak_new": true, "rc_weak_count": true, "rc_weak_upgrade": true,
+	"rc_weak_release": true,
 	// v1.2.25: arena region builtins (C23 path only).
 	"arena_new": true, "arena_alloc": true, "arena_reset": true,
 	"arena_free": true, "arena_capacity": true, "arena_used": true,
