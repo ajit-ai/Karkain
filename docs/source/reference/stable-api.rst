@@ -133,12 +133,14 @@ Stable stdlib modules
    * - ``std.numerics``
      - Numerical/ML foundation (vector/matrix/tensor ops, 40 functions).
    * - ``std.net``
-     - TCP networking (Address/Endpoint/Connection/Listener, 10 functions).
+     - TCP networking plus UDP datagrams (Address/Endpoint/Connection/Listener,
+       udp_send_to/udp_send_from/udp_bind_on/udp_recv_from/udp_error; 15 functions).
    * - ``std.http``
      - HTTP/1.1 client/server building blocks (Request/Response, 20 functions)
        plus ``https_get`` / ``https_post`` / ``https_last_error`` (C23 TLS,
        v1.2.17; 23 functions total) plus ``http_echo_worker`` /
-       ``http_serve_echo`` (v1.2.18; 25 functions total).
+       ``http_serve_echo`` (v1.2.18; 25 functions total) plus ``ws_connect`` /
+       ``ws_send`` / ``ws_recv`` / ``ws_accept_key`` / ``ws_error`` (v1.2.21; 30 total).
    * - ``std.os``
      - OS metrics and process enumeration (7 functions, v1.2.19; C23 path only).
    * - ``std.db``

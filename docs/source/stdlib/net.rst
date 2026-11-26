@@ -81,3 +81,27 @@ Example
    }
 
 See ``examples/04-networking/`` for complete TCP echo and roundtrip examples.
+
+UDP datagrams (v1.2.21)
+------------------------
+
+``udp_send_to(host, port, data)`` sends one datagram. ``udp_bind_on(host, port)``
+binds a UDP socket; ``udp_send_from(fd, host, port, data)`` sends from that
+socket and ``udp_recv_from(fd, max)`` reads one datagram. ``udp_error()``
+returns the last deterministic failure string.
+
+UDP is C23-only; native and WASM have no socket syscalls.
+
+Example
+-------
+
+.. code-block:: kark
+
+   import std.net
+
+   func main() {
+       let fd = udp_bind_on("127.0.0.1", 9000)
+       let n = udp_send_from(fd, "127.0.0.1", 9001, "ping")
+       print(n)
+       print(udp_recv_from(fd, 1024))
+   }

@@ -322,8 +322,12 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// (text=18972 verify=18972), never predicted. Delta is the new
 		// json_* builtins in checker/sema/codegen plus generated
 		// json_runtime.kark.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 18972 {
-			t.Errorf("whole-tree kir text = %d lines, want 18972:\n%s", got, out)
+		// RE-PINNED FOR v1.2.21 UDP/WEBSOCKET: 18972 -> 19515 (+543),
+		// measured on CI run 45758961870 (Phase 122 job) (text=19515
+		// verify=19515), never predicted. Delta is the udp_*/ws_* builtins
+		// plus generated udpws_runtime.kark.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 19515 {
+			t.Errorf("whole-tree kir text = %d lines, want 19515:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

@@ -31,6 +31,7 @@ func createCodegenState(target) {
     state = appendArray(state, 0)        // 20: uses-TLS flag (v1.2.17)
     state = appendArray(state, 0)        // 21: uses-OS-metrics flag (v1.2.19)
     state = appendArray(state, 0)        // 22: uses-JSON flag (v1.2.20)
+    state = appendArray(state, 0)        // 23: uses-UDP/WS flag (v1.2.21)
     return state
 }
 
@@ -78,6 +79,10 @@ func osMarkUses(state) { state[21] = 1 }
 // v1.2.20: JSON runtime is emitted only when a json_* builtin is used.
 func jsonUses(state) { return state[22] }
 func jsonMarkUses(state) { state[22] = 1 }
+
+// v1.2.21: UDP/WebSocket runtime is emitted only when udp_*/ws_* is used.
+func udpwsUses(state) { return state[23] }
+func udpwsMarkUses(state) { state[23] = 1 }
 
 func concAddSpawn(state, name) {
     if (name == "") { return }
@@ -136,6 +141,7 @@ func collectConcPrescan(state, stmts) {
     state[20] = 0
     state[21] = 0
     state[22] = 0
+    state[23] = 0
     concScanStmts(state, stmts)
 }
 
@@ -230,6 +236,7 @@ func concScanExpr(state, e) {
         if (fname == "https_request") { tlsMarkUses(state) }
         if (fname == "os_pid" || fname == "os_cpu_count" || fname == "os_total_mem_mb" || fname == "os_available_mem_mb" || fname == "os_uptime_ms" || fname == "os_process_list" || fname == "os_last_error") { osMarkUses(state) }
         if (fname == "json_parse" || fname == "json_type" || fname == "json_serialize" || fname == "json_get_path" || fname == "json_last_error") { jsonMarkUses(state) }
+        if (fname == "udp_send" || fname == "udp_send_on" || fname == "udp_bind" || fname == "udp_recv" || fname == "udp_last_error" || fname == "ws_accept" || fname == "ws_send_text" || fname == "ws_recv_text" || fname == "ws_last_error") { udpwsMarkUses(state) }
         if (fname == "actor") {
             Value args = callArgs(e)
             if (len(args) > 0 && getNodeType(args[0]) == "StringLiteral") {
@@ -1617,6 +1624,44 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "json_last_error") {
             emit(state, "karkain_json_last_error()")
+        } else if (fname == "udp_send") {
+            emit(state, "karkain_udp_send(")
+            int bu1 = 0
+            while (bu1 < argc) { if (bu1 > 0) { emit(state, ", ") } emitC11Expr(state, args[bu1]) bu1 = bu1 + 1 }
+            emit(state, ")")
+        } else if (fname == "udp_send_on") {
+            emit(state, "karkain_udp_send_on(")
+            int bu6 = 0
+            while (bu6 < argc) { if (bu6 > 0) { emit(state, ", ") } emitC11Expr(state, args[bu6]) bu6 = bu6 + 1 }
+            emit(state, ")")
+        } else if (fname == "udp_bind") {
+            emit(state, "karkain_udp_bind(")
+            int bu2 = 0
+            while (bu2 < argc) { if (bu2 > 0) { emit(state, ", ") } emitC11Expr(state, args[bu2]) bu2 = bu2 + 1 }
+            emit(state, ")")
+        } else if (fname == "udp_recv") {
+            emit(state, "karkain_udp_recv(")
+            int bu3 = 0
+            while (bu3 < argc) { if (bu3 > 0) { emit(state, ", ") } emitC11Expr(state, args[bu3]) bu3 = bu3 + 1 }
+            emit(state, ")")
+        } else if (fname == "udp_last_error") {
+            emit(state, "karkain_udp_last_error()")
+        } else if (fname == "ws_accept") {
+            emit(state, "karkain_ws_accept(")
+            if (argc > 0) { emitC11Expr(state, args[0]) }
+            emit(state, ")")
+        } else if (fname == "ws_send_text") {
+            emit(state, "karkain_ws_send_text(")
+            int bu4 = 0
+            while (bu4 < argc) { if (bu4 > 0) { emit(state, ", ") } emitC11Expr(state, args[bu4]) bu4 = bu4 + 1 }
+            emit(state, ")")
+        } else if (fname == "ws_recv_text") {
+            emit(state, "karkain_ws_recv_text(")
+            int bu5 = 0
+            while (bu5 < argc) { if (bu5 > 0) { emit(state, ", ") } emitC11Expr(state, args[bu5]) bu5 = bu5 + 1 }
+            emit(state, ")")
+        } else if (fname == "ws_last_error") {
+            emit(state, "karkain_ws_last_error()")
         } else if (codegenLocalNameHas(state, fname) == 1) {
             // Phase 133: a bare call through a LOCAL name dispatches
             // indirectly — the local may hold a function cell (factories,
@@ -2402,6 +2447,9 @@ func generateC11(ast, sourceName) {
     }
     if (jsonUses(state) == 1) {
         emitJSONRuntime(state)
+    }
+    if (udpwsUses(state) == 1) {
+        emitUDPWSRuntime(state)
     }
 
     // Phase 123: generate enum declarations (C int-tag constants / payload

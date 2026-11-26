@@ -69,6 +69,7 @@ type Generator struct {
 	needsTLS         bool                        // v1.2.17: https_request uses the C23 TLS runtime
 	needsOS          bool                        // v1.2.19: os_* builtins use the C23 OS metric runtime
 	needsJSON        bool                        // v1.2.20: json_* builtins use the C23 JSON DOM runtime
+	needsUDPWS       bool                        // v1.2.21: udp_*/ws_* builtins use the C23 UDP/WebSocket runtime
 	sourceFile       string                      // Phase 55b: source file for #line directives
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
@@ -518,6 +519,11 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 	for _, stmt := range prog.Statements {
 		g.scanNodeForJSON(stmt)
 	}
+	// v1.2.21: UDP/WebSocket runtime is emitted only on use.
+	g.needsUDPWS = false
+	for _, stmt := range prog.Statements {
+		g.scanNodeForUDPWS(stmt)
+	}
 	// Pre-scan: collect user-declared function names for deterministic symbol
 	// mangling and user-functions-first builtin shadowing.
 	g.userFuncs = make(map[string]bool)
@@ -586,6 +592,9 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	// v1.2.20: same gating rule for the JSON DOM runtime.
 	if g.needsJSON {
 		sb.WriteString(jsonRuntimeC())
+	}
+	if g.needsUDPWS {
+		sb.WriteString(udpwsRuntimeC())
 	}
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
@@ -3908,6 +3917,33 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "json_last_error" {
 			return "karkain_json_last_error()"
+		}
+		if n.Function == "udp_send" {
+			return fmt.Sprintf("karkain_udp_send(%s, %s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]), g.genExpr(n.Args[2]))
+		}
+		if n.Function == "udp_send_on" {
+			return fmt.Sprintf("karkain_udp_send_on(%s, %s, %s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]), g.genExpr(n.Args[2]), g.genExpr(n.Args[3]))
+		}
+		if n.Function == "udp_bind" {
+			return fmt.Sprintf("karkain_udp_bind(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "udp_recv" {
+			return fmt.Sprintf("karkain_udp_recv(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "udp_last_error" {
+			return "karkain_udp_last_error()"
+		}
+		if n.Function == "ws_accept" {
+			return fmt.Sprintf("karkain_ws_accept(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "ws_send_text" {
+			return fmt.Sprintf("karkain_ws_send_text(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "ws_recv_text" {
+			return fmt.Sprintf("karkain_ws_recv_text(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "ws_last_error" {
+			return "karkain_ws_last_error()"
 		}
 		if n.Function == "http.get" {
 			g.needsHTTP = true

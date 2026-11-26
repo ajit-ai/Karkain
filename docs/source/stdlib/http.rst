@@ -132,3 +132,28 @@ v1.2.17 HTTPS surface is a client.
    func main() {
        http_serve_echo("127.0.0.1", 8080)
    }
+
+WebSocket client (v1.2.21)
+--------------------------
+
+``ws_connect(host, port, path, key)`` performs an RFC 6455 Upgrade handshake
+over an existing TCP connection and returns the fd, or -1 on failure.
+``ws_send(fd, text)`` emits a masked client text frame; ``ws_recv(fd, max)``
+reads an unmasked server text frame; ``ws_accept_key(key)`` computes the
+``Sec-WebSocket-Accept`` value; ``ws_error()`` returns the last failure.
+
+Only plain ``ws://`` is implemented. ``wss://``, compression, continuation
+frames and server-side upgrade acceptance are not in this slice.
+
+.. code-block:: kark
+
+   import std.http
+
+   func main() {
+       let key = "dGhlIHNhbXBsZSBub25jZQ=="
+       let fd = ws_connect("127.0.0.1", 8080, "/", key)
+       if (fd >= 0) {
+           ws_send(fd, "hello")
+           print(ws_recv(fd, 1024))
+       }
+   }

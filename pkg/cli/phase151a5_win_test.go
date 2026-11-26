@@ -1025,8 +1025,12 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// on CI run 45747053835 (kcc whole-tree self-check job) (text=18972
 	// verify=18972), never predicted. Delta is the json_* builtins plus
 	// generated json_runtime.kark.
-	if text != 18972 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 18972; see the comment above for the measured chain. output follows: %s", text, out)
+	// RE-PINNED FOR v1.2.21 UDP/WEBSOCKET: 18972 -> 19515 (+543), measured
+	// on CI run 45758961870 (Phase 122 job) (text=19515 verify=19515),
+	// never predicted. Delta is the udp_*/ws_* builtins plus generated
+	// udpws_runtime.kark.
+	if text != 19515 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 19515; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }
