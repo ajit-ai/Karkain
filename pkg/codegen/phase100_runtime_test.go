@@ -68,14 +68,26 @@ func TestPhase100_CheckedDivisionEmission(t *testing.T) {
 		t.Errorf("unexpected mod builtin emission: %s", modBuiltin)
 	}
 
+	// v1.2.26 S5: constant integer additions are folded at codegen time.
 	add := g.genExpr(&parser.BinaryExpr{
 		Left:     &parser.IntLiteral{Value: "1"},
 		Operator: "+",
 		Right:    &parser.IntLiteral{Value: "2"},
 		Line:     3,
 	})
-	if !strings.Contains(add, `binary_op(make_int(1), "+", make_int(2))`) {
-		t.Errorf("unexpected addition emission: %s", add)
+	if !strings.Contains(add, `make_int(3)`) {
+		t.Errorf("unexpected folded addition emission: %s", add)
+	}
+	// A non-constant addition must still route through binary_op; folding
+	// must not bypass the checked arithmetic path for runtime operands.
+	addVar := g.genExpr(&parser.BinaryExpr{
+		Left:     &parser.Identifier{Name: "x"},
+		Operator: "+",
+		Right:    &parser.IntLiteral{Value: "2"},
+		Line:     4,
+	})
+	if !strings.Contains(addVar, `binary_op(x, "+", make_int(2))`) {
+		t.Errorf("unexpected non-constant addition emission: %s", addVar)
 	}
 }
 

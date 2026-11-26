@@ -114,6 +114,8 @@ var builtinNames = map[string]bool{
 	// v1.2.24: reference-counting builtins (C23 path only).
 	"rc_new": true, "rc_retain": true, "rc_release": true,
 	"rc_strong_count": true, "rc_get": true,
+	"rc_weak_new": true, "rc_weak_count": true, "rc_weak_upgrade": true,
+	"rc_weak_release": true,
 	// v1.2.25: arena region builtins (C23 path only).
 	"arena_new": true, "arena_alloc": true, "arena_reset": true,
 	"arena_free": true, "arena_capacity": true, "arena_used": true,
@@ -253,6 +255,26 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 			}
 			if n.ReturnType != "" {
 				r.funcReturnTypes[n.Name] = n.ReturnType
+				n.ReturnTypeValue = ParseTypeString(n.ReturnType)
+			} else {
+				// v1.2.26 S4: infer return type from the first return statement.
+				// The inferred type is recorded ONLY as structured metadata on
+				// FuncDecl.ReturnTypeValue. It must NOT be written into
+				// r.funcReturnTypes: that map feeds the strict declaration
+				// type-checker (typecheck.go checkDecl), and doing so made
+				// previously-accepted `int x = f()` declarations (where f has
+				// no explicit annotation and returns a string/array/Value) fail
+				// across the compiler's own sources (124 name-resolution errors
+				// in the kcc whole-tree self-check). Type checking stays
+				// behavior-preserving; inference is additive.
+				for _, st := range n.Body {
+					if rs, ok := st.(*parser.ReturnStmt); ok && rs.Value != nil {
+						if t := InferTypeValue(rs.Value); t != nil {
+							n.ReturnTypeValue = t
+						}
+						break
+					}
+				}
 			}
 			if sm != nil && n.Line > 0 {
 				declFile[n.Name] = sm[n.Line]
@@ -289,6 +311,12 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 			}
 			if n.Const && n.Name != "" {
 				r.consts[n.Name] = true
+			}
+			// v1.2.26 S2: lower the string annotation to a structured Type value.
+			if n.Type != "" {
+				n.TypeValue = ParseTypeString(n.Type)
+			} else if n.Value != nil {
+				n.TypeValue = InferTypeValue(n.Value)
 			}
 		}
 	}
@@ -668,6 +696,12 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 		}
 		r.checkExpr(n.Expression, locals, callerName, sm)
 	case *parser.VarDeclStmt:
+		// v1.2.26 S2: lower the string annotation to a structured Type value.
+		if n.Type != "" && n.TypeValue == nil {
+			n.TypeValue = ParseTypeString(n.Type)
+		} else if n.Type == "" && n.Value != nil && n.TypeValue == nil {
+			n.TypeValue = InferTypeValue(n.Value)
+		}
 		if locals != nil && n.Name != "" {
 			locals[n.Name] = true
 			// Phase 1.3 (v1.3.0): track array sizes for bounds checking.

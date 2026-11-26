@@ -3863,6 +3863,42 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Operator == "%" {
 			return fmt.Sprintf("karkain_checked_mod(%s, %s, %s, %d)", g.genExpr(n.Left), g.genExpr(n.Right), g.sourceBaseC(), n.Line)
 		}
+		// v1.2.26 S5: const folding for integer literals.
+		if li, ok1 := n.Left.(*parser.IntLiteral); ok1 {
+			if ri, ok2 := n.Right.(*parser.IntLiteral); ok2 {
+				lv, err1 := strconv.Atoi(li.Value)
+				rv, err2 := strconv.Atoi(ri.Value)
+				if err1 == nil && err2 == nil {
+					var res int
+					ok := true
+					switch n.Operator {
+					case "+":
+						res = lv + rv
+					case "-":
+						res = lv - rv
+					case "*":
+						res = lv * rv
+					case "/":
+						if rv == 0 {
+							ok = false
+						} else {
+							res = lv / rv
+						}
+					case "%":
+						if rv == 0 {
+							ok = false
+						} else {
+							res = lv % rv
+						}
+					default:
+						ok = false
+					}
+					if ok {
+						return fmt.Sprintf("make_int(%d)", res)
+					}
+				}
+			}
+		}
 		return fmt.Sprintf("binary_op(%s, %q, %s)", g.genExpr(n.Left), n.Operator, g.genExpr(n.Right))
 	case *parser.CallExpr:
 		if n.IsCFunc {

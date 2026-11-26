@@ -345,8 +345,12 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// RE-PINNED FOR v1.2.24 SLICE 3 (weak refs): 20255 -> 20341 (+86),
 		// measured on CI (Phase 122 job) (text=20341 verify=20341), never
 		// predicted. Delta is the rc_weak_* builtins in checker/sema/codegen.kark.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 20341 {
-			t.Errorf("whole-tree kir text = %d lines, want 20341:\n%s", got, out)
+		// RE-PINNED FOR v1.2.26 SLICE 1 (mutability in AST): 20341 -> 20343 (+2),
+		// measured on CI run 45832880439 (Phase 122 job) (text=20343
+		// verify=20343), never predicted. Delta is the `mut` marker handling in
+		// src/compiler/parser.kark.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 20343 {
+			t.Errorf("whole-tree kir text = %d lines, want 20343:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

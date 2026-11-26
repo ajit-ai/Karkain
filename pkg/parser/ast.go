@@ -26,6 +26,7 @@ type FuncDecl struct {
 	Params        []string
 	ParamTypes    []string // Phase 46: typed parameters (e.g., "int", "string")
 	ReturnType    string   // Type-first function return type (e.g. `int add(...)`)
+	ReturnTypeValue any    // v1.2.26 S4: structured *sema.Type (set by resolver)
 	Body          []Node
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 	Captures      []string           // Phase 54: free variables captured from enclosing scope (lambdas only)
@@ -37,11 +38,13 @@ type FuncDecl struct {
 }
 
 type VarDeclStmt struct {
-	Name     string
-	Value    Node
-	Type     string // Optional type information (e.g., "*int", "[4]f32")
-	Const    bool   // Phase 112: true for `const` declarations (immutable binding)
-	IsMatrix bool   // True if this is a matrix declaration
+	Name      string
+	Value     Node
+	Type      string // Optional type information (e.g., "*int", "[4]f32")
+	Const     bool   // Phase 112: true for `const` declarations (immutable binding)
+	Mut       bool   // v1.2.26: true for `let mut` / `var mut` (explicit mutability)
+	TypeValue any    // v1.2.26 S2: structured *sema.Type (set by resolver; any to avoid import cycle)
+	IsMatrix  bool   // True if this is a matrix declaration
 	IsSIMD   bool   // True if this is a fixed-lane SIMD vector ([4]f32)
 	Align    int    // Cache-line alignment attribute (0 = none)
 	Escapes  bool   // Phase 49: true if variable escapes current scope (passed to func, returned, captured by lambda)
