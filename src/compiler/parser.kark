@@ -969,7 +969,18 @@ func parseFunc(state, target) {
     Value params = []
     Value ptypes = []
     while (psCurKind(state) != TK_RPAREN() && psCurKind(state) != TK_EOF()) {
-        if (psCurKind(state) == TK_IDENT() && (psIsTypeKind(psPeekKind(state)) == 1 || psPeekKind(state) == TK_FN())) {
+        // v1.2.26 S6: inside a generic declaration, `x T` names a parameter
+        // whose type is the type parameter T. The generic arm above collected
+        // the T into genericParams, so this IDENT IDENT pair is unambiguous
+        // here (the general case stays deliberately unresolved).
+        if (len(genericParams) > 0 && psCurKind(state) == TK_IDENT() && psPeekKind(state) == TK_IDENT()) {
+            string gname = psCurLiteral(state)
+            psAdvance(state)
+            string gty = psCurLiteral(state)
+            psAdvance(state)
+            params = appendArray(params, gname)
+            ptypes = appendArray(ptypes, gty)
+        } else if (psCurKind(state) == TK_IDENT() && (psIsTypeKind(psPeekKind(state)) == 1 || psPeekKind(state) == TK_FN())) {
             // KCC-FIX: `name type` order where the type is a KEYWORD
             // (`n int`, `g fn`). psIsTypeToken() below also accepts TK_IDENT,
             // so it claimed this shape first: it read `n` as the TYPE, left

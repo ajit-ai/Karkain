@@ -96,6 +96,9 @@ jobs:
       - name: Run v1.2.26 kcc const-folding parity gate
         run: go test ./pkg/cli/ -run 'TestPhaseV1226C_' -count=1
 
+      - name: Run v1.2.26 generics inference gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1226D_' -count=1
+
       - name: Install GCC and GMP
         run: sudo apt-get update && sudo apt-get install -y gcc libgmp-dev
 
