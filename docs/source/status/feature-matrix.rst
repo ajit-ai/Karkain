@@ -327,7 +327,7 @@ WASM have no sockets/concurrency surface here and remain excluded.
      - v1.2.10 socket boundary, K108 concurrency boundary
 
 OS metrics / process enumeration (v1.2.19)
-=========================================
+=============================================
 
 Real OS values are available on the C23 path on both engines. Native and WASM
 have no process/metric syscalls and remain excluded.

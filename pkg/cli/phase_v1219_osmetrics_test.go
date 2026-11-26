@@ -9,6 +9,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -99,14 +100,20 @@ func v1219Run(t *testing.T, engine, path string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, karkain, "run", path, "--engine", engine)
-	out, err := cmd.CombinedOutput()
+	// Keep compiler diagnostics separate from program stdout. On Linux CI the
+	// generated C emits a warning; CombinedOutput would mix that warning into
+	// the metric lines and turn a compiler message into a false gate failure.
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
 	if ctx.Err() != nil {
-		t.Fatalf("%s run timed out: %v\n%s", engine, ctx.Err(), string(out))
+		t.Fatalf("%s run timed out: %v\nstdout:\n%s\nstderr:\n%s", engine, ctx.Err(), stdout.String(), stderr.String())
 	}
 	if err != nil {
-		t.Fatalf("%s run failed: %v\n%s", engine, err, string(out))
+		t.Fatalf("%s run failed: %v\nstdout:\n%s\nstderr:\n%s", engine, err, stdout.String(), stderr.String())
 	}
-	return string(out)
+	return stdout.String()
 }
 
 func v1219Int(t *testing.T, line string) int64 {
@@ -125,12 +132,29 @@ func TestPhaseV1219_MetricsBothEngines(t *testing.T) {
 	for _, engine := range []string{"go", "kcc"} {
 		t.Run(engine, func(t *testing.T) {
 			out := v1219Run(t, engine, path)
-			// Keep the final empty line: it is os_error(), and strings.Fields
-			// would silently drop it and turn a real assertion into a guess.
-			lines := strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n")
-			for len(lines) < 8 {
-				lines = append(lines, "")
+			// Linux CI emits gcc warnings through the CLI's inherited stdio
+			// before the program's eight metric lines. Find the first run of
+			// seven consecutive integers; the eighth line is os_error() and
+			// may legitimately be empty, so strings.Fields cannot be used.
+			raw := strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n")
+			start := -1
+			for i := 0; i+7 < len(raw); i++ {
+				ok := true
+				for j := 0; j < 7; j++ {
+					if _, err := strconv.ParseInt(strings.TrimSpace(raw[i+j]), 10, 64); err != nil {
+						ok = false
+						break
+					}
+				}
+				if ok {
+					start = i
+					break
+				}
 			}
+			if start < 0 {
+				t.Fatalf("could not locate the 8 metric lines in output:\n%s", out)
+			}
+			lines := raw[start : start+8]
 			pid := v1219Int(t, lines[0])
 			cpus := v1219Int(t, lines[1])
 			total := v1219Int(t, lines[2])

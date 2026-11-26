@@ -1017,8 +1017,12 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// on CI run 45656354614 (kcc whole-tree self-check job) (text=18187
 	// verify=18187), never predicted. Delta is the new https_request /
 	// tls_last_error builtins plus the generated tls_runtime.kark.
-	if text != 18187 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 18187; see the comment above for the measured chain. output follows: %s", text, out)
+	// RE-PINNED FOR v1.2.19 OS METRICS: 18187 -> 18517 (+330), measured
+	// on CI run 45736831726 (kcc whole-tree self-check job) (text=18517
+	// verify=18517), never predicted. Delta is the os_* builtins plus
+	// generated osmetrics_runtime.kark.
+	if text != 18517 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 18517; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

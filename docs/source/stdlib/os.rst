@@ -1,7 +1,7 @@
 .. _stdlib-os:
 
 std.os — OS metrics and process enumeration
-============================================
+================================================
 
 v1.2.19 adds a real OS metric and process surface on the C23 path. Both the
 Go front end and the self-hosted ``kcc`` engine compile the same canonical
