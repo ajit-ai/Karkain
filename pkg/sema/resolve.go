@@ -255,6 +255,18 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 			}
 			if n.ReturnType != "" {
 				r.funcReturnTypes[n.Name] = n.ReturnType
+				n.ReturnTypeValue = ParseTypeString(n.ReturnType)
+			} else {
+				// v1.2.26 S4: infer return type from the first return statement.
+				for _, st := range n.Body {
+					if rs, ok := st.(*parser.ReturnStmt); ok && rs.Value != nil {
+						if t := InferTypeValue(rs.Value); t != nil {
+							n.ReturnTypeValue = t
+							r.funcReturnTypes[n.Name] = t.String()
+						}
+						break
+					}
+				}
 			}
 			if sm != nil && n.Line > 0 {
 				declFile[n.Name] = sm[n.Line]

@@ -26,6 +26,7 @@ type FuncDecl struct {
 	Params        []string
 	ParamTypes    []string // Phase 46: typed parameters (e.g., "int", "string")
 	ReturnType    string   // Type-first function return type (e.g. `int add(...)`)
+	ReturnTypeValue any    // v1.2.26 S4: structured *sema.Type (set by resolver)
 	Body          []Node
 	GenericParams []GenericTypeParam // Phase 26: generic type parameters
 	Captures      []string           // Phase 54: free variables captured from enclosing scope (lambdas only)

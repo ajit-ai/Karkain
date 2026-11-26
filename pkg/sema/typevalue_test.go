@@ -68,3 +68,18 @@ func TestTypeValue_Infer(t *testing.T) {
 		}
 	}
 }
+
+func TestTypeValue_ReturnInfer(t *testing.T) {
+	src := "func f() { return 42 }"
+	prog := parseTestProg(t, src)
+	r := NewResolver(prog, nil)
+	r.Resolve()
+	fn := prog.Statements[0].(*parser.FuncDecl)
+	rtv, ok := fn.ReturnTypeValue.(*Type)
+	if !ok || rtv == nil {
+		t.Fatal("ReturnTypeValue not set")
+	}
+	if rtv.String() != "int" {
+		t.Errorf("got %q, want int", rtv.String())
+	}
+}
