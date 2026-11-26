@@ -68,6 +68,7 @@ type Generator struct {
 	needsHTTP        bool                        // Phase 55b: track if http.get is used (strip stub otherwise)
 	needsTLS         bool                        // v1.2.17: https_request uses the C23 TLS runtime
 	needsOS          bool                        // v1.2.19: os_* builtins use the C23 OS metric runtime
+	needsJSON        bool                        // v1.2.20: json_* builtins use the C23 JSON DOM runtime
 	sourceFile       string                      // Phase 55b: source file for #line directives
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
@@ -512,6 +513,11 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 	for _, stmt := range prog.Statements {
 		g.scanNodeForOS(stmt)
 	}
+	// v1.2.20: JSON DOM builtins are emitted only on use.
+	g.needsJSON = false
+	for _, stmt := range prog.Statements {
+		g.scanNodeForJSON(stmt)
+	}
 	// Pre-scan: collect user-declared function names for deterministic symbol
 	// mangling and user-functions-first builtin shadowing.
 	g.userFuncs = make(map[string]bool)
@@ -576,6 +582,10 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	// that does not call an os_* builtin gains these symbols or headers.
 	if g.needsOS {
 		sb.WriteString(osmetricsRuntimeC())
+	}
+	// v1.2.20: same gating rule for the JSON DOM runtime.
+	if g.needsJSON {
+		sb.WriteString(jsonRuntimeC())
 	}
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
@@ -3883,6 +3893,21 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if isOSBuiltin(n.Function) {
 			return fmt.Sprintf("%s()", "karkain_os_"+strings.TrimPrefix(n.Function, "os_"))
+		}
+		if n.Function == "json_parse" {
+			return fmt.Sprintf("karkain_json_parse(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "json_type" {
+			return fmt.Sprintf("karkain_json_type(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "json_serialize" {
+			return fmt.Sprintf("karkain_json_serialize(%s)", g.genExpr(n.Args[0]))
+		}
+		if n.Function == "json_get_path" {
+			return fmt.Sprintf("karkain_json_get_path(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "json_last_error" {
+			return "karkain_json_last_error()"
 		}
 		if n.Function == "http.get" {
 			g.needsHTTP = true

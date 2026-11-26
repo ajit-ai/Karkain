@@ -145,6 +145,11 @@ func isBuiltinFunc(name) {
     if (name == "os_uptime_ms") { return 1 }
     if (name == "os_process_list") { return 1 }
     if (name == "os_last_error") { return 1 }
+    if (name == "json_parse") { return 1 }
+    if (name == "json_type") { return 1 }
+    if (name == "json_serialize") { return 1 }
+    if (name == "json_get_path") { return 1 }
+    if (name == "json_last_error") { return 1 }
     // Phase 137: concurrency builtins (existence-only, like the Go resolver).
     if (name == "channel") { return 1 }
     if (name == "chanSend") { return 1 }
@@ -219,6 +224,11 @@ func builtinArity(name) {
     if (name == "os_uptime_ms") { return 0 }
     if (name == "os_process_list") { return 0 }
     if (name == "os_last_error") { return 0 }
+    if (name == "json_parse") { return 1 }
+    if (name == "json_type") { return 1 }
+    if (name == "json_serialize") { return 1 }
+    if (name == "json_get_path") { return 2 }
+    if (name == "json_last_error") { return 0 }
     if (name == "cancel") { return 1 }
     if (name == "join_timeout") { return 2 }
     return -1

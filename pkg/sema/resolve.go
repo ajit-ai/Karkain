@@ -102,6 +102,9 @@ var builtinNames = map[string]bool{
 	"os_pid": true, "os_cpu_count": true, "os_total_mem_mb": true,
 	"os_available_mem_mb": true, "os_uptime_ms": true,
 	"os_process_list": true, "os_last_error": true,
+	// v1.2.20: JSON DOM builtins (C23 path only).
+	"json_parse": true, "json_type": true, "json_serialize": true,
+	"json_get_path": true, "json_last_error": true,
 	"Some": true, "None": true, "Ok": true, "Err": true,
 	"assert": true, "assert_eq": true, "assert_ne": true,
 	// Phase 107: concurrency builtins (channels, tasks, actors).

@@ -235,6 +235,12 @@ jobs:
         # source drift fails fast with the regen command.
         run: go test ./pkg/codegen/ -run 'TestOSMetricsKarkFresh' -count=1
 
+      - name: Run JSON runtime freshness gate
+        # v1.2.20: src/compiler/json_runtime.kark is generated from
+        # runtime/json/c/* -- this pins the mapping so a hand-edit or drift
+        # fails fast with the regen command.
+        run: go test ./pkg/codegen/ -run 'TestJSONKarkFresh' -count=1
+
       - name: Run TLS runtime freshness gate
         # v1.2.17: src/compiler/tls_runtime.kark is generated from
         # runtime/tls/c/* -- this pins the mapping so a hand-edit or drift
@@ -268,6 +274,12 @@ jobs:
         # plus process-list self-containment, runtime wiring and native K145
         # refusal. No external services or PowerShell-backed shell calls.
         run: go test ./pkg/cli/ -run 'TestPhaseV1219_' -count=1 -timeout 20m
+
+      - name: Run v1.2.20 JSON full DOM gate
+        # Real recursive-descent DOM on both engines: parse, type, nested path
+        # query, escape round-trip, deterministic errors, runtime wiring and
+        # native K145 refusal. Local string-only evidence; no external service.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1220_' -count=1 -timeout 20m
 
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1

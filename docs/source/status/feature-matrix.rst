@@ -364,3 +364,46 @@ have no process/metric syscalls and remain excluded.
      - Not supported
      - -
      - ``TestPhaseV1219_NativeRefused``, K108 boundary
+
+JSON full DOM (v1.2.20)
+===============================
+
+The C23 path parses JSON into a real Value tree on both engines. Native and
+WASM have no JSON builtins and remain excluded.
+
+.. list-table:: JSON DOM matrix
+   :widths: 40 14 18 28
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``json_dom_parse`` (nested objects/arrays)
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1220_DOMBothEngines``
+   * - ``json_dom_type``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1220_DOMBothEngines``
+   * - ``json_dom_get`` dotted/indexed path
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1220_DOMBothEngines``
+   * - ``json_dom_serialize`` escaping
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1220_EscapesRoundTrip``
+   * - ``json_dom_error`` deterministic diagnostics
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1220_DeterministicErrors``
+   * - JSON-free generated C
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1220_RuntimeWiring``
+   * - Native / WASM
+     - Not supported
+     - -
+     - ``TestPhaseV1220_NativeRefused``, K108 boundary
