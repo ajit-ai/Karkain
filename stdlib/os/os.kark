@@ -1,0 +1,37 @@
+// Karkain Standard Library - OS Metrics (v1.2.19)
+//
+// Canonical Karkain wrappers over the os_* runtime builtins. Available on the
+// C23 path on BOTH engines. Native and WASM have no OS process/metric syscalls
+// and refuse these names; see docs/source/targets/host-targets.rst.
+//
+// Every metric is an int; os_processes() is an array of "<pid>:<name>"
+// strings, sorted, capped at 64 entries and guaranteed to contain this
+// process. Failure is reported by os_error() ("" when the last call succeeded).
+
+func os_current_pid() {
+    return os_pid()
+}
+
+func os_cpu_total() {
+    return os_cpu_count()
+}
+
+func os_memory_total_mb() {
+    return os_total_mem_mb()
+}
+
+func os_memory_available_mb() {
+    return os_available_mem_mb()
+}
+
+func os_uptime() {
+    return os_uptime_ms()
+}
+
+func os_processes() {
+    return os_process_list()
+}
+
+func os_error() {
+    return os_last_error()
+}

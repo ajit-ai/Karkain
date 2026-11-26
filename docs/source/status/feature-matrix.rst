@@ -325,3 +325,42 @@ WASM have no sockets/concurrency surface here and remain excluded.
      - Not supported
      - -
      - v1.2.10 socket boundary, K108 concurrency boundary
+
+OS metrics / process enumeration (v1.2.19)
+=============================================
+
+Real OS values are available on the C23 path on both engines. Native and WASM
+have no process/metric syscalls and remain excluded.
+
+.. list-table:: OS metrics matrix
+   :widths: 40 14 18 28
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``os_current_pid`` / ``os_cpu_total``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1219_MetricsBothEngines``
+   * - ``os_memory_total_mb`` / ``os_memory_available_mb``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1219_MetricsBothEngines``
+   * - ``os_uptime`` (monotonic)
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1219_MetricsBothEngines``
+   * - ``os_processes`` (sorted, capped, contains self)
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1219_MetricsBothEngines``
+   * - Metric-free generated C
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1219_RuntimeWiring``
+   * - Native / WASM
+     - Not supported
+     - -
+     - ``TestPhaseV1219_NativeRefused``, K108 boundary

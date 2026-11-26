@@ -139,6 +139,8 @@ Stable stdlib modules
        plus ``https_get`` / ``https_post`` / ``https_last_error`` (C23 TLS,
        v1.2.17; 23 functions total) plus ``http_echo_worker`` /
        ``http_serve_echo`` (v1.2.18; 25 functions total).
+   * - ``std.os``
+     - OS metrics and process enumeration (7 functions, v1.2.19; C23 path only).
    * - ``std.db``
      - Backend-neutral database layer (SQL subset, persistence, 20 functions).
    * - ``std.path``

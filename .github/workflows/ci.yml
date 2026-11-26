@@ -229,6 +229,12 @@ jobs:
         # so a hand-edit or source drift fails fast with the regen command.
         run: go test ./pkg/codegen/ -run 'TestConcRuntimeKarkFresh' -count=1
 
+      - name: Run OS metrics runtime freshness gate
+        # v1.2.19: src/compiler/osmetrics_runtime.kark is generated from
+        # runtime/osmetrics/c/* -- this pins the mapping so a hand-edit or
+        # source drift fails fast with the regen command.
+        run: go test ./pkg/codegen/ -run 'TestOSMetricsKarkFresh' -count=1
+
       - name: Run TLS runtime freshness gate
         # v1.2.17: src/compiler/tls_runtime.kark is generated from
         # runtime/tls/c/* -- this pins the mapping so a hand-edit or drift
@@ -256,6 +262,12 @@ jobs:
         # per-connection tasks instead of blocking serially. Both engines;
         # native/WASM remain excluded by the v1.2.10 socket decision.
         run: go test ./pkg/cli/ -run 'TestPhaseV1218_' -count=1 -timeout 20m
+
+      - name: Run v1.2.19 OS metrics / process enumeration gate
+        # Real C23 OS values on both engines (predicates, not host numbers)
+        # plus process-list self-containment, runtime wiring and native K145
+        # refusal. No external services or PowerShell-backed shell calls.
+        run: go test ./pkg/cli/ -run 'TestPhaseV1219_' -count=1 -timeout 20m
 
       - name: Run Phase 138 accelerator-kernel-surface gate
         run: go test ./pkg/cli/ -run 'TestPhase138' -count=1

@@ -10,9 +10,11 @@ in the repository. Nothing can be imported from them today, and no API is
 documented here because none has been designed or implemented:
 
 * ``std.memory``
-* ``std.os``
 * ``std.concurrency``
 * ``std.diagnostics``
+
+``std.os`` was added in v1.2.19 as a real C23 OS metric / process enumeration
+module; see :doc:`os`. It is no longer Planned.
 
 Each of these is :planned:`Planned`: the module will be added when the
 corresponding capability is implemented and tested. Until then, ``import`` of
