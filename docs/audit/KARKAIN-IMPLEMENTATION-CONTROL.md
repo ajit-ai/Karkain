@@ -175,15 +175,14 @@ and MinGW to `PATH` when present, replaces the monolithic `cligates` stage
 with `cli114`–`cli119`, and fixes the `-Stage build`/`-Stage vet` no-op.
 **No full-QA-green, byte-identity or KIR-pin claim is made.**
 
-**Current slice: v1.2.17 — TLS/HTTPS — COMPLETE for the C23 path** (owner
-authorized the platform-adapter scope on 2026-11-25 after PR #37 merged at
-`099dc42`; record `docs/audit/V1.2.17-TLS-HTTPS-BASELINE.md`). Real TLS is now
-available on both front ends through `https_request` and `std.http`
-`https_get`/`https_post`, with WinHTTP/Schannel on Windows and OpenSSL on
-POSIX; native/WASM remain C23-excluded by the v1.2.10 decision.
-**Recommended next implementation: v1.2.18 — concurrent HTTP server**, the
-next ordered ecosystem blocker. It is **not started** and requires the
-owner's authorisation. **Historical, not guidance:** earlier recommendations here named
+**Current slice: v1.2.18 — concurrent HTTP server — COMPLETE for the C23
+path** (PR #38 merged at `da2af00`; record
+`docs/audit/V1.2.18-CONCURRENT-HTTP-SERVER.md`). `std.http` now exposes
+`http_serve_echo` with a named per-connection `spawn` worker; the gate proves
+concurrency with a silent first client on both engines.
+**Recommended next implementation: v1.2.19 — OS metric/process enumeration
+APIs**, the next ordered ecosystem blocker. It is **not started** and
+requires the owner's authorisation. **Historical, not guidance:** earlier recommendations here named
 v1.2.3 (`s[i]`), v1.2.6 (`sha256_hex`) and P0.2 (task cancellation); all were
 implemented and superseded by the measured v1.2.9–v1.2.15 merge history
 (PRs #30–#36).
@@ -310,6 +309,8 @@ owner-authorized amendment. An agent may propose one; it may not record one.
 | 2026-11-25 | **v1.2.16 closeout (verification/docs/harness only).** Added the exact QA-battery record `docs/audit/V1.2.16-QA-BATTERY.md`: original battery `build`/`vet` PASS then `units` FAIL (git missing from `PATH`; 692/699 MiB K127 guard); full Phase-114 family 1553.108 s exit 0; separately measured `conformance`/`probes`/`examples`/`install`/`journey`/`fresh` PASS and `docs` SKIP; monolithic `cligates` shell-SIGTERM and retired `[no tests to run]` `phase115`–`phase119` rows; corrected MinGW rerun FAILED at `TestPhase115_FreshCheckout` and isolated rerun SIGTERM. `scripts/qa/run-full-qa.ps1` now adds Git/WindowsPowerShell/MinGW to `PATH`, replaces `cligates` with anchored `cli114`–`cli119` stages, rejects `-Stage cligates`, and fixes the `-Stage build`/`-Stage vet` no-op. No byte-identity or KIR-pin claim; no compiler source moved. §5.1 recommendation updated from the long-superseded v1.2.6/P0.2 text to **v1.2.17 — TLS/HTTPS**, gated on the owner merging/pulling the v1.2.16 PR; §9.4 demoted to historical and points at §5.1. `v1.3.0-CHECKLIST.md` §2.2 v1.2.6–v1.2.15 rows reconciled to their merged PR evidence and v1.2.16 recorded without a full-green claim. **PR #37 CI follow-up:** `native-macos` now runs only on the canonical push to `main`; PR/`develop` runs SKIP instead of sitting Queued, while the gate's file, runner and assertions are unchanged and structural Mach-O gates stay in the required `Test` job. |
 | 2026-11-25 | **v1.2.17 C23 TLS/HTTPS COMPLETE** (owner chose the platform-adapter scope after the dependency tradeoff). PR #37 was MERGED at `099dc42` and `develop`/`main` synced. Added the real C23 transport surface: `https_request` (6 args) + `tls_last_error` on both engines, canonical `std.http` `https_get`/`https_post`/`https_last_error`, WinHTTP/Schannel on Windows and OpenSSL on POSIX, `verify=1` chain/hostname validation and `verify=0` loopback mode. The runtime has ONE source (`runtime/tls/c/*`), embedded by Go and generated into `src/compiler/tls_runtime.kark` by `scripts/gen-tls-runtime.ps1`; `TestTLSKarkFresh` pins the mapping. `needsTLS` gating keeps TLS-free programs (including the bootstrap compiler) on their historical link flags. Gate `pkg/cli/phase_v1217_tls_test.go` (`TestPhaseV1217_`) drove a real in-process `crypto/tls` server: loopback body and verify=1 rejection PASS on both engines, runtime wiring PASS, 17.296 s total; CI steps *Run TLS runtime freshness gate* and *Run v1.2.17 C23 TLS/HTTPS gate* wired. Native/WASM remain not supported (v1.2.10); no byte-identity or KIR claim. Audit: `docs/audit/V1.2.17-TLS-HTTPS-BASELINE.md`. |
 | 2026-11-26 | **v1.2.17 first-CI corrective change against the frozen baseline** (CI run `45656354614`, no new increment). Three measured defects: (1) whole-tree KIR pin stale — CI measured `text=18187 verify=18187` vs `17924`; both assertion sites re-pinned from that measurement, never predicted. (2) Sphinx `-W` warning `feature-matrix.rst:249: Explicit markup ends without a blank line` — blank line added. (3) Phase-114 corpus failed on imported `std.http`: the Go split path did not carry the whole-program `needsTLS` flag into the shared runtime header or link libraries, so module TUs called `karkain_https_request` with no prototype. Fixed by `SplitResult.NeedsTLS`, appending `tlsRuntimeC()` to the shared runtime text and the platform TLS libraries to the split link line. Post-fix: Phase-114 GoEngine/coverage PASS 581.688 s, KCCParity PASS 694.995 s, build/vet/freshness gates PASS. Record: `V1.2.17-TLS-HTTPS-BASELINE.md` §6. |
+| 2026-11-26 | **PR #38 MERGED** at `origin/main` `da2af00`; `main`/`develop` re-synced. The strict v1.2.x sequence gate for **v1.2.18 — concurrent HTTP server** is satisfied; inventory is being taken before any code is written. No tag or release action taken. |
+| 2026-11-26 | **v1.2.18 concurrent HTTP server COMPLETE for C23.** No new builtin or runtime: `stdlib/http/http.kark` gained named `http_echo_worker` and `http_serve_echo`, whose accept loop spawns the worker per connection. Gate `pkg/cli/phase_v1218_http_server_test.go` (`TestPhaseV1218_`) PASS 26.487s on both engines; the first client connects but stays silent, and the second must receive `hello /second` within 3 s, which a serial server cannot do. `TestPhaseV1218_RuntimeWiring` PASS. Two harness defects found and fixed: `io.Discard` pipes made `Wait()` hang after killing the compiler (now `nil` + `WaitDelay`), and the wiring negative case had to be a no-import program because importing `std.http` legitimately pulls the spawn runtime. Dedicated CI step wired. Native/WASM excluded; no byte-identity claim; KIR pin CI-measured only. Audit: `docs/audit/V1.2.18-CONCURRENT-HTTP-SERVER.md`. |
 
 ## 9. Issue register
 

@@ -290,3 +290,38 @@ names; no native or byte-identity claim is made.
      - Stable
      - Go + kcc C23
      - ``TestTLSKarkFresh``
+
+Concurrent HTTP server (v1.2.18)
+=================================
+
+The C23 path serves each connection in a spawned named worker. Native and
+WASM have no sockets/concurrency surface here and remain excluded.
+
+.. list-table:: Concurrent HTTP server matrix
+   :widths: 38 14 20 28
+   :header-rows: 1
+
+   * - Feature
+     - Status
+     - Engines
+     - Gate
+   * - ``http_serve_echo(host, port)``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1218_ConcurrentLoopback``
+   * - Per-connection ``spawn(http_echo_worker, conn)``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1218_ConcurrentLoopback``
+   * - Silent first client cannot block a second
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1218_ConcurrentLoopback``
+   * - Concurrency runtime gated by import
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1218_RuntimeWiring``
+   * - Native / WASM server
+     - Not supported
+     - -
+     - v1.2.10 socket boundary, K108 concurrency boundary
