@@ -296,10 +296,7 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 			if n.Type != "" {
 				n.TypeValue = ParseTypeString(n.Type)
 			} else if n.Value != nil {
-				// best-effort inference from struct literal
-				if sl, ok := n.Value.(*parser.StructLiteral); ok && sl.TypeName != "" {
-					n.TypeValue = ParseTypeString(sl.TypeName)
-				}
+				n.TypeValue = InferTypeValue(n.Value)
 			}
 		}
 	}
@@ -679,6 +676,12 @@ func (r *Resolver) checkStmt(s parser.Node, locals map[string]bool, callerName s
 		}
 		r.checkExpr(n.Expression, locals, callerName, sm)
 	case *parser.VarDeclStmt:
+		// v1.2.26 S2: lower the string annotation to a structured Type value.
+		if n.Type != "" && n.TypeValue == nil {
+			n.TypeValue = ParseTypeString(n.Type)
+		} else if n.Type == "" && n.Value != nil && n.TypeValue == nil {
+			n.TypeValue = InferTypeValue(n.Value)
+		}
 		if locals != nil && n.Name != "" {
 			locals[n.Name] = true
 			// Phase 1.3 (v1.3.0): track array sizes for bounds checking.

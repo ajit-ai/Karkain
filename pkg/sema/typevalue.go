@@ -7,7 +7,11 @@
 // types without blocking future real type values.
 package sema
 
-import "strings"
+import (
+	"strings"
+
+	"karkain/pkg/parser"
+)
 
 // TypeKind enumerates the primitive type kinds Karkain understands.
 type TypeKind int
@@ -108,6 +112,44 @@ func ParseTypeString(s string) *Type {
 	}
 	// Default: treat as a named type (struct/enum/function).
 	return &Type{Kind: TypeStruct, Name: s}
+}
+
+// InferTypeValue attempts to infer a *Type from an expression node.
+// Best-effort, non-validating: covers literals, struct literals, array
+// literals, Option/Result constructors. Returns nil when unknown.
+func InferTypeValue(node parser.Node) *Type {
+	if node == nil {
+		return nil
+	}
+	switch n := node.(type) {
+	case *parser.IntLiteral:
+		return &Type{Kind: TypeInt, Name: "int"}
+	case *parser.Float64Literal:
+		return &Type{Kind: TypeFloat64, Name: "float64"}
+	case *parser.BoolLiteral:
+		return &Type{Kind: TypeBool, Name: "bool"}
+	case *parser.StringLiteral:
+		return &Type{Kind: TypeString, Name: "string"}
+	case *parser.StructLiteral:
+		if n.TypeName != "" {
+			return &Type{Kind: TypeStruct, Name: n.TypeName}
+		}
+	case *parser.ArrayLiteral:
+		if len(n.Elements) > 0 {
+			elem := InferTypeValue(n.Elements[0])
+			return &Type{Kind: TypeArray, Name: "[]", Elem: elem}
+		}
+		return &Type{Kind: TypeArray, Name: "[]"}
+	case *parser.OptionSomeExpr:
+		return &Type{Kind: TypeOption, Name: "Option", Elem: InferTypeValue(n.Value)}
+	case *parser.OptionNoneExpr:
+		return &Type{Kind: TypeOption, Name: "Option"}
+	case *parser.ResultOkExpr:
+		return &Type{Kind: TypeResult, Name: "Result", Elem: InferTypeValue(n.Value)}
+	case *parser.ResultErrExpr:
+		return &Type{Kind: TypeResult, Name: "Result"}
+	}
+	return nil
 }
 
 // Equal reports whether two Types are structurally equal.
