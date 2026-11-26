@@ -330,8 +330,12 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// measured on CI run 45769925067 (Phase 122 job) (text=19769
 		// verify=19769), never predicted. Delta is the sqlite_* builtins
 		// plus generated sqlite_runtime.kark.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 19769 {
-			t.Errorf("whole-tree kir text = %d lines, want 19769:\n%s", got, out)
+		// RE-PINNED FOR v1.2.23 MEMORY SAFETY: 19769 -> 19887 (+118),
+		// measured on CI (Phase 122 job) (text=19887 verify=19887), never
+		// predicted. Delta is the linear-type checker additions in
+		// src/compiler/checker.kark.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 19887 {
+			t.Errorf("whole-tree kir text = %d lines, want 19887:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
