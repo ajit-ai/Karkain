@@ -1601,6 +1601,7 @@ func monoCreateCtx() {
     ctx = appendArray(ctx, [])  // 2: pending specializations (drained to stmts)
     ctx = appendArray(ctx, [])  // 3: emitted specialization names (dedup)
     ctx = appendArray(ctx, [])  // 4: K115 error messages
+    ctx = appendArray(ctx, [])  // 5: S6 visible binding types ([name, type] pairs)
     return ctx
 }
 
@@ -1972,9 +1973,89 @@ func monoRewriteStmts(ctx, list) {
     return list
 }
 
+// v1.2.26 S6: infer type arguments from call arguments, mirroring
+// pkg/sema/monomorph.go. Only literals, comparison/logical results and
+// identifiers with an explicit type annotation are sources; the self-hosted
+// AST has no function return-type field, so neither engine infers from calls.
+func monoInferArgType(node, types) {
+    string nt = getNodeType(node)
+    if (nt == "IntLiteral") { return "int" }
+    if (nt == "FloatLiteral") { return "float64" }
+    if (nt == "StringLiteral") { return "string" }
+    if (nt == "BoolLiteral") { return "bool" }
+    if (nt == "Ident") {
+        int i = 0
+        while (i < len(types)) {
+            if (types[i][0] == identName(node)) { return types[i][1] }
+            i = i + 1
+        }
+    }
+    if (nt == "BinaryExpr") {
+        string op = binaryOp(node)
+        if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=" || op == "&&" || op == "||") { return "bool" }
+        return monoInferArgType(binaryLeft(node), types)
+    }
+    return ""
+}
+
+func monoInferTypeArgs(ctx, node, tmpl) {
+    Value args = callArgs(node)
+    Value pts = funcParamTypes(tmpl)
+    Value gps = funcGenericParams(tmpl)
+    if (len(args) != len(pts)) { return [] }
+    Value out = []
+    int gi = 0
+    while (gi < len(gps)) {
+        string gp = gps[gi]
+        string found = ""
+        int pi = 0
+        while (pi < len(pts)) {
+            if (pts[pi] == gp) {
+                string got = monoInferArgType(args[pi], ctx[5])
+                if (got == "") { return [] }
+                if (found != "" && found != got) { return [] }
+                found = got
+            }
+            pi = pi + 1
+        }
+        if (found == "") { return [] }
+        out = appendArray(out, found)
+        gi = gi + 1
+    }
+    return out
+}
+
+func monoSetTypeArgs(node, targs) {
+    while (len(node) < 6) { node = appendArray(node, "") }
+    node[5] = targs
+    return node
+}
+
 func monoRewriteTop(ctx, stmt) {
     if (getNodeType(stmt) == "FuncDecl") {
+        // S6: visible types come only from parameters and annotated locals.
+        Value saved = ctx[5]
+        Value types = []
+        Value names = funcParams(stmt)
+        Value pts = funcParamTypes(stmt)
+        int i = 0
+        while (i < len(names) && i < len(pts)) {
+            if (pts[i] != "") { types = appendArray(types, [names[i], pts[i]]) }
+            i = i + 1
+        }
+        Value body = funcBody(stmt)
+        i = 0
+        while (i < len(body)) {
+            string nt = getNodeType(body[i])
+            if (nt == "VarDecl" || nt == "LetDecl" || nt == "ConstDecl") {
+                string t = varDeclType(body[i])
+                if (t != "") { types = appendArray(types, [varDeclName(body[i]), t]) }
+            }
+            i = i + 1
+        }
+        ctx[5] = types
         stmt[3] = monoRewriteStmts(ctx, funcBody(stmt))
+        ctx[5] = saved
         return stmt
     }
     return monoRewriteNode(ctx, stmt)
@@ -1993,7 +2074,13 @@ func monoRewriteCall(ctx, node) {
         return monoRewriteGenericCall(ctx, node)
     }
     string head = callFunc(node)
-    if (monoFindFuncTmpl(ctx, head) != []) {
+    int tmpl = monoFindFuncTmpl(ctx, head)
+    if (tmpl != []) {
+        Value inferred = monoInferTypeArgs(ctx, node, tmpl)
+        if (len(inferred) > 0) {
+            node = monoSetTypeArgs(node, inferred)
+            return monoRewriteGenericCall(ctx, node)
+        }
         monoAddError(ctx, callLine(node), "generic function '" + head + "' requires explicit type arguments (e.g. " + head + "[T](...))")
     }
     return node

@@ -42,6 +42,7 @@ func MonomorphizeProgram(prog *parser.Program) []ResolveError {
 		structTmpl: map[string]*parser.StructDeclStmt{},
 		existing:   map[string]bool{},
 		mono:       NewMonomorphizer(),
+		types:      map[string]string{},
 	}
 	for _, stmt := range prog.Statements {
 		switch n := stmt.(type) {
@@ -84,6 +85,9 @@ type monomorphCtx struct {
 	existing   map[string]bool
 	mono       *Monomorphizer
 	errors     []ResolveError
+	// v1.2.26 S6: types of bindings visible in the function currently being
+	// rewritten, used only to infer type arguments from call arguments.
+	types map[string]string
 }
 
 func (m *monomorphCtx) errf(line, col, endCol int, format string, args ...any) {
@@ -100,7 +104,23 @@ func (m *monomorphCtx) errf(line, col, endCol int, format string, args ...any) {
 // never reach here (skipped by the worklist driver).
 func (m *monomorphCtx) rewriteTop(stmt parser.Node) parser.Node {
 	if fn, ok := stmt.(*parser.FuncDecl); ok {
+		// S6: rebuild the visible type environment per function. Parameters
+		// and annotated local declarations are the only sources both engines
+		// can see (the self-hosted AST has no function return-type field).
+		saved := m.types
+		m.types = map[string]string{}
+		for i, p := range fn.Params {
+			if i < len(fn.ParamTypes) && fn.ParamTypes[i] != "" {
+				m.types[p] = fn.ParamTypes[i]
+			}
+		}
+		for _, st := range fn.Body {
+			if vd, ok := st.(*parser.VarDeclStmt); ok && vd.Type != "" {
+				m.types[vd.Name] = vd.Type
+			}
+		}
 		fn.Body = m.rewriteStmts(fn.Body)
+		m.types = saved
 		return fn
 	}
 	return m.rewriteNode(stmt)
@@ -222,11 +242,76 @@ func (m *monomorphCtx) rewriteCall(n *parser.CallExpr) parser.Node {
 	if len(n.TypeArgs) > 0 {
 		return m.rewriteGenericCall(n)
 	}
-	if _, isGeneric := m.funcTmpl[n.Function]; isGeneric && n.Module == "" && !n.IsCFunc {
+	if tmpl, isGeneric := m.funcTmpl[n.Function]; isGeneric && n.Module == "" && !n.IsCFunc {
+		// v1.2.26 S6: infer type arguments from the call's arguments when
+		// every generic parameter is determined by a parameter type. If any
+		// parameter stays unknown, keep the v1 explicit-args diagnostic.
+		if inferred := inferGenericTypeArgs(n, tmpl, m.types); len(inferred) > 0 {
+			n.TypeArgs = inferred
+			return m.rewriteGenericCall(n)
+		}
 		m.errf(n.Line, n.Col, n.EndCol,
 			"generic function '%s' requires explicit type arguments (e.g. %s[T](...))", n.Function, n.Function)
 	}
 	return n
+}
+
+// inferGenericTypeArgs derives type arguments from argument expressions.
+// Both engines use the same narrow rule: a generic parameter is inferable
+// only from a parameter whose declared type is exactly that type parameter,
+// and only from integer/float/string/bool literals, comparison/logical
+// results, or an identifier bound with an explicit type annotation.
+func inferGenericTypeArgs(n *parser.CallExpr, tmpl *parser.FuncDecl, types map[string]string) []string {
+	if len(n.Args) != len(tmpl.ParamTypes) || len(tmpl.GenericParams) == 0 {
+		return nil
+	}
+	out := make([]string, len(tmpl.GenericParams))
+	for gi, gp := range tmpl.GenericParams {
+		found := ""
+		for pi, pt := range tmpl.ParamTypes {
+			if pt != gp.Name || pi >= len(n.Args) {
+				continue
+			}
+			got := inferArgType(n.Args[pi], types)
+			if got == "" {
+				return nil
+			}
+			if found != "" && found != got {
+				return nil
+			}
+			found = got
+		}
+		if found == "" {
+			return nil
+		}
+		out[gi] = found
+	}
+	return out
+}
+
+func inferArgType(n parser.Node, types map[string]string) string {
+	switch t := n.(type) {
+	case *parser.IntLiteral:
+		return "int"
+	case *parser.Float64Literal:
+		return "float64"
+	case *parser.StringLiteral:
+		return "string"
+	case *parser.BoolLiteral:
+		return "bool"
+	case *parser.Identifier:
+		if v, ok := types[t.Name]; ok {
+			return v
+		}
+	case *parser.BinaryExpr:
+		switch t.Operator {
+		case "==", "!=", "<", ">", "<=", ">=", "&&", "||":
+			return "bool"
+		default:
+			return inferArgType(t.Left, types)
+		}
+	}
+	return ""
 }
 
 func (m *monomorphCtx) rewriteGenericCall(n *parser.CallExpr) parser.Node {

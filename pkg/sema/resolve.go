@@ -312,9 +312,18 @@ func (r *Resolver) collectDefs(stmts []parser.Node, sm SourceMap) {
 			if n.Const && n.Name != "" {
 				r.consts[n.Name] = true
 			}
-			// v1.2.26 S2: lower the string annotation to a structured Type value.
+			// v1.2.26 S2: lower the string annotation to a structured Type
+			// value; S7 refines ambiguous initializer shapes with that
+			// expected type. This only writes VarDeclStmt.TypeValue (metadata)
+			// and never enters a type-checking map.
 			if n.Type != "" {
-				n.TypeValue = ParseTypeString(n.Type)
+				declared := ParseTypeString(n.Type)
+				n.TypeValue = declared
+				if n.Value != nil {
+					if refined := InferTypeValueWithContext(n.Value, declared); refined != nil {
+						n.TypeValue = refined
+					}
+				}
 			} else if n.Value != nil {
 				n.TypeValue = InferTypeValue(n.Value)
 			}

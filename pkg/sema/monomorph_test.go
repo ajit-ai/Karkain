@@ -21,6 +21,30 @@ func parse146(t *testing.T, src string) *parser.Program {
 	return parser.ApplyMacroExpansion(prog)
 }
 
+// v1.2.26 S6: a call to a generic function whose parameter type is the type
+// parameter can infer its type argument from a literal, without [int].
+func TestMonomorph_InferredTypeArgs(t *testing.T) {
+	prog := parse146(t, "func id[T](x T) { return x }\nfunc main() { print(id(42)); print(id(\"hi\")) }\n")
+	if errs := MonomorphizeProgram(prog); len(errs) > 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	names := map[string]bool{}
+	for _, s := range prog.Statements {
+		if fn, ok := s.(*parser.FuncDecl); ok {
+			names[fn.Name] = true
+		}
+	}
+	if !names["id_int"] || !names["id_string"] {
+		t.Fatalf("inferred specializations missing: %v", names)
+	}
+	// An unannotated binding cannot infer: v1 keeps the explicit-args error.
+	bad := parse146(t, "func id[T](x T) { return x }\nfunc main() { let a = 2; print(id(a)) }\n")
+	errs := MonomorphizeProgram(bad)
+	if len(errs) == 0 || !strings.Contains(errs[0].Msg, "requires explicit type arguments") {
+		t.Fatalf("expected explicit-args diagnostic for untyped binding, got %v", errs)
+	}
+}
+
 func TestMonomorph_GenericFuncInstantiates(t *testing.T) {
 	prog := parse146(t, "func id[T](x) {\nreturn x\n}\nfunc main() {\nprint(id[int](1))\n}\n")
 	if errs := MonomorphizeProgram(prog); len(errs) > 0 {

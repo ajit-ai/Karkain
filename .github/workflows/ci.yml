@@ -90,6 +90,15 @@ jobs:
       - name: Run type-first semantic gate
         run: go test ./pkg/sema/ -run 'TestTypeFirst' -count=1
 
+      - name: Run v1.2.26 type-value inference gate
+        run: go test ./pkg/sema/ -run 'TestTypeValue' -count=1
+
+      - name: Run v1.2.26 kcc const-folding parity gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1226C_' -count=1
+
+      - name: Run v1.2.26 generics inference gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1226D_' -count=1
+
       - name: Install GCC and GMP
         run: sudo apt-get update && sudo apt-get install -y gcc libgmp-dev
 
