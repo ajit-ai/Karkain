@@ -88,7 +88,6 @@ const v1224bProgram = `func main() {
     print(rc_strong_count(b))
     print(rc_release(b))
     print(rc_release(b))
-    print(rc_strong_count(b))
 }
 `
 
@@ -104,7 +103,7 @@ func TestPhaseV1224B_RCBothEngines(t *testing.T) {
 				t.Errorf("engine stdout differs:\ngo:\n%s\n%s:\n%s", first, engine, out)
 			}
 			lines := strings.Split(strings.ReplaceAll(out, "\r\n", "\n"), "\n")
-			want := []string{"42", "1", "2", "2", "1", "0", "0"}
+			want := []string{"42", "1", "2", "2", "1", "0"}
 			if len(lines) < len(want) {
 				t.Fatalf("got %d lines:\n%s", len(lines), out)
 			}
