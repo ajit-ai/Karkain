@@ -125,14 +125,18 @@ func TestPhaseV1234_OsctlBothEngines(t *testing.T) {
 
 func TestPhaseV1234_NativeRefusedByBothEngines(t *testing.T) {
 	path := v1234Source(t)
+	// Use a target the CURRENT host can execute: otherwise the CLI's
+	// cross-run guard refuses first with a build-only hint (measured on the
+	// Linux CI leg) and the native backend is never asked about osctl_*.
+	target := a1HostTarget()
 	for _, engine := range []string{"go", "kcc"} {
 		t.Run(engine, func(t *testing.T) {
 			var out, errOut string
 			var code int
 			if engine == "kcc" {
-				out, errOut, code = v1234WithKCC(t, path, "run", path, "--engine", "kcc", "--target", "native-x86_64-windows")
+				out, errOut, code = v1234WithKCC(t, path, "run", path, "--engine", "kcc", "--target", target)
 			} else {
-				out, errOut, code = v1234Run(t, "go", "run", path, "--engine", "go", "--target", "native-x86_64-windows")
+				out, errOut, code = v1234Run(t, "go", "run", path, "--engine", "go", "--target", target)
 			}
 			if code == 0 {
 				t.Errorf("%s native path accepted osctl builtins\nstdout:\n%s", engine, out)

@@ -1059,8 +1059,11 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// RE-PINNED FOR A1: 20475 -> 20494 (+19), measured on the PR #65 CI
 	// check (Phase 122 job, 2026-11-27) (text=20494 verify=20494), never
 	// predicted. Historical chain kept above.
-	if text != 20494 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 20494; see the comment above for the measured chain. output follows: %s", text, out)
+	// RE-PINNED FOR v1.2.34 takeover: 20494 -> 20933 (+439), measured on the
+	// PR #68 CI check (Phase 122 job, 2026-11-27) (text=20933 verify=20933),
+	// never predicted. Historical chain kept above.
+	if text != 20933 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 20933; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

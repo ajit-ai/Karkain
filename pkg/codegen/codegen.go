@@ -1575,7 +1575,14 @@ Value writeToFile(Value handle, Value content) {
 // writeBytes writes each array element as one raw byte and marks the result
 // executable: the CLI used to do this with os.WriteFile(..., 0o755), and
 // without it a kcc-written ELF cannot be run on Linux (mode 0644).
+// POSIX already declares chmod(const char*, mode_t) in sys/stat.h; repeating
+// it with an int mode conflicts on glibc (CI caught this). Windows needs the
+// declaration, so gate it by platform.
+#ifdef _WIN32
 extern int chmod(const char*, int);
+#else
+#include <sys/stat.h>
+#endif
 Value karkain_writeBytes(Value path, Value arr) {
     if (path.type != TYPE_STRING || arr.type != TYPE_ARRAY) return make_int(0);
     FILE* f = fopen(path.strVal ? path.strVal : "", "wb");

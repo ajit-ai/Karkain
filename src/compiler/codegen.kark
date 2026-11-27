@@ -940,7 +940,14 @@ func emitC11ValueRuntime(state) {
     // The CLI used to mark the image executable with os.WriteFile(...,0o755).
     // Keep that here, inside the same emitted line so the KIR line count does
     // not move again: mode 0644 makes a kcc-written ELF unrunnable on Linux.
-    emitLine(state, "extern int chmod(const char*, int); static Value karkain_writeBytes(Value path, Value arr) { if(path.type!=TYPE_STRING||arr.type!=TYPE_ARRAY) return make_int(0); FILE* f=fopen(path.strVal?path.strVal:\"\",\"wb\"); if(!f) return make_int(0); long long i; for(i=0;i<arr.length;i++){ Value v=*arr.items[i]; long long b=(v.type==TYPE_INT||v.type==TYPE_BOOL)?v.intVal:0; fputc((unsigned char)(b&255),f); } fclose(f); chmod(path.strVal?path.strVal:\"\",493); return make_int(1); }")
+    // POSIX declares chmod(const char*, mode_t) in sys/stat.h; repeating it
+    // with an int mode conflicts on glibc. Windows needs the declaration.
+    emitLine(state, "#ifdef _WIN32")
+    emitLine(state, "extern int chmod(const char*, int);")
+    emitLine(state, "#else")
+    emitLine(state, "#include <sys/stat.h>")
+    emitLine(state, "#endif")
+    emitLine(state, "static Value karkain_writeBytes(Value path, Value arr) { if(path.type!=TYPE_STRING||arr.type!=TYPE_ARRAY) return make_int(0); FILE* f=fopen(path.strVal?path.strVal:\"\",\"wb\"); if(!f) return make_int(0); long long i; for(i=0;i<arr.length;i++){ Value v=*arr.items[i]; long long b=(v.type==TYPE_INT||v.type==TYPE_BOOL)?v.intVal:0; fputc((unsigned char)(b&255),f); } fclose(f); chmod(path.strVal?path.strVal:\"\",493); return make_int(1); }")
     emitLine(state, "static Value karkain_readFile(Value path) { if(path.type!=TYPE_STRING) return make_string(\"\"); FILE* f=fopen(path.strVal?path.strVal:\"\",\"rb\"); if(!f) return make_string(\"\"); fseek(f,0,SEEK_END); long sz=ftell(f); fseek(f,0,SEEK_SET); char* buf=(char*)malloc(sz+1); if(sz>0) fread(buf,1,sz,f); fclose(f); buf[sz]='\\0'; Value res=make_string(buf); free(buf); return res; }")
     emitLine(state, "static Value karkain_writeFile(Value path, Value content) { if(path.type!=TYPE_STRING) return make_int(0); FILE* f=fopen(path.strVal?path.strVal:\"\",\"wb\"); if(!f) return make_int(0); const char* str=(content.type==TYPE_STRING)?(content.strVal?content.strVal:\"\"):\"\"; fputs(str,f); fclose(f); return make_int(1); }")
     emitLine(state, "static Value karkain_trim(Value str) { if(str.type!=TYPE_STRING) return make_string(\"\"); char* s=str.strVal?str.strVal:\"\"; char* start=s; char* end=s+strlen(s)-1; while(start<=end&&(*start==' '||*start=='\\t'||*start=='\\n'||*start=='\\r')) start++; while(end>=start&&(*end==' '||*end=='\\t'||*end=='\\n'||*end=='\\r')) end--; size_t len=(end>=start)?(end-start+1):0; char* buf=(char*)malloc(len+1); if(len>0) memcpy(buf,start,len); buf[len]='\\0'; Value res=make_string(buf); free(buf); return res; }")
