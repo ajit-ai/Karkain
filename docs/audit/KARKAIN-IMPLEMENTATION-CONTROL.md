@@ -167,9 +167,13 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 > and the numbered v1.2.x line ends at **v1.2.36** (`proposed`) in §4.4.
 > The unnumbered corrective slice *kcc C-style `for` scope leak* is COMPLETE
 > in this change (record `docs/audit/FOR-SCOPE-CORRECTIVE.md`). The
-> owner-approved order from here is: Step M (read-only measurement baseline),
-> then the named slice A1 (kcc owns native build/run), then v1.2.34, v1.2.35
-> and v1.2.36 — each still needing its own owner authorisation. **v1.2.32**
+> owner-approved order from here is: Step M (read-only measurement baseline)
+> — **COMPLETE** (`docs/audit/STEP-M-COMPILE-RUN-MEASUREMENT.md`), then the
+> named slice A1 (kcc owns native build/run), then v1.2.34, v1.2.35 and
+> v1.2.36 — each still needing its own owner authorisation. Step M measured
+> the warm default C23 path at ~1.98 s median versus ~0.19 s for native,
+> so A1 and v1.2.35 target the actual cost; no compiler rewrite is indicated.
+> **v1.2.32**
 > (REL-001 sanitizer) and **v1.2.33** (security/capability) are not authorised
 > by this record, and no v1.3.0 work is opened.
 
