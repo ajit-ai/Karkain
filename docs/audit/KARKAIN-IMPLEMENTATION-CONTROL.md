@@ -169,7 +169,8 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 > in this change (record `docs/audit/FOR-SCOPE-CORRECTIVE.md`). The
 > owner-approved order from here is: Step M (read-only measurement baseline)
 > — **COMPLETE** (`docs/audit/STEP-M-COMPILE-RUN-MEASUREMENT.md`), then the
-> named slice A1 (kcc owns native build/run), then v1.2.34, v1.2.35 and
+> named slice A1 (kcc owns native build/run) — **COMPLETE**
+> (`docs/audit/A1-NATIVE-BUILD-RUN-BASELINE.md`), then v1.2.34, v1.2.35 and
 > v1.2.36 — each still needing its own owner authorisation. Step M measured
 > the warm default C23 path at ~1.98 s median versus ~0.19 s for native,
 > so A1 and v1.2.35 target the actual cost; no compiler rewrite is indicated.

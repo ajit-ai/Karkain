@@ -50,7 +50,7 @@ func main() {
         // machine-code backend, so the answer is a refusal naming the reason
         // (see PHASE-151A-BASELINE.md 4: real emission is 151A/B/C).
         if (isNativeTarget(target)) {
-            buildNativeFile(args[2], target, natHasFlag(args, "--regalloc"))
+            buildNativeFile(args[2], target, natHasFlag(args, "--regalloc"), natOutputArg(args))
             return
         }
         buildFile(args[2], target)
@@ -59,7 +59,13 @@ func main() {
 
     if (command == "run") {
         if (argc < 3) {
-            print("Usage: karkain run <file.kark>")
+            print("Usage: karkain run <file.kark> [--target c23|native-x86_64-*]")
+            return
+        }
+        string target = "c23"
+        if (argc >= 5 && args[3] == "--target") { target = args[4] }
+        if (isNativeTarget(target)) {
+            runNativeFile(args[2], target, natHasFlag(args, "--regalloc"))
             return
         }
         runFile(args[2])
@@ -606,7 +612,19 @@ func natHasFlag(args, name) {
 // does not call the Go backend, because that is the silent fallback this
 // increment exists to end. Real emission is increments 151A/B/C; see
 // docs/audit/PHASE-151A-BASELINE.md.
-func buildNativeFile(path, target, useRegAlloc) {
+// natOutputArg finds --output <path> in a build argument list. Empty means
+// "print the hex only", which is the frozen 151D/A1/Phase-B contract the Go
+// CLI still uses; A1 adds direct file output without breaking that path.
+func natOutputArg(args) {
+    int i = 3
+    while (i + 1 < len(args)) {
+        if (args[i] == "--output") { return args[i + 1] }
+        i = i + 1
+    }
+    return ""
+}
+
+func buildNativeFile(path, target, useRegAlloc, outPath) {
     string source = assembleProject(path)
     if (source == "") { return }
 
@@ -683,6 +701,13 @@ func buildNativeFile(path, target, useRegAlloc) {
           return
         }
         print("[kcc] native image " + str(len(nres[1])) + " bytes")
+        // A1: write the image ourselves. writeToFile would truncate at the
+        // first NUL; writeBytes emits one raw byte per array element.
+        if (outPath != "") {
+            let wrote = writeBytes(outPath, nres[1])
+            if (wrote == 0) { print("error[K145]: cannot write " + outPath); return }
+            print("[ok] " + outPath)
+        }
         print(natToHex(nres[1]))
         return
       }
@@ -690,6 +715,51 @@ func buildNativeFile(path, target, useRegAlloc) {
       print("error[K116]: the self-hosted engine (kcc) cannot emit --target " + target + ".")
       print("  This is refused here, by kcc, rather than silently handed to the Go engine.")
       print("  The " + target + " C-free target is implemented by the Go backend alone.")
+}
+
+// runNativeFile is A1's native counterpart to runFile: the same whole-program
+// driver buildNativeFile uses, emitting a C-free image, writing it with
+// writeBytes, executing it and removing the temporary file. No gcc, no C23
+// and no Go launcher are involved.
+func runNativeFile(path, target, useRegAlloc) {
+    string source = assembleProject(path)
+    if (source == "") { return }
+
+    Value tokens = tokenize(source)
+    int state = createParserState(tokens, source)
+    int ast = parseWithState(state)
+    if (hasParserErrors(state)) {
+        printParserErrors(state)
+        return
+    }
+    int typeErrs = typeCheckProgram(ast)
+    if (len(typeErrs) > 0) {
+        int ei = 0
+        while (ei < len(typeErrs)) {
+            print(typeErrs[ei])
+            ei = ei + 1
+        }
+        return
+    }
+
+    int nos = 0
+    if (target == "native-x86_64-windows") { nos = 1 }
+    if (target == "native-x86_64-macos") { nos = 2 }
+    int nres = natNativeProgramOS(ast, nos, fileBaseName(path), useRegAlloc)
+    if (nres[0] != "") {
+        print(nres[0])
+        return
+    }
+
+    string out = "karkain_native_temp"
+    if (nos == 1) { out = out + ".exe" }
+    let wrote = writeBytes(out, nres[1])
+    if (wrote == 0) { print("error[K145]: cannot write " + out); return }
+
+    string cmd = out
+    if (nos != 1) { cmd = "./" + out }
+    system(cmd)
+    removeFile(out)
 }
 
 func buildFile(path, target) {

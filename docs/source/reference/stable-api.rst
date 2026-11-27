@@ -176,6 +176,15 @@ Stable stdlib modules
 
 Full stdlib reference: :doc:`/stdlib/index`.
 
+Stable file builtins
+====================
+
+``writeBytes(path, array)`` writes one raw byte per array element and returns
+``1`` on success, ``0`` otherwise. Unlike ``writeToFile`` (which uses
+``fputs``), it does not stop at a NUL byte, so it can write a native image.
+It is registered on both engines; gate: ``TestPhaseA1_``. See
+``docs/audit/A1-NATIVE-BUILD-RUN-BASELINE.md``.
+
 Stable diagnostic expectations
 ==============================
 

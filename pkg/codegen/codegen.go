@@ -1558,6 +1558,22 @@ Value writeToFile(Value handle, Value content) {
     return make_int(1);
 }
 
+// A1: byte-level file output. writeToFile uses fputs, which stops at the
+// first NUL, so it cannot write a native image (PE/ELF/Mach-O contain NULs).
+// writeBytes writes each array element as one raw byte.
+Value karkain_writeBytes(Value path, Value arr) {
+    if (path.type != TYPE_STRING || arr.type != TYPE_ARRAY) return make_int(0);
+    FILE* f = fopen(path.strVal ? path.strVal : "", "wb");
+    if (!f) return make_int(0);
+    for (long long i = 0; i < arr.arrVal.length; i++) {
+        Value v = *arr.arrVal.items[i];
+        long long b = (v.type == TYPE_INT || v.type == TYPE_BOOL) ? v.intVal : 0;
+        fputc((unsigned char)(b & 0xFF), f);
+    }
+    fclose(f);
+    return make_int(1);
+}
+
 Value removeFile(Value path) {
     return karkain_removeFile(path);
 }
@@ -4142,6 +4158,9 @@ func (g *Generator) genExpr(node parser.Node) string {
 		}
 		if n.Function == "writeToFile" {
 			return fmt.Sprintf("writeToFile(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
+		}
+		if n.Function == "writeBytes" {
+			return fmt.Sprintf("karkain_writeBytes(%s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]))
 		}
 		if n.Function == "removeFile" {
 			return fmt.Sprintf("removeFile(%s)", g.genExpr(n.Args[0]))
