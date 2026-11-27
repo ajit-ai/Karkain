@@ -195,6 +195,37 @@ func a1Run(t *testing.T, exe string, args []string, shimDir string) (string, str
 	return out.String(), errOut.String(), code
 }
 
+// a1HostTarget picks the container the CURRENT host can actually execute.
+// A fixed Windows target made the gate fail on Linux CI with "exec format
+// error": kcc correctly emits a PE for that target, and Linux correctly
+// refuses to run it. That is a gate defect, not a compiler defect.
+func a1HostTarget() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "native-x86_64-windows"
+	case "darwin":
+		return "native-x86_64-macos"
+	default:
+		return "native-x86_64-linux"
+	}
+}
+
+func a1ValidateImage(t *testing.T, img []byte) {
+	t.Helper()
+	var err error
+	switch runtime.GOOS {
+	case "windows":
+		_, _, err = native.ParsePE(img)
+	case "darwin":
+		_, _, err = native.ParseMachO(img)
+	default:
+		_, _, err = native.Parse(img)
+	}
+	if err != nil {
+		t.Fatalf("image is not a valid %s container: %v", runtime.GOOS, err)
+	}
+}
+
 func a1Calls(t *testing.T, log string) []string {
 	t.Helper()
 	data, err := os.ReadFile(log)
@@ -223,12 +254,15 @@ func TestPhaseA1_KccBuildWritesNativeImageDirectly(t *testing.T) {
 	shimDir, log := a1Shims(t)
 	dir := t.TempDir()
 	src := filepath.Join(dir, "hello.kark")
-	out := filepath.Join(dir, "hello-built.exe")
+	out := filepath.Join(dir, "hello-built")
+	if runtime.GOOS == "windows" {
+		out += ".exe"
+	}
 	if err := os.WriteFile(src, []byte(a1Hello), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	stdout, stderr, code := a1Run(t, kcc, []string{"build", src, "--target", "native-x86_64-windows", "--output", out}, shimDir)
+	stdout, stderr, code := a1Run(t, kcc, []string{"build", src, "--target", a1HostTarget(), "--output", out}, shimDir)
 	if code != 0 {
 		t.Fatalf("kcc build exit = %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}
@@ -245,9 +279,7 @@ func TestPhaseA1_KccBuildWritesNativeImageDirectly(t *testing.T) {
 	if len(img) == 0 {
 		t.Fatal("kcc wrote an empty image")
 	}
-	if _, _, err := native.ParsePE(img); err != nil {
-		t.Fatalf("image is not a valid PE: %v", err)
-	}
+	a1ValidateImage(t, img)
 
 	// Execute it to prove the bytes are a runnable program, not just a
 	// structurally valid container.
@@ -292,7 +324,7 @@ func TestPhaseA1_KccRunNativeImageDirectly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stdout, stderr, code := a1Run(t, kcc, []string{"run", src, "--target", "native-x86_64-windows"}, shimDir)
+	stdout, stderr, code := a1Run(t, kcc, []string{"run", src, "--target", a1HostTarget()}, shimDir)
 	if code != 0 {
 		t.Fatalf("kcc native run exit = %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
 	}

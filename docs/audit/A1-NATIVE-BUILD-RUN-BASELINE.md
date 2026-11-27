@@ -127,3 +127,19 @@ count does not move again. No new builtin or call site was added.
 assertion sites in `phase122_pipeline_ownership_test.go` and
 `phase151a5_win_test.go` were re-pinned from that measurement, with the
 historical comment chains kept verbatim. Nothing was predicted locally.
+
+## 8. Third CI corrective — host-aware gate
+
+The next Linux run failed `TestPhaseA1_` with `exec format error` and empty
+`kcc run` stdout. The **gate**, not the compiler, was at fault: it always
+requested `native-x86_64-windows`, so kcc correctly emitted a PE that Linux
+correctly refused to execute. No validator in the gate accepted an ELF either.
+
+Fix in `pkg/cli/phase_a1_native_own_test.go`: `a1HostTarget()` selects
+`native-x86_64-windows` / `-linux` / `--macos` from `runtime.GOOS`, and
+`a1ValidateImage()` uses the matching oracle parser (`ParsePE` / `Parse` /
+`ParseMachO`). The output filename keeps `.exe` on Windows only. This is a
+gate correction; no compiler source changed, so the KIR pin stays at 20494.
+
+Verified: the updated gate passes in a clean detached worktree at HEAD
+(40.597 s) with the concurrent v1.2.34 WIP excluded.
