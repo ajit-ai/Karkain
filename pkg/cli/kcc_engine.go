@@ -345,6 +345,9 @@ func KCCCheckCommand(w io.Writer, file string, verbose bool) CommandResult {
 	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
+	if err := applyKCCBridge(checkFile); err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
 	out, code := runKCC(bin, "check", checkFile)
 	if code == 0 && strings.Contains(out, "[ok]") {
 		return CommandResult{ExitCode: ExitSuccess, Message: out}
@@ -400,6 +403,9 @@ func KCCBuildCommand(w io.Writer, file, outputPath string, cfg codegen.Config, v
 	// engine assembles flat projects itself inside the sandbox.
 	srcFile, err := kccStageInput(file, sandbox)
 	if err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+	if err := applyKCCBridge(srcFile); err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
 
@@ -471,7 +477,10 @@ func kccAssembleSource(file string) (string, error) {
 		return "", err
 	}
 	re := regexp.MustCompile(`(?m)^[ \t]*import[ \t]+[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*[ \t]*\r?$`)
-	return re.ReplaceAllString(text, ""), nil
+	text = re.ReplaceAllString(text, "")
+	// v1.2.26 S4b-2: lower trait/impl declarations for the self-hosted
+	// parser (Go side keeps the real declarations and their validation).
+	return stripTraitImplForKCC(text), nil
 }
 
 // ---- Phase 122: flat project detection and sandbox mirroring ----
@@ -835,6 +844,9 @@ func KCCRunCommand(w io.Writer, file string, cfg codegen.Config, verbose bool) C
 	// engine assembles flat projects itself inside the sandbox.
 	copyPath, err := kccStageInput(file, sandbox)
 	if err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
+	}
+	if err := applyKCCBridge(copyPath); err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: err.Error()}
 	}
 
