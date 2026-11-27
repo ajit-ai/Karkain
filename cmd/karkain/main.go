@@ -1173,6 +1173,40 @@ func runProfCommand(args []string) int {
 	return result.ExitCode
 }
 
+// runCoverageCommand is the v1.2.27 dispatcher for `karkain coverage`.
+// Coverage instrumentation lives in the Go backend, so this command does not
+// consult the default-engine setting (kcc coverage is a separate boundary).
+func runCoverageCommand(args []string) int {
+	file := ""
+	verbose := false
+	for _, arg := range args {
+		switch {
+		case arg == "--verbose":
+			verbose = true
+		case arg == "-h" || arg == "--help":
+			fmt.Println("Usage: karkain coverage <file.kark> [--verbose]")
+			return cli.ExitSuccess
+		case strings.HasPrefix(arg, "-"):
+			fmt.Printf("Error: Unknown flag '%s'\n", arg)
+			return cli.ExitUsage
+		case file == "":
+			file = arg
+		default:
+			fmt.Printf("Error: unexpected argument '%s'\n", arg)
+			return cli.ExitUsage
+		}
+	}
+	if file == "" {
+		fmt.Println("Error: No input .kark file specified (usage: karkain coverage <file.kark>)")
+		return cli.ExitUsage
+	}
+	result := cli.CoverageCommand(file, verbose)
+	if result.Message != "" {
+		fmt.Println(result.Message)
+	}
+	return result.ExitCode
+}
+
 func printProfHelp() {
 	fmt.Println(`Usage: karkain prof [options] <file.kark>
 
@@ -1293,6 +1327,8 @@ func main() {
 		os.Exit(handlePackageCommand(args))
 	case "prof":
 		os.Exit(runProfCommand(args[1:]))
+	case "coverage":
+		os.Exit(runCoverageCommand(args[1:]))
 	case "dbg":
 		if len(args) < 2 {
 			fmt.Println("Error: No input .kark file specified (usage: karkain dbg <file.kark>)")

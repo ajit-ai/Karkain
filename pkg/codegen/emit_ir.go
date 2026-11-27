@@ -159,6 +159,10 @@ func (g *Generator) emitSSAFunction(fn *ssa.Function, paramNames []string) strin
 	// chain with a source file and line for each function.
 	fmt.Fprintf(&sb, "\tkarkain_frame_enter(%s, %s);\n", strconv.Quote(fn.Name), g.sourceBaseC())
 	fmt.Fprintf(&sb, "\tkarkain_set_line(%d);\n", fn.Line)
+	// v1.2.27: function-coverage hit (coverage builds only).
+	if g.cfg.Coverage {
+		fmt.Fprintf(&sb, "\tkarkain_cov_hit(%s);\n", strconv.Quote(fn.Name))
+	}
 	// Phase 110: profile entry hook (after the frame is on the stack).
 	profEnter(&sb)
 	// Function parameters are bound directly by the signature — no copies needed.
