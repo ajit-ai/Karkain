@@ -355,8 +355,12 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// and the S6 inference helpers plus the generic-parameter annotation
 		// arm in checker.kark/parser.kark. The earlier comment chain is kept
 		// verbatim as the historical record.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 20463 {
-			t.Errorf("whole-tree kir text = %d lines, want 20463:\n%s", got, out)
+		// RE-PINNED FOR v1.2.28 GUI platform decision: 20463 -> 20474 (+11),
+		// measured on CI run 45929729570 (Phase 122 job) (text=20474
+		// verify=20474), never predicted. Delta is the gui_available builtin
+		// registration in checker/sema.kark plus its codegen arm.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 20474 {
+			t.Errorf("whole-tree kir text = %d lines, want 20474:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
