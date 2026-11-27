@@ -163,6 +163,7 @@ func NewResolver(prog *parser.Program, sm SourceMap) *Resolver {
 	}
 	r.collectDefs(prog.Statements, sm)
 	r.collectStructTypes(prog.Statements)
+	r.validateTraits(prog.Statements)
 	r.checkStructFields(prog.Statements)
 	r.checkExplicitTypes(prog.Statements)
 	if sm != nil && len(prog.Imports) > 0 {

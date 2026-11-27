@@ -136,6 +136,22 @@ func (p *Parser) ParseProgram() *Program {
 			if stmt := p.parseEnumDecl(); stmt != nil {
 				prog.Statements = append(prog.Statements, stmt)
 			}
+		} else if p.curToken.Type == lexer.TokenTrait {
+			progressed = true
+			if stmt := p.parseTraitDecl(); stmt != nil {
+				prog.Statements = append(prog.Statements, stmt)
+			}
+		} else if p.curToken.Type == lexer.TokenImpl {
+			progressed = true
+			if stmt := p.parseImplDecl(); stmt != nil {
+				prog.Statements = append(prog.Statements, stmt)
+				// S4b-1: impl methods are ordinary functions as well as trait
+				// members, so existing resolution and C emission see them.
+				for i := range stmt.Methods {
+					m := stmt.Methods[i]
+					prog.Statements = append(prog.Statements, &m)
+				}
+			}
 		} else if p.curToken.Type == lexer.TokenImport {
 			progressed = true
 			// Peek at next token to distinguish C imports from module imports.
@@ -409,6 +425,117 @@ func (p *Parser) tryGenericArgs(follow lexer.TokenType) (args []string, ok bool)
 	}
 	p.nextToken() // consume the follower — caller continues after it
 	return args, true
+}
+
+// v1.2.26 S4b-1: trait Name { fn m(type name, ...) ReturnType; ... }
+// Method signatures carry names and arity only; constraints and dispatch are
+// later slices. parseTraitMethodParams accepts the dialect's `T x` form.
+func (p *Parser) parseTraitMethodParams() []Parameter {
+	var params []Parameter
+	if p.curToken.Type != lexer.TokenLParen {
+		return params
+	}
+	p.nextToken()
+	for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+		first := p.curToken.Literal(p.src)
+		p.nextToken()
+		if p.curToken.Type == lexer.TokenIdent || isTypeStartToken(p.curToken.Type) {
+			second := p.curToken.Literal(p.src)
+			p.nextToken()
+			params = append(params, Parameter{Name: second, Type: first})
+		}
+		if p.curToken.Type == lexer.TokenComma {
+			p.nextToken()
+		}
+	}
+	if p.curToken.Type == lexer.TokenRParen {
+		p.nextToken()
+	}
+	return params
+}
+
+func (p *Parser) parseTraitDecl() *TraitDeclStmt {
+	line := int(p.curToken.Line)
+	p.nextToken() // consume 'trait'
+	if p.curToken.Type != lexer.TokenIdent {
+		p.addError("expected trait name after 'trait'")
+		return nil
+	}
+	t := &TraitDeclStmt{Name: p.curToken.Literal(p.src), Line: line}
+	p.nextToken()
+	if p.curToken.Type != lexer.TokenLBrace {
+		p.addError(fmt.Sprintf("expected '{' after trait name '%s'", t.Name))
+		return nil
+	}
+	p.nextToken()
+	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
+		if p.curToken.Type == lexer.TokenFn {
+			p.nextToken()
+			if p.curToken.Type != lexer.TokenIdent {
+				p.addError("expected method name in trait declaration")
+				p.nextToken()
+				continue
+			}
+			m := TraitMethod{Name: p.curToken.Literal(p.src)}
+			p.nextToken()
+			m.Params = p.parseTraitMethodParams()
+			if p.curToken.Type == lexer.TokenIdent || isTypeStartToken(p.curToken.Type) {
+				m.ReturnType = p.curToken.Literal(p.src)
+				p.nextToken()
+			}
+			t.Methods = append(t.Methods, m)
+			if p.curToken.Type == lexer.TokenSemicolon {
+				p.nextToken()
+			}
+			continue
+		}
+		p.nextToken() // skip unexpected tokens inside the trait body
+	}
+	if p.curToken.Type == lexer.TokenRBrace {
+		p.nextToken()
+	}
+	return t
+}
+
+// parseImplDecl parses: impl Trait for Type { func m(...) T { ... } ... }
+func (p *Parser) parseImplDecl() *ImplDeclStmt {
+	line := int(p.curToken.Line)
+	p.nextToken() // consume 'impl'
+	if p.curToken.Type != lexer.TokenIdent {
+		p.addError("expected trait name after 'impl'")
+		return nil
+	}
+	impl := &ImplDeclStmt{TraitName: p.curToken.Literal(p.src), Line: line}
+	p.nextToken()
+	if p.curToken.Type != lexer.TokenFor {
+		p.addError(fmt.Sprintf("expected 'for' after impl trait '%s'", impl.TraitName))
+		return nil
+	}
+	p.nextToken()
+	if p.curToken.Type != lexer.TokenIdent && !isTypeStartToken(p.curToken.Type) {
+		p.addError("expected concrete type after 'for'")
+		return nil
+	}
+	impl.ForType = p.curToken.Literal(p.src)
+	p.nextToken()
+	if p.curToken.Type != lexer.TokenLBrace {
+		p.addError("expected '{' after impl type")
+		return nil
+	}
+	p.nextToken()
+	for p.curToken.Type != lexer.TokenRBrace && p.curToken.Type != lexer.TokenEOF {
+		if p.curToken.Type == lexer.TokenFunc {
+			if fn := p.parseFunc(); fn != nil {
+				impl.Methods = append(impl.Methods, *fn)
+			}
+			continue
+		}
+		p.nextToken()
+	}
+	if p.curToken.Type == lexer.TokenRBrace {
+		p.nextToken()
+	}
+	return impl
 }
 
 func (p *Parser) parseFunc() *FuncDecl {
