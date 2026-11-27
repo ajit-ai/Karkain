@@ -185,6 +185,12 @@ return expr
 
 `for-in` iterates arrays (element) and maps (key/value) by iterable type.
 
+A C-style `for` ends a scope: its init binding and any name first declared in
+its body are not visible after the loop. Reading one after the loop is a
+name-resolution error (Go `error[K002]`, kcc `error[K102]`) on both engines.
+`for-in`, `while`, `if` and `Block` bodies do **not** create that boundary in
+the checker; their declarations remain visible after the construct.
+
 ### 3.5 Match Ã¢Å“â€¦
 
 ```
