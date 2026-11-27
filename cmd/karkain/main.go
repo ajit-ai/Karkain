@@ -162,6 +162,24 @@ func takeRegistryFlag(args []string) (string, []string, error) {
 	return flag, kept, nil
 }
 
+// setRegistryEnv applies an explicit --registry URL for the duration of one
+// command and returns a restorer. An empty flag leaves the environment alone
+// (the existing KARKAIN_REGISTRY fallback still applies inside pkg/pm).
+func setRegistryEnv(reg string) func() {
+	if reg == "" {
+		return func() {}
+	}
+	prev, had := os.LookupEnv("KARKAIN_REGISTRY")
+	_ = os.Setenv("KARKAIN_REGISTRY", reg)
+	return func() {
+		if had {
+			_ = os.Setenv("KARKAIN_REGISTRY", prev)
+		} else {
+			_ = os.Unsetenv("KARKAIN_REGISTRY")
+		}
+	}
+}
+
 // handleRegistryCommand dispatches `karkain pkg registry <subcommand>`.
 // Phase 135 is local-only: init creates a directory registry; publish stores
 // into one. There is no network registry yet.
@@ -575,11 +593,18 @@ func handlePackageCommand(args []string) int {
 
 	// --- SEARCH ---
 	case "search":
-		if len(rest) < 1 {
+		reg, kept, regErr := takeRegistryFlag(rest)
+		if regErr != nil {
+			fmt.Fprintln(os.Stderr, regErr)
+			return cli.ExitUsage
+		}
+		if len(kept) < 1 {
 			fmt.Fprintln(os.Stderr, "Error: search query required\n  Usage: karkain pkg search <query>")
 			return cli.ExitUsage
 		}
-		query := strings.Join(rest, " ")
+		query := strings.Join(kept, " ")
+		restore := setRegistryEnv(reg)
+		defer restore()
 		results, err := kpkg.SearchRegistry(query)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -596,11 +621,18 @@ func handlePackageCommand(args []string) int {
 
 	// --- INFO ---
 	case "info":
-		if len(rest) < 1 {
+		reg, kept, regErr := takeRegistryFlag(rest)
+		if regErr != nil {
+			fmt.Fprintln(os.Stderr, regErr)
+			return cli.ExitUsage
+		}
+		if len(kept) < 1 {
 			fmt.Fprintln(os.Stderr, "Error: package name required\n  Usage: karkain pkg info <pkg>")
 			return cli.ExitUsage
 		}
-		info, err := kpkg.PackageInfo(rest[0])
+		restore := setRegistryEnv(reg)
+		defer restore()
+		info, err := kpkg.PackageInfo(kept[0])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			return cli.ExitPackage

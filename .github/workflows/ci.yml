@@ -118,6 +118,9 @@ jobs:
       - name: Run v1.2.28 GUI platform decision gate
         run: go test ./pkg/cli/ -run 'TestPhaseV128_' -count=1
 
+      - name: Run v1.2.29 remote registry gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV129_Remote' -count=1
+
       - name: Install GCC and GMP
         run: sudo apt-get update && sudo apt-get install -y gcc libgmp-dev
 
