@@ -525,3 +525,36 @@ difference is deliberate and is not claimed as parity.
      - Go + kcc
      - ``TestPhaseForScope_AcceptedProgramsKeepTheirMeaning/n_valid_all`` and
        four further exact-byte goldens
+
+A1 — kcc owns native build/run (unnamed v1.2.x slice)
+======================================================
+
+The self-hosted compiler writes and executes a C-free native image directly.
+The Go CLI hex path is retained for backward compatibility; A1 adds a direct
+path rather than removing the old one.
+
+.. list-table:: A1 native ownership matrix
+   :widths: 42 14 16 28
+   :header-rows: 1
+
+   * - Capability
+     - Status
+     - Engines
+     - Gate
+   * - ``writeBytes(path, array)`` (raw bytes, NUL-safe)
+     - Stable
+     - Go + kcc
+     - ``TestPhaseA1_KccBuildWritesNativeImageDirectly``
+   * - ``kcc build --target native-* --output <path>`` writes the image
+     - Stable
+     - kcc
+     - ``TestPhaseA1_KccBuildWritesNativeImageDirectly``
+   * - ``kcc run --target native-*`` executes the emitted image
+     - Stable
+     - kcc (host OS must match)
+     - ``TestPhaseA1_KccRunNativeImageDirectly``
+   * - No gcc/go invoked in either native path
+     - Stable
+     - kcc
+     - PATH-shim log assertion plus a non-empty legacy positive control in
+       both ``TestPhaseA1_`` tests

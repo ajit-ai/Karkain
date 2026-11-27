@@ -42,6 +42,7 @@ func isCheckerBuiltin(name) {
     if (name == "closeFile") { return 1 }
     if (name == "createFile") { return 1 }
     if (name == "writeToFile") { return 1 }
+    if (name == "writeBytes") { return 1 }
     if (name == "removeFile") { return 1 }
     if (name == "readFile") { return 1 }
     if (name == "writeFile") { return 1 }
@@ -170,6 +171,7 @@ func checkerBuiltinArity(name) {
     if (name == "closeFile") { return 1 }
     if (name == "createFile") { return 1 }
     if (name == "writeToFile") { return 2 }
+    if (name == "writeBytes") { return 2 }
     if (name == "removeFile") { return 1 }
     if (name == "readFile") { return 1 }
     if (name == "writeFile") { return 2 }
