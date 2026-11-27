@@ -1053,8 +1053,11 @@ func TestPhase151A5_KIRPinHolds(t *testing.T) {
 	// RE-PINNED FOR v1.2.28 GUI platform decision: 20463 -> 20474 (+11),
 	// measured on CI run 45929729570 (Phase 122 job) (text=20474 verify=20474),
 	// never predicted.
-	if text != 20474 {
-		t.Errorf("whole-tree KIR pin = %d lines, want 20474; see the comment above for the measured chain. output follows: %s", text, out)
+	// RE-PINNED FOR the kcc for-scope corrective: 20474 -> 20475 (+1),
+	// measured on the PR #63 CI check (Phase 122 job, 2026-11-27)
+	// (text=20475 verify=20475), never predicted. Historical chain kept above.
+	if text != 20475 {
+		t.Errorf("whole-tree KIR pin = %d lines, want 20475; see the comment above for the measured chain. output follows: %s", text, out)
 	}
 	t.Logf("whole-tree KIR pin: text=%d verify=%d", text, verify)
 }

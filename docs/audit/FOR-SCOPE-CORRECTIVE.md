@@ -105,8 +105,10 @@ CI: dedicated step *Run kcc for-scope corrective gate*, pattern
 - Only `tab[4]` (locals) is scoped. Const and linear-type tables are not
   truncated; no reported case depends on them, and widening the restore would
   change unrelated checker behaviour.
-- **KIR pin not re-pinned here.** `checker.kark` changed, so the whole-tree
-  count will move. Local whole-tree verification crashes/hangs on this host;
-  per the standing rule the value is taken only from a CI-measured
-  `text=N verify=N`. Both assertion sites retain the current value until then.
+- **KIR pin re-pinned from CI only, never predicted.** `checker.kark` changed,
+  so the whole-tree count moved from 20474 to **20475**. The PR #63 Phase 122
+  CI job (2026-11-27) reported `text=20475 verify=20475`; both assertion sites
+  in `phase122_pipeline_ownership_test.go` and `phase151a5_win_test.go` were
+  updated from that measurement, with the historical comment chains kept
+  verbatim. Local whole-tree verification is unusable on this host.
 - No language surface, stdlib, native backend or version identity changed.
