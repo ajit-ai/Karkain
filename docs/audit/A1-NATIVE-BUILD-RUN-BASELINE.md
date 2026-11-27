@@ -79,3 +79,27 @@ program" becomes a statement about the compiler rather than about Go glue.
   tree reproduced a fresh-checkout state. No tracked file was affected.
 - CI step *Run A1 native build/run ownership gate* wired in the same commit.
 - KIR pin not predicted locally: CI must re-measure `text=N verify=N`.
+
+## 6. First-CI corrective (against the frozen A1 baseline)
+
+CI run on PR #65 (2026-11-27) failed the Phase 122 job at the kcc-generated
+C compile: `Value has no member named arrVal` in `karkain_writeBytes`, emitted
+from `src/compiler/codegen.kark:929`.
+
+Root cause: the two engines' generated C preambles use **different field
+names** for the same array data. The Go preamble has `arr.arrVal.length` /
+`arr.arrVal.items`; kcc's preamble declares `length` and `items` directly on
+`Value` (`codegen.kark:792-806`, with `array_get`/`karkain_len` using them).
+The kcc-side mirror helper copied the Go field path verbatim, so every kcc
+C23 compilation of a program using `writeBytes` failed — including kcc
+compiling its own sources. The Windows A1 gate did not catch it because that
+gate drives kcc's **native** path directly and never emits C.
+
+Fix: the kcc preamble helper now uses `arr.length` and `arr.items`, matching
+kcc's own `Value`. Verified by rebuilding kcc and running a `writeBytes`
+program through `karkain run --engine kcc`: exit 0, output `1`, and `out.bin`
+written. No Go-side source changed.
+
+This is a corrective change against the frozen A1 baseline, not a new slice.
+The KIR count may move because a string literal in `codegen.kark` changed;
+it will be re-pinned only from a CI-measured `text=N verify=N`.
