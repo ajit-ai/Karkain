@@ -187,6 +187,17 @@ Stable file builtins
 It is registered on both engines; gate: ``TestPhaseA1_``. See
 ``docs/audit/A1-NATIVE-BUILD-RUN-BASELINE.md``.
 
+Stable OS/process control (C23 path)
+====================================
+
+``std.env``, ``std.filesystem`` and ``std.process`` expose portable OS control
+on the C23 path on both engines through internal ``osctl_*`` builtins:
+environment get/set/unset/args, filesystem existence/type/size/mtime/mkdir/
+remove, and process spawn/kill/wait. The public stdlib names are unchanged;
+native refuses them with ``error[K145]`` and WASM with ``error[K108]``. Gate:
+``TestPhaseV1234_`` and ``TestOSCtlKarkFresh``. See
+``docs/audit/V1.2.34-TAKEOVER-BASELINE.md``.
+
 Stable diagnostic expectations
 ==============================
 

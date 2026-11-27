@@ -170,8 +170,10 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 > owner-approved order from here is: Step M (read-only measurement baseline)
 > — **COMPLETE** (`docs/audit/STEP-M-COMPILE-RUN-MEASUREMENT.md`), then the
 > named slice A1 (kcc owns native build/run) — **COMPLETE**
-> (`docs/audit/A1-NATIVE-BUILD-RUN-BASELINE.md`), then v1.2.34 (other
-> developer's WIP), v1.2.35 — slice 1 (`--profile dev|release|size`) **COMPLETE**
+> (`docs/audit/A1-NATIVE-BUILD-RUN-BASELINE.md`), then v1.2.34 — takeover of
+> the other developer's WIP, **COMPLETE for the builtin/stdlib slice**
+> (`docs/audit/V1.2.34-TAKEOVER-BASELINE.md`), v1.2.35 — slice 1
+> (`--profile dev|release|size`) **COMPLETE**
 > (`docs/audit/V1.2.35-BUILD-PROFILES-BASELINE.md`; native-as-default and SSA
 > pass selection deferred to their own slices) — and v1.2.36 (attempted, UNMET
 > on this host). Each still needs its own owner authorisation. v1.2.36 was

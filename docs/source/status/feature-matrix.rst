@@ -594,3 +594,39 @@ and SSA pass selection are explicitly deferred to their own slices.
      - Deferred
      - -
      - ``docs/audit/V1.2.35-BUILD-PROFILES-BASELINE.md`` §3/§7
+
+v1.2.34 — portable OS/process control (takeover)
+=================================================
+
+``std.env`` / ``std.filesystem`` / ``std.process`` wrappers are backed by
+internal ``osctl_*`` builtins on the C23 path on both engines. Native and WASM
+refuse them by name.
+
+.. list-table:: OS/process control matrix
+   :widths: 42 14 16 28
+   :header-rows: 1
+
+   * - Capability
+     - Status
+     - Engines
+     - Gate
+   * - Environment get/set/unset/args
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1234_OsctlBothEngines``
+   * - Filesystem metadata (exists/is_dir/stat/mkdir/remove)
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1234_OsctlBothEngines``
+   * - Process spawn/kill/wait
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1234_OsctlBothEngines``
+   * - Runtime source freshness (generated kcc mirror)
+     - Stable
+     - kcc
+     - ``TestOSCtlKarkFresh``
+   * - Native / WASM
+     - Not supported
+     - -
+     - ``TestPhaseV1234_NativeRefusedByBothEngines``, K145/K108 boundary

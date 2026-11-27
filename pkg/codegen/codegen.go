@@ -76,6 +76,7 @@ type Generator struct {
 	needsSQLite      bool                        // v1.2.22: sqlite_* builtins use the vendored SQLite runtime
 	needsRC          bool                        // v1.2.24: rc_* builtins use the reference-counting runtime
 	needsArena       bool                        // v1.2.25: arena_* builtins use the arena region runtime
+	needsOSCtl       bool                        // v1.2.34: env_*/fs_*/proc_spawn/kill/wait use the portable OS control runtime
 	sourceFile       string                      // Phase 55b: source file for #line directives
 	userFuncs        map[string]bool             // Phase 83: user-declared FuncDecl names (mangling + shadowing)
 	simdVars         map[string]string           // Phase 106: name -> "[N]T" lane type of declared SIMD vars
@@ -545,6 +546,11 @@ func (g *Generator) prescanTables(prog *parser.Program) {
 	for _, stmt := range prog.Statements {
 		g.scanNodeForArena(stmt)
 	}
+	// v1.2.34: portable OS/process control builtins are emitted only on use.
+	g.needsOSCtl = false
+	for _, stmt := range prog.Statements {
+		g.scanNodeForOSCtl(stmt)
+	}
 	// Pre-scan: collect user-declared function names for deterministic symbol
 	// mangling and user-functions-first builtin shadowing.
 	g.userFuncs = make(map[string]bool)
@@ -625,6 +631,10 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	}
 	if g.needsArena {
 		sb.WriteString(arenaRuntimeC())
+	}
+	// v1.2.34: portable OS/process control runtime (env_*/fs_*/proc_*).
+	if g.needsOSCtl {
+		sb.WriteString(osctlRuntimeC())
 	}
 	// Phase 106: SIMD & Vector Types runtime (lane types + elementwise helpers).
 	sb.WriteString(simdRuntimeC())
@@ -1565,7 +1575,14 @@ Value writeToFile(Value handle, Value content) {
 // writeBytes writes each array element as one raw byte and marks the result
 // executable: the CLI used to do this with os.WriteFile(..., 0o755), and
 // without it a kcc-written ELF cannot be run on Linux (mode 0644).
+// POSIX already declares chmod(const char*, mode_t) in sys/stat.h; repeating
+// it with an int mode conflicts on glibc (CI caught this). Windows needs the
+// declaration, so gate it by platform.
+#ifdef _WIN32
 extern int chmod(const char*, int);
+#else
+#include <sys/stat.h>
+#endif
 Value karkain_writeBytes(Value path, Value arr) {
     if (path.type != TYPE_STRING || arr.type != TYPE_ARRAY) return make_int(0);
     FILE* f = fopen(path.strVal ? path.strVal : "", "wb");
@@ -3960,6 +3977,17 @@ func (g *Generator) genExpr(node parser.Node) string {
 				args = append(args, g.genExpr(arg))
 			}
 			return fmt.Sprintf("%s(%s)", userFuncC(n.Function), strings.Join(args, ", "))
+		}
+		// v1.2.34: portable OS/process control builtins. The osctl_ prefix
+		// is internal; stdlib wrappers keep the public env_*/fs_*/proc_* names
+		// and call these, so no user function shadows itself recursively.
+		if strings.HasPrefix(n.Function, "osctl_") {
+			args := []string{}
+			for _, arg := range n.Args {
+				args = append(args, g.genExpr(arg))
+			}
+			cname := "karkain_" + strings.TrimPrefix(n.Function, "osctl_")
+			return fmt.Sprintf("%s(%s)", cname, strings.Join(args, ", "))
 		}
 		// Phase 107: concurrency builtins (channel/send/join/actor/...).
 		if g.usesConcurrency && concBuiltin(n.Function) {
