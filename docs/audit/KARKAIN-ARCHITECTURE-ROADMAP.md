@@ -168,7 +168,14 @@ Stated plainly, because these are the claims most likely to be assumed:
    the toolchain is Go-free but still C-linked (bootstrap transpiles `kcc` to C).
    Closing that needs `kcc` to compile and link *itself* natively — no increment,
    no baseline, no gate. It is the last borrowed dependency and the only one
-   without a scheduled removal.
+   without a scheduled removal. **Measured blocker (2026-11-27):** the native
+   driver lowers only the six integer comparisons in a condition
+   (`natNativeCondOp`, `src/compiler/native_value.kark`) and no `&&`/`||`, and
+   the native runtime has no filesystem or process primitives, while
+   `src/compiler/*.kark` calls `readFile`, `writeFile`, `listFiles`,
+   `writeToFile` and `system`. The compiler's own sources are therefore outside
+   the native subset today, so this is not a bounded v1.2.x increment and it
+   stays unscheduled.
 
 ## 7. Cross-references
 
