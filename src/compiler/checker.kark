@@ -43,6 +43,11 @@ func isCheckerBuiltin(name) {
     if (name == "createFile") { return 1 }
     if (name == "writeToFile") { return 1 }
     if (name == "writeBytes") { return 1 }
+    // v1.2.34 portable OS/process control builtins (internal osctl_ names).
+    if (name == "osctl_env_get" || name == "osctl_env_set" || name == "osctl_env_unset" || name == "osctl_env_args") { return 1 }
+    if (name == "osctl_fs_exists" || name == "osctl_fs_is_dir" || name == "osctl_fs_stat_size") { return 1 }
+    if (name == "osctl_fs_stat_mtime" || name == "osctl_fs_mkdir" || name == "osctl_fs_remove") { return 1 }
+    if (name == "osctl_proc_spawn" || name == "osctl_proc_kill" || name == "osctl_proc_wait") { return 1 }
     if (name == "removeFile") { return 1 }
     if (name == "readFile") { return 1 }
     if (name == "writeFile") { return 1 }
@@ -172,6 +177,12 @@ func checkerBuiltinArity(name) {
     if (name == "createFile") { return 1 }
     if (name == "writeToFile") { return 2 }
     if (name == "writeBytes") { return 2 }
+    // v1.2.34 arities: env_args takes none, env_set takes two, rest one.
+    if (name == "osctl_env_args") { return 0 }
+    if (name == "osctl_env_set") { return 2 }
+    if (name == "osctl_env_get" || name == "osctl_env_unset" || name == "osctl_fs_exists" || name == "osctl_fs_is_dir") { return 1 }
+    if (name == "osctl_fs_stat_size" || name == "osctl_fs_stat_mtime" || name == "osctl_fs_mkdir" || name == "osctl_fs_remove") { return 1 }
+    if (name == "osctl_proc_spawn" || name == "osctl_proc_kill" || name == "osctl_proc_wait") { return 1 }
     if (name == "removeFile") { return 1 }
     if (name == "readFile") { return 1 }
     if (name == "writeFile") { return 2 }

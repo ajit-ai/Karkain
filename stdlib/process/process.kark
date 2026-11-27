@@ -1,47 +1,58 @@
-// Karkain Standard Library - Process Module
-// Process management and execution utilities.
+// Karkain Standard Library - Process Module (v1.2.34)
+//
+// Real process control via portable C23 builtins (proc_spawn/proc_kill/proc_wait).
+// proc_run / proc_run_bg remain system()-based shell-dispatch helpers by design.
+// All builtins refuse on the native and WASM targets (K145).
 
+// proc_run: run a shell command and return its exit code (unchanged from pre-1.2.34)
 int proc_run(string cmd) {
     return system(cmd)
 }
 
+// proc_run_bg: run a shell command in the background (unchanged)
 int proc_run_bg(string cmd) {
     system(cmd + " &")
     return 0
 }
 
-string proc_output(string cmd) {
-    return system(cmd)
+// proc_spawn_pid: spawn a new process; returns its PID or -1 on failure
+int proc_spawn_pid(string cmd) {
+    return osctl_proc_spawn(cmd)
 }
 
+// proc_kill_pid: send SIGTERM (POSIX) / TerminateProcess (Windows) to a PID;
+// returns 0 on success, -1 on failure
+int proc_kill_pid(int pid) {
+    return osctl_proc_kill(pid)
+}
+
+// proc_wait_pid: wait for a child PID to exit; returns its exit code or -1
+int proc_wait_pid(int pid) {
+    return osctl_proc_wait(pid)
+}
+
+// proc_pid: returns the current process ID as an int
+int proc_pid() {
+    return os_pid()
+}
+
+// proc_is_running: check whether a named process exists in the process list
+bool proc_is_running(string name) {
+    int i = 0
+    while (i < len(os_process_list())) {
+        if (str_contains(os_process_list()[i], name)) { return true }
+        i = i + 1
+    }
+    return false
+}
+
+// proc_exit: exit the current process with the given code
 int proc_exit(int code) {
     system("exit " + str(code))
     return code
 }
 
-bool proc_is_running(string name) {
-    string result = system("powershell -c Get-Process " + name + " -ErrorAction SilentlyContinue | Select-Object -First 1")
-    return len(result) > 0
-}
-
-string proc_pid() {
-    return system("powershell -c $PID")
-}
-
-int proc_kill(string name) {
-    system("powershell -c Stop-Process -Name " + name + " -Force")
-    return 0
-}
-
-string proc_env(string name) {
-    return system("cmd /c echo %" + name + "%")
-}
-
-int proc_sleep(int seconds) {
-    system("powershell -c Start-Sleep -Seconds " + str(seconds))
-    return 0
-}
-
+// proc_which: find a command on PATH (shell-backed, platform-agnostic)
 string proc_which(string cmd) {
-    return system("powershell -c (Get-Command " + cmd + ").Source")
+    return system("which " + cmd)
 }

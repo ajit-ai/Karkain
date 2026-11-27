@@ -258,6 +258,14 @@ jobs:
       - name: Run v1.2.35 build-profile gate
         run: go test ./pkg/cli/ -run 'TestPhaseV1235_' -count=1 -timeout 30m
 
+      # v1.2.34: portable OS/process control builtins, both engines plus the
+      # native boundary. The runtime freshness gate lives in pkg/codegen.
+      - name: Run v1.2.34 OS/process control gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1234_' -count=1 -timeout 30m
+
+      - name: Run v1.2.34 OS control runtime freshness gate
+        run: go test ./pkg/codegen/ -run 'TestOSCtlKarkFresh' -count=1 -timeout 10m
+
       - name: Run v1.2.3 native string index gate
         run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
 

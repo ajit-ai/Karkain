@@ -1,63 +1,94 @@
-// Karkain Standard Library - Filesystem Module
-// File and directory operations beyond std.io.
+// Karkain Standard Library - Filesystem Module (v1.2.34)
+//
+// Real filesystem operations via portable C23 builtins (fs_exists/is_dir/
+// stat_size/stat_mtime/mkdir/remove). Works on Windows (Win32 API) and
+// POSIX (stat/mkdir/unlink). fs_copy/fs_move remain system()-backed.
+// All builtins refuse on native and WASM targets (K145).
 
+// fs_read_file: read a file's contents as a string (uses built-in readFile)
 string fs_read_file(string path) {
     return readFile(path)
 }
 
+// fs_write_file: write a string to a file (uses built-in writeFile)
 int fs_write_file(string path, string data) {
     writeFile(path, data)
     return 0
 }
 
-bool fs_exists(string path) {
-    return system("powershell -c Test-Path " + path) == "True"
+// fs_exists: returns 1 if path exists, 0 if not, -1 on error
+int fs_exists(string path) {
+    return osctl_fs_exists(path)
 }
 
-bool fs_is_file(string path) {
-    return system("powershell -c Test-Path " + path + " -PathType Leaf") == "True"
+// fs_is_dir: returns 1 if path is a directory, 0 otherwise
+int fs_is_dir(string path) {
+    return osctl_fs_is_dir(path)
 }
 
-bool fs_is_dir(string path) {
-    return system("powershell -c Test-Path " + path + " -PathType Container") == "True"
+// fs_is_file: returns 1 if path exists and is a regular file
+int fs_is_file(string path) {
+    if (osctl_fs_exists(path) != 1) { return 0 }
+    if (osctl_fs_is_dir(path) == 1) { return 0 }
+    return 1
 }
 
+// fs_stat_size: returns file size in bytes, or -1 on error
+int fs_stat_size(string path) {
+    return osctl_fs_stat_size(path)
+}
+
+// fs_stat_mtime: returns file modification time as Unix seconds, or -1 on error
+int fs_stat_mtime(string path) {
+    return osctl_fs_stat_mtime(path)
+}
+
+// fs_mkdir: create a directory (exists is ok); returns 0 on success, -1 on error
 int fs_mkdir(string path) {
-    system("powershell -c New-Item -ItemType Directory -Force -Path " + path)
-    return 0
+    return osctl_fs_mkdir(path)
 }
 
+// fs_remove: remove a file or empty directory; returns 0 on success, -1 on error
 int fs_remove(string path) {
-    system("powershell -c Remove-Item -Force " + path)
-    return 0
+    return osctl_fs_remove(path)
 }
 
+// fs_copy: copy a file (shell-backed; not in native/WASM scope)
 int fs_copy(string src, string dst) {
-    system("powershell -c Copy-Item " + src + " " + dst)
+    system("cp " + src + " " + dst)
     return 0
 }
 
+// fs_move: move/rename a file (shell-backed)
 int fs_move(string src, string dst) {
-    system("powershell -c Move-Item " + src + " " + dst)
+    system("mv " + src + " " + dst)
     return 0
 }
 
+// fs_cwd: current working directory (shell-backed)
 string fs_cwd() {
-    return system("powershell -c (Get-Location).Path")
+    return system("pwd")
 }
 
+// fs_temp_dir: returns the system temp directory (delegates to std.env)
 string fs_temp_dir() {
-    return system("powershell -c [System.IO.Path]::GetTempPath()")
+    string t = env_get_or("TEMP", "")
+    if (len(t) == 0) { t = env_get_or("TMP", "") }
+    if (len(t) == 0) { t = env_get_or("TMPDIR", "/tmp") }
+    return t
 }
 
+// fs_basename: file name component of a path (shell-backed)
 string fs_basename(string path) {
-    return system("powershell -c [System.IO.Path]::GetFileName('" + path + "')")
+    return system("basename " + path)
 }
 
+// fs_dirname: directory component of a path (shell-backed)
 string fs_dirname(string path) {
-    return system("powershell -c [System.IO.Path]::GetDirectoryName('" + path + "')")
+    return system("dirname " + path)
 }
 
+// fs_extension: file extension (shell-backed)
 string fs_extension(string path) {
-    return system("powershell -c [System.IO.Path]::GetExtension('" + path + "')")
+    return system("echo " + path + " | sed 's/.*\\.//;t;s/.*//'")
 }

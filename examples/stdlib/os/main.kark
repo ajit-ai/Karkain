@@ -1,0 +1,21 @@
+import std.system
+import std.env
+import std.config
+import std.log
+import std.filesystem
+import std.time
+
+func main() {
+    log_info("os modules ok")
+    print(env_has("PATH"))
+    print(env_get_or("KARKAIN_NONEXISTENT_XYZ", "defaultval"))
+    print(config_get("KARKAIN_NONEXISTENT_XYZ", "fallback"))
+    print(config_has("KARKAIN_NONEXISTENT_XYZ"))
+    print(config_get_int("KARKAIN_NONEXISTENT_XYZ", 42))
+    print(config_get_bool("KARKAIN_NONEXISTENT_XYZ", true))
+    print(fs_basename("a/b/c.txt"))
+    print(fs_extension("a/b/c.txt"))
+    print(fs_dirname("a/b/c.txt"))
+    print(time_year())
+    print(log_format("INFO", "msg", "ts"))
+}
