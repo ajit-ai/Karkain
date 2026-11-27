@@ -104,6 +104,9 @@ jobs:
           go test ./pkg/sema/ -run 'TestTraitDecl_' -count=1
           go test ./pkg/cli/ -run 'TestPhaseV1226E_' -count=1
 
+      - name: Run v1.2.26 kcc trait parity gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1226F_' -count=1
+
       - name: Run v1.2.27 fuzz seed corpus gate
         run: go test ./pkg/lexer/ ./pkg/parser/ ./pkg/sema/ -run 'Fuzz' -count=1
 
