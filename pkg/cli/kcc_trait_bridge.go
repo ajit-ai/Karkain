@@ -28,11 +28,21 @@ func applyKCCBridge(path string) error {
 		return err
 	}
 	lowered := stripTraitImplForKCC(string(data))
+	// v1.2.31: lower async/await for the self-hosted parser as well. Both
+	// forms are sugar over the existing spawn/join runtime; only identifier
+	// await operands are lowered in this first slice.
+	lowered = reAsyncCall.ReplaceAllString(lowered, `spawn($1, `)
+	lowered = reAwaitIdent.ReplaceAllString(lowered, `join($1)`)
 	if lowered == string(data) {
 		return nil
 	}
 	return os.WriteFile(path, []byte(lowered), 0o644)
 }
+
+var (
+	reAsyncCall  = regexp.MustCompile(`\basync[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*\(`)
+	reAwaitIdent = regexp.MustCompile(`\bawait[ \t]+([A-Za-z_][A-Za-z0-9_]*)\b`)
+)
 
 var (
 	traitDeclStart = regexp.MustCompile(`^[ \t]*trait[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]*\{`)
