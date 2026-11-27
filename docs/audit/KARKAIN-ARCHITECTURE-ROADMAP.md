@@ -93,8 +93,9 @@ with **no Go toolchain and no C compiler** required for the defined closure.
 
 Measured status of each step: `kcc` exists and is the default engine; the
 native backend exists and executes; the native stdlib is **partial** (§6); the
-self-hosted build and the C-free toolchain build are **not yet achieved**
-(increments 152 and 154).
+self-hosted build and the C-free toolchain build are **in progress**
+(increment 154 is implemented but unverified; the C-free toolchain build is
+now owned and scheduled — see §6).
 
 ## 3. Three distinct roles — not one
 
@@ -196,8 +197,7 @@ v2.0.0  Breaking layout + hardware model     (C-layout structs, MMIO, asm)
 |---|---|---|
 | **Reference implementation** | The Go front end in `pkg/*`. It is the **differential oracle**: self-hosted output is accepted only when it is byte-identical to Go's. | Kept **forever**, archived as `reference/` at increment 154. Never on the user path. This is the safety net, not a crutch. |
 | **Target architecture** | `kcc` as the production compiler: it owns the frontend, the pipeline, native emission and the native stdlib. | Reached incrementally across 151 → 152 → 154. |
-| **Sovereignty objective** | The toolchain builds and runs with neither Go nor C. | Two of the three properties land in v1.2.0; the third is not yet scheduled (§6). |
-
+| **Sovereignty objective** | The toolchain builds and runs with neither Go nor C. | Two of the three properties land in v1.2.0; the third — C-free toolchain build — is owned and scheduled as a v1.3.0+ increment (see below). |
 | WASM backend | Go (`pkg/wasm`) | compile-only for the accelerator rows |
 | CLI, PM, LSP scaffolding | Go | thin routing over the two engines |
 | Bootstrap driver | Go (`pkg/bootstrap`) | stage 1 pins `KARKAIN_ENGINE=go`; stages 2–3 link with gcc |
