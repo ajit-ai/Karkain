@@ -129,6 +129,11 @@ jobs:
           go test ./pkg/target/ -run 'TestPhaseV1230_' -count=1
           go test ./pkg/cli/ -run 'TestPhaseV1230_' -count=1
 
+      - name: Run v1.2.31 async/await gate
+        run: |
+          go test ./pkg/parser/ -run 'TestPhaseV1231_' -count=1
+          go test ./pkg/cli/ -run 'TestPhaseV1231_' -count=1
+
       - name: Install GCC and GMP
         run: sudo apt-get update && sudo apt-get install -y gcc libgmp-dev
 

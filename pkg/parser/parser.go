@@ -2035,6 +2035,46 @@ func (p *Parser) parseBinaryExpr(left Node, minPrec int) Node {
 }
 
 func (p *Parser) parseUnary() Node {
+	// v1.2.31: `await t` is sugar for `join(t)`. Lowering in the parser means
+	// every existing walker (sema, codegen, IR, native) sees an ordinary call.
+	if p.curToken.Type == lexer.TokenAwait {
+		line := int(p.curToken.Line)
+		p.nextToken()
+		operand := p.parseUnary()
+		if operand == nil {
+			p.addError("expected expression after 'await'")
+		}
+		return &CallExpr{Function: "join", Args: []Node{operand}, Line: line}
+	}
+	// v1.2.31: `async f(args)` is sugar for `spawn(f, args)`.
+	if p.curToken.Type == lexer.TokenAsync {
+		p.nextToken() // consume 'async'
+		if p.curToken.Type != lexer.TokenIdent {
+			p.addError("expected function name after 'async'")
+			return nil
+		}
+		fnName := p.curToken.Literal(p.src)
+		p.nextToken()
+		if p.curToken.Type != lexer.TokenLParen {
+			p.addError("expected '(' after async function name")
+			return nil
+		}
+		p.nextToken()
+		args := []Node{}
+		for p.curToken.Type != lexer.TokenRParen && p.curToken.Type != lexer.TokenEOF {
+			arg := p.parseExpr()
+			if arg != nil {
+				args = append(args, arg)
+			}
+			if p.curToken.Type == lexer.TokenComma {
+				p.nextToken()
+			}
+		}
+		if p.curToken.Type == lexer.TokenRParen {
+			p.nextToken()
+		}
+		return &SpawnExpr{ActorName: fnName, Args: args}
+	}
 	// Phase 19: Handle unary negation (-x), logical NOT (!x), and dereference (*ptr)
 	if p.curToken.Type == lexer.TokenMinus {
 		p.nextToken() // consume '-'

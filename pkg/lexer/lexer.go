@@ -135,6 +135,9 @@ const (
 	TokenErr    TokenType = "ERR"
 	TokenMatch  TokenType = "MATCH"
 	TokenLinear TokenType = "LINEAR"
+	// v1.2.31: async/await (syntactic sugar over spawn/join).
+	TokenAsync   TokenType = "ASYNC"
+	TokenAwait   TokenType = "AWAIT"
 	TokenPacked TokenType = "PACKED"
 	TokenSIMD   TokenType = "SIMD"
 	TokenEnum   TokenType = "ENUM"
@@ -715,6 +718,10 @@ func lookupIdent(ident string) TokenType {
 		return TokenMatch
 	case "linear":
 		return TokenLinear
+	case "async":
+		return TokenAsync
+	case "await":
+		return TokenAwait
 	case "packed":
 		return TokenPacked
 	case "enum":
