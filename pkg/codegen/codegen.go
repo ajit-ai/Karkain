@@ -26,6 +26,7 @@ type Config struct {
 	Target      string // Target architecture (native, wasm32-wasi)
 	DisableSSA  bool   // Phase 53: disable SSA IR pipeline (fallback to legacy emission)
 	Profiling   bool   // Phase 110: emit profiling instrumentation (karkain prof)
+	Coverage    bool   // v1.2.27: emit function-coverage instrumentation (karkain coverage)
 	Trace       bool   // Phase 112: emit function enter/leave execution trace (karkain debug)
 
 	// Stdout / Stderr direct the executed program's output. When nil they
@@ -670,6 +671,10 @@ func (g *Generator) GenerateAndCompile(prog *parser.Program, sourceFile string) 
 	if g.profiling {
 		sb.WriteString(profNameTableC(g.profNames))
 		sb.WriteString(profRuntimeC())
+	}
+	// v1.2.27: function-coverage runtime (opt-in, emitted only for coverage).
+	if g.cfg.Coverage {
+		sb.WriteString(covRuntimeC())
 	}
 
 	// Phase 138: GPU/WGSL shader generation for @target(gpu) functions.
@@ -3147,6 +3152,10 @@ func (g *Generator) genFuncDecl(fn *parser.FuncDecl) string {
 	// chain with a source file and line for each function.
 	fmt.Fprintf(&sb, "\tkarkain_frame_enter(%s, %s);\n", strconv.Quote(fn.Name), g.sourceBaseC())
 	fmt.Fprintf(&sb, "\tkarkain_set_line(%d);\n", fn.Line)
+	// v1.2.27: function-coverage hit (only present in coverage builds).
+	if g.cfg.Coverage {
+		fmt.Fprintf(&sb, "\tkarkain_cov_hit(%s);\n", strconv.Quote(fn.Name))
+	}
 	// Phase 110: profile entry hook (after the frame is on the stack).
 	if g.profiling {
 		if id := g.profID(fn.Name); id >= 0 {
