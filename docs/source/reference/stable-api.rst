@@ -81,7 +81,9 @@ Stable CLI
      - Validate syntax + semantics; exit 3 on failure.
    * - ``build``
      - Compile to a native executable (``-o``, optional ``--target``);
-       exit 3 on compile failure.
+       exit 3 on compile failure. ``--profile dev|release|size`` selects the
+       C23 optimization flag (default ``dev``); unknown values are a usage
+       error. Gate: ``TestPhaseV1235_``.
    * - ``run``
      - Compile and run in one step.
    * - ``test``

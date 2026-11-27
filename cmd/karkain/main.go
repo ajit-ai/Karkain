@@ -113,6 +113,7 @@ OPTIONS:
   -c, --compile-only      Keep generated C source
   -g, --debug             Generate debug symbols + #line directives
   --target <target>       Target architecture (native, c23, wasm32-wasi, native-x86_64-linux)
+  --profile <dev|release|size>  C23 build profile (default dev, historical -O0)
   --filter <pattern>      Run only matching tests (substring of test name)
   --verbose               Emit detailed pipeline logs
   -v, --version           Show version
@@ -1436,6 +1437,13 @@ func main() {
 				}
 				engine = e
 				continue
+			case "--profile":
+				if flagValue != "dev" && flagValue != "release" && flagValue != "size" {
+					fmt.Printf("Error: Unknown --profile '%s' (supported: dev, release, size)\n", flagValue)
+					os.Exit(cli.ExitUsage)
+				}
+				cfg.Profile = flagValue
+				continue
 			}
 		}
 
@@ -1466,6 +1474,18 @@ func main() {
 				os.Exit(cli.ExitUsage)
 			}
 			cfg.Target = norm
+		case "--profile":
+			if i+1 >= len(args) {
+				fmt.Println("Error: --profile flag requires a value (dev|release|size)")
+				os.Exit(cli.ExitUsage)
+			}
+			i++
+			p := args[i]
+			if p != "dev" && p != "release" && p != "size" {
+				fmt.Printf("Error: Unknown --profile '%s' (supported: dev, release, size)\n", p)
+				os.Exit(cli.ExitUsage)
+			}
+			cfg.Profile = p
 		case "-o":
 			if i+1 < len(args) {
 				outputPath = args[i+1]
