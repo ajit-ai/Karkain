@@ -68,7 +68,10 @@ func v1235Shims(t *testing.T) (string, string) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	log := filepath.Join(dir, "gcc-calls.log")
 	name := "gcc"
-	body := fmt.Sprintf("#!/bin/sh\necho 'gcc $*' >> '%s'\nexec '%s' \"$@\"\n", log, gcc)
+	// Double quotes are required here: inside single quotes the shell writes
+	// the literal characters "$*" and the log proves nothing (CI caught this
+	// on the Linux leg while the Windows .cmd shim expanded %* correctly).
+	body := fmt.Sprintf("#!/bin/sh\necho \"gcc $*\" >> '%s'\nexec '%s' \"$@\"\n", log, gcc)
 	if runtime.GOOS == "windows" {
 		name += ".cmd"
 		body = fmt.Sprintf("@echo off\r\necho gcc %%* >> \"%s\"\r\n\"%s\" %%*\r\nexit /b %%ERRORLEVEL%%\r\n", log, gcc)
