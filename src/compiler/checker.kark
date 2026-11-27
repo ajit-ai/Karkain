@@ -602,16 +602,11 @@ func collectLocals(tab, list) {
         if (nt == "While") {
             collectLocals(tab, whileBody(s))
         }
-        if (nt == "For") {
-            int initNode = forInit(s)
-            if (initNode != []) {
-                string it = getNodeType(initNode)
-                if (it == "VarDecl" || it == "LetDecl") {
-                    ckLocalAdd(tab, varDeclName(initNode))
-                }
-            }
-            collectLocals(tab, forBody(s))
-        }
+        // No `For` branch here, by design. A C-style `for` ends a scope:
+        // its init binding and any `let` in its body must NOT become
+        // permanent locals of the enclosing function. Go's walkLocalDefs
+        // (pkg/sema/resolve.go) has no ForStmt case either. Pass 2 seeds
+        // the body names locally and truncates them at the closing brace.
         i = i + 1
     }
 }
@@ -925,6 +920,28 @@ func checkStmt(tab, s, loop) {
     }
 
     if (nt == "For") {
+        // A C-style `for` ends a scope. Keep a reference to the enclosing
+        // locals array, then switch tab[4] to a fresh copy of it so every
+        // append below (init name, body names, implicit assignments) lands
+        // in the fresh array and the saved one stays pristine.
+        int saved = ckLocals(tab)
+        // Reset tab[4] to a FRESH array FIRST, exactly as ckCheckArmBody and
+        // checkFuncDecl do. Every append below then lands in the fresh array,
+        // leaving `saved` pristine; the original array is restored at the end.
+        // Building a replacement array in a local and assigning it here is
+        // NOT equivalent -- that crashed the -O0 stage-1 build on any valid
+        // program with a for-init binding (measured, 0xC0000005).
+        tab[4] = []
+        int pi = 0
+        while (pi < len(saved)) {
+            ckLocalAdd(tab, saved[pi])
+            pi = pi + 1
+        }
+        // Pre-seed the body's names HERE. This used to happen in pass-1's
+        // collectLocals; deleting that branch removes the leak, but a body
+        // may still read a name before its declaration (`print(y); let y = 5`),
+        // which both engines accept. Keeping the seed in pass 2 preserves it.
+        collectLocals(tab, forBody(s))
         int initNode = forInit(s)
         if (initNode != []) {
             string it = getNodeType(initNode)
@@ -951,6 +968,11 @@ func checkStmt(tab, s, loop) {
         checkExpr(tab, forCondition(s), loop)
         if (forPost(s) != []) { checkExpr(tab, forPost(s), loop) }
         checkStmts(tab, forBody(s), loop + 1)
+        // End the scope: restore the pristine enclosing array. The loop's
+        // names were only ever appended to the fresh array above, so they
+        // disappear here. Never truncate the live array in place -- that is
+        // the Phase 133 UAF/heap-corruption class ckCheckArmBody guards.
+        tab[4] = saved
         return
     }
 

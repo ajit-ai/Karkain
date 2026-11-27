@@ -189,6 +189,10 @@ Stable diagnostic expectations
   native targets are Go-owned; kcc owns C23. See
   :doc:`/development/roadmap` (increment 151A) and
   ``docs/audit/PHASE-151-BASELINE.md``.
+* A C-style ``for`` binding read after the loop is a name-resolution error on
+  both engines: ``error[K002]`` (Go) / ``error[K102]`` (kcc). ``for-in``,
+  ``while``, ``if`` and ``Block`` declarations remain visible afterwards.
+  Gate: ``TestPhaseForScope_``; see ``docs/audit/FOR-SCOPE-CORRECTIVE.md``.
 * ``karkain check --format=json`` emits the ``karkain-diagnostics-v1`` JSON
   contract.
 * Runtime failure model: ``runtime error: <kind> at <file>:<line>`` with a

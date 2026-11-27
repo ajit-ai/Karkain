@@ -359,8 +359,12 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// measured on CI run 45929729570 (Phase 122 job) (text=20474
 		// verify=20474), never predicted. Delta is the gui_available builtin
 		// registration in checker/sema.kark plus its codegen arm.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 20474 {
-			t.Errorf("whole-tree kir text = %d lines, want 20474:\n%s", got, out)
+		// RE-PINNED FOR the kcc for-scope corrective: 20474 -> 20475 (+1),
+		// measured on the PR #63 CI check (Phase 122 job, 2026-11-27)
+		// (text=20475 verify=20475), never predicted. Delta is the pass-2 For
+		// scope-restore branch in checker.kark; its comments do not render.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 20475 {
+			t.Errorf("whole-tree kir text = %d lines, want 20475:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

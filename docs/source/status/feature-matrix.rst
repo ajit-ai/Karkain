@@ -485,3 +485,43 @@ Native and WASM have no FFI/SQLite linkage and remain excluded.
      - Not supported
      - -
      - ``TestPhaseV1222_NativeRefused``, K108 boundary
+
+C-style for scope (unnamed corrective, v1.2.x)
+================================================
+
+A C-style ``for`` ends a checker scope on both engines. kcc remains stricter
+than Go inside a loop body (Go's ``checkStmt`` has no ForStmt case); that
+difference is deliberate and is not claimed as parity.
+
+.. list-table:: C-style for scope matrix
+   :widths: 42 14 16 28
+   :header-rows: 1
+
+   * - Behaviour
+     - Status
+     - Engines
+     - Gate
+   * - Init binding invisible after the loop
+     - Stable
+     - Go + kcc
+     - ``TestPhaseForScope_LeakedBindingsRejectedByBothEngines/a_letinitleak``,
+       ``TestPhaseForScope_LeakedBindingsRejectedByBothEngines/f_forvar``
+   * - Body ``let`` / bare assignment invisible after the loop
+     - Stable
+     - Go + kcc
+     - ``TestPhaseForScope_LeakedBindingsRejectedByBothEngines/i_bodyleak``,
+       ``TestPhaseForScope_LeakedBindingsRejectedByBothEngines/k_assignleak``
+   * - Forward reference inside the body still accepted
+     - Stable
+     - Go + kcc
+     - ``TestPhaseForScope_AcceptedProgramsKeepTheirMeaning/j_forward_check``
+   * - ``for-in`` / ``while`` / ``Block`` scope unchanged
+     - Stable
+     - Go + kcc
+     - ``TestPhaseForScope_AcceptedProgramsKeepTheirMeaning/p_forin_after_check``,
+       ``TestPhaseForScope_AcceptedProgramsKeepTheirMeaning/q_while_after_check``
+   * - Valid loop value semantics unchanged
+     - Stable
+     - Go + kcc
+     - ``TestPhaseForScope_AcceptedProgramsKeepTheirMeaning/n_valid_all`` and
+       four further exact-byte goldens

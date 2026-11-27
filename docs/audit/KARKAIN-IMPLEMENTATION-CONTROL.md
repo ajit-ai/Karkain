@@ -161,6 +161,18 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 
 ### 5.1 Current recommendation
 
+> **Superseded-in-part banner (2026-11-27).** The dated paragraphs below are
+> historical recommendations retained for audit continuity; they are not the
+> current queue. The last merged numbered increment is **v1.2.31** (PR #61)
+> and the numbered v1.2.x line ends at **v1.2.36** (`proposed`) in §4.4.
+> The unnumbered corrective slice *kcc C-style `for` scope leak* is COMPLETE
+> in this change (record `docs/audit/FOR-SCOPE-CORRECTIVE.md`). The
+> owner-approved order from here is: Step M (read-only measurement baseline),
+> then the named slice A1 (kcc owns native build/run), then v1.2.34, v1.2.35
+> and v1.2.36 — each still needing its own owner authorisation. **v1.2.32**
+> (REL-001 sanitizer) and **v1.2.33** (security/capability) are not authorised
+> by this record, and no v1.3.0 work is opened.
+
 **Owner numbering decision (2026-11-21):** all active forward work is named
 **v1.2.x** (`x = 1, 2, 3, … n`). Older non-v1.2.x labels in this register are
 historical audit records, not the active plan.

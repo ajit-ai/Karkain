@@ -242,6 +242,12 @@ jobs:
       - name: Run v1.2.6 native sha256 gate
         run: go test ./pkg/cli/ -run 'TestPhaseV126_' -count=1 -timeout 30m
 
+      # Unnumbered corrective slice on the v1.2.x line: a C-style `for`
+      # binding leaked out of its loop in the self-hosted checker. Named as
+      # its own step so it reports separately from the broader CLI family.
+      - name: Run kcc for-scope corrective gate
+        run: go test ./pkg/cli/ -run 'TestPhaseForScope_' -count=1 -timeout 30m
+
       - name: Run v1.2.3 native string index gate
         run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
 
