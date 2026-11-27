@@ -66,6 +66,21 @@ func FeaturesOf(t Target) Features {
 		f.RuntimeVariant = "macos"
 		f.ABI = "System V " + t.Arch.String() + " / Apple"
 		f.LinkerRequirement = fmt.Sprintf("clang with --target=%s-apple-macosx", t.Arch)
+	case OSFreeBSD:
+		// v1.2.30: ELF like Linux, but the linker lives behind clang with an
+		// explicit target. No host gcc is assumed and no artifact is produced
+		// without a real cross toolchain.
+		f.ObjFormat = "ELF"
+		f.ExeFormat = "ELF"
+		f.RuntimeVariant = "freebsd"
+		f.ABI = "System V " + t.Arch.String() + " / FreeBSD"
+		f.LinkerRequirement = fmt.Sprintf("clang with --target=%s-unknown-freebsd", t.Arch)
+	case OSAndroid:
+		f.ObjFormat = "ELF"
+		f.ExeFormat = "ELF"
+		f.RuntimeVariant = "android"
+		f.ABI = "AAPCS64 / Android (NDK)" // x86_64 Android keeps the same model key
+		f.LinkerRequirement = fmt.Sprintf("clang with --target=%s-linux-android (Android NDK)", t.Arch)
 	}
 	return f
 }
@@ -97,6 +112,10 @@ func SupportedTargets() []Target {
 		{Arch: ArchX8664, OS: OSMacOS},
 		{Arch: ArchAArch64, OS: OSMacOS},
 		{Arch: ArchWasm32, OS: OSWasi},
+		{Arch: ArchX8664, OS: OSFreeBSD, Env: EnvGNU},
+		{Arch: ArchAArch64, OS: OSFreeBSD, Env: EnvGNU},
+		{Arch: ArchAArch64, OS: OSAndroid},
+		{Arch: ArchX8664, OS: OSAndroid},
 	}
 }
 

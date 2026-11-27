@@ -33,6 +33,8 @@ const (
 	OSLinux
 	OSMacOS // macOS / Darwin (Phase 139: parse + clang error paths; no linker on foreign hosts)
 	OSWasi
+	OSFreeBSD // v1.2.30: FreeBSD (ELF; clang --target, no host linker assumed)
+	OSAndroid // v1.2.30: Android (ELF; clang --target with the Android NDK)
 )
 
 // Env is the optional environment/ABI component of a triple.
@@ -69,6 +71,10 @@ func (o OS) String() string {
 		return "macos"
 	case OSWasi:
 		return "wasi"
+	case OSFreeBSD:
+		return "freebsd"
+	case OSAndroid:
+		return "android"
 	}
 	return "unknown"
 }
@@ -91,7 +97,7 @@ func (e Env) String() string {
 // through clang (never GNU/MSVC), so macOS triples carry no default env.
 func defaultEnv(o OS) Env {
 	switch o {
-	case OSWindows, OSLinux:
+	case OSWindows, OSLinux, OSFreeBSD:
 		return EnvGNU
 	}
 	return EnvUnknown
@@ -145,6 +151,10 @@ func Host() Target {
 			return Target{Arch: ArchX8664, OS: OSWindows, Env: defaultEnv(OSWindows)}
 		case "linux":
 			return Target{Arch: ArchX8664, OS: OSLinux, Env: defaultEnv(OSLinux)}
+		case "freebsd":
+			return Target{Arch: ArchX8664, OS: OSFreeBSD, Env: defaultEnv(OSFreeBSD)}
+		case "android":
+			return Target{Arch: ArchX8664, OS: OSAndroid}
 		}
 	case "arm64":
 		switch runtime.GOOS {
@@ -152,6 +162,10 @@ func Host() Target {
 			return Target{Arch: ArchAArch64, OS: OSWindows, Env: defaultEnv(OSWindows)}
 		case "linux":
 			return Target{Arch: ArchAArch64, OS: OSLinux, Env: defaultEnv(OSLinux)}
+		case "freebsd":
+			return Target{Arch: ArchAArch64, OS: OSFreeBSD, Env: defaultEnv(OSFreeBSD)}
+		case "android":
+			return Target{Arch: ArchAArch64, OS: OSAndroid}
 		}
 	}
 	return Target{Arch: archFromString(runtime.GOARCH), OS: osFromString(runtime.GOOS)}
@@ -183,6 +197,10 @@ func osFromString(s string) OS {
 		return OSMacOS
 	case "wasi":
 		return OSWasi
+	case "freebsd":
+		return OSFreeBSD
+	case "android":
+		return OSAndroid
 	}
 	return OSUnknown
 }
@@ -211,7 +229,7 @@ func (e *ParseError) Error() string {
 	case "unknown-arch":
 		return fmt.Sprintf("unsupported architecture '%s' in target '%s' (supported architectures: x86_64, aarch64, riscv64, wasm32)", e.Value, e.Input)
 	case "unknown-os":
-		return fmt.Sprintf("unsupported operating system '%s' in target '%s' (supported operating systems: windows, linux, macos, wasi)", e.Value, e.Input)
+		return fmt.Sprintf("unsupported operating system '%s' in target '%s' (supported operating systems: windows, linux, macos, wasi, freebsd, android)", e.Value, e.Input)
 	case "unknown-env":
 		return fmt.Sprintf("unsupported environment/ABI '%s' in target '%s' (supported environments: gnu, msvc)", e.Value, e.Input)
 	case "unsupported-abi":
@@ -313,6 +331,20 @@ func Parse(s string) (Target, error) {
 	if t.Env == EnvGNU && t.OS == OSWasi {
 		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
 			Value: "the 'gnu' ABI is not valid for WASI targets"}
+	}
+	// v1.2.30: FreeBSD and Android link through clang with an explicit
+	// --target; neither has a GNU/MSVC host-toolchain assumption.
+	if t.Env == EnvMSVC && (t.OS == OSFreeBSD || t.OS == OSAndroid) {
+		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
+			Value: fmt.Sprintf("the 'msvc' ABI is not valid for %s targets (clang --target is required)", t.OS)}
+	}
+	if t.Env == EnvGNU && t.OS == OSAndroid {
+		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
+			Value: "the 'gnu' ABI is not valid for Android targets (the Android NDK toolchain is required)"}
+	}
+	if t.OS == OSAndroid && t.Arch != ArchAArch64 && t.Arch != ArchX8664 {
+		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",
+			Value: "the 'android' OS currently supports the x86_64 and aarch64 architectures"}
 	}
 	if t.Arch == ArchRiscv64 && t.OS != OSLinux {
 		return Target{}, &ParseError{Input: s, Kind: "unsupported-abi",

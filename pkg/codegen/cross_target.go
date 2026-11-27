@@ -95,6 +95,12 @@ func (g *Generator) detectCompilerForTarget(cFile, exeFile string) (string, []st
 		// with an explicit --target. Same-machine macOS hosts use it
 		// directly, foreign hosts probe PATH for it.
 		return g.detectMacOSCrossCompiler(tg, cFile, exeFile)
+	case target.OSFreeBSD:
+		return g.detectPosixClangTargetCompiler(tg, cFile, exeFile,
+			tg.Arch.String()+"-unknown-freebsd", "FreeBSD sysroot")
+	case target.OSAndroid:
+		return g.detectPosixClangTargetCompiler(tg, cFile, exeFile,
+			tg.Arch.String()+"-linux-android", "Android NDK sysroot")
 	}
 	return "", nil, fmt.Errorf("no C toolchain rules for target '%s'", tg)
 }
@@ -143,6 +149,33 @@ func (g *Generator) detectMacOSCrossCompiler(tg target.Target, cFile, exeFile st
 	return "", nil, crossToolchainError(tg,
 		"CC=<macOS-capable clang> (e.g. osxcross or Xcode toolchain)",
 		"clang --target="+clangTarget+" with an Apple SDK")
+}
+
+// detectPosixClangTargetCompiler is the v1.2.30 toolchain rule for the two new
+// POSIX-family OS models (FreeBSD, Android). Both link through clang with an
+// explicit --target. A foreign host without an explicit CC gets the
+// deterministic ToolchainError: an unqualified host clang has no sysroot for
+// these targets and would otherwise fail deep inside C compilation with
+// confusing header noise instead of naming the missing toolchain.
+func (g *Generator) detectPosixClangTargetCompiler(tg target.Target, cFile, exeFile, clangTarget, sysroot string) (string, []string, error) {
+	flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi",
+		"-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+	flags = append(flags, g.tlsLinkFlags(tg.OS)...)
+	if cc := os.Getenv("CC"); cc != "" {
+		return cc, flags, nil
+	}
+	if isHostMachine(tg) {
+		if _, err := exec.LookPath("clang"); err == nil {
+			withTarget := append([]string{cFile, "-o", exeFile, "--target=" + clangTarget}, flags[3:]...)
+			if g.cfg.Debug {
+				withTarget = append(withTarget, "-g")
+			}
+			return "clang", withTarget, nil
+		}
+		return "", nil, crossToolchainError(tg, "clang --target="+clangTarget)
+	}
+	return "", nil, crossToolchainError(tg,
+		"CC=<clang with "+sysroot+">", "clang --target="+clangTarget+" with a "+sysroot)
 }
 
 // detectAarch64WindowsCrossCompiler probes the MinGW-ARM64 cross gcc
