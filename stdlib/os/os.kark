@@ -41,17 +41,17 @@ func os_error() {
 // --- v1.2.34: Process control wrappers ---
 
 // os_spawn: spawn a new process from cmd; returns the child PID or -1 on failure
-func os_spawn(string cmd) {
+int os_spawn(string cmd) {
     return osctl_proc_spawn(cmd)
 }
 
 // os_kill: send SIGTERM (POSIX) / TerminateProcess (Windows) to pid;
 // returns 0 on success, -1 on failure
-func os_kill(int pid) {
+int os_kill(int pid) {
     return osctl_proc_kill(pid)
 }
 
 // os_wait: wait for a child process to exit; returns its exit code or -1
-func os_wait(int pid) {
+int os_wait(int pid) {
     return osctl_proc_wait(pid)
 }

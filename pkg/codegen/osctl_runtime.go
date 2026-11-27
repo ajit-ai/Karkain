@@ -117,7 +117,13 @@ func isOSCtlBuiltin(name string) bool {
 	case "env_get", "env_set", "env_unset", "env_args",
 		"fs_exists", "fs_is_dir", "fs_stat_size", "fs_stat_mtime",
 		"fs_mkdir", "fs_remove",
-		"proc_spawn", "proc_kill", "proc_wait":
+		"proc_spawn", "proc_kill", "proc_wait",
+		// v1.2.34 integration: stdlib wrappers call internal osctl_* names
+		// so they cannot shadow themselves. The prescan must recognise those.
+		"osctl_env_get", "osctl_env_set", "osctl_env_unset", "osctl_env_args",
+		"osctl_fs_exists", "osctl_fs_is_dir", "osctl_fs_stat_size", "osctl_fs_stat_mtime",
+		"osctl_fs_mkdir", "osctl_fs_remove",
+		"osctl_proc_spawn", "osctl_proc_kill", "osctl_proc_wait":
 		return true
 	}
 	return false
