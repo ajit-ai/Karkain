@@ -89,6 +89,7 @@ func isCheckerBuiltin(name) {
     if (name == "net_last_error") { return 1 }
     if (name == "https_request") { return 1 }
     if (name == "tls_last_error") { return 1 }
+    if (name == "gui_available") { return 1 }
     if (name == "os_pid") { return 1 }
     if (name == "os_cpu_count") { return 1 }
     if (name == "os_total_mem_mb") { return 1 }
@@ -203,6 +204,7 @@ func checkerBuiltinArity(name) {
     if (name == "net_last_error") { return 0 }
     if (name == "https_request") { return 6 }
     if (name == "tls_last_error") { return 0 }
+    if (name == "gui_available") { return 0 }
     if (name == "os_pid") { return 0 }
     if (name == "os_cpu_count") { return 0 }
     if (name == "os_total_mem_mb") { return 0 }

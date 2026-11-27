@@ -2121,6 +2121,11 @@ var nativeSocketBuiltins = map[string]bool{
 // once the module is assembled, so the refusal fires on the builtin inside their
 // bodies -- which names the actual missing primitive.
 func nativeCapabilityRefusal(name string) error {
+	// v1.2.28: the native target has no GUI/windowing backend (its syscalls
+	// are limited to write and exit). The C23 path keeps the std.gui surface.
+	if name == "gui_available" {
+		return fmt.Errorf("error[K145]: '%s' is not available on the native target (the native runtime has no windowing backend). The C23 path keeps the std.gui capability surface -- build with --target c23", name)
+	}
 	if nativeSocketBuiltins[name] {
 		return fmt.Errorf("error[K145]: '%s' is not available on the native target (the native runtime has no socket syscalls; only write and exit exist). The C23 path keeps the full std.net surface -- build with --target c23", name)
 	}
