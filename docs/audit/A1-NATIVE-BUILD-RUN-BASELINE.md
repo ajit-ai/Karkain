@@ -101,5 +101,29 @@ program through `karkain run --engine kcc`: exit 0, output `1`, and `out.bin`
 written. No Go-side source changed.
 
 This is a corrective change against the frozen A1 baseline, not a new slice.
-The KIR count may move because a string literal in `codegen.kark` changed;
-it will be re-pinned only from a CI-measured `text=N verify=N`.
+The KIR count moved because builtin wiring was added; it is re-pinned below
+from a CI measurement only.
+
+## 7. Second CI corrective — executable mode on Linux
+
+The same PR #65 run then failed `TestPhaseA1_` on the Linux leg:
+
+```
+executing kcc-produced image: permission denied
+kcc run stdout = "", want "hello\n"
+```
+
+Root cause: the Go CLI used to write the image with `os.WriteFile(path,
+bytes, 0o755)`. Once kcc writes the image itself, `fopen(..., "wb")` produces
+mode 0644, which Linux refuses to execute. A PE on Windows does not need the
+bit, which is why the host-side gate passed.
+
+Fix: `writeBytes` now calls `chmod(path, 0755)` (written as decimal 493,
+because Karkain has no octal literals) after `fclose`, in **both** preambles.
+The declaration and call are inside the existing emitted line so the KIR line
+count does not move again. No new builtin or call site was added.
+
+**KIR pin:** CI reported `text=20494 verify=20494` (from 20475, +19). Both
+assertion sites in `phase122_pipeline_ownership_test.go` and
+`phase151a5_win_test.go` were re-pinned from that measurement, with the
+historical comment chains kept verbatim. Nothing was predicted locally.

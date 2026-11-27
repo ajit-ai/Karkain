@@ -363,8 +363,12 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// measured on the PR #63 CI check (Phase 122 job, 2026-11-27)
 		// (text=20475 verify=20475), never predicted. Delta is the pass-2 For
 		// scope-restore branch in checker.kark; its comments do not render.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 20475 {
-			t.Errorf("whole-tree kir text = %d lines, want 20475:\n%s", got, out)
+		// RE-PINNED FOR A1: 20475 -> 20494 (+19), measured on the PR #65 CI
+		// check (Phase 122 job, 2026-11-27) (text=20494 verify=20494), never
+		// predicted. Delta is the writeBytes builtin wiring in the checker,
+		// sema and codegen sources. Historical chain kept above.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 20494 {
+			t.Errorf("whole-tree kir text = %d lines, want 20494:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)

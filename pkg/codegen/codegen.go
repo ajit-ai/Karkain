@@ -1560,7 +1560,10 @@ Value writeToFile(Value handle, Value content) {
 
 // A1: byte-level file output. writeToFile uses fputs, which stops at the
 // first NUL, so it cannot write a native image (PE/ELF/Mach-O contain NULs).
-// writeBytes writes each array element as one raw byte.
+// writeBytes writes each array element as one raw byte and marks the result
+// executable: the CLI used to do this with os.WriteFile(..., 0o755), and
+// without it a kcc-written ELF cannot be run on Linux (mode 0644).
+extern int chmod(const char*, int);
 Value karkain_writeBytes(Value path, Value arr) {
     if (path.type != TYPE_STRING || arr.type != TYPE_ARRAY) return make_int(0);
     FILE* f = fopen(path.strVal ? path.strVal : "", "wb");
@@ -1571,6 +1574,7 @@ Value karkain_writeBytes(Value path, Value arr) {
         fputc((unsigned char)(b & 0xFF), f);
     }
     fclose(f);
+    chmod(path.strVal ? path.strVal : "", 0755);
     return make_int(1);
 }
 
