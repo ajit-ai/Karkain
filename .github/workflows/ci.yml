@@ -253,6 +253,11 @@ jobs:
       - name: Run A1 native build/run ownership gate
         run: go test ./pkg/cli/ -run 'TestPhaseA1_' -count=1 -timeout 30m
 
+      # v1.2.35 slice 1: profiles are verified by observing the flag gcc
+      # actually receives, with the program's output held constant.
+      - name: Run v1.2.35 build-profile gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1235_' -count=1 -timeout 30m
+
       - name: Run v1.2.3 native string index gate
         run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
 

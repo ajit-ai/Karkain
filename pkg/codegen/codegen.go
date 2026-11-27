@@ -24,6 +24,7 @@ type Config struct {
 	RunAfter    bool
 	Debug       bool   // Add debug flag for DWARF symbols
 	Target      string // Target architecture (native, wasm32-wasi)
+	Profile     string // v1.2.35: dev (default, historical -O0), release (-O2), size (-Os)
 	DisableSSA  bool   // Phase 53: disable SSA IR pipeline (fallback to legacy emission)
 	Profiling   bool   // Phase 110: emit profiling instrumentation (karkain prof)
 	Coverage    bool   // v1.2.27: emit function-coverage instrumentation (karkain coverage)
@@ -38,7 +39,8 @@ type Config struct {
 
 func NewConfig() Config {
 	return Config{
-		Target: "native", // Default to native target
+		Target:  "native", // Default to native target
+		Profile: "dev",    // v1.2.35: preserve the historical -O0 behavior
 	}
 }
 

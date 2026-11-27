@@ -105,6 +105,20 @@ func (g *Generator) detectCompilerForTarget(cFile, exeFile string) (string, []st
 	return "", nil, fmt.Errorf("no C toolchain rules for target '%s'", tg)
 }
 
+// ProfileOptFlag maps a user-visible build profile to the gcc/clang flag used
+// on the C23 link path. "dev" (and the empty zero value, for callers that build
+// a Config literal directly) keeps the historical -O0 behavior.
+func ProfileOptFlag(profile string) string {
+	switch profile {
+	case "release":
+		return "-O2"
+	case "size":
+		return "-Os"
+	default:
+		return "-O0"
+	}
+}
+
 // detectWasiCompiler preserves the historical clang --target=wasm32-wasi path
 // for direct codegen callers.
 func (g *Generator) detectWasiCompiler(cFile, exeFile string) (string, []string, error) {
@@ -125,7 +139,7 @@ func (g *Generator) detectWasiCompiler(cFile, exeFile string) (string, []string,
 // host-toolchain fallback and never a wrong-OS binary.
 func (g *Generator) detectMacOSCrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
 	if cc := os.Getenv("CC"); cc != "" {
-		flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+		flags := []string{cFile, "-o", exeFile, "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
 		flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 		return cc, flags, nil
 	}
@@ -137,7 +151,7 @@ func (g *Generator) detectMacOSCrossCompiler(tg target.Target, cFile, exeFile st
 	// ToolchainError instead — explicit CC (e.g. osxcross) stays the hatch.
 	if isHostMachine(tg) {
 		if _, err := exec.LookPath("clang"); err == nil {
-			flags := []string{cFile, "-o", exeFile, "--target=" + clangTarget, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+			flags := []string{cFile, "-o", exeFile, "--target=" + clangTarget, "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
 			flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
@@ -158,7 +172,7 @@ func (g *Generator) detectMacOSCrossCompiler(tg target.Target, cFile, exeFile st
 // these targets and would otherwise fail deep inside C compilation with
 // confusing header noise instead of naming the missing toolchain.
 func (g *Generator) detectPosixClangTargetCompiler(tg target.Target, cFile, exeFile, clangTarget, sysroot string) (string, []string, error) {
-	flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi",
+	flags := []string{cFile, "-o", exeFile, "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi",
 		"-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
 	flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 	if cc := os.Getenv("CC"); cc != "" {
@@ -184,13 +198,13 @@ func (g *Generator) detectPosixClangTargetCompiler(tg target.Target, cFile, exeF
 // compilation instead of surfacing the deterministic ToolchainError.
 func (g *Generator) detectAarch64WindowsCrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
 	if cc := os.Getenv("CC"); cc != "" {
-		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}
+		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-lws2_32"}
 		flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 		return cc, flags, nil
 	}
 	prefix := target.MingwTriple(tg)
 	if _, err := exec.LookPath(prefix + "-gcc"); err == nil {
-		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}
+		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-lws2_32"}
 		flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
@@ -205,7 +219,7 @@ func (g *Generator) detectAarch64WindowsCrossCompiler(tg target.Target, cFile, e
 // the ARM64-Windows probe above: no riscv64 sysroot on real hosts).
 func (g *Generator) detectRiscv64CrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
 	if cc := os.Getenv("CC"); cc != "" {
-		flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+		flags := []string{cFile, "-o", exeFile, "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
 		flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 		return cc, flags, nil
 	}
@@ -215,7 +229,7 @@ func (g *Generator) detectRiscv64CrossCompiler(tg target.Target, cFile, exeFile 
 	for _, n := range names {
 		searched = append(searched, n)
 		if _, err := exec.LookPath(n); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+			flags := []string{cFile, "-o", exeFile, "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
 			flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
@@ -252,9 +266,9 @@ func (g *Generator) detectHostCompiler(cFile, exeFile string) (string, []string,
 // builtins) resolve through an explicit -lws2_32 on Windows targets because
 // MinGW gcc ignores #pragma comment(lib, ...).
 func (g *Generator) hostNativeFlags(cFile, exeFile string) []string {
-	flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp"}
+	flags := []string{cFile, "-o", exeFile, "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp"}
 	if target.Host().OS == target.OSWindows {
-		flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}
+		flags = []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-lws2_32"}
 	} else {
 		flags = append(flags, "-D_POSIX_C_SOURCE=200809L", "-lm")
 	}
@@ -270,14 +284,14 @@ func (g *Generator) hostNativeFlags(cFile, exeFile string) []string {
 // cross gcc or clang --target.
 func (g *Generator) detectWindowsCrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
 	if cc := os.Getenv("CC"); cc != "" {
-		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}
+		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-lws2_32"}
 		flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 		return cc, flags, nil
 	}
 	prefix := target.MingwTriple(tg)
 	searched := []string{prefix + "-gcc"}
 	if _, err := exec.LookPath(prefix + "-gcc"); err == nil {
-		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}
+		flags := []string{cFile, "-o", exeFile, "-mconsole", "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-lws2_32"}
 		flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 		if g.cfg.Debug {
 			flags = append(flags, "-g")
@@ -286,7 +300,7 @@ func (g *Generator) detectWindowsCrossCompiler(tg target.Target, cFile, exeFile 
 	}
 	if _, err := exec.LookPath("clang"); err == nil {
 		searched = append(searched, "clang --target="+tg.String())
-		flags := []string{cFile, "-o", exeFile, "--target=" + target.MingwTriple(tg), "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-lws2_32"}
+		flags := []string{cFile, "-o", exeFile, "--target=" + target.MingwTriple(tg), "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-lws2_32"}
 		flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 		return "clang", flags, nil
 	}
@@ -298,7 +312,7 @@ func (g *Generator) detectWindowsCrossCompiler(tg target.Target, cFile, exeFile 
 // GNU cross gcc or clang --target.
 func (g *Generator) detectLinuxCrossCompiler(tg target.Target, cFile, exeFile string) (string, []string, error) {
 	if cc := os.Getenv("CC"); cc != "" {
-		flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+		flags := []string{cFile, "-o", exeFile, "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
 		flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 		return cc, flags, nil
 	}
@@ -308,7 +322,7 @@ func (g *Generator) detectLinuxCrossCompiler(tg target.Target, cFile, exeFile st
 	for _, n := range names {
 		searched = append(searched, n)
 		if _, err := exec.LookPath(n); err == nil {
-			flags := []string{cFile, "-o", exeFile, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
+			flags := []string{cFile, "-o", exeFile, "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp", "-D_POSIX_C_SOURCE=200809L", "-lm"}
 			flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 			if g.cfg.Debug {
 				flags = append(flags, "-g")
@@ -319,7 +333,7 @@ func (g *Generator) detectLinuxCrossCompiler(tg target.Target, cFile, exeFile st
 	if _, err := exec.LookPath("clang"); err == nil {
 		clangTarget := arch + "-unknown-linux-gnu"
 		searched = append(searched, "clang --target="+clangTarget)
-		flags := []string{cFile, "-o", exeFile, "--target=" + clangTarget, "-std=c2x", "-O0", "-Wno-psabi", "-lgmp"}
+		flags := []string{cFile, "-o", exeFile, "--target=" + clangTarget, "-std=c2x", ProfileOptFlag(g.cfg.Profile), "-Wno-psabi", "-lgmp"}
 		flags = append(flags, g.tlsLinkFlags(tg.OS)...)
 		return "clang", flags, nil
 	}

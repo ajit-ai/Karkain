@@ -558,3 +558,39 @@ path rather than removing the old one.
      - kcc
      - PATH-shim log assertion plus a non-empty legacy positive control in
        both ``TestPhaseA1_`` tests
+
+v1.2.35 slice 1 — build profiles (unnamed follow-up)
+=====================================================
+
+``--profile`` selects the C23 optimization flag on both engines. The default
+``dev`` profile preserves the historical ``-O0`` behavior. Native-as-default
+and SSA pass selection are explicitly deferred to their own slices.
+
+.. list-table:: Build profile matrix
+   :widths: 42 14 16 28
+   :header-rows: 1
+
+   * - Capability
+     - Status
+     - Engines
+     - Gate
+   * - ``--profile dev`` -> ``-O0`` (default)
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1235_ProfileFlagsReachCompiler/dev``
+   * - ``--profile release`` -> ``-O2``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1235_ProfileFlagsReachCompiler/release``
+   * - ``--profile size`` -> ``-Os``
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1235_ProfileFlagsReachCompiler/size``
+   * - Unknown profile rejected, no executable written
+     - Stable
+     - CLI
+     - ``TestPhaseV1235_UnknownProfileRejected``
+   * - Native path as default for supported programs
+     - Deferred
+     - -
+     - ``docs/audit/V1.2.35-BUILD-PROFILES-BASELINE.md`` §3/§7
