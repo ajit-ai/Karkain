@@ -1681,6 +1681,9 @@ func emitC11Expr(state, node) {
             emit(state, ")")
         } else if (fname == "json_last_error") {
             emit(state, "karkain_json_last_error()")
+        } else if (fname == "gui_available") {
+            // v1.2.28: no GUI backend is linked yet; report false honestly.
+            emit(state, "make_bool(0)")
         } else if (fname == "udp_send") {
             emit(state, "karkain_udp_send(")
             int bu1 = 0

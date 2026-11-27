@@ -87,6 +87,8 @@ func (r *Resolver) inferType(n parser.Node, scope typeScope) string {
 			return "string"
 		case "int":
 			return "int"
+		case "gui_available":
+			return "bool"
 		case "float", "float64":
 			return "double"
 		}

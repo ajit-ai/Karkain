@@ -98,6 +98,8 @@ var builtinNames = map[string]bool{
 	// v1.2.17: C23 transport HTTPS (WinHTTP/Schannel on Windows, OpenSSL elsewhere).
 	"https_request":  true,
 	"tls_last_error": true,
+	// v1.2.28: GUI capability probe (C23 path only; native refuses by name).
+	"gui_available": true,
 	// v1.2.19: OS metrics / process enumeration (C23 path only).
 	"os_pid": true, "os_cpu_count": true, "os_total_mem_mb": true,
 	"os_available_mem_mb": true, "os_uptime_ms": true,

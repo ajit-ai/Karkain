@@ -163,6 +163,17 @@ prefix, no ``cmpxchg``, no memory fences. Consequently ``@atomic_load``,
 on ``native-x86_64-*`` and are refused BY NAME with ``error[K145]``. The
 C23 path keeps the full ``@atomic_*`` surface via C11 ``<stdatomic.h>``.
 
+GUI capability (v1.2.28 platform decision)
+------------------------------------------
+
+The C-free native target has **no windowing backend** (its only syscalls are
+``write`` and ``exit``), so ``gui_available()`` is refused BY NAME with
+``error[K145]`` and writes no image. The C23 path keeps the ``std.gui``
+capability surface on both engines: ``gui_available()`` returns ``false``
+because no GUI runtime is linked yet. This is a capability probe, not a
+working GUI; the real ImGui/GTK FFI binding is a later slice. WASM stays out
+of scope under the K108 boundary.
+
 The self-hosted driver lowers ``for x in arr`` for an **array variable**,
 including nested loops, ``break``/``continue`` and an index inside the loop
 body. The iterator must be a variable with a frame-resident header: a literal

@@ -4011,6 +4011,11 @@ func (g *Generator) genExpr(node parser.Node) string {
 		if n.Function == "json_last_error" {
 			return "karkain_json_last_error()"
 		}
+		// v1.2.28: GUI capability probe. No GUI backend is linked yet, so the
+		// honest answer is false on every platform; this is not a fake GUI.
+		if n.Function == "gui_available" {
+			return "make_bool(0)"
+		}
 		if n.Function == "udp_send" {
 			return fmt.Sprintf("karkain_udp_send(%s, %s, %s)", g.genExpr(n.Args[0]), g.genExpr(n.Args[1]), g.genExpr(n.Args[2]))
 		}
