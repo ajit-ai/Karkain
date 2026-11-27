@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"karkain/pkg/cli"
 	"karkain/pkg/codegen"
+	"karkain/pkg/dap"
 	"karkain/pkg/lsp"
 	kpkg "karkain/pkg/pm"
 	"os"
@@ -1329,6 +1330,14 @@ func main() {
 		os.Exit(runProfCommand(args[1:]))
 	case "coverage":
 		os.Exit(runCoverageCommand(args[1:]))
+	case "dap":
+		// v1.2.27 DAP foundation: stdio adapter. Debuggee operations are
+		// explicitly unimplemented in this slice, never silently faked.
+		if err := dap.New(os.Stdin, os.Stdout).Serve(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(cli.ExitFailure)
+		}
+		os.Exit(cli.ExitSuccess)
 	case "dbg":
 		if len(args) < 2 {
 			fmt.Println("Error: No input .kark file specified (usage: karkain dbg <file.kark>)")

@@ -110,6 +110,11 @@ jobs:
       - name: Run v1.2.27 function coverage gate
         run: go test ./pkg/cli/ -run 'TestPhaseV127Coverage_' -count=1
 
+      - name: Run v1.2.27 DAP foundation gate
+        run: |
+          go test ./pkg/dap/ -count=1
+          go test ./pkg/cli/ -run 'TestPhaseV127DAP_' -count=1
+
       - name: Install GCC and GMP
         run: sudo apt-get update && sudo apt-get install -y gcc libgmp-dev
 
