@@ -173,7 +173,18 @@ func (t Token) Literal(src string) string {
 	if t.Len == 0 {
 		return ""
 	}
-	return src[t.Start : uint32(t.Start)+uint32(t.Len)]
+	// v1.2.27: malformed input (e.g. an unterminated quote) can produce a
+	// token whose recorded extent runs past the source buffer. Clamp instead
+	// of panicking — the parser reports a diagnostic for the malformed token.
+	start := uint64(t.Start)
+	end := start + uint64(t.Len)
+	if start >= uint64(len(src)) {
+		return ""
+	}
+	if end > uint64(len(src)) {
+		end = uint64(len(src))
+	}
+	return src[start:end]
 }
 
 // LiteralBytes returns the token's source text as a byte slice, avoiding
@@ -182,7 +193,15 @@ func (t Token) LiteralBytes(src []byte) []byte {
 	if t.Len == 0 {
 		return nil
 	}
-	return src[t.Start : uint32(t.Start)+uint32(t.Len)]
+	start := uint64(t.Start)
+	end := start + uint64(t.Len)
+	if start >= uint64(len(src)) {
+		return nil
+	}
+	if end > uint64(len(src)) {
+		end = uint64(len(src))
+	}
+	return src[start:end]
 }
 
 type Lexer struct {
