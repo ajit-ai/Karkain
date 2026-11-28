@@ -30,6 +30,41 @@ func NewPipeline() *Pipeline {
 	}
 }
 
+// NewPipelineForProfile maps a user-visible build profile to an explicit set
+// of SSA passes. "dev" deliberately has NO profile passes: codegen already
+// runs its historical FoldConstants -> SimplifyCFG -> DCE sequence, and adding
+// another pass there would change byte-pinned output for every existing gate.
+func NewPipelineForProfile(profile string) *Pipeline {
+	switch profile {
+	case "release":
+		// Mem2Reg is deliberately excluded: Phase 141 measured it as unsound
+		// and left it unwired. Including it produced a program with no output.
+		return &Pipeline{passes: []Pass{
+			&FoldConstPass{}, &CSEPass{}, &DCESimplePass{},
+			&LICMPass{}, &SAROPass{}, &SimplifyCFGPass{},
+		}}
+	case "size":
+		// DCE is run twice (before and after CSE/LICM) because this profile
+		// targets artifact size rather than compile time. Mem2Reg stays out.
+		return &Pipeline{passes: []Pass{
+			&FoldConstPass{}, &DCESimplePass{}, &CSEPass{},
+			&LICMPass{}, &SAROPass{}, &DCESimplePass{}, &SimplifyCFGPass{},
+		}}
+	default:
+		return &Pipeline{}
+	}
+}
+
+// PassNames returns the pass names in execution order, for gates that must
+// distinguish "no passes ran" from a pipeline that merely did nothing.
+func (p *Pipeline) PassNames() []string {
+	names := make([]string, 0, len(p.passes))
+	for _, pass := range p.passes {
+		names = append(names, pass.Name())
+	}
+	return names
+}
+
 // Add appends a pass to the pipeline.
 func (p *Pipeline) Add(pass Pass) {
 	p.passes = append(p.passes, pass)
