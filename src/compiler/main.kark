@@ -869,14 +869,23 @@ func runFile(path) {
 
     // Compile with gcc (C2X like the Go reference backend: the embedded
     // concurrency runtime needs C11 atomics).
+    //
+    // Corrective (v1.2.x): the net runtime in the preamble references Winsock
+    // unconditionally and MinGW ignores #pragma comment(lib,...). On Windows,
+    // include -lws2_32 on the FIRST link so no failed-link diagnostics are
+    // printed. kernel32.dll is present on every Windows host; the openFile
+    // probe is the same existence idiom used elsewhere in this driver. POSIX
+    // hosts keep the historical command byte-identical.
     string compileCmd = "gcc -std=c2x -o karkain_temp " + tempPath + " -D_POSIX_C_SOURCE=200809L -Wno-psabi -lm"
+    if (openFile("C:/Windows/System32/kernel32.dll") != "") {
+        compileCmd = compileCmd + " -lws2_32"
+    }
     print("Compiling: " + compileCmd)
     let cc = system(compileCmd)
     if (cc != 0) {
-        // Corrective (v1.2.x): the net runtime in the preamble references
-        // Winsock unconditionally, and MinGW ignores #pragma comment(lib,...).
-        // compileRunDriver already retries this way; do the same here so a
-        // direct `kcc run` links on Windows. POSIX never takes this branch.
+        // Fallback for unusual hosts the probe did not recognise: retry with
+        // the Winsock library before declaring failure. POSIX never reaches
+        // this branch on a valid program.
         string retryCmd = compileCmd + " -lws2_32"
         print("Compiling: " + retryCmd)
         let cc2 = system(retryCmd)

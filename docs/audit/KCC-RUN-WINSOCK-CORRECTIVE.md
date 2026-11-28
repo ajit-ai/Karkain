@@ -83,6 +83,30 @@ are recorded as environmental, not as regressions of this change.
 | `go test ./pkg/cli/ -run 'TestPhaseFoundation_KCCSourceCompiles' -count=1` | **PASS**, 25.868 s |
 | CI pattern collision | exactly one Go test with `TestPhaseKCCRunWinsock_`; one CI step at line 194 |
 
+## 7. Follow-up: silent first-attempt link (same corrective slice)
+
+The first fix worked but produced a wall of expected `undefined reference`
+diagnostics before the retry. User-visible result after that fix:
+
+```
+Compiling: gcc ... -lm
+... twenty __imp_WSA* undefined-reference lines ...
+Compiling: gcc ... -lm -lws2_32
+--- Output ---
+Hello, Karkain!
+```
+
+Second correction: detect the Windows host with the same `openFile(...)`
+existence idiom the driver already uses (`C:/Windows/System32/kernel32.dll`)
+and put `-lws2_32` on the **first** link command. The retry remains only as a
+fallback for an unrecognised host. POSIX keeps the historical command
+byte-identical. The gate was strengthened accordingly: on Windows it asserts
+the FIRST `Compiling:` line contains `-lws2_32` and that `undefined reference`
+never appears. Mutation (remove the first-attempt flag) reproduced the noisy
+failure and FAILED the gate; `main.kark` restored byte-identically (SHA-256
+`7D1191A55510E9197FCB53D2439B2810AAF7250DBEF54BD492D844CDB0459C23`), gate
+PASS 43.29 s.
+
 **Remaining operational note:** the repository-root `kcc.exe` is a stale build
 from before this source edit, so the user's direct `kcc run` still uses the old
 binary until kcc is rebuilt from `src/compiler`. The `karkain` CLI path was

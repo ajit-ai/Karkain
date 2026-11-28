@@ -47,12 +47,23 @@ func TestPhaseKCCRunWinsock_DirectRunLinksAndExecutes(t *testing.T) {
 	}
 
 	if runtime.GOOS == "windows" {
-		// The retry must be observable. An exit-code-only assertion would pass
-		// if the first link somehow succeeded without the library. The first
-		// attempt's "undefined reference" lines are expected on Windows -- they
-		// are the reason the retry exists -- so they are not a failure signal.
-		if !strings.Contains(text, "-lws2_32") {
-			t.Errorf("Windows link did not retry with -lws2_32; output:\n%s", text)
+		// Windows must link with -lws2_32 on the FIRST attempt, so no
+		// failed-link diagnostics are shown to the user. A first-attempt link
+		// without the library would still pass an exit-code-only assertion via
+		// the fallback retry, so assert the flag's position and the absence of
+		// undefined-reference noise explicitly.
+		first := text
+		if i := strings.Index(text, "Compiling: "); i >= 0 {
+			first = text[i:]
+		}
+		if n := strings.Index(first, "\n"); n >= 0 {
+			first = first[:n]
+		}
+		if !strings.Contains(first, "-lws2_32") {
+			t.Errorf("first Windows link command lacks -lws2_32: %q\nfull:\n%s", first, text)
+		}
+		if strings.Contains(text, "undefined reference") {
+			t.Errorf("Windows link emitted failed-link diagnostics:\n%s", text)
 		}
 	}
 }
