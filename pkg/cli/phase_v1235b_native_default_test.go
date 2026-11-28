@@ -106,6 +106,28 @@ func TestPhaseV1235B_NativeDefaultForSupportedProgram(t *testing.T) {
 	}
 }
 
+// The native CLI path must stage through applyKCCBridge just like the C23
+// path. Without it, a trait/impl program hangs kcc's parser in native-check
+// and in the native build (measured: 5-minute v1.2.26F gate timeout).
+func TestPhaseV1235B_TraitProgramUsesBridgeOnNativeDefault(t *testing.T) {
+	cliBin, kccBin := a1Prepare(t)
+	shimDir, log := a1Shims(t)
+	src := v1235bSource(t, "trait", "trait Numeric { fn add(x int) int; }\n"+
+		"impl Numeric for int { func add(x int) int { return x + 1 } }\n"+
+		"func main() { print(add(41)) }\n")
+
+	stdout, stderr, code := v1235bRun(t, cliBin, kccBin, shimDir, log, src)
+	if code != 0 {
+		t.Fatalf("trait default run exit = %d\nstdout:\n%s\nstderr:\n%s", code, stdout, stderr)
+	}
+	if got := strings.ReplaceAll(stdout, "\r\n", "\n"); got != "42\n" {
+		t.Errorf("trait stdout = %q, want %q", got, "42\n")
+	}
+	if calls := v1235bGccCalls(t, log); len(calls) != 0 {
+		t.Errorf("trait native default invoked gcc: %v", calls)
+	}
+}
+
 func TestPhaseV1235B_C23DefaultForUnsupportedProgram(t *testing.T) {
 	cliBin, kccBin := a1Prepare(t)
 	shimDir, log := a1Shims(t)
