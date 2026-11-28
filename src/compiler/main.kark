@@ -880,14 +880,13 @@ func runFile(path) {
     if (openFile("C:/Windows/System32/kernel32.dll") != "") {
         compileCmd = compileCmd + " -lws2_32"
     }
-    print("Compiling: " + compileCmd)
     let cc = system(compileCmd)
     if (cc != 0) {
         // Fallback for unusual hosts the probe did not recognise: retry with
         // the Winsock library before declaring failure. POSIX never reaches
-        // this branch on a valid program.
+        // this branch on a valid program. Both attempts are deliberately
+        // silent: `kcc run` prints ONLY the program's own output.
         string retryCmd = compileCmd + " -lws2_32"
-        print("Compiling: " + retryCmd)
         let cc2 = system(retryCmd)
         if (cc2 != 0) {
             removeFile(tempPath)
@@ -895,8 +894,7 @@ func runFile(path) {
         }
     }
 
-    // Run
-    print("--- Output ---")
+    // Run — no banner and no separator: only program output reaches stdout.
     string exe = "karkain_temp"
     if (openFile("karkain_temp.exe") != "") { exe = "karkain_temp.exe" }
     // Windows cmd does not accept a "./" prefix; bare names run from the

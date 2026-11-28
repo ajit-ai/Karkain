@@ -107,6 +107,29 @@ failure and FAILED the gate; `main.kark` restored byte-identically (SHA-256
 `7D1191A55510E9197FCB53D2439B2810AAF7250DBEF54BD492D844CDB0459C23`), gate
 PASS 43.29 s.
 
+## 8. User-requested stdout cleanup
+
+The user then asked for the two remaining driver lines to be removed from the
+result of `kcc run`:
+
+```
+Compiling: gcc ... -lm -lws2_32
+--- Output ---
+42 / karkain / 123
+```
+
+All three prints (`Compiling:` on the first link, `Compiling:` on the fallback
+retry, and `--- Output ---`) were removed from `runFile` in
+`src/compiler/main.kark`. The Windows first-link Winsock flag and the fallback
+retry remain; they are now silent. `kcc run` therefore emits **only** the
+program's own stdout on every host. The gate was rewritten to assert exact
+stdout (`"42\n"` after CRLF normalisation) and to reject `Compiling:`,
+`--- Output ---` and `undefined reference` anywhere in the output. Mutation
+(re-adding one `Compiling:` print) FAILED the gate with the exact extra line;
+the source was restored byte-identically (SHA-256
+`5C63DD5F5F82F812D527F5E3506D544B4534E830731276495050831E6A688109`), gate
+PASS 29.63 s. `go vet ./pkg/cli/` and `gofmt` clean.
+
 **Remaining operational note:** the repository-root `kcc.exe` is a stale build
 from before this source edit, so the user's direct `kcc run` still uses the old
 binary until kcc is rebuilt from `src/compiler`. The `karkain` CLI path was

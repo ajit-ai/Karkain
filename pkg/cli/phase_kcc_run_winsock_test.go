@@ -4,18 +4,22 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
 
-// TestPhaseKCCRunWinsock_ guards the direct `kcc run` link path.
+// TestPhaseKCCRunWinsock_ guards the direct `kcc run` link path and its
+// stdout contract.
 //
 // Root cause (docs/audit/KCC-RUN-WINSOCK-CORRECTIVE.md): the generated C
 // preamble references Winsock on Windows, but the self-hosted compiler's
 // runFile linked without -lws2_32, so `kcc run` failed with undefined
 // __imp_WSA* symbols. The Go CLI path was already correct; this gate drives
 // the real self-hosted binary directly, which is the path that was broken.
+//
+// The user-visible contract is now: kcc run prints ONLY the program's stdout.
+// No "Compiling:" line, no "--- Output ---" separator, and no failed-link
+// diagnostics on Windows (the Winsock flag is on the first link).
 func TestPhaseKCCRunWinsock_DirectRunLinksAndExecutes(t *testing.T) {
 	bin := phase95KCC(t)
 	dir := t.TempDir()
@@ -32,38 +36,16 @@ func TestPhaseKCCRunWinsock_DirectRunLinksAndExecutes(t *testing.T) {
 		t.Fatalf("direct kcc run failed: %v\n%s", err, text)
 	}
 
-	// Exact program output: the compiler prints its own lines, but the program
-	// must print 42 and nothing else as its own stdout fragment. Do not trim
-	// away bytes -- the historical defect was a missing byte.
-	marker := "--- Output ---"
-	idx := strings.Index(text, marker)
-	if idx < 0 {
-		t.Fatalf("no output marker; got:\n%s", text)
+	// kcc run must emit ONLY the program's output. No compiler chatter, no
+	// separator, no failed-link diagnostics. Normalise line endings only;
+	// do not trim away bytes -- the historical defect was a missing byte.
+	programOut := strings.ReplaceAll(text, "\r\n", "\n")
+	if programOut != "42\n" {
+		t.Errorf("kcc run output = %q, want exactly %q (full raw:\n%s)", programOut, "42\n", text)
 	}
-	programOut := text[idx+len(marker):]
-	programOut = strings.ReplaceAll(programOut, "\r\n", "\n")
-	if !strings.Contains(programOut, "42\n") {
-		t.Errorf("program did not print 42; got program output %q (full:\n%s)", programOut, text)
-	}
-
-	if runtime.GOOS == "windows" {
-		// Windows must link with -lws2_32 on the FIRST attempt, so no
-		// failed-link diagnostics are shown to the user. A first-attempt link
-		// without the library would still pass an exit-code-only assertion via
-		// the fallback retry, so assert the flag's position and the absence of
-		// undefined-reference noise explicitly.
-		first := text
-		if i := strings.Index(text, "Compiling: "); i >= 0 {
-			first = text[i:]
-		}
-		if n := strings.Index(first, "\n"); n >= 0 {
-			first = first[:n]
-		}
-		if !strings.Contains(first, "-lws2_32") {
-			t.Errorf("first Windows link command lacks -lws2_32: %q\nfull:\n%s", first, text)
-		}
-		if strings.Contains(text, "undefined reference") {
-			t.Errorf("Windows link emitted failed-link diagnostics:\n%s", text)
+	for _, banned := range []string{"Compiling:", "--- Output ---", "undefined reference"} {
+		if strings.Contains(text, banned) {
+			t.Errorf("kcc run emitted %q; stdout must contain only program output:\n%s", banned, text)
 		}
 	}
 }
