@@ -9,7 +9,8 @@ Only the current Stable release line receives security fixes.
 
 | Version               | Category                     | Supported |
 |-----------------------|------------------------------|-----------|
-| 1.1.0 (Stable) | Current release line | Supported |
+| 1.2.0 (Stable) | Current release line | Supported |
+| 1.1.0 | Previous Stable line | Supported (security fixes) |
 | 1.0.x (LTS) | Maintenance line (security fixes) | Supported |
 | 0.115.x Developer Preview | Superseded                  | Not supported |
 
@@ -50,6 +51,40 @@ Never include credentials, tokens, or private data in a report.
 
 ## Response expectations
 
-We aim to acknowledge receipt within 7 days and publish a fix in the next
-Stable/RC release. Security-relevant fixes are documented in the
-`docs/source/release-notes.rst` file.
+### Response SLA (v1.2.33)
+
+| Stage | Target |
+|---|---|
+| Acknowledgement | 7 calendar days |
+| Severity assignment and initial triage | 14 calendar days |
+| Fix for Critical / High | 30 calendar days |
+| Fix for Medium / Low | next Stable release, 90-day target |
+| Public disclosure | after a fix ships, coordinated with the reporter |
+
+Targets are commitments for triage and fix work, not a claim that every
+report will be exploitable. A report that does not reproduce is closed with
+the evidence and the reporter is told why. Security-relevant fixes are
+documented in `docs/source/release-notes.rst`.
+
+## Supply-chain evidence
+
+### Software bill of materials
+
+Each release directory can be described by a deterministic SBOM generated
+from the release artifacts and their SHA-256 digests:
+
+```
+karkain sbom --release-dir releases --version v1.2.0 --output releases/sbom.json
+```
+
+The document uses the `karkain-sbom-v1` schema. It contains no timestamp, so
+regenerating it over an unchanged release directory produces identical bytes.
+`go.mod` declares no external Go modules, so the `external_go_modules` list is
+empty by construction rather than by assumption. Gate: `TestPhaseV1233_`.
+
+### Artifact signing
+
+**Not implemented.** Release archives are accompanied by SHA-256 digests, but
+they are not signed. `cosign` signing is planned in increment 165 and is not
+started. Do not describe a release as signed or verified by signature today;
+verify by SHA-256 instead.

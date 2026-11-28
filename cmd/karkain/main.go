@@ -113,6 +113,7 @@ OPTIONS:
   -c, --compile-only      Keep generated C source
   -g, --debug             Generate debug symbols + #line directives
   --target <target>       Target architecture (native, c23, wasm32-wasi, native-x86_64-linux)
+  sbom                    Generate a deterministic SBOM for a release directory
   --profile <dev|release|size>  C23 build profile (default dev, historical -O0)
   --filter <pattern>      Run only matching tests (substring of test name)
   --verbose               Emit detailed pipeline logs
@@ -1586,6 +1587,40 @@ func main() {
 		case "workspace", "ws":
 			// top-level workspace family: list|build|test|check|run|clean
 			os.Exit(handleWorkspaceCommand(args[i+1:], verbose))
+		case "sbom":
+			// sbom --release-dir <dir> [--version vX.Y.Z] [--output <path>]
+			releaseDir, sbomVersion, sbomOut := "", "", ""
+			if data, err := os.ReadFile("VERSION"); err == nil {
+				sbomVersion = "v" + strings.TrimSpace(string(data))
+			}
+			for j := i + 1; j < len(args); j++ {
+				switch args[j] {
+				case "--release-dir":
+					if j+1 < len(args) {
+						j++
+						releaseDir = args[j]
+					}
+				case "--version":
+					if j+1 < len(args) {
+						j++
+						sbomVersion = args[j]
+					}
+				case "--output":
+					if j+1 < len(args) {
+						j++
+						sbomOut = args[j]
+					}
+				}
+			}
+			if releaseDir == "" {
+				fmt.Println("Error: sbom requires --release-dir <dir>")
+				os.Exit(cli.ExitUsage)
+			}
+			if err := cli.WriteSBOM(releaseDir, sbomVersion, sbomOut); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				os.Exit(cli.ExitUsage)
+			}
+			os.Exit(cli.ExitSuccess)
 		case "clean":
 			// clean [path] [--all]: remove generated artifacts.
 			cleanPath := "."
