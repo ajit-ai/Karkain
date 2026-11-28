@@ -331,3 +331,41 @@ Value karkain_proc_wait(Value pid_val) {
     return make_int(-1);
 #endif
 }
+
+// --- v1.2.34 follow-up: portable signal control --------------------------
+// Only SIGINT (2) and SIGTERM (15) are accepted: both numbers are shared by
+// the Win32 CRT and POSIX. SIGKILL/SIGSTOP cannot be handled and are refused.
+static int karkain_osctl_valid_sig(long long s) { return s == 2 || s == 15; }
+
+Value karkain_sig_ignore(Value sig) {
+    _karkain_osctl_error[0] = '\0';
+    if (sig.type != TYPE_INT || !karkain_osctl_valid_sig(sig.intVal)) {
+        karkain_osctl_err("sig_ignore: only SIGINT(2) and SIGTERM(15) are supported"); return make_int(-1);
+    }
+    if (signal((int)sig.intVal, SIG_IGN) == SIG_ERR) {
+        karkain_osctl_err("sig_ignore: signal failed"); return make_int(-1);
+    }
+    return make_int(0);
+}
+
+Value karkain_sig_default(Value sig) {
+    _karkain_osctl_error[0] = '\0';
+    if (sig.type != TYPE_INT || !karkain_osctl_valid_sig(sig.intVal)) {
+        karkain_osctl_err("sig_default: only SIGINT(2) and SIGTERM(15) are supported"); return make_int(-1);
+    }
+    if (signal((int)sig.intVal, SIG_DFL) == SIG_ERR) {
+        karkain_osctl_err("sig_default: signal failed"); return make_int(-1);
+    }
+    return make_int(0);
+}
+
+Value karkain_sig_raise(Value sig) {
+    _karkain_osctl_error[0] = '\0';
+    if (sig.type != TYPE_INT || !karkain_osctl_valid_sig(sig.intVal)) {
+        karkain_osctl_err("sig_raise: only SIGINT(2) and SIGTERM(15) are supported"); return make_int(-1);
+    }
+    if (raise((int)sig.intVal) != 0) {
+        karkain_osctl_err("sig_raise: raise failed"); return make_int(-1);
+    }
+    return make_int(0);
+}

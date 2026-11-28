@@ -636,3 +636,12 @@ refuse them by name.
      - Not supported
      - -
      - ``TestPhaseV1234_NativeRefusedByBothEngines``, K145/K108 boundary
+   * - Signal ignore/default/raise (SIGINT 2, SIGTERM 15)
+     - Stable
+     - Go + kcc C23
+     - ``TestPhaseV1234S_SignalControlBothEngines``,
+       ``TestPhaseV1234S_UnsupportedSignalIsNotSilentlyAccepted``
+   * - Native / WASM signal boundary
+     - Not supported
+     - -
+     - ``TestPhaseV1234S_NativeRefusedByBothEngines``, K145/K108

@@ -4,6 +4,10 @@
 // proc_run / proc_run_bg remain system()-based shell-dispatch helpers by design.
 // All builtins refuse on the native and WASM targets (K145).
 
+// proc_is_running calls str_contains; without this import the module fails
+// name resolution on both engines (measured by the v1.2.34 signal gate).
+import std.string
+
 // proc_run: run a shell command and return its exit code (unchanged from pre-1.2.34)
 int proc_run(string cmd) {
     return system(cmd)
@@ -55,4 +59,22 @@ int proc_exit(int code) {
 // proc_which: find a command on PATH (shell-backed, platform-agnostic)
 string proc_which(string cmd) {
     return system("which " + cmd)
+}
+
+// --- v1.2.34 follow-up: portable signal control ---
+// Only SIGINT (2) and SIGTERM (15) are accepted on both Win32 and POSIX.
+
+// proc_ignore_signal: set the signal's disposition to ignore; 0 on success
+int proc_ignore_signal(int sig) {
+    return osctl_sig_ignore(sig)
+}
+
+// proc_default_signal: restore the signal's default disposition; 0 on success
+int proc_default_signal(int sig) {
+    return osctl_sig_default(sig)
+}
+
+// proc_raise_signal: deliver a signal to the current process; 0 on success
+int proc_raise_signal(int sig) {
+    return osctl_sig_raise(sig)
 }

@@ -279,6 +279,10 @@ jobs:
       - name: Run v1.2.35 SSA pass-selection gate
         run: go test ./pkg/cli/ -run 'TestPhaseV1235C_' -count=1 -timeout 30m
 
+      # v1.2.34 follow-up: portable signal control on both engines.
+      - name: Run v1.2.34 signal-control gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1234S_' -count=1 -timeout 30m
+
       - name: Run v1.2.3 native string index gate
         run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
 

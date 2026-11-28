@@ -782,6 +782,9 @@ func emitC11Preamble(state) {
     emitLine(state, "#include <math.h>")
     emitLine(state, "#include <stdarg.h>")
     emitLine(state, "#include <dirent.h>")
+    // v1.2.34 signal control: the generated runtime has its own includes
+    // stripped, so signal()/raise() must be declared by the preamble.
+    emitLine(state, "#include <signal.h>")
     emitNewline(state)
     emitLine(state, "static int _karkain_gargc = 0;")
     emitLine(state, "static char** _karkain_gargv = 0;")

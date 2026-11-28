@@ -123,7 +123,8 @@ func isOSCtlBuiltin(name string) bool {
 		"osctl_env_get", "osctl_env_set", "osctl_env_unset", "osctl_env_args",
 		"osctl_fs_exists", "osctl_fs_is_dir", "osctl_fs_stat_size", "osctl_fs_stat_mtime",
 		"osctl_fs_mkdir", "osctl_fs_remove",
-		"osctl_proc_spawn", "osctl_proc_kill", "osctl_proc_wait":
+		"osctl_proc_spawn", "osctl_proc_kill", "osctl_proc_wait",
+		"osctl_sig_ignore", "osctl_sig_default", "osctl_sig_raise":
 		return true
 	}
 	return false
