@@ -237,6 +237,12 @@ func kccNativeBuild(targetFile, outputPath, targetName string, verbose bool) Com
 	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("kcc native staging: %v", err)}
 	}
+	// The native path must see the SAME lowered source as the C23 kcc path:
+	// trait/impl and async/await are stripped by Go-side staging, and kcc's
+	// parser hangs on raw trait syntax (measured: v1.2.26F gate timeout).
+	if err := applyKCCBridge(staged); err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("kcc native bridge: %v", err)}
+	}
 
 	out, runErr := kccNativeInvoke(bin, staged, target, false)
 	if out == "" {
@@ -471,6 +477,12 @@ func kccNativeConsult(targetFile, targetName string, isRun bool) CommandResult {
 	staged, err := kccStageInput(targetFile, sandbox)
 	if err != nil {
 		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("kcc native staging: %v", err)}
+	}
+	// The native path must see the SAME lowered source as the C23 kcc path:
+	// trait/impl and async/await are stripped by Go-side staging, and kcc's
+	// parser hangs on raw trait syntax (measured: v1.2.26F gate timeout).
+	if err := applyKCCBridge(staged); err != nil {
+		return CommandResult{ExitCode: ExitFailure, Message: fmt.Sprintf("kcc native bridge: %v", err)}
 	}
 
 	out, runErr := kccNativeInvoke(bin, staged, target, isRun)

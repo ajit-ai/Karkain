@@ -268,6 +268,42 @@ func runKCC(bin string, args ...string) (string, int) {
 	return runKCCDir(bin, "", args...)
 }
 
+// KCCNativeSupported asks the SELF-HOSTED compiler whether a program can be
+// lowered to a native image, using the same scan/plan as a real build but
+// without emitting or writing anything. It is the only authority used for an
+// implicit native default; a refusal keeps the historical C23 path.
+func KCCNativeSupported(file string) bool {
+	bin, err := kccBinaryPath(io.Discard)
+	if err != nil {
+		return false
+	}
+	// The probe must see EXACTLY the source KCCRunCommand would hand to kcc.
+	// In particular trait/impl syntax is stripped by Go-side staging: feeding
+	// the raw file to kcc makes its parser hang (measured: 90s timeout on a
+	// trait program), which surfaced as a 5-minute gate timeout.
+	sandbox, err := os.MkdirTemp("", "karkain-kcc-native-check")
+	if err != nil {
+		return false
+	}
+	defer func() {
+		for i := 0; i < 25; i++ {
+			if err := os.RemoveAll(sandbox); err == nil {
+				return
+			}
+			os.RemoveAll(sandbox)
+		}
+	}()
+	staged, err := kccStageInput(file, sandbox)
+	if err != nil {
+		return false
+	}
+	if err := applyKCCBridge(staged); err != nil {
+		return false
+	}
+	out, code := runKCC(bin, "native-check", staged, "--target", NativeHostTarget())
+	return code == 0 && strings.Contains(out, "[ok] native supported")
+}
+
 // runKCCDir is runKCC with a working directory (used to sandbox kcc's
 // synthesized test-driver artifacts).
 func runKCCDir(bin, dir string, args ...string) (string, int) {

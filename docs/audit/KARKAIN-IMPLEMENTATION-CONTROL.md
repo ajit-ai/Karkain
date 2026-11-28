@@ -174,8 +174,10 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 > the other developer's WIP, **COMPLETE for the builtin/stdlib slice**
 > (`docs/audit/V1.2.34-TAKEOVER-BASELINE.md`), v1.2.35 — slice 1
 > (`--profile dev|release|size`) **COMPLETE**
-> (`docs/audit/V1.2.35-BUILD-PROFILES-BASELINE.md`; native-as-default and SSA
-> pass selection deferred to their own slices) — and v1.2.36 (attempted, UNMET
+> (`docs/audit/V1.2.35-BUILD-PROFILES-BASELINE.md`), and slice 2
+> (native default via kcc's non-emitting support probe) **COMPLETE**
+> (`docs/audit/V1.2.35-NATIVE-DEFAULT-BASELINE.md`); SSA pass selection remains
+> deferred — and v1.2.36 (attempted, UNMET
 > on this host). Each still needs its own owner authorisation. v1.2.36 was
 > attempted on this host (2026-11-27): the fast pin contract PASSed, stage 1
 > built, but the K127 guard refused stage 2 at 890 MiB against 1536 MiB, so

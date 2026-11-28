@@ -1399,6 +1399,7 @@ func main() {
 	incrementalBuild := false     // Phase 105: `karkain build --incremental` uses the content-addressed cache
 	incrementalCache := ""        // Phase 105: optional cache directory override for --incremental
 	kirVerify := false            // Phase 121: `karkain kir --verify` runs the KIR structural verifier
+	targetExplicit := false       // v1.2.35 slice 2: an explicit --target is never rewritten
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -1412,6 +1413,7 @@ func main() {
 			switch flagName {
 			case "--target":
 				cfg.Target = flagValue
+				targetExplicit = true
 				norm, verr := cli.NormalizeTarget(cfg.Target)
 				if verr != nil {
 					fmt.Println(verr)
@@ -1463,6 +1465,7 @@ func main() {
 		case "--target":
 			if i+1 < len(args) {
 				cfg.Target = args[i+1]
+				targetExplicit = true
 				i++
 			} else {
 				fmt.Println("Error: --target flag requires a target architecture")
@@ -2033,6 +2036,18 @@ func main() {
 		// dispatch to kcc unless the Go engine was explicitly requested.
 		switch command {
 		case "run":
+			// v1.2.35 slice 2: with NO explicit --target, ask the self-hosted
+			// compiler (not a heuristic) whether this program can be lowered
+			// natively. A refusal keeps the historical C23 path. An explicit
+			// --target is never rewritten.
+			if !targetExplicit && (cfg.Target == "" || cfg.Target == "native" || cfg.Target == "c23") {
+				if cli.KCCNativeSupported(targetFile) {
+					cfg.Target = cli.NativeHostTarget()
+					if verbose {
+						fmt.Fprintf(os.Stderr, "default target: %s (native support probe)\n", cfg.Target)
+					}
+				}
+			}
 			// Phase 111: kcc only runs same-machine (native/c23) targets. An
 			// explicit triple (or wasm) must not silently run as a host binary:
 			// route those through the Go engine, which enforces run restrictions.

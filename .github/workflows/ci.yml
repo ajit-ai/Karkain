@@ -266,6 +266,11 @@ jobs:
       - name: Run v1.2.34 OS control runtime freshness gate
         run: go test ./pkg/codegen/ -run 'TestOSCtlKarkFresh' -count=1 -timeout 10m
 
+      # v1.2.35 slice 2: implicit native default, chosen by kcc's own
+      # non-emitting support probe; explicit --target is never rewritten.
+      - name: Run v1.2.35 native default gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1235B_' -count=1 -timeout 30m
+
       - name: Run v1.2.3 native string index gate
         run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
 
