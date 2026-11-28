@@ -122,12 +122,16 @@ func TestPhaseV1235C_ProfilesKeepProgramMeaning(t *testing.T) {
 	for _, profile := range []string{"dev", "release", "size"} {
 		t.Run(profile, func(t *testing.T) {
 			cmd := exec.Command(cli, "run", src, "--engine", "go", "--target", v1235cHostTriple(), "--profile", profile)
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				t.Fatalf("run %s failed: %v\n%s", profile, err, string(out))
+			// gcc -O2/-Os emits a pre-existing -Wunused-result warning from
+			// the generated runtime's fread; it is compiler output, not
+			// program output. Keep the streams separate.
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("run %s failed: %v\nstdout:\n%s\nstderr:\n%s", profile, err, stdout.String(), stderr.String())
 			}
-			if got := strings.ReplaceAll(string(out), "\r\n", "\n"); got != "42\n" {
-				t.Errorf("%s stdout = %q, want %q", profile, got, "42\n")
+			if got := strings.ReplaceAll(stdout.String(), "\r\n", "\n"); got != "42\n" {
+				t.Errorf("%s stdout = %q, want %q (stderr: %s)", profile, got, "42\n", stderr.String())
 			}
 		})
 	}
