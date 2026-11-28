@@ -121,12 +121,13 @@ func forScopeSource(t *testing.T, name, body string) string {
 // forScopeInvoke drives the real binary. stdout and stderr are kept separate:
 // the Go engine streams the child with inherited stdio while the kcc engine
 // captures it, and the kcc build banner must not be mistaken for a diagnostic.
-func forScopeInvoke(t *testing.T, engine, command, path string, retryCompile bool) (string, string, int) {
+func forScopeInvoke(t *testing.T, engine, command, path string, retryCompile bool, extra ...string) (string, string, int) {
 	t.Helper()
 	cli, kcc := forScopePrepare(t)
 	for attempt := 0; attempt < 2; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		cmd := exec.CommandContext(ctx, cli, command, path, "--engine", engine)
+		args := append([]string{command, path, "--engine", engine}, extra...)
+		cmd := exec.CommandContext(ctx, cli, args...)
 		if engine == "kcc" {
 			cmd.Env = append(os.Environ(), "KARKAIN_KCC="+kcc)
 		}
@@ -361,11 +362,15 @@ func TestPhaseForScope_AcceptedProgramsKeepTheirMeaning(t *testing.T) {
 	for _, tc := range goldens {
 		t.Run(tc.name, func(t *testing.T) {
 			path := forScopeSource(t, tc.name, tc.src)
-			goOut, goErr, goCode := forScopeInvoke(t, "go", "run", path, true)
+			// This gate measures CHECKER scoping parity, so pin the C23 target.
+			// Since v1.2.35 slice 2 an untargeted kcc run may choose native,
+			// whose documented v1 shadowing semantics are deliberately
+			// different from the C23 backend.
+			goOut, goErr, goCode := forScopeInvoke(t, "go", "run", path, true, "--target", "c23")
 			if goCode != 0 {
 				t.Fatalf("go run exit = %d, want 0\nstdout:\n%s\nstderr:\n%s", goCode, goOut, goErr)
 			}
-			kccOut, kccErr, kccCode := forScopeInvoke(t, "kcc", "run", path, true)
+			kccOut, kccErr, kccCode := forScopeInvoke(t, "kcc", "run", path, true, "--target", "c23")
 			if kccCode != 0 {
 				t.Fatalf("kcc run exit = %d, want 0\nstdout:\n%s\nstderr:\n%s", kccCode, kccOut, kccErr)
 			}
