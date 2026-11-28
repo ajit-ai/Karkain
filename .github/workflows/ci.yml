@@ -188,6 +188,11 @@ jobs:
       - name: Run Phase 119 stable-release-preparedness gate
         run: go test ./pkg/cli/ -run 'TestPhase119' -count=1
 
+      # Corrective: direct `kcc run` must link Winsock on Windows. The Go CLI
+      # path was already correct; this drives the self-hosted binary itself.
+      - name: Run direct kcc run Winsock link gate
+        run: go test ./pkg/cli/ -run 'TestPhaseKCCRunWinsock_' -count=1 -timeout 10m
+
       # Phase 122 moved to its OWN job (`kcc-whole-tree`). It is NOT skipped and NOT
       # weakened -- it still runs every subtest, including the whole-tree kcc
       # self-check. See that job for why it was moved.

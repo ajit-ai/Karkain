@@ -869,16 +869,32 @@ func runFile(path) {
 
     // Compile with gcc (C2X like the Go reference backend: the embedded
     // concurrency runtime needs C11 atomics).
+    //
+    // Corrective (v1.2.x): the net runtime in the preamble references Winsock
+    // unconditionally and MinGW ignores #pragma comment(lib,...). On Windows,
+    // include -lws2_32 on the FIRST link so no failed-link diagnostics are
+    // printed. kernel32.dll is present on every Windows host; the openFile
+    // probe is the same existence idiom used elsewhere in this driver. POSIX
+    // hosts keep the historical command byte-identical.
     string compileCmd = "gcc -std=c2x -o karkain_temp " + tempPath + " -D_POSIX_C_SOURCE=200809L -Wno-psabi -lm"
-    print("Compiling: " + compileCmd)
+    if (openFile("C:/Windows/System32/kernel32.dll") != "") {
+        compileCmd = compileCmd + " -lws2_32"
+    }
     let cc = system(compileCmd)
     if (cc != 0) {
-        removeFile(tempPath)
-        return
+        // Fallback for unusual hosts the probe did not recognise: retry with
+        // the Winsock library before declaring failure. POSIX never reaches
+        // this branch on a valid program. Both attempts are deliberately
+        // silent: `kcc run` prints ONLY the program's own output.
+        string retryCmd = compileCmd + " -lws2_32"
+        let cc2 = system(retryCmd)
+        if (cc2 != 0) {
+            removeFile(tempPath)
+            return
+        }
     }
 
-    // Run
-    print("--- Output ---")
+    // Run — no banner and no separator: only program output reaches stdout.
     string exe = "karkain_temp"
     if (openFile("karkain_temp.exe") != "") { exe = "karkain_temp.exe" }
     // Windows cmd does not accept a "./" prefix; bare names run from the
