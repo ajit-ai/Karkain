@@ -892,6 +892,7 @@ func (g *Generator) generateCHeader() string {
 #include <stdalign.h>
 #include <math.h>
 #include <time.h>
+#include <signal.h>
 #include <gmp.h>
 
 // Phase 70: Atomics (memory orderings, atomic load/store/rmw).

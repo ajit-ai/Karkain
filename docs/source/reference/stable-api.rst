@@ -197,10 +197,12 @@ Stable OS/process control (C23 path)
 ``std.env``, ``std.filesystem`` and ``std.process`` expose portable OS control
 on the C23 path on both engines through internal ``osctl_*`` builtins:
 environment get/set/unset/args, filesystem existence/type/size/mtime/mkdir/
-remove, and process spawn/kill/wait. The public stdlib names are unchanged;
-native refuses them with ``error[K145]`` and WASM with ``error[K108]``. Gate:
-``TestPhaseV1234_`` and ``TestOSCtlKarkFresh``. See
-``docs/audit/V1.2.34-TAKEOVER-BASELINE.md``.
+remove, process spawn/kill/wait, and (v1.2.34 follow-up) signal
+ignore/default/raise for SIGINT 2 and SIGTERM 15. The public stdlib names are
+unchanged; native refuses them with ``error[K145]`` and WASM with
+``error[K108]``. Gates: ``TestPhaseV1234_``, ``TestPhaseV1234S_`` and
+``TestOSCtlKarkFresh``. See ``docs/audit/V1.2.34-TAKEOVER-BASELINE.md`` and
+``docs/audit/V1.2.34-SIGNALS-BASELINE.md``.
 
 Stable diagnostic expectations
 ==============================

@@ -44,4 +44,9 @@ Value karkain_proc_spawn(Value cmd);
 Value karkain_proc_kill(Value pid);
 Value karkain_proc_wait(Value pid);
 
+// Signal control (SIGINT=2, SIGTERM=15 on both Win32 CRT and POSIX)
+Value karkain_sig_ignore(Value sig);
+Value karkain_sig_default(Value sig);
+Value karkain_sig_raise(Value sig);
+
 #endif /* KARKAIN_OSCTL_H */

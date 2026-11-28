@@ -89,7 +89,8 @@ var builtinNames = map[string]bool{
 	"osctl_fs_exists": true, "osctl_fs_is_dir": true, "osctl_fs_stat_size": true,
 	"osctl_fs_stat_mtime": true, "osctl_fs_mkdir": true, "osctl_fs_remove": true,
 	"osctl_proc_spawn": true, "osctl_proc_kill": true, "osctl_proc_wait": true,
-	"trim":       true, "contains": true, "split": true,
+	"osctl_sig_ignore": true, "osctl_sig_default": true, "osctl_sig_raise": true,
+	"trim": true, "contains": true, "split": true,
 	// Phase 109: stdlib v2 runtime byte helpers (encoding / crypto / map iteration).
 	"hex_encode_bytes": true, "hex_decode_bytes": true,
 	"base64_encode_bytes": true, "base64_decode_bytes": true,

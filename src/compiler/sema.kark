@@ -108,6 +108,7 @@ func isBuiltinFunc(name) {
     if (name == "osctl_fs_exists" || name == "osctl_fs_is_dir" || name == "osctl_fs_stat_size") { return 1 }
     if (name == "osctl_fs_stat_mtime" || name == "osctl_fs_mkdir" || name == "osctl_fs_remove") { return 1 }
     if (name == "osctl_proc_spawn" || name == "osctl_proc_kill" || name == "osctl_proc_wait") { return 1 }
+    if (name == "osctl_sig_ignore" || name == "osctl_sig_default" || name == "osctl_sig_raise") { return 1 }
     if (name == "removeFile") { return 1 }
     if (name == "readFile") { return 1 }
     if (name == "writeFile") { return 1 }
@@ -224,6 +225,7 @@ func builtinArity(name) {
     if (name == "osctl_env_get" || name == "osctl_env_unset" || name == "osctl_fs_exists" || name == "osctl_fs_is_dir") { return 1 }
     if (name == "osctl_fs_stat_size" || name == "osctl_fs_stat_mtime" || name == "osctl_fs_mkdir" || name == "osctl_fs_remove") { return 1 }
     if (name == "osctl_proc_spawn" || name == "osctl_proc_kill" || name == "osctl_proc_wait") { return 1 }
+    if (name == "osctl_sig_ignore" || name == "osctl_sig_default" || name == "osctl_sig_raise") { return 1 }
     if (name == "removeFile") { return 1 }
     if (name == "readFile") { return 1 }
     if (name == "writeFile") { return 2 }

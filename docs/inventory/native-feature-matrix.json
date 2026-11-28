@@ -81,7 +81,8 @@
     {"construct": "concurrency (spawn/actor/channel)", "status": "not_supported", "gate": "", "gate_file": "", "note": "The native path has no concurrency runtime."},
     {"construct": "portable environment control (std.env via osctl_*)", "status": "not_supported", "gate": "TestPhaseV1234_NativeRefusedByBothEngines", "gate_file": "pkg/cli/phase_v1234_osctl_test.go", "note": "v1.2.34 platform decision: C23-only. Native runtime has no environment API; both engines refuse with K145/K108."},
     {"construct": "filesystem metadata (std.filesystem via osctl_*)", "status": "not_supported", "gate": "TestPhaseV1234_NativeRefusedByBothEngines", "gate_file": "pkg/cli/phase_v1234_osctl_test.go", "note": "v1.2.34 platform decision: C23-only. Native runtime has no filesystem API; both engines refuse with K145/K108."},
-    {"construct": "process control (std.process via osctl_*)", "status": "not_supported", "gate": "TestPhaseV1234_NativeRefusedByBothEngines", "gate_file": "pkg/cli/phase_v1234_osctl_test.go", "note": "v1.2.34 platform decision: C23-only. Native runtime has no process API; both engines refuse with K145/K108."}
+    {"construct": "process control (std.process via osctl_*)", "status": "not_supported", "gate": "TestPhaseV1234_NativeRefusedByBothEngines", "gate_file": "pkg/cli/phase_v1234_osctl_test.go", "note": "v1.2.34 platform decision: C23-only. Native runtime has no process API; both engines refuse with K145/K108."},
+    {"construct": "signal control (std.process via osctl_sig_*)", "status": "not_supported", "gate": "TestPhaseV1234S_NativeRefusedByBothEngines", "gate_file": "pkg/cli/phase_v1234s_signals_test.go", "note": "v1.2.34 follow-up platform decision: C23-only. Native runtime has no signal API; both engines refuse by name with K145/K108."}
   ],
   "platforms": [
     {
