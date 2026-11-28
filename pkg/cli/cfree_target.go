@@ -36,6 +36,20 @@ func nativeImageExt(osName string) string {
 	}
 }
 
+// NativeHostTarget returns the C-free target whose container this host can
+// execute. Used only for an IMPLICIT default; an explicit --target is never
+// rewritten.
+func NativeHostTarget() string {
+	switch runtime.GOOS {
+	case "windows":
+		return NativeWindowsTarget
+	case "darwin":
+		return NativeMacOSTarget
+	default:
+		return NativeLinuxTarget
+	}
+}
+
 // nativeHostCanRun reports whether a target image can be executed here. The
 // check is the target's OS against the HOST, deliberately not a name match:
 // that is what stops a Linux ELF from being handed to the Windows loader and

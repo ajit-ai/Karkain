@@ -92,6 +92,21 @@ func main() {
         return
     }
 
+    // v1.2.35 slice 2: a NON-EMITTING support probe. It runs the same
+    // scan/plan as a native build but prints only a verdict, so the CLI can
+    // decide a default target without producing an image or switching
+    // engines silently.
+    if (command == "native-check") {
+        if (argc < 3) {
+            print("Usage: karkain native-check <file.kark> [--target native-x86_64-*]")
+            return
+        }
+        string ntarget = "native-x86_64-windows"
+        if (argc >= 5 && args[3] == "--target") { ntarget = args[4] }
+        nativeCheckFile(args[2], ntarget)
+        return
+    }
+
     // Phase 151B: exercise the self-hosted machine-code encoder and print
     // the bytes it produces as hex, one line per reference sequence. This
     // is the increment's measurement surface: the gate runs the same
@@ -721,6 +736,41 @@ func buildNativeFile(path, target, useRegAlloc, outPath) {
 // driver buildNativeFile uses, emitting a C-free image, writing it with
 // writeBytes, executing it and removing the temporary file. No gcc, no C23
 // and no Go launcher are involved.
+// nativeCheckFile answers "can this program be lowered natively?" using the
+// SAME whole-program driver as a real build, without writing an image or
+// printing hex. Only the verdict reaches the CLI.
+func nativeCheckFile(path, target) {
+    string source = assembleProject(path)
+    if (source == "") { return }
+
+    Value tokens = tokenize(source)
+    int state = createParserState(tokens, source)
+    int ast = parseWithState(state)
+    if (hasParserErrors(state)) {
+        printParserErrors(state)
+        return
+    }
+    int typeErrs = typeCheckProgram(ast)
+    if (len(typeErrs) > 0) {
+        int ei = 0
+        while (ei < len(typeErrs)) {
+            print(typeErrs[ei])
+            ei = ei + 1
+        }
+        return
+    }
+
+    int nos = 0
+    if (target == "native-x86_64-windows") { nos = 1 }
+    if (target == "native-x86_64-macos") { nos = 2 }
+    int nres = natNativeProgramOS(ast, nos, fileBaseName(path), 0)
+    if (nres[0] != "") {
+        print(nres[0])
+        return
+    }
+    print("[ok] native supported")
+}
+
 func runNativeFile(path, target, useRegAlloc) {
     string source = assembleProject(path)
     if (source == "") { return }

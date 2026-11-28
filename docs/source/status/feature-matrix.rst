@@ -591,9 +591,15 @@ and SSA pass selection are explicitly deferred to their own slices.
      - CLI
      - ``TestPhaseV1235_UnknownProfileRejected``
    * - Native path as default for supported programs
+     - Stable
+     - kcc (host OS must match)
+     - ``TestPhaseV1235B_NativeDefaultForSupportedProgram``,
+       ``TestPhaseV1235B_C23DefaultForUnsupportedProgram``,
+       ``TestPhaseV1235B_ExplicitTargetsAreUnchanged``
+   * - SSA pass selection
      - Deferred
      - -
-     - ``docs/audit/V1.2.35-BUILD-PROFILES-BASELINE.md`` §3/§7
+     - ``docs/audit/V1.2.35-NATIVE-DEFAULT-BASELINE.md`` §6
 
 v1.2.34 — portable OS/process control (takeover)
 =================================================

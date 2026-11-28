@@ -85,7 +85,11 @@ Stable CLI
        C23 optimization flag (default ``dev``); unknown values are a usage
        error. Gate: ``TestPhaseV1235_``.
    * - ``run``
-     - Compile and run in one step.
+     - Compile and run in one step. With no explicit ``--target``, the kcc
+       engine asks kcc's non-emitting ``native-check`` probe and uses the
+       host's native target when the program is supported; otherwise the
+       historical C23 path is kept. An explicit target is never changed.
+       Gate: ``TestPhaseV1235B_``.
    * - ``test``
      - Discover ``*_test.kark`` files, run ``test_*`` functions,
        ``--filter`` substring, exit 4 on failure.

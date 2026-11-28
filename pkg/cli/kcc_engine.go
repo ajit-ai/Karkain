@@ -268,6 +268,19 @@ func runKCC(bin string, args ...string) (string, int) {
 	return runKCCDir(bin, "", args...)
 }
 
+// KCCNativeSupported asks the SELF-HOSTED compiler whether a program can be
+// lowered to a native image, using the same scan/plan as a real build but
+// without emitting or writing anything. It is the only authority used for an
+// implicit native default; a refusal keeps the historical C23 path.
+func KCCNativeSupported(file string) bool {
+	bin, err := kccBinaryPath(io.Discard)
+	if err != nil {
+		return false
+	}
+	out, code := runKCC(bin, "native-check", file, "--target", NativeHostTarget())
+	return code == 0 && strings.Contains(out, "[ok] native supported")
+}
+
 // runKCCDir is runKCC with a working directory (used to sandbox kcc's
 // synthesized test-driver artifacts).
 func runKCCDir(bin, dir string, args ...string) (string, int) {
