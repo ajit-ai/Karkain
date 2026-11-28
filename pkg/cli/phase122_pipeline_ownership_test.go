@@ -375,8 +375,13 @@ func TestPhase122_PipelineOwnership(t *testing.T) {
 		// measured on the PR #68 CI check (Phase 122 job, 2026-11-27)
 		// (text=20938 verify=20938), never predicted. The delta is exactly
 		// the five emitLine calls that guard chmod in kcc's preamble.
-		if got := phase121Count(t, out, "[ok] kir text: "); got != 20938 {
-			t.Errorf("whole-tree kir text = %d lines, want 20938:\n%s", got, out)
+		// RE-PINNED FOR the v1.2.34 signal follow-up: 20938 -> 20989 (+51),
+		// measured on the PR #73 CI check (Phase 122 job, 2026-11-28)
+		// (text=20989 verify=20989), never predicted. Delta is the signal
+		// builtin wiring in checker/sema/codegen plus the regenerated
+		// osctl_runtime.kark. Historical chain kept above.
+		if got := phase121Count(t, out, "[ok] kir text: "); got != 20989 {
+			t.Errorf("whole-tree kir text = %d lines, want 20989:\n%s", got, out)
 		}
 		if tc, vc := phase121Count(t, out, "[ok] kir text: "), phase121Count(t, out, "[ok] kir verify: "); tc != vc {
 			t.Errorf("kir.kark count mismatch: %d vs %d\n%s", tc, vc, out)
