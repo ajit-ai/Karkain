@@ -341,6 +341,9 @@ func (g *Generator) emitFunctionViaIR(prog *parser.Program, fn *parser.FuncDecl)
 	mod.FoldConstants()
 	(&ssa.SimplifyCFGPass{}).Run(sfn)
 	mod.EliminateDeadCode()
+	// v1.2.35 slice 3: profile-selected passes run AFTER the historical
+	// sequence, so dev (zero profile passes) is byte-identical to before.
+	ssa.NewPipelineForProfile(g.cfg.Profile).Run(sfn)
 	if err := mod.Verify(); err != nil {
 		return "", false
 	}

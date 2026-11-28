@@ -176,8 +176,9 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 > (`--profile dev|release|size`) **COMPLETE**
 > (`docs/audit/V1.2.35-BUILD-PROFILES-BASELINE.md`), and slice 2
 > (native default via kcc's non-emitting support probe) **COMPLETE**
-> (`docs/audit/V1.2.35-NATIVE-DEFAULT-BASELINE.md`); SSA pass selection remains
-> deferred — and v1.2.36 (attempted, UNMET
+> (`docs/audit/V1.2.35-NATIVE-DEFAULT-BASELINE.md`), and slice 3
+> (profile-selected SSA passes, mem2reg excluded) **COMPLETE**
+> (`docs/audit/V1.2.35-SSA-PASSES-BASELINE.md`) — and v1.2.36 (attempted, UNMET
 > on this host). Each still needs its own owner authorisation. v1.2.36 was
 > attempted on this host (2026-11-27): the fast pin contract PASSed, stage 1
 > built, but the K127 guard refused stage 2 at 890 MiB against 1536 MiB, so

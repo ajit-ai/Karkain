@@ -275,6 +275,10 @@ jobs:
       - name: Run v1.2.33 security evidence gate
         run: go test ./pkg/cli/ -run 'TestPhaseV1233_' -count=1 -timeout 10m
 
+      # v1.2.35 slice 3: profile-selected SSA passes (mem2reg excluded).
+      - name: Run v1.2.35 SSA pass-selection gate
+        run: go test ./pkg/cli/ -run 'TestPhaseV1235C_' -count=1 -timeout 30m
+
       - name: Run v1.2.3 native string index gate
         run: go test ./pkg/cli/ -run 'TestPhaseV123_' -count=1 -timeout 30m
 
