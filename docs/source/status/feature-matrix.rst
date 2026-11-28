@@ -645,3 +645,11 @@ refuse them by name.
      - Not supported
      - -
      - ``TestPhaseV1234S_NativeRefusedByBothEngines``, K145/K108
+   * - Dynamic library loading (``dlopen``/``dlsym``)
+     - Not supported (all targets)
+     - -
+     - ``TestPhaseV1234D_NoLanguageDynlibBuiltin``,
+       ``TestPhaseV1234D_NativeDynlibRefused``,
+       ``TestPhaseV1234D_JITDynamicLoadingIsStubbed``.
+       ``import "C"`` blocks still parse; a typed C call is not proven to
+       link (separate finding). Audit: ``V1.2.34-DYNLIB-BOUNDARY.md``
