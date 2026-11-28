@@ -174,6 +174,20 @@ because no GUI runtime is linked yet. This is a capability probe, not a
 working GUI; the real ImGui/GTK FFI binding is a later slice. WASM stays out
 of scope under the K108 boundary.
 
+Dynamic-library boundary (v1.2.34 follow-up)
+--------------------------------------------
+
+**No target supports dynamic library loading from a Karkain program.** The
+C-free native images have no dynamic loader, and ``dlopen``/``dlsym`` are not
+language builtins on either engine. The in-process ``pkg/jit`` FFI registry is
+a **simulation**: it opens no OS handle (``Handle == 0``) and real symbol
+resolution and native calls always fail; only manually registered symbols
+resolve. ``import "C"`` blocks are still accepted as syntax, but a typed C
+call is **not proven to link** (a measured, separate defect recorded in
+``docs/audit/V1.2.34-DYNLIB-BOUNDARY.md`` §5). Gates:
+``TestPhaseV1234D_`` and the ``not_supported`` row in
+``docs/inventory/native-feature-matrix.json``.
+
 The self-hosted driver lowers ``for x in arr`` for an **array variable**,
 including nested loops, ``break``/``continue`` and an index inside the loop
 body. The iterator must be a variable with a frame-resident header: a literal

@@ -204,6 +204,12 @@ unchanged; native refuses them with ``error[K145]`` and WASM with
 ``TestOSCtlKarkFresh``. See ``docs/audit/V1.2.34-TAKEOVER-BASELINE.md`` and
 ``docs/audit/V1.2.34-SIGNALS-BASELINE.md``.
 
+Dynamic library loading is **not** a stable API on any target: there is no
+``dlopen``/``dlsym`` builtin, native images have no loader, and the ``pkg/jit``
+registry is a simulation only. ``import "C"`` syntax is accepted, but a typed
+C call is not proven to link. Decision and gate:
+``docs/audit/V1.2.34-DYNLIB-BOUNDARY.md``, ``TestPhaseV1234D_``.
+
 Stable diagnostic expectations
 ==============================
 
