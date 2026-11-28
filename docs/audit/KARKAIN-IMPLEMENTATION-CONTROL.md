@@ -125,12 +125,12 @@ They are proposed, not started; no existing number was renumbered.
 | ID | Item | Status | Evidence / gate |
 |----|------|--------|-----------------|
 | v1.2.16 | QA battery + release ceremony closeout (verification/docs/harness only) | `completed` (PR #37 merged) | `docs/audit/V1.2.16-QA-BATTERY.md`; `scripts/qa/run-full-qa.ps1` PATH prelude + split `cli114`–`cli119`; no compiler source, no byte-identity/KIR claim |
-| v1.2.31 | async/await in both engines (pulled from post-2.0) | `proposed` | Design decision (stackless vs thread-per-task) + implementation + litmus gates; SPEC.md 4.5 already reserved |
+| v1.2.31 | async/await in both engines (pulled from post-2.0) | `completed` (PR #61) | `async f(args)` -> `spawn(f, args)`, `await t` -> `join(t)` on both engines; parser + both-engine gates. `async func`, generic await operands and stackless transform remain out of that slice. Audit `docs/audit/V1.2.31-ASYNC-AWAIT.md` |
 | v1.2.32 | REL-001 sanitizer investigation (libasan/clang ASan build) | `proposed` — **verification blocked by toolchain** (2026-11-28) | `REL-001-CRASH-INVESTIGATION.md` names the decisive experiment; current gcc 16.2.0 has no `-lasan`/`-lubsan`, clang is absent. Probe and exact capable-host command: `docs/audit/V1.2.32-REL001-SANITIZER-PROBE.md`. REL-001 remains UNCLASSIFIED |
 | v1.2.33 | Security/capability model (`unsafe {}`, SBOM, CVE SLA) | `in-progress` — **partial** (2026-11-28) | SBOM generator + gate and CVE SLA delivered (`docs/audit/V1.2.33-SECURITY-BASELINE.md`); `unsafe {}` not authorized (capability model is a feasibility study); cosign signing carried to increment 165, so SEC-001 is not fully closed |
-| v1.2.34 | Portable OS/process API completion (process control, signals, portable env/time, dynamic-library boundary, filesystem metadata) | `proposed` (owner-added 2026-11-26) | Must close the system-programming gap left by v1.2.19: real process control and portable OS APIs on both engines, native/WASM decisions named |
-| v1.2.35 | Optimization/build profiles (`dev`/`release`/`size`, pass selection, benchmarks, profile-gated determinism) | `proposed` (owner-added 2026-11-26) | Closes `MM-J10` and the unowned optimization-profile gap; correctness corpus green under every profile |
-| v1.2.36 | Bootstrap closure proof (increment 154 full proof inside v1.2.x) | `proposed` (owner-added 2026-11-26) | `stage2 == stage3` with non-zero byte count, Go pin retired in child env, runner-stable; until closed, condition 9 remains carried to v1.3.0 as UNMET |
+| v1.2.34 | Portable OS/process API completion (process control, signals, portable env/time, dynamic-library boundary, filesystem metadata) | `in-progress` — builtin/stdlib slice `completed` (PR #68, takeover) | 13 C23 builtins on both engines behind `osctl_*` with native/WASM refusals; gates + freshness. Signals, dynamic-library boundary and further metadata remain follow-ups. Audit `docs/audit/V1.2.34-TAKEOVER-BASELINE.md` |
+| v1.2.35 | Optimization/build profiles (`dev`/`release`/`size`, pass selection, benchmarks, profile-gated determinism) | `completed` (PRs #67, #69, #71) | Three slices: gcc profile flags, native default via kcc's non-emitting support probe, and profile-selected SSA passes (mem2reg excluded on measured evidence). Gates `TestPhaseV1235_`/`B_`/`C_`; audits V1.2.35-BUILD-PROFILES, -NATIVE-DEFAULT, -SSA-PASSES. No speed claim |
+| v1.2.36 | Bootstrap closure proof (increment 154 full proof inside v1.2.x) | `attempted — UNMET` (PR #66) | Fast pin contract PASS; stage 1 built, stage 2 refused by K127 (890 MiB available vs 1536 MiB required). Windows-only evidence; 8–12 GB host needed. Audit `docs/audit/V1.2.36-BOOTSTRAP-PROOF-BASELINE.md` |
 
 ### 4.3 Later versions (planned, not baselined)
 
@@ -161,34 +161,27 @@ lowest-numbered open item. In particular D6 is explicitly not promoted below.
 
 ### 5.1 Current recommendation
 
-> **Superseded-in-part banner (2026-11-27).** The dated paragraphs below are
-> historical recommendations retained for audit continuity; they are not the
-> current queue. The last merged numbered increment is **v1.2.31** (PR #61)
-> and the numbered v1.2.x line ends at **v1.2.36** (`proposed`) in §4.4.
-> The unnumbered corrective slice *kcc C-style `for` scope leak* is COMPLETE
-> in this change (record `docs/audit/FOR-SCOPE-CORRECTIVE.md`). The
-> owner-approved order from here is: Step M (read-only measurement baseline)
-> — **COMPLETE** (`docs/audit/STEP-M-COMPILE-RUN-MEASUREMENT.md`), then the
-> named slice A1 (kcc owns native build/run) — **COMPLETE**
-> (`docs/audit/A1-NATIVE-BUILD-RUN-BASELINE.md`), then v1.2.34 — takeover of
-> the other developer's WIP, **COMPLETE for the builtin/stdlib slice**
-> (`docs/audit/V1.2.34-TAKEOVER-BASELINE.md`), v1.2.35 — slice 1
-> (`--profile dev|release|size`) **COMPLETE**
-> (`docs/audit/V1.2.35-BUILD-PROFILES-BASELINE.md`), and slice 2
-> (native default via kcc's non-emitting support probe) **COMPLETE**
-> (`docs/audit/V1.2.35-NATIVE-DEFAULT-BASELINE.md`), and slice 3
-> (profile-selected SSA passes, mem2reg excluded) **COMPLETE**
-> (`docs/audit/V1.2.35-SSA-PASSES-BASELINE.md`) — and v1.2.36 (attempted, UNMET
-> on this host). Each still needs its own owner authorisation. v1.2.36 was
-> attempted on this host (2026-11-27): the fast pin contract PASSed, stage 1
-> built, but the K127 guard refused stage 2 at 890 MiB against 1536 MiB, so
-> conditions 5/6 remain UNMET (`docs/audit/V1.2.36-BOOTSTRAP-PROOF-BASELINE.md`).
-> A capable host (~1.5 GiB free) is required. Step M measured
-> the warm default C23 path at ~1.98 s median versus ~0.19 s for native,
-> so A1 and v1.2.35 target the actual cost; no compiler rewrite is indicated.
-> **v1.2.32**
-> (REL-001 sanitizer) and **v1.2.33** (security/capability) are not authorised
-> by this record, and no v1.3.0 work is opened.
+> **Superseded-in-part banner (2026-11-28, reconciled with merged PRs).** The
+> dated paragraphs below are historical recommendations retained for audit
+> continuity; they are not the current queue. §4.4 is the status register;
+> the AGENTS.md completion record is the narrative. Current measured state:
+>
+> - v1.2.31 async/await — **COMPLETE** (PR #61, first slice).
+> - v1.2.32 REL-001 sanitizer — **verification blocked by toolchain**
+>   (no `-lasan`/`-lubsan`, no clang); REL-001 remains UNCLASSIFIED.
+> - v1.2.33 security/capability — **PARTIAL** (SBOM + CVE SLA delivered;
+>   signing is increment 165, `unsafe {}` not authorized).
+> - v1.2.34 takeover — builtin/stdlib slice **COMPLETE** (PR #68); signals,
+>   dynamic-library boundary and further metadata remain follow-ups.
+> - v1.2.35 — **COMPLETE** across three slices (PRs #67, #69, #71).
+> - v1.2.36 bootstrap proof — **attempted, UNMET**: fast pin contract PASS;
+>   stage 2 refused by K127 at 890 MiB vs 1536 MiB required. Needs the
+>   8–12 GB machine; conditions 5/6 stay open.
+>
+> The unnumbered slices Step M, for-scope, A1 and the v1.2.35 slices are
+> complete (records named in §4.4/AGENTS). Step M measured the warm C23 path
+> at ~1.98 s versus ~0.19 s native, which justified A1 and v1.2.35; no
+> compiler rewrite was indicated. No v1.3.0 increment is opened.
 
 **Owner numbering decision (2026-11-21):** all active forward work is named
 **v1.2.x** (`x = 1, 2, 3, … n`). Older non-v1.2.x labels in this register are
