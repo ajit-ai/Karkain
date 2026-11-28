@@ -873,8 +873,17 @@ func runFile(path) {
     print("Compiling: " + compileCmd)
     let cc = system(compileCmd)
     if (cc != 0) {
-        removeFile(tempPath)
-        return
+        // Corrective (v1.2.x): the net runtime in the preamble references
+        // Winsock unconditionally, and MinGW ignores #pragma comment(lib,...).
+        // compileRunDriver already retries this way; do the same here so a
+        // direct `kcc run` links on Windows. POSIX never takes this branch.
+        string retryCmd = compileCmd + " -lws2_32"
+        print("Compiling: " + retryCmd)
+        let cc2 = system(retryCmd)
+        if (cc2 != 0) {
+            removeFile(tempPath)
+            return
+        }
     }
 
     // Run
