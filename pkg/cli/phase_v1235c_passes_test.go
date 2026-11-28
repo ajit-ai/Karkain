@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -56,6 +57,20 @@ func count(items []string, want string) int {
 	return n
 }
 
+// A same-machine triple is required: a hard-coded Windows triple fails on
+// the Linux CI leg (no stdio.h for cross C compilation, and cross-run is
+// correctly refused by the CLI).
+func v1235cHostTriple() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "x86_64-windows"
+	case "darwin":
+		return "x86_64-macos"
+	default:
+		return "x86_64-linux"
+	}
+}
+
 func v1235cBuildC(t *testing.T, profile string) []byte {
 	t.Helper()
 	cli := v1235Prepare(t)
@@ -68,7 +83,7 @@ func v1235cBuildC(t *testing.T, profile string) []byte {
 	if err := os.WriteFile(src, []byte(v1235cProgram), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(cli, "build", src, "--engine", "go", "--target", "x86_64-windows", "--profile", profile, "-c")
+	cmd := exec.Command(cli, "build", src, "--engine", "go", "--target", v1235cHostTriple(), "--profile", profile, "-c")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("build %s failed: %v\n%s", profile, err, string(out))
@@ -106,7 +121,7 @@ func TestPhaseV1235C_ProfilesKeepProgramMeaning(t *testing.T) {
 	}
 	for _, profile := range []string{"dev", "release", "size"} {
 		t.Run(profile, func(t *testing.T) {
-			cmd := exec.Command(cli, "run", src, "--engine", "go", "--target", "x86_64-windows", "--profile", profile)
+			cmd := exec.Command(cli, "run", src, "--engine", "go", "--target", v1235cHostTriple(), "--profile", profile)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("run %s failed: %v\n%s", profile, err, string(out))
